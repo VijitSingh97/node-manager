@@ -207,7 +207,8 @@ first — a live copy of `chainstate/` is corrupt by construction.
   Basic credentials with username `admin` and the current dashboard password;
   the server does not send a Basic-auth challenge. For example,
   `curl --user admin https://node.example.com/metrics` prompts for the password
-  locally.
+  locally. Browsers use session sign-in; use a cookie-free command-line client
+  for Basic authentication.
 - **Telegram / Healthchecks.io:** see [Notifications](notifications.md).
 - **Fee sparkline:** the dashboard samples the next-block fee once a minute
   into an in-memory 24-hour series (reset on restart) and draws it under the

@@ -78,6 +78,23 @@ func (a *app) clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	a.setAuthCookie(w, r, "session", "", -time.Second)
 }
 
+func (a *app) browserSignIn(r *http.Request) bool {
+	if cookie, err := r.Cookie(a.authCookieName(r, "browser")); err == nil && cookie.Value == "1" {
+		return true
+	}
+	for _, header := range []string{"Sec-Fetch-Mode", "Sec-Fetch-Site", "Sec-Fetch-Dest", "Sec-Fetch-User"} {
+		if r.Header.Get(header) != "" {
+			return true
+		}
+	}
+	accept := strings.ToLower(r.Header.Get("Accept"))
+	return strings.Contains(accept, "text/html") || strings.Contains(accept, "application/xhtml+xml")
+}
+
+func (a *app) useBrowserSignIn(w http.ResponseWriter, r *http.Request) {
+	a.setAuthCookie(w, r, "browser", "1", 365*24*time.Hour)
+}
+
 func (a *app) expectedOrigin(r *http.Request) string {
 	if a.cfg.dashboardPublicURL != "" {
 		return a.cfg.dashboardPublicURL
@@ -118,7 +135,7 @@ func (a *app) auth(next http.Handler) http.Handler {
 		if a.cfg.dashboardPublicURL != "" {
 			public, _ := url.Parse(a.cfg.dashboardPublicURL)
 			_, _, basic := r.BasicAuth()
-			internalClient := basic && privateRemoteAllowed(r.RemoteAddr)
+			internalClient := basic && !a.browserSignIn(r) && privateRemoteAllowed(r.RemoteAddr)
 			if !strings.EqualFold(strings.TrimSuffix(r.Host, ":443"), public.Host) && !internalClient {
 				http.Error(w, "dashboard host is not configured", http.StatusForbidden)
 				return
@@ -141,7 +158,7 @@ func (a *app) auth(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if user, password, ok := r.BasicAuth(); ok {
+		if user, password, ok := r.BasicAuth(); ok && !a.browserSignIn(r) {
 			_, status, retry := a.passwordAttempt(r, user, password, false)
 			if status == http.StatusOK {
 				r = r.WithContext(context.WithValue(r.Context(), dashboardAuthMethod{}, "basic"))
@@ -228,6 +245,7 @@ func (a *app) renderLogin(w http.ResponseWriter, r *http.Request, message string
 		return
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
+	a.useBrowserSignIn(w, r)
 	a.setAuthCookie(w, r, "login", token, 10*time.Minute)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
@@ -267,6 +285,7 @@ func (a *app) loginPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.sessions.revoke(a.sessionToken(r))
+	a.useBrowserSignIn(w, r)
 	a.setAuthCookie(w, r, "session", token, dashboardSessionLifetime)
 	a.setAuthCookie(w, r, "login", "", -time.Second)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -277,6 +296,7 @@ func (a *app) logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.sessions.revoke(a.sessionToken(r))
+	a.useBrowserSignIn(w, r)
 	a.clearSessionCookie(w, r)
 	writeJSON(w, map[string]bool{"signed_out": true})
 }

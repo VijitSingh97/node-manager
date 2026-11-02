@@ -110,8 +110,67 @@ func TestSignInPageAndSessionLifecycle(t *testing.T) {
 	if response.Code != http.StatusOK || responseCookie(t, response, "session").MaxAge >= 0 {
 		t.Fatalf("logout = %d: %s", response.Code, response.Body.String())
 	}
+	marker := responseCookie(t, response, "browser")
+	if marker.Value != "1" || marker.MaxAge <= 0 || !marker.HttpOnly || !marker.Secure || marker.SameSite != http.SameSiteStrictMode {
+		t.Fatal("logout did not preserve browser session-only authentication")
+	}
 	if got := loginRequest(handler, http.MethodGet, "/api/settings", "", session); got.Code != http.StatusUnauthorized {
 		t.Fatalf("revoked session accepted: %d", got.Code)
+	}
+}
+
+func TestBrowserSignInCannotFallBackToCachedBasicCredentials(t *testing.T) {
+	a, _ := testApp(t, &rpcFixture{}, "dashboard-secret")
+	handler := a.routes()
+	page := loginRequest(handler, http.MethodGet, "/login", "")
+	marker := responseCookie(t, page, "browser")
+	session := signIn(t, handler, "dashboard-secret")
+	key, _ := dashboardSessionKey(session.Value)
+	a.sessions.mu.Lock()
+	expired := a.sessions.sessions[key]
+	expired.lastSeen = time.Now().Add(-dashboardSessionIdle - time.Second)
+	a.sessions.sessions[key] = expired
+	a.sessions.mu.Unlock()
+	for _, tc := range []struct {
+		name, method, path, header, value string
+		cookies                           []*http.Cookie
+		status                            int
+	}{
+		{name: "legacy HTML navigation", method: "GET", path: "/", header: "Accept", value: "text/html", status: http.StatusFound},
+		{name: "browser fetch metadata", method: "GET", path: "/api/settings", header: "Sec-Fetch-Site", value: "same-origin", status: http.StatusUnauthorized},
+		{name: "browser fetch mode", method: "GET", path: "/api/settings", header: "Sec-Fetch-Mode", value: "cors", status: http.StatusUnauthorized},
+		{name: "HTTP browser after logout", method: "GET", path: "/api/settings", cookies: []*http.Cookie{marker}, status: http.StatusUnauthorized},
+		{name: "expired HTTP browser session", method: "GET", path: "/api/settings", cookies: []*http.Cookie{marker, session}, status: http.StatusUnauthorized},
+		{name: "recent credential management", method: "POST", path: "/api/settings/credentials/reveal", cookies: []*http.Cookie{marker}, status: http.StatusUnauthorized},
+		{name: "stateless machine client", method: "GET", path: "/api/settings", status: http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(tc.method, "https://nodes.example"+tc.path, nil)
+			r.SetBasicAuth("admin", "dashboard-secret")
+			r.Header.Set("X-Requested-With", "fetch")
+			if tc.header != "" {
+				r.Header.Set(tc.header, tc.value)
+			}
+			for _, cookie := range tc.cookies {
+				r.AddCookie(cookie)
+			}
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, r)
+			if w.Code != tc.status {
+				t.Fatalf("cached Basic response = %d; want %d", w.Code, tc.status)
+			}
+		})
+	}
+	current := signIn(t, handler, "dashboard-secret")
+	r := httptest.NewRequest("GET", "https://nodes.example/api/settings", nil)
+	r.SetBasicAuth("admin", "obsolete-cached-password")
+	r.Header.Set("Sec-Fetch-Site", "same-origin")
+	r.AddCookie(marker)
+	r.AddCookie(current)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("valid browser session was overridden by cached Basic: %d", w.Code)
 	}
 }
 
