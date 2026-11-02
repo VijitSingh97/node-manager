@@ -247,13 +247,14 @@ For example, this selects Bitcoin and Monero and keeps automatic LAN detection:
 {
   "bitcoin": { "enabled": true },
   "monero": { "enabled": true },
-  "dashboard": { "bind_ip": "auto", "password": "replace-with-your-password" }
+  "dashboard": { "bind_ip": "auto", "password": "ReplaceWithYourOwnRandomPassword" }
 }
 ```
 
 For Monero alone, set `bitcoin.enabled` to `false`. Add `data_dir` to a node's
-section to choose a mounted SSD. Replace the password placeholder with 12–128
-letters or numbers; `dashboard.port` changes the dashboard's host port.
+section to choose a mounted SSD. Replace the example password with your own
+random value of 12–128 letters or numbers; `openssl rand -hex 16` generates a
+compatible password. `dashboard.port` changes the dashboard's host port.
 Keys you omit retain their defaults. The full template and key descriptions
 are in [Configuration](configuration.md). Never put a seed phrase or private
 spend key in configuration.

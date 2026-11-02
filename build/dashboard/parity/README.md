@@ -35,8 +35,9 @@ The Go runtime deliberately tightens legacy behavior: saved wallet views and all
 wallet mutations require a configured dashboard password, and descriptors containing
 private keys are rejected before persistence. Existing private-bearing roster files are secured,
 preserved, hidden from the API, and locked against changes until the operator removes
-the private material out of band. Basic status remains available without a password
-for the documented LAN-only setup. Core wallet reuse verifies the imported public
+the private material out of band. The Go runtime requires dashboard authentication
+on LAN installations too; the HTTP contracts account for this difference from the
+frozen Python reference. Core wallet reuse verifies the imported public
 descriptors; changing a key under the same label cannot read the old key's balance.
 
 The Go runtime also supports public-only balance scans on pruned nodes, where

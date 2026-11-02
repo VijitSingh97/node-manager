@@ -339,7 +339,7 @@ edits you make in the UI stick, and further `config.json` changes are ignored.
 - **An xpub is still sensitive.** Anyone who has it can follow the addresses and
   balances derived from that account. It's stored in the private wallet list;
   existing Core watch-wallet files can also contain it. Keep access to the box and dashboard
-  controlled, and set a dashboard password if it's reachable beyond your LAN.
+  controlled. Dashboard sign-in is required; use a VPN or HTTPS for remote access.
 - **Wallet data stays on the box.** Balances come directly from your nodes;
   wallet keys and addresses are never sent to external services. The separate BTC
   and XMR price lookups send only asset and currency names to CoinGecko through Tor.

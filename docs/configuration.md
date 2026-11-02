@@ -371,8 +371,10 @@ control characters. The dashboard stores only a salted PBKDF2 password hash in
 saved login takes precedence over `dashboard.password` and the rendered `.env`;
 the old password stops working immediately. Reload and sign in with the new
 password, and all browser sessions are signed out. RPC credential reveal and
-reset require a login from the last 15 minutes. Sessions are held in memory and
-are cleared on restart. Recovery is covered in
+reset require a login from the last 15 minutes. Browser sessions expire after
+30 minutes without an authenticated request or 24 hours after sign-in,
+whichever comes first. Sessions are held in memory and are cleared on restart.
+Recovery is covered in
 [Operations](operations.md#dashboard-and-node-credentials).
 
 Each node's settings let you enable or disable its LAN RPC listener and, for
@@ -402,7 +404,7 @@ ZMQ do not display made-up credentials.
 
 For APT installs, `bitcoin-stack init`, `up`, and `apply` enable
 `bitcoin-starter-stack-port-control.timer`. Source installs reuse the host
-agent for trusted-LAN controls even when dashboard authentication is off. On
+agent for authenticated trusted-LAN controls. On
 macOS source installs, setup starts a session helper with a private
 `host-service.log`; Homebrew registers the user service automatically. No host
 control runs inside the dashboard, and it has no Docker socket. Homebrew uses

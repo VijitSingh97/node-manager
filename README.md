@@ -158,11 +158,14 @@ at once is rejected:
 ```json
 "dashboard": {
   "public_url": "https://node.example.com",
-  "password": "replace-with-a-random-password",
+  "password": "ReplaceWithYourOwnRandomPassword",
   "bind_ip": "127.0.0.1",
   "port": 8080
 }
 ```
+
+Replace the example password with your own random value; `openssl rand -hex 16`
+generates a compatible password.
 
 For APT, edit `/etc/bitcoin-starter-stack/config.json` with `sudo` and run
 `sudo bitcoin-stack apply`; for a source install, edit `config.json` and run

@@ -85,7 +85,7 @@ class BitcoinStarterStack < Formula
     data_path.mkpath
     default_config = JSON.generate(
       "bitcoin" => { "enabled" => true, "resource_profile" => "compact" },
-      "dashboard" => { "password" => "", "bind_ip" => "auto", "launch_at_boot" => false },
+      "dashboard" => { "password" => "formulatestpassword", "bind_ip" => "auto", "launch_at_boot" => false },
     )
     config_path.write(default_config)
     ENV["BITCOIN_STACK_ROOT"] = libexec
@@ -99,7 +99,7 @@ class BitcoinStarterStack < Formula
     rendered = (state_path/".env").read
     assert_predicate formula_opt_bin("openssl@3")/"openssl", :executable?
     assert_equal default_config, config_path.read
-    assert_match(/^DASHBOARD_PASSWORD=$/, rendered)
+    assert_match(/^DASHBOARD_PASSWORD=formulatestpassword$/, rendered)
     assert_match(/^DASHBOARD_BIND_IP=192\.168\.1\.116$/, rendered)
     assert_match(/^COMPOSE_PROFILES=bitcoin$/, rendered)
     assert_match(/^BITCOIN_RESOURCE_PROFILE=compact$/, rendered)

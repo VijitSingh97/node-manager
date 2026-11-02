@@ -66,10 +66,29 @@ grep -Fq 'run [opt_bin/"bitcoin-stack", "host-service"]' "$template" || fail "br
 grep -Fq 'bitcoin-stack init' "$template" || fail "formula does not explain explicit setup"
 grep -Fq 'Setup starts the Homebrew host supervisor automatically.' "$template" || fail "formula caveats describe manual supervisor setup"
 grep -Fq 'STACK_RESTART_POLICY=on-failure:5' "$template" || fail "formula test omits the launch-at-login default"
+grep -Fq '"password" => "formulatestpassword"' "$template" || fail "formula test omits its required dashboard password"
+grep -Fq 'DASHBOARD_PASSWORD=formulatestpassword' "$template" || fail "formula test does not verify its rendered dashboard password"
 grep -Fq 'assert_equal preset_config, config_path.read' "$template" || fail "formula test does not preserve preset config"
 grep -Fq 'pipe_output("#{bin}/bitcoin-stack init"' "$template" && fail "formula test can start Docker or register a real service"
 grep -Eq 'post_install|system .*bitcoin-stack.*(init|up)|system .*docker' "$template" &&
   fail "formula installation has a lifecycle side effect"
+
+formula_config="$tmp/formula-config/config.json"
+formula_state="$tmp/formula-state"
+formula_data="$tmp/formula-data"
+mkdir -p "${formula_config%/*}" "$formula_state" "$formula_data"
+printf '%s\n' '{"bitcoin":{"enabled":true,"resource_profile":"compact"},"dashboard":{"password":"formulatestpassword","bind_ip":"auto","launch_at_boot":false}}' >"$formula_config"
+formula_config_before=$(cat "$formula_config")
+BITCOIN_STACK_ROOT=$PWD BITCOIN_STACK_PACKAGE_MANAGED=brew \
+  BITCOIN_STACK_CONFIG_DIR="${formula_config%/*}" BITCOIN_STACK_STATE_DIR="$formula_state" \
+  BITCOIN_STACK_DATA_DIR="$formula_data" BITCOIN_STACK_DEFAULT_BIND_IP=192.168.1.116 \
+  ./configure.sh >/dev/null
+[ "$(cat "$formula_config")" = "$formula_config_before" ] || fail "formula configure fixture was rewritten"
+grep -q '^DASHBOARD_PASSWORD=formulatestpassword$' "$formula_state/.env" || fail "formula configure fixture did not render dashboard authentication"
+grep -q '^DASHBOARD_BIND_IP=192\.168\.1\.116$' "$formula_state/.env" || fail "formula configure fixture did not use the package bind address"
+grep -q '^COMPOSE_PROFILES=bitcoin$' "$formula_state/.env" || fail "formula configure fixture did not enable Bitcoin"
+grep -q '^BITCOIN_RESOURCE_PROFILE=compact$' "$formula_state/.env" || fail "formula configure fixture lost its resource profile"
+grep -q '^STACK_RESTART_POLICY=on-failure:5$' "$formula_state/.env" || fail "formula configure fixture changed its restart policy"
 
 runtime="$tmp/runtime"
 home="$tmp/home"
