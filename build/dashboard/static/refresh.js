@@ -1,4 +1,6 @@
 // Keep persistent controls mounted while the node's status changes.
+import { dashboardFetch as fetch } from "./session.js";
+
 const INTERVAL_MS = 30000;
 
 function layout(doc) {

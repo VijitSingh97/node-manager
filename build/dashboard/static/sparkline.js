@@ -1,6 +1,8 @@
 // A tiny fee sparkline from /api/fees. No dependencies — a polyline scaled to
 // the canvas. The pure `points()` helper is unit-tested; the drawing/fetch
 // wiring is guarded on `document`.
+import { dashboardFetch as fetch } from "./session.js";
+
 export function points(values, w, h, pad = 2) {
   const clean = values.filter((v) => typeof v === "number" && isFinite(v));
   if (clean.length < 2) return [];

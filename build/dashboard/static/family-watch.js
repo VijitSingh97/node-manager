@@ -1,4 +1,5 @@
 import { points } from "./sparkline.js";
+import { dashboardFetch as fetch } from "./session.js";
 
 const SUPPORTED = new Set(["litecoin", "bitcoincash"]);
 const LABELS = { tari: "Tari", litecoin: "Litecoin", dogecoin: "Dogecoin", bitcoincash: "Bitcoin Cash", zcash: "Zcash" };

@@ -5,13 +5,11 @@
 The gear at the bottom right opens node installation, launch at boot/login,
 Appearance, Dashboard password, Telegram, and Healthchecks. Each tower contains
 its own separate Alerts and LAN access sections under Node controls. Changes apply
-immediately unless LAN port settings change. A dashboard
-password protects the gear when configured; without one, it follows the same
-access policy as the rest of the dashboard. The gear works from localhost, a
+immediately unless LAN port settings change. A dashboard password protects the
+gear and the rest of the dashboard. The gear works from localhost, a
 configured private LAN address, or the Tor onion dashboard (enable
 `dashboard.onion` in `config.json` and open the address shown by `./stack doctor`
-in Tor Browser). Without a password, use a private IP or local hostname; custom
-hostnames require a dashboard password.
+in Tor Browser). Use the configured dashboard password for every access path.
 
 Dashboard changes are written atomically to `notification_settings.json` in the
 persistent `dashboard_state` volume, with owner-only permissions. They survive

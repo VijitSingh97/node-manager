@@ -180,9 +180,11 @@ Run `bitcoin-stack init` for Homebrew, `sudo bitcoin-stack init` for APT, or
    28–56 GiB total disk space).
 2. Chooses an IPv4 address on your private LAN, with localhost as a fallback,
    and prints the actual dashboard URL. Homebrew uses port 8080; APT/source use 80.
-3. Leaves the dashboard password empty and every node LAN interface closed.
-   The optional dashboard password can be added from Settings. Node RPC passwords
-   are generated separately with username `admin` and retained on later applies.
+3. Generates and persists one 32-character dashboard password and keeps every
+   node LAN interface closed. The `init` output prints the dashboard login once;
+   later applies do not rotate it. Configure rejects missing or empty dashboard
+   passwords. Node RPC passwords are
+   generated separately with username `admin` and retained on later applies.
 4. Downloads missing versioned container images and starts the application.
 5. Leaves launch at boot/login off. APT and Homebrew users can enable it in
    global Settings. After a later reboot with it off, run `bitcoin-stack up`
@@ -193,11 +195,11 @@ Fresh containers retry a crash up to five times even when launch at boot/login
 is off; they do not automatically return after Docker itself restarts. Existing
 installations retain their saved reboot behavior until you change it.
 
-Only run a passwordless dashboard on a trusted LAN. HTTP is unencrypted even
-when a password is set. See the [privacy model](privacy.md).
+HTTP is unencrypted even when a password is set. Use VPN access or the protected
+HTTPS reverse-proxy profile for remote administration. See the [privacy model](privacy.md).
 
 Open the printed URL, then use the gear menu to install additional nodes and
-configure Appearance, the dashboard password, Telegram, Healthchecks, and
+configure Appearance, Telegram, Healthchecks, and
 launch at boot/login where the installation manages that feature. **Install**
 first opens a confirmation dialog. It fills in that node's default host data
 folder, shows its estimated post-sync disk use, and lists the optional LAN
@@ -245,13 +247,13 @@ For example, this selects Bitcoin and Monero and keeps automatic LAN detection:
 {
   "bitcoin": { "enabled": true },
   "monero": { "enabled": true },
-  "dashboard": { "bind_ip": "auto" }
+  "dashboard": { "bind_ip": "auto", "password": "replace-with-your-password" }
 }
 ```
 
 For Monero alone, set `bitcoin.enabled` to `false`. Add `data_dir` to a node's
-section to choose a mounted SSD. Add `dashboard.password` to require a login
-from the first page load; `dashboard.port` changes the dashboard's host port.
+section to choose a mounted SSD. Replace the password placeholder with 12–128
+letters or numbers; `dashboard.port` changes the dashboard's host port.
 Keys you omit retain their defaults. The full template and key descriptions
 are in [Configuration](configuration.md). Never put a seed phrase or private
 spend key in configuration.

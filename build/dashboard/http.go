@@ -13,6 +13,13 @@ import (
 
 func (a *app) routes() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /login", a.loginPage)
+	mux.HandleFunc("POST /login", a.loginPost)
+	mux.HandleFunc("POST /logout", a.logout)
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte("ok\n"))
+	})
 	mux.HandleFunc("GET /", a.index)
 	mux.HandleFunc("GET /metrics", a.metrics)
 	mux.HandleFunc("GET /api/fees", a.apiFees)
@@ -53,28 +60,6 @@ func (a *app) routes() http.Handler {
 	return a.auth(mux)
 }
 
-func (a *app) auth(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
-		w.Header().Set("X-Frame-Options", "DENY")
-		if (r.Method == http.MethodGet || r.Method == http.MethodHead) && r.URL.Path == "/static/favicon.png" {
-			next.ServeHTTP(w, r)
-			return
-		}
-		if !a.hasDashboardPassword() {
-			next.ServeHTTP(w, r)
-			return
-		}
-		_, password, ok := r.BasicAuth()
-		valid := ok && a.dashboardPasswordMatches(password)
-		if !valid {
-			w.Header().Set("WWW-Authenticate", `Basic realm="Bitcoin Node Status"`)
-			http.Error(w, "Authentication required", http.StatusUnauthorized)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
 func (a *app) metrics(w http.ResponseWriter, r *http.Request) {
 	if a.cfg.bitcoinDisabled {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")

@@ -120,7 +120,7 @@ func TestMoneroAPIMalformedResponseAndDashboardAuth(t *testing.T) {
 	a.cfg.moneroRPCUser = "rpc-user"
 	a.cfg.moneroRPCPassword = "rpc-password"
 	handler := a.routes()
-	if response := request(t, handler, http.MethodGet, "/api/monero", ""); response.Code != http.StatusUnauthorized {
+	if response := anonymousRequest(t, handler, http.MethodGet, "/api/monero"); response.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated status = %d", response.Code)
 	}
 	malformed := request(t, handler, http.MethodGet, "/api/monero", "dashboard-secret")

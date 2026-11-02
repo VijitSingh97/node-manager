@@ -36,10 +36,10 @@ bcli estimatesmartfee 6 | grep -q '"feerate"' || fail "no fee estimate on a sync
 
 # Dashboard (auth-aware: use the password from .env when one is set)
 pass=$(sed -n 's/^DASHBOARD_PASSWORD=//p' .env 2>/dev/null || true)
-body=$(curl -sf ${pass:+-u "x:$pass"} localhost:80) || fail "dashboard unreachable"
+body=$(curl -sf ${pass:+-u "admin:$pass"} localhost:80) || fail "dashboard unreachable"
 grep -q "Sync Progress" <<<"$body" || fail "dashboard not rendering live stats"
 grep -qi "Initializing" <<<"$body" && fail "dashboard stuck on the loading page"
-curl -sf ${pass:+-u "x:$pass"} localhost:80/metrics | grep -q "bitcoin_node_up 1" ||
+curl -sf ${pass:+-u "admin:$pass"} localhost:80/metrics | grep -q "bitcoin_node_up 1" ||
   fail "metrics missing bitcoin_node_up 1"
 
 echo "PASS: test_postsync.sh (height $blocks, $n onion peer(s))"

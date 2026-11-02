@@ -45,6 +45,8 @@ export STACK_VERSION=test
 
 rendered=$(docker compose --env-file /dev/null config)
 [ "$(grep -c 'container_name:' docker-compose.yml || true)" = 0 ] || fail "Compose services still use global container names"
+grep -qF 'COPY --chmod=0644 build/dashboard/login.html ./login.html' build/dashboard/Dockerfile ||
+  fail "dashboard runtime image does not copy login.html"
 restart_rendered=$(STACK_RESTART_POLICY=unless-stopped docker compose --env-file /dev/null config)
 legacy_cache_rendered=$(env -u BITCOIN_DBCACHE docker compose --env-file /dev/null config)
 
@@ -113,6 +115,9 @@ published=$(echo "$rendered" | grep -c 'published:' || true)
 [ "$published" = "1" ] || fail "expected exactly 1 published port, got $published"
 echo "$rendered" | grep -q 'published: "8332"' && fail "default config publishes Bitcoin RPC"
 echo "$rendered" | grep -q 'host_ip: 127.0.0.1' || fail "dashboard does not bind loopback by default"
+protected_rendered=$(DASHBOARD_BIND_IP=127.0.0.1 DASHBOARD_PUBLIC_URL=https://node.example.com DASHBOARD_PASSWORD=longenough12 docker compose --env-file /dev/null config)
+echo "$protected_rendered" | grep -q 'DASHBOARD_PUBLIC_URL: https://node.example.com' || fail "dashboard public URL was not passed to the dashboard"
+echo "$protected_rendered" | grep -q 'host_ip: 127.0.0.1' || fail "protected dashboard does not bind loopback"
 echo "$rendered" | grep -q 'name: btc_net' && fail "internal network uses a global name instead of the Compose project"
 echo "$rendered" | grep -q 'name: tor_egress' && fail "egress network uses a global name instead of the Compose project"
 echo "$rendered" | sed -n '/^  dashboard:$/,/^  tor:$/p' | grep -q 'target: /tari-wallet' &&

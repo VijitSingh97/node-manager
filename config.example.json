@@ -96,6 +96,7 @@
     },
     "dashboard": {
         "password": "",
+        "public_url": "",
         "onion": false,
         "bind_ip": "auto",
         "launch_at_boot": false,

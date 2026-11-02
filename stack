@@ -297,11 +297,7 @@ env_get() { sed -n "s/^$1=//p" "$env_file" 2>/dev/null || true; }
 
 print_selected_credentials() {
   echo "Generated credentials:"
-  if [ -n "$(env_get DASHBOARD_PASSWORD)" ]; then
-    echo "  Dashboard — username: admin  password: $(env_get DASHBOARD_PASSWORD)"
-  else
-    echo "  Dashboard password — default off; any password saved in Settings still applies"
-  fi
+  echo "  Dashboard password — use the saved login; reset offline if it is unavailable"
   for node in bitcoin monero litecoin dogecoin bitcoincash zcash; do
     upper=$(printf '%s' "$node" | tr '[:lower:]' '[:upper:]')
     [ "$(env_get "${upper}_ENABLED")" = 1 ] || continue
@@ -333,15 +329,17 @@ init() {
   migrate_legacy_upgrade_agent
 
   if [ ! -f "$config_file" ]; then
+    dashboard_password=$(openssl rand -hex 16)
     config_source=$(mktemp)
     if [ "$package_managed" = "0" ]; then
-      printf '%s\n' '{"bitcoin":{"enabled":true},"dashboard":{"password":"","bind_ip":"auto","launch_at_boot":false}}' >"$config_source"
+      jq -cn --arg password "$dashboard_password" '{bitcoin:{enabled:true},dashboard:{password:$password,bind_ip:"auto",launch_at_boot:false}}' >"$config_source"
     else
-      printf '%s\n' '{"bitcoin":{"enabled":true,"resource_profile":"compact"},"dashboard":{"password":"","bind_ip":"auto","launch_at_boot":false}}' >"$config_source"
+      jq -cn --arg password "$dashboard_password" '{bitcoin:{enabled:true,resource_profile:"compact"},dashboard:{password:$password,bind_ip:"auto",launch_at_boot:false}}' >"$config_source"
     fi
     replace_config "$config_source"
     rm -f "$config_source"
     echo "Created a Bitcoin-only pruned configuration."
+    echo "Dashboard — username: admin  password: $dashboard_password"
   else
     echo "Using the existing config.json."
   fi
@@ -410,7 +408,12 @@ init() {
   ensure_node_control_timer
   ensure_agent
   echo "Nodes: $(env_get COMPOSE_PROFILES)"
-  echo "Started. Dashboard: http://$(env_get DASHBOARD_BIND_IP):$(env_get DASHBOARD_PORT)/"
+  dashboard_public_url=$(env_get DASHBOARD_PUBLIC_URL)
+  if [ -n "$dashboard_public_url" ]; then
+    echo "Started. Dashboard: $dashboard_public_url"
+  else
+    echo "Started. Dashboard: http://$(env_get DASHBOARD_BIND_IP):$(env_get DASHBOARD_PORT)/"
+  fi
   print_selected_credentials
   echo "Edit config.json before init for custom first-boot settings, or use the dashboard after startup."
 }

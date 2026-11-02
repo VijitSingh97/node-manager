@@ -20,6 +20,12 @@ Please don't open public issues for security problems.
 - **Credentials from git.** RPC credentials live only in gitignored files —
   `config.json` and the rendered `.env` (mode 600) — and are never written
   into tracked files.
+- **Protected VPS mode.** Set `dashboard.public_url` to the exact HTTPS origin used
+  by your reverse proxy. Configuration then requires a baseline dashboard password
+  and loopback binding; the proxy must preserve the `Host` header and terminate TLS.
+  Use the optional [Caddy example](docs/Caddyfile.example), overwrite the client-IP
+  header, and keep the backend reachable only on loopback. Caddy's HTTPS listener
+  and ACME are host-managed; they are separate from the application's Tor traffic.
 - **Your IP from notification services.** Opt-in Telegram alerts and
   Healthchecks.io pings route through the stack's Tor proxy (`socks5h`),
   so those endpoints see a Tor exit, never your address. (The Telegram bot
@@ -33,15 +39,21 @@ Please don't open public issues for security problems.
 
 **Accepted risks (by design — know them before deploying):**
 
-- **The dashboard defaults to no authentication on the trusted LAN.** It selects
-  a private host IPv4 address, falling back to loopback. Homebrew uses port 8080;
-  APT/source use port 80. LAN clients can view wallet information and saved
-  notification values, install or deactivate nodes, and change settings. Add a
-  dashboard password in Settings or preset it in configuration to restrict
-  access. Passwordless mutations require local/private clients, trusted Host,
-  and same-origin checks. Public/wildcard binds are rejected. Never port-forward
-  the dashboard; basic auth over HTTP is still unencrypted. Credential
-  reveal/reset and onion publication require a dashboard password.
+- **The dashboard requires a baseline password.** It selects a private host IPv4
+  address, falling back to loopback. Homebrew uses port 8080; APT/source use port
+  80. Signed-in users can view wallet information and saved notification values,
+  install or deactivate nodes, and change settings. Public/wildcard binds are
+  rejected. Never port-forward the dashboard; HTTP sign-in and sessions are
+  unencrypted. Credential reveal/reset and onion publication require a dashboard
+  password.
+- **A public VPS needs an operator-managed edge.** Prefer Tailscale or WireGuard.
+  Otherwise terminate HTTPS in host Caddy or another reverse proxy and forward
+  only to the loopback dashboard port. Docker-published ports bypass UFW, so bind
+  the dashboard to loopback and allow only proxy/VPN ports in the host firewall.
+  Keep RPC, ZMQ, and gRPC interfaces closed to the public internet; ACME and VPN
+  services remain host-managed and outside Tor. Sustained anonymous requests can
+  exhaust fresh-login capacity; existing sessions continue, so retain VPN,
+  firewall allowlists, or SSH access as the reliable recovery path.
 - **Anyone with Docker access on the host can read the dashboard's RPC
   password** via `docker inspect dashboard`. Docker access is
   root-equivalent on the host anyway, so this is not treated as a boundary.

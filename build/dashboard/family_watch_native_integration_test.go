@@ -47,14 +47,14 @@ func TestNativeFamilyWatchHTTP(t *testing.T) {
 	}
 
 	stateDir := t.TempDir()
-	a, handler := newNativeWalletApp(stateDir, chain, rpcURL, rpcUser, rpcPassword)
+	a, handler := newNativeWalletApp(t, stateDir, chain, rpcURL, rpcUser, rpcPassword)
 	initial := nativeWalletGet(t, handler, chain)
 	if len(initial.Wallets) != 1 || !initial.Wallets[0].Example {
 		t.Fatalf("initial roster = %#v", initial.Wallets)
 	}
 	nativeWalletRequest(t, handler, http.MethodDelete, "/api/"+chain+"/watch/"+initial.Wallets[0].ID, nil, http.StatusOK)
 
-	a, handler = newNativeWalletApp(stateDir, chain, rpcURL, rpcUser, rpcPassword)
+	a, handler = newNativeWalletApp(t, stateDir, chain, rpcURL, rpcUser, rpcPassword)
 	if wallets := nativeWalletGet(t, handler, chain).Wallets; len(wallets) != 0 {
 		t.Fatalf("seed deletion did not persist: %#v", wallets)
 	}
@@ -102,9 +102,11 @@ func TestNativeFamilyWatchHTTP(t *testing.T) {
 	assertNativeWallet(t, wallets, "Error fixture", "error", "", 0)
 }
 
-func newNativeWalletApp(stateDir, chain, rpcURL, rpcUser, rpcPassword string) (*app, http.Handler) {
+func newNativeWalletApp(t *testing.T, stateDir, chain, rpcURL, rpcUser, rpcPassword string) (*app, http.Handler) {
+	t.Helper()
 	node := nodeConfig{ID: chain, Name: chain, Enabled: true, Active: true, ActiveSet: true, Supported: true, Protocol: "bitcoin-json-rpc", RPCURL: rpcURL, RPCUser: rpcUser, RPCPassword: rpcPassword}
 	a := &app{cfg: config{stateDir: stateDir, dashboardPassword: nativeWalletDashboardPassword, nodes: map[string]nodeConfig{chain: node}}, log: log.New(io.Discard, "", 0), nodeHealth: make(map[string]nodeHealthSnapshot)}
+	initializeTestDashboardAuth(t, a)
 	a.familyWatch = newFamilyWatchManager(a)
 	return a, a.routes()
 }
@@ -120,7 +122,7 @@ func nativeWalletRequest(t *testing.T, handler http.Handler, method, path string
 		reader = bytes.NewReader(encoded)
 	}
 	request := httptest.NewRequest(method, path, reader)
-	request.SetBasicAuth("dashboard", nativeWalletDashboardPassword)
+	request.SetBasicAuth("admin", nativeWalletDashboardPassword)
 	request.Header.Set("X-Requested-With", "fetch")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)

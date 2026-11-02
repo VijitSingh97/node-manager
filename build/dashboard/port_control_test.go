@@ -15,7 +15,7 @@ func portControlHTTP(handler http.Handler, method, password, body string, csrf b
 	req := httptest.NewRequest(method, "/api/settings/ports", strings.NewReader(body))
 	req.Host = "mini-1.local"
 	if password != "" {
-		req.SetBasicAuth("dashboard", password)
+		req.SetBasicAuth("admin", password)
 	}
 	if csrf {
 		req.Header.Set("X-Requested-With", "fetch")
@@ -61,19 +61,19 @@ func TestPortControlViewRequiresPasswordAndFreshCapability(t *testing.T) {
 		t.Fatalf("stale capability view = %d %#v", response.Code, view)
 	}
 
-	passwordless, _ := testApp(t, &rpcFixture{}, "")
-	passwordless.cfg.bitcoinRPCEndpoint = "192.168.1.50:8332"
-	enablePortControl(t, passwordless)
+	protected, _ := testApp(t, &rpcFixture{}, "")
+	protected.cfg.bitcoinRPCEndpoint = "192.168.1.50:8332"
+	enablePortControl(t, protected)
 	unsafeRequest := httptest.NewRequest(http.MethodGet, "/api/settings/ports", nil)
 	unsafeRequest.Host = "dashboard.example.com"
 	unsafeResponse := httptest.NewRecorder()
-	passwordless.routes().ServeHTTP(unsafeResponse, unsafeRequest)
-	if unsafeResponse.Code != http.StatusForbidden {
-		t.Fatalf("passwordless public-host view = %d: %s", unsafeResponse.Code, unsafeResponse.Body.String())
+	protected.routes().ServeHTTP(unsafeResponse, unsafeRequest)
+	if unsafeResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous public-host view = %d: %s", unsafeResponse.Code, unsafeResponse.Body.String())
 	}
-	response = portControlHTTP(passwordless.routes(), http.MethodPost, "", `{"changes":[{"port":"bitcoin_rpc","enabled":false}]}`, true)
-	if response.Code != http.StatusForbidden {
-		t.Fatalf("passwordless close = %d: %s", response.Code, response.Body.String())
+	response = portControlHTTP(protected.routes(), http.MethodPost, "", `{"changes":[{"port":"bitcoin_rpc","enabled":false}]}`, true)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous close = %d: %s", response.Code, response.Body.String())
 	}
 }
 

@@ -55,9 +55,8 @@ The rebuildable `watch_scan_cache.json` can be backed up and removed from the
 state volume to request a new scan; keep `wallets.json` and
 `balance_history.json` intact.
 
-Personal wallet views and add/remove controls are available on the trusted LAN.
-Add a dashboard password in Settings, or preset it in `config.json`, to restrict
-access. Fresh Bitcoin state includes one clearly marked public example; see
+Personal wallet views and add/remove controls require dashboard authentication.
+Fresh Bitcoin state includes one clearly marked public example; see
 [Bitcoin public example](#bitcoin-public-example-and-seeding-from-configjson).
 
 ## Litecoin and Bitcoin Cash addresses

@@ -122,7 +122,7 @@ func TestWatchImportFailureRecoversThroughDashboardAfterRestart(t *testing.T) {
 	}
 	first, stopFirst := newDashboard()
 	req := httptest.NewRequest(http.MethodPost, "/api/watch", strings.NewReader(`{"name":"Cold","key":"`+parityZpub+`","birthday":"2021-01-01"}`))
-	req.SetBasicAuth("user", "secret")
+	req.SetBasicAuth("admin", "secret")
 	req.Header.Set("X-Requested-With", "fetch")
 	response := httptest.NewRecorder()
 	first.routes().ServeHTTP(response, req)

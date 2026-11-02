@@ -31,7 +31,7 @@ class Preview(BaseHTTPRequestHandler):
         pass
 
     def forward(self, method="GET", body=None):
-        headers = {"Authorization": "Basic " + base64.b64encode(b"demo:fakepw").decode()}
+        headers = {"Authorization": "Basic " + base64.b64encode(b"admin:fakepw").decode()}
         if body is not None:
             headers.update({"Content-Type": "application/json", "X-Requested-With": "fetch"})
         request = Request("http://127.0.0.1:18092" + self.path, data=body, headers=headers, method=method)

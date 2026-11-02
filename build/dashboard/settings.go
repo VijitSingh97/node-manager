@@ -10,7 +10,6 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"unicode"
 )
@@ -458,59 +457,20 @@ func validSettingsDNSName(host string) bool {
 	return true
 }
 
-func passwordlessSettingsHostAllowed(authority string) bool {
-	parsed, err := url.Parse("http://" + authority)
-	if err != nil || parsed.User != nil || parsed.Host == "" || parsed.Host != authority || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return false
-	}
-	if strings.HasSuffix(parsed.Host, ":") {
-		return false
-	}
-	if port := parsed.Port(); port != "" {
-		for _, character := range port {
-			if character < '0' || character > '9' {
-				return false
-			}
-		}
-		number, err := strconv.Atoi(port)
-		if err != nil || number < 1 || number > 65535 {
-			return false
-		}
-	}
-	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
-	if address, err := netip.ParseAddr(host); err == nil {
-		address = address.Unmap()
-		return address.IsLoopback() || address.IsPrivate()
-	}
-	allDigits := true
-	for _, character := range host {
-		allDigits = allDigits && character >= '0' && character <= '9'
-	}
-	if allDigits {
-		return false
-	}
-	if _, err := strconv.ParseUint(host, 0, 64); err == nil {
-		return false
-	}
-	if !validSettingsDNSName(host) {
-		return false
-	}
-	return host == "localhost" || !strings.Contains(host, ".") || strings.HasSuffix(host, ".local") || strings.HasSuffix(host, ".home.arpa")
-}
-
 func (a *app) rejectUnsafeSettingsHost(w http.ResponseWriter, r *http.Request) bool {
 	if a.configurationAllowed(r) {
 		return false
 	}
-	http.Error(w, "passwordless notification settings require a local dashboard address", http.StatusForbidden)
+	http.Error(w, "Sign-in required to configure this node set", http.StatusForbidden)
 	return true
 }
 
 func (a *app) configurationAllowed(r *http.Request) bool {
-	return a.hasDashboardPassword() || passwordlessSettingsHostAllowed(r.Host) && passwordlessRemoteAllowed(r.RemoteAddr)
+	method, _ := r.Context().Value(dashboardAuthMethod{}).(string)
+	return method == "session" || method == "basic"
 }
 
-func passwordlessRemoteAllowed(remote string) bool {
+func privateRemoteAllowed(remote string) bool {
 	host, _, err := net.SplitHostPort(remote)
 	if err != nil {
 		return false

@@ -14,7 +14,7 @@ regexes = [
   # Public General Fund view key: https://www.getmonero.org/get-started/contributing/
   '''f359631075708155cc3d92a32b75a7d02a5dcf27756707b47a2b31b21c389501''',
   '''create_a_(username|password)_for_node''',
-  '''^(?:bench:)?benchpass$''',
+  '''^(?:(?:bench|admin):)?benchpass$''',
   '''1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa''',
   '''34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo''',
   '''bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu''',

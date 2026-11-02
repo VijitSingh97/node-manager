@@ -77,7 +77,7 @@ def cgroup_sample(name):
 
 def request(url, password):
     req = urllib.request.Request(url)
-    token = __import__("base64").b64encode(f"bench:{password}".encode()).decode()
+    token = __import__("base64").b64encode(f"admin:{password}".encode()).decode()
     req.add_header("Authorization", f"Basic {token}")
     start = time.perf_counter()
     try:

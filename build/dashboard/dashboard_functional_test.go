@@ -137,7 +137,7 @@ func (f *dashboardFixture) request(t *testing.T, method, path string) *http.Resp
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SetBasicAuth("dashboard", "dashboard-secret")
+	req.SetBasicAuth("admin", "dashboard-secret")
 	if method != http.MethodGet {
 		req.Header.Set("X-Requested-With", "fetch")
 	}
@@ -333,7 +333,7 @@ func TestDashboardStartupRemovesOnlyLegacyUpgradeRequest(t *testing.T) {
 	if err := os.WriteFile(other, []byte("keep\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cfg := config{stateDir: stateDir, dataDir: t.TempDir(), version: "1.2.0"}
+	cfg := config{dashboardPassword: "dashboard-secret", stateDir: stateDir, dataDir: t.TempDir(), version: "1.2.0"}
 	if _, err := newApp(cfg, &rpcClient{}, filepath.Join(root, "index.html"), filepath.Join(root, "static"), log.New(io.Discard, "", 0)); err != nil {
 		t.Fatalf("start dashboard: %v", err)
 	}
@@ -355,7 +355,7 @@ func TestDashboardStartupFailsWhenLegacyUpgradeRequestCannotBeRemoved(t *testing
 	if err := os.WriteFile(filepath.Join(marker, "unexpected"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cfg := config{stateDir: stateDir, dataDir: t.TempDir(), version: "1.2.0"}
+	cfg := config{dashboardPassword: "dashboard-secret", stateDir: stateDir, dataDir: t.TempDir(), version: "1.2.0"}
 	_, err := newApp(cfg, &rpcClient{}, filepath.Join(root, "index.html"), filepath.Join(root, "static"), log.New(io.Discard, "", 0))
 	if err == nil || err.Error() != "legacy upgrade request cleanup unavailable" {
 		t.Fatalf("startup error = %v", err)

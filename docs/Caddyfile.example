@@ -1,0 +1,9 @@
+# Optional host-managed HTTPS edge for a public_url-protected dashboard.
+# Install Caddy separately; this file does not change Docker or firewall state.
+# Use [::1]:8080 if dashboard.bind_ip is ::1.
+node.example.com {
+	reverse_proxy 127.0.0.1:8080 {
+		header_up Host {hostport}
+		header_up X-Node-Manager-Client-IP {remote_host}
+	}
+}

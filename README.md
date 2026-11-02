@@ -26,8 +26,8 @@ optional node interfaces stay on your trusted LAN.
 - Pruned storage by default, with uncapped initial sync and configurable
   post-sync resource limits.
 - Tor-only public egress for nodes, prices, alerts, and update checks.
-- Private LAN dashboard with an optional password; node interfaces are closed
-  until you enable them.
+- Private LAN dashboard with a generated password on new installs; node interfaces
+  are closed until you enable them.
 - View-only wallet monitoring where the node can support it. Node Manager never
   accepts a seed phrase or private spend key.
 - Telegram alerts, Healthchecks.io, live sync progress, disk monitoring, and
@@ -136,14 +136,49 @@ for custom paths, services, upgrades, and removal.
 ## Safe defaults
 
 A fresh `init` starts Bitcoin only with 10 GB of recent block files retained.
-The dashboard has no password and is available only on the selected localhost or
-private-LAN address. Every RPC, gRPC, and ZMQ interface is closed. Launch at
-boot or login is off.
+It generates one 32-character dashboard password, prints it once, and keeps it
+in the mode-600 configuration. The dashboard is available only on the selected
+localhost or private-LAN address. Every RPC, gRPC, and ZMQ interface is closed.
+Launch at boot or login is off. Configure a baseline dashboard password before
+any apply; existing saved dashboard hashes remain usable during recovery.
 
-Use Node Manager only on a trusted LAN. Add a dashboard password in Settings,
-and never forward the dashboard or a node interface to the public internet.
-LAN HTTP and node RPC are unencrypted. Read the [privacy model](docs/privacy.md)
+Use Node Manager only on a trusted LAN unless you configure the protected VPS
+profile below. Never forward the dashboard or a node interface directly to the
+public internet. LAN HTTP and node RPC are unencrypted. Read the [privacy model](docs/privacy.md)
 before enabling remote access.
+
+### Public VPS access
+
+Prefer a private VPN such as Tailscale or WireGuard. For HTTPS access through a
+host-managed Caddy reverse proxy, add `dashboard.public_url` as the exact origin,
+set a dashboard password of 12–128 letters or numbers, and bind the dashboard to
+loopback. Choose this HTTPS ingress or the Tor onion ingress; enabling both
+at once is rejected:
+
+```json
+"dashboard": {
+  "public_url": "https://node.example.com",
+  "password": "replace-with-a-random-password",
+  "bind_ip": "127.0.0.1",
+  "port": 8080
+}
+```
+
+For APT, edit `/etc/bitcoin-starter-stack/config.json` with `sudo` and run
+`sudo bitcoin-stack apply`; for a source install, edit `config.json` and run
+`./stack apply`. See [Caddyfile.example](docs/Caddyfile.example) for a minimal
+host config. Install Caddy from its [official Ubuntu packages](https://caddyserver.com/docs/install#debian-ubuntu-raspbian),
+copy the example to `/etc/caddy/Caddyfile`, set `dashboard.port` to `8080` in
+the config, point the domain's DNS at the VPS, replace the domain, and allow
+Caddy's ports 80/443 (or restrict access through a VPN/firewall allowlist).
+Validate with
+`sudo caddy validate --config /etc/caddy/Caddyfile`, then `sudo systemctl reload caddy`.
+The example uses backend `127.0.0.1:8080` so Caddy owns the public 80/443 ports;
+if the dashboard binds to `::1`, use `[::1]:8080` instead.
+Preserve `Host`, overwrite
+`X-Node-Manager-Client-IP`, and allow only HTTPS or VPN ports in the host
+firewall. Docker published ports bypass UFW. Keep all RPC, ZMQ, and gRPC
+exposure settings false. ACME and Tailscale remain host-managed outside Tor.
 
 Install more chains from **Settings → Node set**. Before downloading anything,
 Node Manager shows the data path, estimated disk requirement, and optional LAN

@@ -6,7 +6,7 @@
   <title>Node Manager</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon.png?v=tower-1">
   <link rel="stylesheet" href="/static/dashboard.css">
-  <script>(()=>{try{const t=localStorage.getItem("dashboardTheme");document.documentElement.setAttribute("data-theme",(t==="light"||t==="dark")?t:"auto");}catch{document.documentElement.setAttribute("data-theme","auto");}})();</script>
+  <script src="/static/theme-init.js"></script>
 </head>
 {{if or .Loading (not .BitcoinEnabled)}}
 <body class="center-screen" data-node="">
@@ -410,6 +410,11 @@
         <div class="settings-actions"><button id="settings-password-save" type="button">Change password</button><button id="settings-password-reload" type="button" hidden>Reload and sign in</button></div>
         <p id="settings-password-status" class="settings-note" role="status" aria-live="polite"></p>
       </fieldset>
+      <fieldset id="settings-account"{{if not .PasswordEnabled}} hidden{{end}}>
+        <legend>Account</legend>
+        <p class="settings-note">Signed in as <strong>admin</strong></p>
+        <div class="settings-actions"><button id="session-logout" type="button">Sign out</button></div>
+      </fieldset>
       <fieldset id="settings-telegram">
         <legend>Telegram</legend>
         <label class="settings-check"><input id="settings-telegram-enabled" type="checkbox"> Enable Telegram alerts</label>
@@ -535,6 +540,7 @@ bitcoin-stack apply</code></pre>
     </form>
   </dialog>
   <script type="module" src="/static/chains.js"></script>
+  <script type="module" src="/static/session.js"></script>
   <script type="module" src="/static/tower.js"></script>
   <script type="module" src="/static/nodes.js"></script>
   <script type="module" src="/static/theme.js"></script>

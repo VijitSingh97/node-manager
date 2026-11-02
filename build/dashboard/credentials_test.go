@@ -80,36 +80,22 @@ func TestDashboardPasswordStorageFailsClosed(t *testing.T) {
 	}
 }
 
-func TestPasswordlessDashboardCanBeProtectedOnlyFromTrustedLAN(t *testing.T) {
+func TestAnonymousDashboardPasswordChangeIsRejected(t *testing.T) {
 	a, _ := testApp(t, &rpcFixture{}, "")
-	body := `{"old_password":"","new_password":"a-new-password","repeat_password":"a-new-password"}`
-	r := httptest.NewRequest("POST", "/api/settings/password", strings.NewReader(body))
-	r.Host = "mini-1.local"
-	r.Header.Set("X-Requested-With", "fetch")
-	r.Header.Set("Origin", "https://other.example")
-	w := httptest.NewRecorder()
-	a.routes().ServeHTTP(w, r)
-	if w.Code != http.StatusForbidden {
-		t.Fatal("cross-origin password change accepted")
+	body := `{"old_password":"dashboard-secret","new_password":"a-new-password","repeat_password":"a-new-password"}`
+	for _, remote := range []string{"203.0.113.8:4321", "192.168.1.20:4321"} {
+		r := httptest.NewRequest("POST", "/api/settings/password", strings.NewReader(body))
+		r.Host = "mini-1.local"
+		r.RemoteAddr = remote
+		r.Header.Set("X-Requested-With", "fetch")
+		w := httptest.NewRecorder()
+		a.routes().ServeHTTP(w, r)
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("anonymous password change from %s = %d", remote, w.Code)
+		}
 	}
-	r.Header.Del("Origin")
-	r.Header.Del("X-Requested-With")
-	w = httptest.NewRecorder()
-	a.routes().ServeHTTP(w, r)
-	if w.Code != http.StatusForbidden {
-		t.Fatal("password change accepted without CSRF header")
-	}
-	if credentialHTTP(a, "POST", "/api/settings/password", "", body).Code != http.StatusForbidden || a.hasDashboardPassword() {
-		t.Fatal("a passwordless dashboard could be claimed remotely")
-	}
-	r = httptest.NewRequest("POST", "/api/settings/password", strings.NewReader(body))
-	r.Host = "mini-1.local"
-	r.RemoteAddr = "192.168.1.20:4321"
-	r.Header.Set("X-Requested-With", "fetch")
-	w = httptest.NewRecorder()
-	a.routes().ServeHTTP(w, r)
-	if w.Code != http.StatusOK || !a.hasDashboardPassword() || !a.dashboardPasswordMatches("a-new-password") {
-		t.Fatalf("trusted LAN could not enable password: %d", w.Code)
+	if !a.dashboardPasswordMatches("dashboard-secret") || a.dashboardPasswordMatches("a-new-password") {
+		t.Fatal("anonymous password change altered authentication")
 	}
 }
 

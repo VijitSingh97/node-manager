@@ -178,6 +178,9 @@ func (f *rpcFixture) count() int {
 
 func testApp(t *testing.T, fixture *rpcFixture, password string) (*app, http.Handler) {
 	t.Helper()
+	if password == "" {
+		password = "dashboard-secret"
+	}
 	rpcServer := httptest.NewServer(http.HandlerFunc(fixture.handler))
 	t.Cleanup(rpcServer.Close)
 	root := filepath.Dir(sourceFile(t))
@@ -205,13 +208,35 @@ func sourceFile(t *testing.T) string {
 
 func request(t *testing.T, handler http.Handler, method, path, password string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(method, path, nil)
-	if password != "" {
-		req.SetBasicAuth("any-user", password)
+	if password == "" {
+		password = "dashboard-secret"
 	}
+	req := httptest.NewRequest(method, path, nil)
+	req.SetBasicAuth("admin", password)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 	return w
+}
+
+func anonymousRequest(t *testing.T, handler http.Handler, method, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, path, nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	return w
+}
+
+func initializeTestDashboardAuth(t *testing.T, a *app) {
+	t.Helper()
+	var err error
+	a.dashboardAuth, err = newDashboardAuth(a.cfg.stateDir, a.cfg.dashboardPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.sessions = newDashboardSessions()
+	a.loginLimiter = newLoginLimiter()
+	a.passwordWork = newPasswordWorkLimiter()
+	a.passwordAttempts = make(chan struct{}, 2)
 }
 
 func assertBitcoinPersistentMounts(t *testing.T, body string, enabled bool) {
@@ -232,7 +257,10 @@ func TestDashboardCannotBeFramed(t *testing.T) {
 	for _, path := range []string{"/", "/api/settings", "/api/settings/ports", "/missing"} {
 		for _, password := range []string{"", "dashboard-secret"} {
 			response := request(t, handler, http.MethodGet, path, password)
-			if response.Header().Get("Content-Security-Policy") != "frame-ancestors 'none'" || response.Header().Get("X-Frame-Options") != "DENY" {
+			if password == "" {
+				response = anonymousRequest(t, handler, http.MethodGet, path)
+			}
+			if !strings.Contains(response.Header().Get("Content-Security-Policy"), "frame-ancestors 'none'") || response.Header().Get("X-Frame-Options") != "DENY" {
 				t.Errorf("%s omitted frame protections for status %d", path, response.Code)
 			}
 		}
@@ -245,14 +273,14 @@ func TestIndexAuthRPCParityAndEscaping(t *testing.T) {
 	a, _ := testApp(t, fixture, "dashboard-secret")
 	a.cfg.bitcoinRPCEndpoint = "192.168.1.50:8332"
 	handler := a.routes()
-	if got := request(t, handler, http.MethodGet, "/", ""); got.Code != http.StatusUnauthorized || got.Header().Get("WWW-Authenticate") == "" {
-		t.Fatalf("unauthenticated response = %d, challenge %q", got.Code, got.Header().Get("WWW-Authenticate"))
+	if got := anonymousRequest(t, handler, http.MethodGet, "/"); got.Code != http.StatusFound || got.Header().Get("Location") != "/login" || got.Header().Get("WWW-Authenticate") != "" {
+		t.Fatalf("unauthenticated response = %d, location %q, challenge %q", got.Code, got.Header().Get("Location"), got.Header().Get("WWW-Authenticate"))
 	}
-	if got := request(t, handler, http.MethodGet, "/", "wrong"); got.Code != http.StatusUnauthorized {
-		t.Fatalf("wrong password = %d", got.Code)
+	if got := request(t, handler, http.MethodGet, "/", "wrong"); got.Code != http.StatusUnauthorized || got.Header().Get("WWW-Authenticate") != "" {
+		t.Fatalf("wrong password = %d, challenge %q", got.Code, got.Header().Get("WWW-Authenticate"))
 	}
-	if got := request(t, handler, http.MethodGet, "/api/prices", ""); got.Code != http.StatusUnauthorized {
-		t.Fatalf("unauthenticated prices = %d", got.Code)
+	if got := anonymousRequest(t, handler, http.MethodGet, "/api/prices"); got.Code != http.StatusUnauthorized || got.Header().Get("WWW-Authenticate") != "" {
+		t.Fatalf("unauthenticated prices = %d, challenge %q", got.Code, got.Header().Get("WWW-Authenticate"))
 	}
 	if got := request(t, handler, http.MethodGet, "/api/prices", "dashboard-secret"); got.Code != http.StatusOK {
 		t.Fatalf("authenticated prices = %d", got.Code)
@@ -428,7 +456,7 @@ func TestFeeHistoryBoundedAndResets(t *testing.T) {
 	}
 }
 
-func TestRuntimeConfigKeepsPasswordOptional(t *testing.T) {
+func TestRuntimeConfigDefersSavedPasswordLoadingToStartup(t *testing.T) {
 	t.Setenv("RPC_USER", "rpc-user")
 	t.Setenv("RPC_PASSWORD", "rpc-password")
 	t.Setenv("DASHBOARD_PASSWORD", "")
@@ -464,7 +492,7 @@ func TestBitcoinDisabledDoesNotReachRPCOrStartBitcoinWorkers(t *testing.T) {
 	rpcServer := httptest.NewServer(http.HandlerFunc(fixture.handler))
 	defer rpcServer.Close()
 
-	cfg := config{bitcoinDisabled: true, rpcURL: rpcServer.URL, stateDir: t.TempDir(), dataDir: t.TempDir(), version: "1.31.1"}
+	cfg := config{bitcoinDisabled: true, rpcURL: rpcServer.URL, dashboardPassword: "dashboard-secret", stateDir: t.TempDir(), dataDir: t.TempDir(), version: "1.31.1"}
 	a, err := newApp(cfg, &rpcClient{url: rpcServer.URL, client: rpcServer.Client()}, "index.html", "static", log.New(io.Discard, "", 0))
 	if err != nil {
 		t.Fatal(err)
@@ -611,27 +639,27 @@ func TestRPCRejectsInvalidResponses(t *testing.T) {
 	}
 }
 
-func TestSensitiveRoutesRequirePassword(t *testing.T) {
+func TestSensitiveRoutesRequireAuthentication(t *testing.T) {
 	fixture := &rpcFixture{}
 	a, handler := testApp(t, fixture, "")
 	for _, target := range []struct{ method, path string }{{"POST", "/api/watch"}, {"DELETE", "/api/watch/Cold"}} {
-		response := request(t, handler, target.method, target.path, "")
-		if response.Code != http.StatusForbidden {
+		response := anonymousRequest(t, handler, target.method, target.path)
+		if response.Code != http.StatusUnauthorized {
 			t.Errorf("%s %s = %d", target.method, target.path, response.Code)
 		}
 	}
 	if fixture.count() != 0 {
 		t.Fatal("unauthenticated mutation reached RPC")
 	}
-	if response := request(t, handler, "GET", "/api/watch", ""); response.Code != 200 {
-		t.Fatal("empty view compatibility lost")
+	if response := anonymousRequest(t, handler, "GET", "/api/watch"); response.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous view = %d", response.Code)
 	}
 	for _, name := range []string{"Satoshi", "Genesis", "Cold"} {
 		if _, err := a.watch.Add(name, genesisAddress, ""); err != nil {
 			t.Fatal(err)
 		}
-		response := request(t, handler, "GET", "/api/watch", "")
-		if response.Code != 403 || strings.Contains(response.Body.String(), genesisAddress) {
+		response := anonymousRequest(t, handler, "GET", "/api/watch")
+		if response.Code != http.StatusUnauthorized || strings.Contains(response.Body.String(), genesisAddress) {
 			t.Fatalf("unauthenticated %s roster exposed", name)
 		}
 		if removed, err := a.watch.Remove(name); !removed || err != nil {
@@ -640,37 +668,23 @@ func TestSensitiveRoutesRequirePassword(t *testing.T) {
 	}
 }
 
-func TestPasswordlessPublicExampleReadIsStrict(t *testing.T) {
+func TestPublicExampleRequiresAuthentication(t *testing.T) {
 	fixture := &rpcFixture{}
 	a, handler := testApp(t, fixture, "")
 	entry, err := a.watch.Add(publicExampleName, publicExampleAddress, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	response := request(t, handler, http.MethodGet, "/api/watch", "")
+	response := anonymousRequest(t, handler, http.MethodGet, "/api/watch")
+	if response.Code != http.StatusUnauthorized || strings.Contains(response.Body.String(), publicExampleAddress) {
+		t.Fatalf("anonymous public example = %d %q", response.Code, response.Body.String())
+	}
+	response = request(t, handler, http.MethodGet, "/api/watch", "")
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"example":true`) || !strings.Contains(response.Body.String(), `"display_name":"Binance"`) {
 		t.Fatalf("public example read = %d %q", response.Code, response.Body.String())
 	}
 	if removed, err := a.watch.RemoveExact(entry); !removed || err != nil {
 		t.Fatal("could not remove public example")
-	}
-	variants := []WatchEntry{
-		{Name: "Binance", Key: publicExampleAddress},
-		{Name: publicExampleName, Key: genesisAddress},
-		{Name: publicExampleName, Key: publicExampleAddress, Birthday: "2022-01-01"},
-	}
-	for _, variant := range variants {
-		added, err := a.watch.Add(variant.Name, variant.Key, variant.Birthday)
-		if err != nil {
-			t.Fatal(err)
-		}
-		response = request(t, handler, http.MethodGet, "/api/watch", "")
-		if response.Code != http.StatusForbidden || strings.Contains(response.Body.String(), variant.Key) {
-			t.Fatalf("altered public identity exposed: %#v => %d %q", variant, response.Code, response.Body.String())
-		}
-		if removed, err := a.watch.RemoveExact(added); !removed || err != nil {
-			t.Fatal("could not remove altered example")
-		}
 	}
 }
 
@@ -733,7 +747,7 @@ func TestWatchAddWriteFailureDoesNotProvisionOrClaimSuccess(t *testing.T) {
 	writeWatchFile = func(string, []byte) error { return ErrWatchUnavailable }
 	t.Cleanup(func() { writeWatchFile = originalWriter })
 	req := httptest.NewRequest(http.MethodPost, "/api/watch", strings.NewReader(`{"name":"Cold","key":"`+genesisAddress+`"}`))
-	req.SetBasicAuth("x", "dashboard-secret")
+	req.SetBasicAuth("admin", "dashboard-secret")
 	req.Header.Set("X-Requested-With", "fetch")
 	response := httptest.NewRecorder()
 	a.routes().ServeHTTP(response, req)
@@ -761,7 +775,7 @@ func TestWatchAddRejectsFutureBirthdayWithoutChangingWallets(t *testing.T) {
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest(http.MethodPost, "/api/watch", strings.NewReader(`{"name":"Future","key":"`+genesisAddress+`","birthday":"2999-01-01"}`))
-	req.SetBasicAuth("x", "dashboard-secret")
+	req.SetBasicAuth("admin", "dashboard-secret")
 	req.Header.Set("X-Requested-With", "fetch")
 	response := httptest.NewRecorder()
 	a.routes().ServeHTTP(response, req)
@@ -798,7 +812,7 @@ func TestWatchRemoveWriteFailureDoesNotUnloadOrClaimSuccess(t *testing.T) {
 	writeWatchFile = func(string, []byte) error { return ErrWatchUnavailable }
 	t.Cleanup(func() { writeWatchFile = originalWriter })
 	req := httptest.NewRequest(http.MethodDelete, "/api/watch/Cold", nil)
-	req.SetBasicAuth("x", "dashboard-secret")
+	req.SetBasicAuth("admin", "dashboard-secret")
 	req.Header.Set("X-Requested-With", "fetch")
 	response := httptest.NewRecorder()
 	a.routes().ServeHTTP(response, req)
@@ -845,7 +859,7 @@ func TestWatchAddSetsAndClearsPendingByKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest(http.MethodPost, "/api/watch", strings.NewReader(`{"name":"Cold","key":"`+genesisAddress+`"}`))
-	req.SetBasicAuth("x", "dashboard-secret")
+	req.SetBasicAuth("admin", "dashboard-secret")
 	req.Header.Set("X-Requested-With", "fetch")
 	response := httptest.NewRecorder()
 	a.routes().ServeHTTP(response, req)
@@ -996,7 +1010,7 @@ func TestStartupProvisionsCurrentRosterAfterRPCBecomesAvailable(t *testing.T) {
 	fixture.releaseChain = make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(fixture.handler))
 	defer server.Close()
-	cfg := config{stateDir: t.TempDir(), dataDir: t.TempDir(), version: "1.31.1"}
+	cfg := config{dashboardPassword: "dashboard-secret", stateDir: t.TempDir(), dataDir: t.TempDir(), version: "1.31.1"}
 	a, err := newApp(cfg, &rpcClient{url: server.URL, client: server.Client()}, "index.html", "static", log.New(io.Discard, "", 0))
 	if err != nil {
 		t.Fatal(err)
@@ -1172,7 +1186,7 @@ func TestCorePrivateKeyFlagPreventsPersistence(t *testing.T) {
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest("POST", "/api/watch", strings.NewReader(`{"name":"Cold","key":"addr(1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa)"}`))
-	req.SetBasicAuth("x", "dashboard-secret")
+	req.SetBasicAuth("admin", "dashboard-secret")
 	req.Header.Set("X-Requested-With", "fetch")
 	response := httptest.NewRecorder()
 	a.routes().ServeHTTP(response, req)

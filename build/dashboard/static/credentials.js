@@ -1,3 +1,5 @@
+import { dashboardFetch as fetch } from "./session.js";
+
 const nodes = ["bitcoin", "monero", "litecoin", "dogecoin", "bitcoincash", "zcash"];
 const labels = {
   bitcoin: "Bitcoin RPC",
@@ -207,7 +209,7 @@ export function credentialSettingsController(settingsDialog, root = document) {
       const result = await request("/api/settings/password", payload);
       if (!passwordActive(current)) return;
       if (result?.changed !== true) throw new Error("The password was not changed.");
-      password.status.textContent = "Password changed. Reload and sign in with your new password.";
+      password.status.textContent = "Password changed. Sign in again with your new password.";
       password.reload.hidden = false;
     } catch (requestError) {
       if (passwordActive(current)) password.status.textContent = requestError.message;
@@ -223,7 +225,7 @@ export function credentialSettingsController(settingsDialog, root = document) {
       password.save.click();
     });
   }
-  password.reload.addEventListener("click", () => location.reload());
+  password.reload.addEventListener("click", () => location.replace("/login"));
 
   for (const node of nodes) {
     const view = panels[node];

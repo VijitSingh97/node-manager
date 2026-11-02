@@ -1,3 +1,5 @@
+import { dashboardFetch as fetch } from "./session.js";
+
 export const PRICE_URL = "/api/prices";
 export const FIAT_CURRENCIES = ["USD", "EUR", "GBP", "INR", "CAD", "AUD", "JPY", "RUB", "CNY"];
 

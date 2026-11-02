@@ -1,4 +1,5 @@
 import { NODE_IDS, genericNodeView, updateTowerProgress } from "./nodes.js";
+import { dashboardFetch as fetch } from "./session.js";
 
 export const NODE_LABELS = {
   bitcoin: "Bitcoin",

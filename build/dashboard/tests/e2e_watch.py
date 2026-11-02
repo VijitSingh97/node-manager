@@ -40,7 +40,7 @@ CASES = [
 def dashboard(method, path, body=None):
     headers = {
         "Authorization": "Basic "
-        + base64.b64encode(f"e2e:{DASHBOARD_PASSWORD}".encode()).decode(),
+        + base64.b64encode(f"admin:{DASHBOARD_PASSWORD}".encode()).decode(),
         "X-Requested-With": "fetch",
     }
     data = None

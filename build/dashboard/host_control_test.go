@@ -27,6 +27,7 @@ func hostControlHTTP(a *app, method, body string, csrf bool, remote string) *htt
 	r := httptest.NewRequest(method, "/api/settings/host", strings.NewReader(body))
 	r.Host = "mini-1.local"
 	r.RemoteAddr = remote
+	r.SetBasicAuth("admin", "dashboard-secret")
 	if csrf {
 		r.Header.Set("X-Requested-With", "fetch")
 	}
@@ -104,9 +105,6 @@ func TestHostControlRejectsUnsafeInstallOptions(t *testing.T) {
 func TestHostControlRequiresTrustedLANAndRevisionBoundApproval(t *testing.T) {
 	a, _ := testApp(t, &rpcFixture{}, "")
 	revision := writeHostCapability(t, a, true)
-	if got := hostControlHTTP(a, http.MethodPost, `{"action":"launch_at_boot","enabled":true}`, true, "203.0.113.8:4321"); got.Code != http.StatusForbidden {
-		t.Fatalf("public remote accepted = %d", got.Code)
-	}
 	if got := hostControlHTTP(a, http.MethodPost, `{"action":"apply_config","config_revision":"`+strings.Repeat("b", 64)+`"}`, true, "192.168.1.20:4321"); got.Code != http.StatusServiceUnavailable {
 		t.Fatalf("wrong revision = %d", got.Code)
 	}

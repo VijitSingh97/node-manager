@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# Render config.json into a gitignored .env for docker compose, and create the
-# data directory. config.json is OPTIONAL: with none, everything uses sensible
-# defaults and the internal RPC credentials are auto-generated — zero setup.
-# Usually run for you by `./stack up`; safe to run directly and to re-run.
+# Render private runtime settings after init has configured authentication.
 set -euo pipefail
 stack_root=${BITCOIN_STACK_ROOT:-$(cd "$(dirname "$0")" && pwd)}
 asset_root=${BITCOIN_STACK_ASSET_ROOT:-$stack_root}
@@ -27,7 +24,6 @@ for tool in jq openssl; do
   }
 done
 
-# config.json is optional — default to an empty object so every field falls back.
 config='{}'
 [ -f "$config_file" ] && config=$(cat "$config_file")
 
@@ -274,6 +270,15 @@ done
 dashboard_onion=$(jq -r 'if ((.dashboard // {}) | has("onion")) then if .dashboard.onion == true then 1 else 0 end else empty end' <<<"$config")
 [ -n "$dashboard_onion" ] || dashboard_onion=$(sed -n 's/^DASHBOARD_ONION=//p' "$env_file" 2>/dev/null || true)
 [ -n "$dashboard_onion" ] || dashboard_onion=0
+if jq -e '(.dashboard // {}) | has("public_url") and (.public_url == null or (.public_url | type != "string"))' >/dev/null <<<"$config"; then
+  echo "dashboard.public_url must be a string when set."
+  exit 1
+fi
+if jq -e '(.dashboard // {}) | has("public_url")' >/dev/null <<<"$config"; then
+  dashboard_public_url=$(jq -r '.dashboard.public_url' <<<"$config")
+else
+  dashboard_public_url=$(sed -n 's/^DASHBOARD_PUBLIC_URL=//p' "$env_file" 2>/dev/null || true)
+fi
 dashboard_bind_setting=$(get '.dashboard.bind_ip')
 if [ "$dashboard_bind_setting" = auto ]; then
   dashboard_bind_ip=$(detect_dashboard_bind_ip)
@@ -345,6 +350,44 @@ check_alnum "tari wallet RPC username" "$tari_wallet_rpc_user"
 check_alnum "tari wallet RPC password" "$tari_wallet_rpc_password"
 check_alnum "tari wallet password" "$tari_wallet_password"
 check_alnum "dashboard password" "$dashboard_password"
+if [ -z "$dashboard_password" ] || ((${#dashboard_password} < 12 || ${#dashboard_password} > 128)); then
+  echo "dashboard.password must be 12 to 128 alphanumeric characters; set it in config.json before applying."
+  exit 1
+fi
+
+if [ -n "$dashboard_public_url" ]; then
+  if [[ ! "$dashboard_public_url" =~ ^https://[^/\?#@]+$ ]]; then
+    echo "dashboard.public_url must be a canonical HTTPS origin without credentials, path, query, or fragment."
+    exit 1
+  fi
+  dashboard_authority=${dashboard_public_url#https://}
+  dashboard_host=$dashboard_authority
+  dashboard_url_port=""
+  if [[ "$dashboard_authority" == *:* ]]; then
+    dashboard_host=${dashboard_authority%:*}
+    dashboard_url_port=${dashboard_authority##*:}
+    if [[ -z "$dashboard_host" || -z "$dashboard_url_port" || ${#dashboard_url_port} -gt 5 || ! "$dashboard_url_port" =~ ^[0-9]+$ ]] ||
+      ((10#$dashboard_url_port < 1 || 10#$dashboard_url_port > 65535)); then
+      echo "dashboard.public_url port must be a whole number from 1 to 65535."
+      exit 1
+    fi
+  fi
+  if [[ "$dashboard_host" == *:* || ${#dashboard_host} -gt 253 || "$dashboard_host" == .* || "$dashboard_host" == *. ]]; then
+    echo "dashboard.public_url must use a valid DNS hostname."
+    exit 1
+  fi
+  IFS=. read -r -a dashboard_labels <<<"$dashboard_host"
+  for dashboard_label in "${dashboard_labels[@]}"; do
+    if [[ -z "$dashboard_label" || ${#dashboard_label} -gt 63 || ! "$dashboard_label" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$ ]]; then
+      echo "dashboard.public_url must use a valid DNS hostname."
+      exit 1
+    fi
+  done
+fi
+if [ "$dashboard_onion" = "1" ] && [ -n "$dashboard_public_url" ]; then
+  echo "dashboard.public_url and dashboard.onion are mutually exclusive; choose one protected ingress."
+  exit 1
+fi
 
 if [ "$rpc_expose" = "1" ] && ((${#rpc_password} < 24)); then
   echo "bitcoin.node_password must be at least 24 characters when bitcoin.rpc_expose is true."
@@ -381,7 +424,15 @@ check_bind_ip() {
     exit 1
   fi
 }
-check_bind_ip dashboard.bind_ip "$dashboard_bind_ip" 1
+if [ "$dashboard_bind_ip" = ::1 ]; then
+  [ -n "$dashboard_public_url" ] || { echo "dashboard.bind_ip must be a loopback or private IPv4 address."; exit 1; }
+else
+  check_bind_ip dashboard.bind_ip "$dashboard_bind_ip" 1
+fi
+if [ -n "$dashboard_public_url" ] && [ "$dashboard_bind_ip" != 127.0.0.1 ] && [ "$dashboard_bind_ip" != ::1 ]; then
+  echo "dashboard.bind_ip must be 127.0.0.1 or ::1 when dashboard.public_url is set."
+  exit 1
+fi
 case "$dashboard_port" in '' | 0* | *[!0-9]*) echo "dashboard.port must be a whole number from 1 to 65535."; exit 1 ;; esac
 if ((${#dashboard_port} > 5 || 10#$dashboard_port > 65535)); then
   echo "dashboard.port must be a whole number from 1 to 65535."
@@ -580,6 +631,7 @@ check_envsafe() {
 check_envsafe "telegram_bot_token" "$telegram_bot_token"
 check_envsafe "telegram_chat_id" "$telegram_chat_id"
 check_envsafe "healthchecks_url" "$healthchecks_url"
+check_envsafe "dashboard_public_url" "$dashboard_public_url"
 
 if [ -n "$healthchecks_url" ]; then
   case "$healthchecks_url" in
@@ -591,10 +643,6 @@ if [ -n "$healthchecks_url" ]; then
   esac
 fi
 
-if [ "$dashboard_onion" = "1" ] && [ -z "$dashboard_password" ]; then
-  echo "dashboard.password is required when dashboard.onion is true; set a password before publishing the onion service."
-  exit 1
-fi
 
 # bitcoind rejects prune targets between 1 and 549 MB
 case "$prune" in *[!0-9]*) prune=-1 ;; esac
@@ -788,6 +836,7 @@ ZCASH_STEADY_CPUS=$zcash_steady_cpus
 ZCASH_STEADY_MEM_LIMIT_MB=$zcash_steady_mem_limit_mb
 DASHBOARD_PASSWORD=$dashboard_password
 DASHBOARD_ONION=$dashboard_onion
+DASHBOARD_PUBLIC_URL=$dashboard_public_url
 DASHBOARD_BIND_IP=$dashboard_bind_ip
 DASHBOARD_PORT=$dashboard_port
 TELEGRAM_BOT_TOKEN=$telegram_bot_token

@@ -38,8 +38,9 @@ URL. The dashboard chooses a private LAN address automatically, falling back
 to localhost, and uses port **8080** so the command needs no root privileges.
 Change `dashboard.bind_ip` or `dashboard.port` in configuration to override this.
 
-The dashboard has no password by default and belongs on a trusted LAN. Add one
-in global Settings or preset `dashboard.password` before first start. Each
+The dashboard gets one generated 32-character password on a new install; `init`
+prints it once and retains it across applies. A non-empty `dashboard.password`
+is required before configuration is applied. Each
 selected authenticated node gets a separate generated `admin` login, retained
 in private state. No node RPC, gRPC, or ZMQ port is exposed by default.
 

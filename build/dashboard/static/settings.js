@@ -1,4 +1,5 @@
 import { credentialSettingsController } from "./credentials.js";
+import { dashboardFetch as fetch } from "./session.js";
 
 const extraNodes = ["tari", "litecoin", "dogecoin", "bitcoincash", "zcash"];
 const allNodes = ["bitcoin", "monero", ...extraNodes];
