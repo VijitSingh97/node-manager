@@ -70,7 +70,7 @@ export FAKE_SYSTEMCTL_LOG=$systemctl_log
 export BITCOIN_STACK_ROOT=$PWD BITCOIN_STACK_CONFIG_DIR=$tmp/etc BITCOIN_STACK_STATE_DIR=$tmp/state BITCOIN_STACK_DATA_DIR=$tmp/data
 export BITCOIN_STACK_PACKAGE_MANAGED=apt BITCOIN_STACK_PROJECT_NAME=node-manager-apt
 
-printf '%s\n' '{"bitcoin":{"enabled":true,"resource_profile":"compact"},"dashboard":{"password":"","bind_ip":"auto","launch_at_boot":false}}' >"$tmp/etc/config.json"
+printf '%s\n' '{"bitcoin":{"enabled":true,"resource_profile":"compact"},"dashboard":{"password":"packageupgradetest","bind_ip":"auto","launch_at_boot":false}}' >"$tmp/etc/config.json"
 BITCOIN_STACK_DEFAULT_BIND_IP=192.168.1.116 ./configure.sh
 printf 'null\n' >"$tmp/state/.approved-config.json"
 cp "$tmp/state/.env" "$tmp/state/.approved.env"

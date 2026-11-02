@@ -17,14 +17,19 @@ using clearnet.
 The existing Tor container forwards LAN HTTP to the dashboard's fixed internal
 address; the dashboard itself has no published port or external network.
 
-The dashboard selects a private LAN IPv4 address by default and has no password
-unless one was configured. Anyone with access to that trusted LAN can view
-wallet information, edit saved notification secrets, and operate node controls.
-Add a dashboard password in Settings to restrict this access. Set
+The dashboard selects a private LAN IPv4 address by default and new installs
+generate a password. Anyone with access to that trusted LAN can view wallet
+information, edit saved notification secrets, and operate node controls only
+after signing in. Set
 `dashboard.bind_ip` to `127.0.0.1` for localhost only, or to a specific private
-host address. Wildcards, public IPs, and IPv6 bind addresses are rejected. Public dashboard access uses the optional onion service.
+host address. Wildcards and public IPs are rejected; `::1` is accepted only for
+protected HTTPS origin mode. Choose the protected HTTPS origin or the optional
+onion service; enabling both together is rejected.
 LAN HTTP is unencrypted: use a trusted LAN, or access the onion service with Tor
-Browser. Do not forward the LAN dashboard through a router or reverse proxy.
+Browser. For a VPS, set `dashboard.public_url` to the exact HTTPS origin, set a
+dashboard password, and bind to `127.0.0.1`. A host-managed Caddy instance can
+terminate HTTPS and reverse-proxy to the loopback dashboard port; preserve the
+`Host` header and configure the host firewall for only HTTPS or VPN access.
 The host port is owned by the Tor container and forwarded to the dashboard's
 fixed internal address; the dashboard itself stays on the internal network.
 

@@ -37,6 +37,9 @@ type dashboardAuth struct {
 }
 
 func newDashboardAuth(stateDir, baseline string) (*dashboardAuth, error) {
+	if len(baseline) > 128 {
+		return nil, errors.New("dashboard password must not exceed 128 characters")
+	}
 	auth := &dashboardAuth{path: filepath.Join(stateDir, "dashboard_auth.json"), enabled: baseline != "", cached: sha256.Sum256([]byte(baseline)), hasCache: true}
 	info, err := os.Lstat(auth.path)
 	if os.IsNotExist(err) {
@@ -174,5 +177,7 @@ func (a *app) apiDashboardPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	auth.saved, auth.enabled, auth.cached, auth.hasCache = saved, true, sha256.Sum256([]byte(input.New)), true
+	a.sessions.revokeAll()
+	a.clearSessionCookie(w, r)
 	writeJSON(w, map[string]bool{"changed": true})
 }

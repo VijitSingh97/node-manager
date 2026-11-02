@@ -26,6 +26,7 @@ func TestNodeControlRequiresExactConfirmationAndQueuesPrivateRequest(t *testing.
 	dir := t.TempDir()
 	node := nodeConfig{ID: nodeLitecoin, Name: "Litecoin", Enabled: true, Supported: true}
 	a := &app{cfg: config{bitcoinDisabled: true, dashboardPassword: "secret", stateDir: dir, nodes: map[string]nodeConfig{nodeLitecoin: node}}}
+	initializeTestDashboardAuth(t, a)
 	if err := os.WriteFile(a.nodeControlPath("capability"), []byte("ready\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -110,6 +111,7 @@ func TestNodeControlActivationAndAvailabilityAreIndependent(t *testing.T) {
 	dir := t.TempDir()
 	node := nodeConfig{ID: nodeLitecoin, Name: "Litecoin", Enabled: true, Supported: true}
 	a := &app{cfg: config{bitcoinDisabled: true, dashboardPassword: "secret", stateDir: dir, nodes: map[string]nodeConfig{nodeLitecoin: node}}}
+	initializeTestDashboardAuth(t, a)
 	if err := os.WriteFile(filepath.Join(dir, "node-runtime.json"), []byte(`{"litecoin":false}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -150,6 +152,7 @@ func TestNodeControlStatusCanonicalizesHostMessage(t *testing.T) {
 func TestNodesReportsMalformedPrivateRequestAsPendingWithoutExposingIt(t *testing.T) {
 	dir := t.TempDir()
 	a := &app{cfg: config{bitcoinDisabled: true, dashboardPassword: "secret", stateDir: dir, nodes: map[string]nodeConfig{nodeDogecoin: {ID: nodeDogecoin, Enabled: true, Supported: true}}}}
+	initializeTestDashboardAuth(t, a)
 	if err := os.WriteFile(a.nodeControlPath("processing"), []byte(`{"private":"value"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}

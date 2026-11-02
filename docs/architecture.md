@@ -128,10 +128,9 @@ that makes `tor_egress` Tor's deterministic default route.
   plus Monero wallet RPC, Tari wallet RPC, a Monero wallet-file password, and a
   Tari native wallet startup password. Tari mining gRPC
   and Monero ZMQ rely on the trusted LAN boundary. The dashboard defaults to
-  no password and an automatically selected private LAN address. Trusted LAN
-  clients can view personal wallets and manage nodes; same-origin, Host, and
-  private-client checks protect passwordless mutations. Add a password in
-  Settings to restrict access. Credential reveal/reset and onion access still
+  a required password and an automatically selected private LAN address. Trusted
+  LAN clients can view personal wallets and manage nodes after authentication.
+  Credential reveal/reset and onion access still
   require authentication. See [SECURITY.md](../SECURITY.md).
 - Release checks are informational. The dashboard cannot request a host update;
   users install releases themselves through APT, Homebrew, or GitHub.
@@ -142,7 +141,7 @@ that makes `tor_egress` Tor's deterministic default route.
   listener fields in server config and applies it offline. The dashboard cannot
   publish a public listener, choose host paths, run commands, or access Docker.
   Source installs reuse the host agent; APT installs use a dedicated hardened
-  systemd timer. Passwordless changes are limited to trusted local/LAN requests.
+  systemd timer. Dashboard changes require authentication.
   A compromised dashboard process can exercise these allowed LAN-listener
   controls; the helper limits its actions rather than independently authenticating the operator.
 - Node activation uses another fixed, typed request. The host validates the node

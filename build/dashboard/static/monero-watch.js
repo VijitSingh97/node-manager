@@ -1,5 +1,6 @@
 import { points } from "./sparkline.js";
 import { towerLayout, WIDE_MIN } from "./tower.js";
+import { dashboardFetch as fetch } from "./session.js";
 
 const API = "/api/monero/watch";
 const HEADERS = { "Content-Type": "application/json", "X-Requested-With": "fetch" };

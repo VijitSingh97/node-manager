@@ -21,6 +21,11 @@ ADDRESS = '1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa'
 TIP = 'ab' * 32
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 class Fixture(http.server.BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
@@ -115,7 +120,7 @@ class DashboardContracts(unittest.TestCase):
         self.log = (self.state_dir / 'server.log').open('w+')
         self.start()
 
-    def start(self, password='paritypass'):
+    def start(self, password='paritypass', expect_failure=False):
         with socket.socket() as listener:
             listener.bind(('127.0.0.1', 0))
             self.port = listener.getsockname()[1]
@@ -132,9 +137,15 @@ class DashboardContracts(unittest.TestCase):
         for _ in range(100):
             if self.process.poll() is not None:
                 self.log.seek(0)
-                self.fail(f'dashboard exited: {self.log.read()}')
+                output = self.log.read()
+                if expect_failure:
+                    return output
+                self.fail(f'dashboard exited: {output}')
             try:
                 if self.call('/api/fees')[0] == 200:
+                    if expect_failure:
+                        self.stop()
+                        self.fail('dashboard started without the required password')
                     return
             except OSError:
                 pass
@@ -158,10 +169,10 @@ class DashboardContracts(unittest.TestCase):
         self.log.close()
         self.temp.cleanup()
 
-    def call(self, path, method='GET', data=None, csrf=True, auth=True, binary=False):
+    def call(self, path, method='GET', data=None, csrf=True, auth=True, binary=False, follow_redirects=True):
         headers = {}
         if auth and self.password:
-            headers['Authorization'] = 'Basic ' + base64.b64encode(f'anything:{self.password}'.encode()).decode()
+            headers['Authorization'] = 'Basic ' + base64.b64encode(f'admin:{self.password}'.encode()).decode()
         if csrf:
             headers['X-Requested-With'] = 'fetch'
         payload = None if data is None else json.dumps(data).encode()
@@ -169,7 +180,8 @@ class DashboardContracts(unittest.TestCase):
             headers['Content-Type'] = 'application/json'
         req = urllib.request.Request(self.url+path, data=payload, headers=headers, method=method)
         try:
-            response = urllib.request.urlopen(req, timeout=10)
+            opener = urllib.request.build_opener() if follow_redirects else urllib.request.build_opener(NoRedirect)
+            response = opener.open(req, timeout=10)
         except urllib.error.HTTPError as error:
             response = error
         with response:
@@ -209,6 +221,20 @@ class DashboardContracts(unittest.TestCase):
         return 'watch_' + label
 
     def test_auth_covers_routes_and_static(self):
+        if self.go_dashboard:
+            status, _, headers = self.call('/', auth=False, follow_redirects=False)
+            self.assertEqual(status, 302)
+            self.assertEqual(headers['Location'], '/login')
+            self.assertNotIn('WWW-Authenticate', headers)
+            for path in ['/metrics', '/api/settings', '/api/watch', '/api/fees']:
+                status, _, headers = self.call(path, auth=False)
+                self.assertEqual(status, 401, path)
+                self.assertNotIn('WWW-Authenticate', headers)
+            for path in ['/static/dashboard.css', '/static/theme.js', '/static/favicon.svg']:
+                status, _, headers = self.call(path, auth=False)
+                self.assertEqual(status, 200, path)
+                self.assertNotIn('WWW-Authenticate', headers)
+            return
         for path in ['/', '/metrics', '/api/settings', '/api/watch', '/api/fees',
                      '/static/dashboard.css', '/static/theme.js', '/static/favicon.svg']:
             status, _, headers = self.call(path, auth=False)
@@ -227,6 +253,10 @@ class DashboardContracts(unittest.TestCase):
 
     def test_optional_password_compatibility(self):
         self.stop()
+        if self.go_dashboard:
+            output = self.start(password='', expect_failure=True)
+            self.assertIn('dashboard sign-in requires a password', output)
+            return
         self.start(password='')
         self.assertEqual(self.call('/', auth=False)[0], 200)
         self.assertFalse(self.body()['has_password'])
@@ -248,9 +278,11 @@ class DashboardContracts(unittest.TestCase):
         self.assertIn('bitcoin_node_up 0', self.call('/metrics')[1])
 
     def test_ibd_avoids_fee_and_mempool_reads(self):
-        self.fixture.state['ibd'] = True
+        self.stop()
         with self.fixture.lock:
+            self.fixture.state['ibd'] = True
             self.fixture.state['calls'].clear()
+        self.start()
         body = self.bitcoin_panel(self.call('/')[1])
         self.assertNotIn('Mempool:', body)
         methods = [row[1] for row in self.fixture.state['calls']]
@@ -329,14 +361,20 @@ class DashboardContracts(unittest.TestCase):
     def test_wallet_scanning_and_stale_history(self):
         self.add()
         core_name = self.wallet_name()
-        self.fixture.state['wallets'][core_name]['mode']='scanning'
+        with self.fixture.lock:
+            self.fixture.state['wallets'][core_name]['mode']='scanning'
         self.assertEqual(self.body()['wallets'][0]['state'], 'scanning')
         self.stop()
         kid=hashlib.sha256(ADDRESS.encode()).hexdigest()[:16]
         (self.state_dir/'balance_history.json').write_text(json.dumps({kid:[[100,0.5],[3700,0.75]]}))
-        self.fixture.state['wallets'][core_name]['mode']='error'
+        with self.fixture.lock:
+            self.fixture.state['wallets'][core_name]['mode']='error'
         self.start()
-        row=self.body()['wallets'][0]
+        for _ in range(30):
+            row=self.body()['wallets'][0]
+            if row['state'] != 'pending':
+                break
+            time.sleep(0.1)
         self.assertEqual((row['state'],row['btc'],row['history']), ('stale','0.75',[0.5,0.75]))
 
     def test_static_and_fee_contract(self):

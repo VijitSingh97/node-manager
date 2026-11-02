@@ -62,6 +62,7 @@ cleanup() {
   rmdir "$WALLET_DATA_DIR" 2>/dev/null || true
   [ -z "${dashboard_backup_test_dir:-}" ] || rm -rf "$dashboard_backup_test_dir"
   [ -z "${dashboard_backup_archive:-}" ] || rm -f "$dashboard_backup_archive"
+  [ -z "${dashboard_headers:-}" ] || rm -f "$dashboard_headers"
   rm -f config.json .env .approved-config.json .approved.env # created by this test (guarded above)
 }
 trap cleanup EXIT
@@ -194,20 +195,24 @@ fi
 # ...but the plaintext password is nowhere in the bitcoin container's config
 service_inspect bitcoin | grep "$rpc_pass" >/dev/null && fail "plaintext RPC password leaked into the bitcoin container"
 
-# Dashboard enforces basic auth when a password is set
-code=$(curl --noproxy '*' -s -o /dev/null -w '%{http_code}' "$dashboard_url")
-[ "$code" = "401" ] || fail "dashboard served without auth (HTTP $code, expected 401)"
+dashboard_headers=$(mktemp)
+code=$(curl --noproxy '*' -s -D "$dashboard_headers" -o /dev/null -w '%{http_code}' "$dashboard_url")
+[ "$code" = "302" ] || fail "dashboard did not redirect to login (HTTP $code, expected 302)"
+grep -qi '^Location: /login' "$dashboard_headers" || fail "dashboard redirect did not target /login"
+! grep -qi '^WWW-Authenticate:' "$dashboard_headers" || fail "dashboard emitted a Basic auth challenge"
+rm -f "$dashboard_headers"
+dashboard_headers=""
 
 # With the password, it authenticates to the node and renders live stats
 body=""
 for _ in 1 2 3 4 5 6; do
-  body=$(curl --noproxy '*' -sf -u x:e2eDashboardSharedPassword123 "$dashboard_url" || true)
+  body=$(curl --noproxy '*' -sf -u admin:e2eDashboardSharedPassword123 "$dashboard_url" || true)
   grep -q "Sync Progress" <<<"$body" && break
   sleep 5
 done
 grep -q "Sync Progress" <<<"$body" || fail "dashboard never rendered live stats"
 grep -q "Pruned" <<<"$body" || fail "dashboard missing pruned badge on a pruned node"
-dashboard_monero=$(curl --noproxy '*' -sf -u x:e2eDashboardSharedPassword123 "$dashboard_url/api/monero") ||
+dashboard_monero=$(curl --noproxy '*' -sf -u admin:e2eDashboardSharedPassword123 "$dashboard_url/api/monero") ||
   fail "dashboard Monero health API was unavailable"
 printf '%s' "$dashboard_monero" | jq -e '.enabled == true and .available == true and (.version | length > 0) and .uptime_seconds > 0 and (.pruned | type == "boolean")' >/dev/null ||
   fail "dashboard Monero health API omitted unrestricted node fields"
@@ -248,7 +253,7 @@ docker compose exec -T -e FIXTURE_NAME="$fixture_name" monero-wallet sh -c 'rm -
 
 watch_add=$(jq -nc --arg address "$source_address" --arg view_key "$source_view_key" \
   '{name:"E2E view only",address:$address,view_key:$view_key,restore_height:0}')
-watch_response=$(printf '%s' "$watch_add" | curl --noproxy '*' -sf -u x:e2eDashboardSharedPassword123 \
+watch_response=$(printf '%s' "$watch_add" | curl --noproxy '*' -sf -u admin:e2eDashboardSharedPassword123 \
   -H 'X-Requested-With: fetch' -H 'Content-Type: application/json' --data-binary @- \
   "$dashboard_url/api/monero/watch") || wallet_fail "real Monero watch-only API create failed"
 watch_id=$(printf '%s' "$watch_response" | jq -er '.id') || wallet_fail "watch-only API omitted its wallet ID"
@@ -257,12 +262,12 @@ printf '%s' "$watch_response" | grep -Fq "$source_view_key" && wallet_fail "watc
 for forbidden in seed spend_key; do
   unsafe=$(printf '%s' "$watch_add" | jq -c --arg field "$forbidden" '. + {($field):"forbidden"}')
   code=$(printf '%s' "$unsafe" | curl --noproxy '*' -s -o /dev/null -w '%{http_code}' \
-    -u x:e2eDashboardSharedPassword123 -H 'X-Requested-With: fetch' -H 'Content-Type: application/json' \
+    -u admin:e2eDashboardSharedPassword123 -H 'X-Requested-With: fetch' -H 'Content-Type: application/json' \
     --data-binary @- "$dashboard_url/api/monero/watch")
   [ "$code" = 400 ] || wallet_fail "$forbidden field was not rejected before wallet RPC"
 done
 
-watch_list=$(curl --noproxy '*' -sf -u x:e2eDashboardSharedPassword123 "$dashboard_url/api/monero/watch") ||
+watch_list=$(curl --noproxy '*' -sf -u admin:e2eDashboardSharedPassword123 "$dashboard_url/api/monero/watch") ||
   wallet_fail "watch-only API list failed"
 printf '%s' "$watch_list" | jq -e --arg id "$watch_id" '.wallets | length == 1 and .[0].id == $id and .[0].state == "pending" and .[0].balance_atomic == ""' >/dev/null ||
   wallet_fail "initial-sync wallet did not remain safely pending"
@@ -277,7 +282,7 @@ fi
 docker compose restart dashboard >/dev/null || wallet_fail "dashboard restart failed with a managed watch wallet"
 restarted_watch=""
 for _ in $(seq 1 30); do
-  restarted_watch=$(curl --noproxy '*' -sf -u x:e2eDashboardSharedPassword123 "$dashboard_url/api/monero/watch" || true)
+  restarted_watch=$(curl --noproxy '*' -sf -u admin:e2eDashboardSharedPassword123 "$dashboard_url/api/monero/watch" || true)
   printf '%s' "$restarted_watch" | jq -e --arg id "$watch_id" '.wallets | length == 1 and .[0].id == $id' >/dev/null 2>&1 && break
   sleep 1
 done
@@ -285,7 +290,7 @@ printf '%s' "$restarted_watch" | jq -e --arg id "$watch_id" '.wallets | length =
   wallet_fail "watch-only roster did not survive dashboard restart"
 printf '%s' "$restarted_watch" | grep -Fq "$source_view_key" && wallet_fail "restarted API disclosed the private view key"
 
-code=$(curl --noproxy '*' -s -o /dev/null -w '%{http_code}' -u x:e2eDashboardSharedPassword123 \
+code=$(curl --noproxy '*' -s -o /dev/null -w '%{http_code}' -u admin:e2eDashboardSharedPassword123 \
   -H 'X-Requested-With: fetch' -X DELETE "$dashboard_url/api/monero/watch/$watch_id")
 [ "$code" = 200 ] || wallet_fail "throwaway watch-only row could not be removed"
 unset watch_add unsafe create_request create_response open_response height_response watch_response watch_list restarted_watch source_view_key source_address fixture_password
@@ -308,10 +313,10 @@ docker compose exec -T tor cat /var/lib/tor/dashboard_onion/hostname | grep -q '
   fail "dashboard onion hostname was not provisioned"
 
 # Prometheus metrics behind the same auth
-curl --noproxy '*' -sf -u x:e2eDashboardSharedPassword123 "$dashboard_url/metrics" | grep -q "bitcoin_node_up 1" ||
+curl --noproxy '*' -sf -u admin:e2eDashboardSharedPassword123 "$dashboard_url/metrics" | grep -q "bitcoin_node_up 1" ||
   fail "metrics endpoint missing bitcoin_node_up"
 
-curl --noproxy '*' -sf -u x:e2eDashboardSharedPassword123 "$dashboard_url/api/settings" | grep -q '"can_configure":true' ||
+curl --noproxy '*' -sf -u admin:e2eDashboardSharedPassword123 "$dashboard_url/api/settings" | grep -q '"can_configure":true' ||
   fail "authenticated LAN settings are not configurable"
 settings_body='{"telegram_enabled":false,"telegram_chat_id":"","healthchecks_enabled":false,"alert_new_block":true}'
 code=$(curl --noproxy '*' -s -o /dev/null -w '%{http_code}' -H 'X-Requested-With: fetch' \
@@ -320,17 +325,17 @@ code=$(curl --noproxy '*' -s -o /dev/null -w '%{http_code}' -H 'X-Requested-With
 code=$(curl --noproxy '*' -s -o /dev/null -w '%{http_code}' -u x:wrong -H 'X-Requested-With: fetch' \
   -H 'Content-Type: application/json' -d "$settings_body" "$dashboard_url/api/settings")
 [ "$code" = 401 ] || fail "wrong-password LAN notification settings write was not denied"
-code=$(curl --noproxy '*' -s -o /dev/null -w '%{http_code}' -u x:e2eDashboardSharedPassword123 \
+code=$(curl --noproxy '*' -s -o /dev/null -w '%{http_code}' -u admin:e2eDashboardSharedPassword123 \
   -H 'Content-Type: application/json' -d "$settings_body" "$dashboard_url/api/settings")
 [ "$code" = 403 ] || fail "LAN notification settings write without CSRF header was not denied"
-curl --noproxy '*' -sf -u x:e2eDashboardSharedPassword123 -H 'X-Requested-With: fetch' -H 'Content-Type: application/json' \
+curl --noproxy '*' -sf -u admin:e2eDashboardSharedPassword123 -H 'X-Requested-With: fetch' -H 'Content-Type: application/json' \
   -d "$settings_body" "$dashboard_url/api/settings" | grep -q '"overridden":true' ||
   fail "authenticated LAN notification settings write failed"
 docker compose exec -T dashboard sh -c 'test "$(stat -c %a /state/notification_settings.json)" = 600' ||
   fail "saved notification settings are not private"
 docker compose up -d --no-deps --force-recreate --wait --wait-timeout 300 dashboard ||
   fail "dashboard recreation failed"
-curl --noproxy '*' -sf -u x:e2eDashboardSharedPassword123 "$dashboard_url/api/settings" | grep -q '"alert_new_block":true' ||
+curl --noproxy '*' -sf -u admin:e2eDashboardSharedPassword123 "$dashboard_url/api/settings" | grep -q '"alert_new_block":true' ||
   fail "notification settings did not survive container recreation"
 dashboard_backup_test_dir=$(mktemp -d "${TMPDIR:-/tmp}/node-manager-dashboard-backup.XXXXXX")
 dashboard_backup_archive=$(./stack backup | sed -n 's/^Wrote \(.*\) (config, .*$/\1/p')
@@ -341,17 +346,17 @@ grep -q '"alert_new_block":true' "$dashboard_backup_test_dir/dashboard_state/not
 # Restore only dashboard state to avoid restarting Tor while checking saved settings.
 tar czf "$dashboard_backup_test_dir/restore.tar.gz" -C "$dashboard_backup_test_dir" dashboard_state
 settings_body='{"telegram_enabled":false,"telegram_chat_id":"","healthchecks_enabled":false,"alert_new_block":false}'
-curl --noproxy '*' -sf -u x:e2eDashboardSharedPassword123 -H 'X-Requested-With: fetch' -H 'Content-Type: application/json' \
+curl --noproxy '*' -sf -u admin:e2eDashboardSharedPassword123 -H 'X-Requested-With: fetch' -H 'Content-Type: application/json' \
   -d "$settings_body" "$dashboard_url/api/settings" >/dev/null
 ./stack restore -y "$dashboard_backup_test_dir/restore.tar.gz" >/dev/null || fail "dashboard state restore failed"
 docker compose exec -T dashboard sh -c 'test "$(stat -c %u:%a /state/notification_settings.json)" = 1000:600' ||
   fail "restored dashboard notification settings lost private ownership or permissions"
 docker compose up -d --no-deps --force-recreate --wait --wait-timeout 300 dashboard ||
   fail "dashboard recreation after state restore failed"
-curl --noproxy '*' -sf -u x:e2eDashboardSharedPassword123 "$dashboard_url/api/settings" | grep -q '"alert_new_block":true' ||
+curl --noproxy '*' -sf -u admin:e2eDashboardSharedPassword123 "$dashboard_url/api/settings" | grep -q '"alert_new_block":true' ||
   fail "dashboard did not load restored notification settings"
 settings_body='{"reset":true}'
-curl --noproxy '*' -sf -u x:e2eDashboardSharedPassword123 -H 'X-Requested-With: fetch' -H 'Content-Type: application/json' \
+curl --noproxy '*' -sf -u admin:e2eDashboardSharedPassword123 -H 'X-Requested-With: fetch' -H 'Content-Type: application/json' \
   -d "$settings_body" "$dashboard_url/api/settings" | grep -q '"overridden":false' ||
   fail "notification reset did not restore the server configuration"
 
@@ -360,7 +365,7 @@ docker compose exec -T tor sh -c 'kill "$(pidof socat)"'
 forwarder_recovered=""
 for _ in $(seq 1 30); do
   current=$(service_inspect tor --format '{{.RestartCount}}')
-  if [ "$current" -gt "$restarts" ] && curl --noproxy '*' -sf -u x:e2eDashboardSharedPassword123 "$dashboard_url/metrics" | grep -q "bitcoin_node_up 1"; then
+  if [ "$current" -gt "$restarts" ] && curl --noproxy '*' -sf -u admin:e2eDashboardSharedPassword123 "$dashboard_url/metrics" | grep -q "bitcoin_node_up 1"; then
     forwarder_recovered=1
     break
   fi
@@ -373,7 +378,7 @@ docker compose exec -T tor sh -c 'kill "$(pidof tor)"'
 tor_recovered=""
 for _ in $(seq 1 30); do
   current=$(service_inspect tor --format '{{.RestartCount}}')
-  if [ "$current" -gt "$restarts" ] && curl --noproxy '*' -sf -u x:e2eDashboardSharedPassword123 "$dashboard_url/metrics" | grep -q "bitcoin_node_up 1"; then
+  if [ "$current" -gt "$restarts" ] && curl --noproxy '*' -sf -u admin:e2eDashboardSharedPassword123 "$dashboard_url/metrics" | grep -q "bitcoin_node_up 1"; then
     tor_recovered=1
     break
   fi
@@ -522,23 +527,24 @@ sync_starts() { # $1: label for messages
 if [ -n "${E2E_SYNC:-}" ]; then
   sync_starts "preseeded setup"
 
-  # Second setup variant: the headline ZERO-CONFIG path — no config.json at
-  # all, exactly what a bare ./stack up renders. Tear the preseeded stack down
-  # (cleanup between phases), boot from configure.sh defaults, and prove
-  # sync starts there too. Images are already built; only the datadir is
-  # redirected at the temp dir so cleanup stays single-path.
+  # Fresh defaults must reject missing authentication before any service starts.
   docker compose down -v --remove-orphans >/dev/null 2>&1
   rm -f config.json .env .approved-config.json .approved.env
   docker run --rm -v "$BITCOIN_DATA_DIR":/cleanup alpine:3.24 sh -c 'rm -rf /cleanup/* /cleanup/.[!.]*' >/dev/null 2>&1 || true
-  ./configure.sh >/dev/null # zero-config: defaults + auto-generated creds
-  sed -i.bak "s|^BITCOIN_DATA_DIR=.*|BITCOIN_DATA_DIR=$BITCOIN_DATA_DIR|" .env && rm -f .env.bak
-  ./stack up >/dev/null || fail "zero-config: startup failed"
+  ./configure.sh >/dev/null 2>&1 && fail "fresh defaults accepted a missing dashboard password"
+  [ ! -f .env ] || fail "failed authentication setup rendered a runtime"
+  jq -nc --arg data_dir "$BITCOIN_DATA_DIR" --arg bind_ip "$host_ip" \
+    '{bitcoin:{data_dir:$data_dir},dashboard:{password:"e2eDashboardSharedPassword123",bind_ip:$bind_ip}}' >config.json
+  ./configure.sh >/dev/null
+  ./stack up >/dev/null || fail "fresh defaults: startup failed"
   docker compose up -d --pull never --no-build --wait --wait-timeout 300 ||
-    fail "zero-config: stack did not reach healthy"
+    fail "fresh defaults: stack did not reach healthy"
   dashboard_url="http://$(sed -n 's/^DASHBOARD_BIND_IP=//p' .env):80"
   code=$(curl --noproxy '*' -s -o /dev/null -w '%{http_code}' "$dashboard_url")
-  [ "$code" = "200" ] || fail "zero-config: passwordless dashboard was not reachable (HTTP $code)"
-  sync_starts "zero-config setup"
+  [ "$code" = "302" ] || fail "fresh defaults: anonymous dashboard did not redirect to sign-in (HTTP $code)"
+  code=$(curl --noproxy '*' -s -o /dev/null -w '%{http_code}' -u admin:e2eDashboardSharedPassword123 "$dashboard_url")
+  [ "$code" = "200" ] || fail "fresh defaults: authenticated dashboard was not reachable (HTTP $code)"
+  sync_starts "fresh authenticated defaults"
 else
   echo "  (sync-start checks skipped — set E2E_SYNC=1 to include them)"
 fi
@@ -554,7 +560,7 @@ docker compose up -d --no-deps --force-recreate --wait --wait-timeout 300 bitcoi
   fail "full-node wallet stage did not reach healthy"
 
 dashboard_url="http://$(sed -n 's/^DASHBOARD_BIND_IP=//p' .env):80"
-body=$(curl --noproxy '*' -sf -u x:e2eDashboardSharedPassword123 "$dashboard_url" || true)
+body=$(curl --noproxy '*' -sf -u admin:e2eDashboardSharedPassword123 "$dashboard_url" || true)
 grep -q "Full" <<<"$body" || fail "dashboard missing full-node badge in wallet stage"
 rpc_user=$(sed -n 's/^BITCOIN_RPC_USER=//p' .env)
 rpc_pass=$(sed -n 's/^BITCOIN_RPC_PASSWORD=//p' .env)

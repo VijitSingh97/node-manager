@@ -1,15 +1,19 @@
 # Configuration
 
-**`config.json` is optional.** `./stack up` runs with no config at all — it uses
-the defaults below and auto-generates the internal RPC credentials. Create a
-`config.json` (copy the tracked template, `cp config.example.json config.json`)
-only to override something. `configure.sh` renders it into a gitignored `.env`,
-which docker compose reads. Tracked files are never modified, so your settings
-can't end up in a commit. `./stack init` and `./stack restore` keep both files
-private with mode `600`. Default setup starts Bitcoin only, chooses a private LAN
-address, and leaves dashboard authentication off. Setup prints each selected
-node's generated login and any preset dashboard login; restore does not print
-credentials.
+Run `./stack init` for the default installation. It creates private
+`config.json`, starts Bitcoin only, chooses a private LAN address, and generates
+a dashboard password shown once. Later starts use `./stack up` and your saved
+login. `configure.sh` renders configuration into a gitignored `.env` for Docker
+Compose; both files are kept private with mode `600`.
+
+For custom first-boot settings, copy `config.example.json` to `config.json`,
+set `dashboard.password` to 12–128 letters or numbers, and edit the other values
+before running `./stack init`. Missing or empty dashboard passwords are rejected.
+Existing installations with a missing or empty baseline must set it before
+applying or upgrading, including installations with a saved dashboard password.
+A password changed in the dashboard remains authoritative over
+that baseline; see [credential recovery](operations.md#dashboard-and-node-credentials).
+Restore never prints credentials.
 
 APT installations use `bitcoin-stack` in place of `./stack`. Their config is
 `/etc/bitcoin-starter-stack/config.json`; generated credentials and backups live
@@ -55,8 +59,9 @@ Installation never runs setup. Run `./stack init` for source,
 `bitcoin-stack init` for Homebrew, or `sudo bitcoin-stack init` for APT. This
 noninteractive command downloads missing images and starts the default stack,
 or preserves and starts a configuration you created beforehand. Save printed
-node credentials in a password manager. Use global Settings to install another
-node, add a dashboard password, or enable launch at boot/login on APT and
+node credentials in a password manager. Set the required dashboard password
+before applying a hand-written configuration. Use global Settings to install another
+node or enable launch at boot/login on APT and
 Homebrew installations.
 Internal Monero and Tari wallet-service passwords live only in `.env`; they are
 not dashboard logins or personal wallet keys.
@@ -234,9 +239,10 @@ shows the overridable settings with their defaults:
 | `litecoin.rpc_port`, `dogecoin.rpc_port`, `bitcoincash.rpc_port` | `9332`, `22555`, `8332` | Default host port for each opt-in authenticated private-LAN RPC proxy. Each also has `rpc_expose` and `rpc_bind_ip`. |
 | `zcash.rpc_expose`, `rpc_bind_ip`, `rpc_port` | `false`, `""`, `8232` | Optional authenticated read-only dashboard proxy. Native cookie-authenticated Zakura RPC stays internal and is never published. |
 | `litecoin.node_password`, `dogecoin.node_password`, `bitcoincash.node_password`, `zcash.node_password` | auto-generated | Separate RPC or proxy passwords. LAN exposure requires at least 24 letters or numbers. |
-| `dashboard.password` | `""` (off) | Optional baseline basic-auth password. A fresh dashboard is passwordless on the trusted LAN; preset this field for authentication on first start or add a password in Settings. It is separate from every node password. After a password change in the dashboard, the saved hash in `dashboard_state` takes precedence over this baseline until it is deliberately recovered; see [Operations](operations.md#dashboard-and-node-credentials). |
-| `dashboard.onion` | `false` | `true` publishes the dashboard as a Tor onion service and requires a non-empty `dashboard.password` — see [Notifications & Remote Access](notifications.md#dashboard-over-tor). |
-| `dashboard.bind_ip` | `auto` | Select the default network interface's RFC1918 IPv4 address each time configuration is rendered, falling back to `127.0.0.1` when no supported private interface is available. Set loopback for access only from this machine, or an explicit private host address. Public, wildcard, and IPv6 binds are rejected. |
+| `dashboard.password` | generated on new `init` | Required dashboard password, 12–128 letters or numbers. New installs generate one 32-character value, persist it in mode-600 `config.json`, and print it once during `init`; configure rejects missing or empty values. Existing saved dashboard hashes remain authoritative until deliberately recovered; see [Operations](operations.md#dashboard-and-node-credentials). |
+| `dashboard.public_url` | `""` | Optional exact HTTPS origin for a host-managed reverse proxy, with no path, query, fragment, or credentials. When set, `dashboard.password` must be 12–128 letters or numbers and `dashboard.bind_ip` must be `127.0.0.1` or `::1`. This does not configure TLS, ACME, VPN, or the host firewall. |
+| `dashboard.onion` | `false` | `true` publishes the dashboard as a Tor onion service. It cannot be combined with `dashboard.public_url` — see [Notifications & Remote Access](notifications.md#dashboard-over-tor). |
+| `dashboard.bind_ip` | `auto` | Select the default network interface's RFC1918 IPv4 address each time configuration is rendered, falling back to `127.0.0.1` when no supported private interface is available. Set loopback for access only from this machine, or an explicit private host address. Public and wildcard binds are rejected; `::1` is accepted only with `dashboard.public_url`. |
 | `dashboard.port` | `80`; `8080` for a fresh Homebrew install | Host TCP port for the dashboard (`1`–`65535`). Edit this key before setup or apply it later when the default conflicts with another service. |
 | `dashboard.launch_at_boot` | `false` | Start the configured application after reboot for APT, or after login for user Homebrew services. Global Settings applies this through the host helper, including container restart policy; disabling it leaves the current application running and uses up to five retries for crashes without startup after a Docker restart. Source installs without a managed service report this control as unavailable. |
 | `notifications.telegram_bot_token` | `""` (off) | With `telegram_chat_id`, enables Telegram alerts (node down/recovered, sync complete, disk low) — see [Notifications](notifications.md#telegram-alerts). |
@@ -245,7 +251,7 @@ shows the overridable settings with their defaults:
 | `notifications.alert_new_block` | `false` | `true` sends a Telegram alert on each new block once synced (~144/day). |
 | `notifications.alert_new_block_monero` | `false` | Monero's independent new-block Telegram alerts once synced (~720/day). The legacy `alert_new_block` key continues to mean Bitcoin. |
 | `notifications.alert_new_block_<node>` | `false` | Independent new-block alerts for `tari`, `litecoin`, `dogecoin`, `bitcoincash`, or `zcash`, sent only after that node is synced. |
-| `wallets` | Binance public example for source; empty for a pruned APT/Homebrew install | First-start **seed** for watch-only balances — each `{ name, key, birthday? }`, where `key` is a public extended key, public descriptor, or address. The example is clearly marked and excluded from personal totals. Set `[]` to opt out. After first start the saved dashboard list is authoritative. Personal wallet views and changes are available on the trusted LAN; add a dashboard password to restrict access. See [Watch-only](watch-only.md). |
+| `wallets` | Binance public example for source; empty for a pruned APT/Homebrew install | First-start **seed** for watch-only balances — each `{ name, key, birthday? }`, where `key` is a public extended key, public descriptor, or address. The example is clearly marked and excluded from personal totals. Set `[]` to opt out. After first start the saved dashboard list is authoritative. Personal wallet views and changes require dashboard authentication. See [Watch-only](watch-only.md). |
 
 `configure.sh` applies the defaults above for any omitted key, and generates
 strong random RPC credentials on first run (reused on later runs).
@@ -358,14 +364,17 @@ Bitcoin Cash 144, Monero and Tari 720, Litecoin 576, Dogecoin 1,440, and Zcash
 1,152. These use each chain's target block interval; several blocks found in a
 single check share one alert, so actual message totals can be lower.
 
-Adding the first dashboard password leaves the current-password field blank.
-Changing an existing password requires the current value and the new password
+Changing the dashboard password requires the current value and the new password
 twice. The new value must contain 12–128 characters and no
-control characters. The dashboard stores only a salted password hash in
+control characters. The dashboard stores only a salted PBKDF2 password hash in
 `/state/dashboard_auth.json` inside the private `dashboard_state` volume. This
 saved login takes precedence over `dashboard.password` and the rendered `.env`;
 the old password stops working immediately. Reload and sign in with the new
-password. Recovery is covered in
+password, and all browser sessions are signed out. RPC credential reveal and
+reset require a login from the last 15 minutes. Browser sessions expire after
+30 minutes without an authenticated request or 24 hours after sign-in,
+whichever comes first. Sessions are held in memory and are cleared on restart.
+Recovery is covered in
 [Operations](operations.md#dashboard-and-node-credentials).
 
 Each node's settings let you enable or disable its LAN RPC listener and, for
@@ -395,7 +404,7 @@ ZMQ do not display made-up credentials.
 
 For APT installs, `bitcoin-stack init`, `up`, and `apply` enable
 `bitcoin-starter-stack-port-control.timer`. Source installs reuse the host
-agent for trusted-LAN controls even when dashboard authentication is off. On
+agent for authenticated trusted-LAN controls. On
 macOS source installs, setup starts a session helper with a private
 `host-service.log`; Homebrew registers the user service automatically. No host
 control runs inside the dashboard, and it has no Docker socket. Homebrew uses
@@ -426,8 +435,7 @@ The gear menu installs nodes and changes launch at boot/login where supported,
 Appearance, Telegram, Healthchecks, and the dashboard password. A node's own
 settings change its block alert and LAN listeners. Dashboard-saved notifications use a persistent JSON override; see
 [Dashboard settings](notifications.md#dashboard-settings). Personal wallets are
-managed by the watch-only card. Passwordless access is limited to trusted
-localhost/private-LAN requests; add a dashboard password to restrict access.
+managed by the watch-only card. Dashboard mutations require authentication.
 Authenticated changes also work from the onion dashboard.
 
 ### Optional advanced wallet scans

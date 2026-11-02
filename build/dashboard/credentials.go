@@ -170,6 +170,9 @@ func (a *app) credentialInput(w http.ResponseWriter, r *http.Request, reset bool
 		http.Error(w, "set a dashboard password to manage RPC credentials", http.StatusForbidden)
 		return "", false
 	}
+	if !a.requireRecentSignIn(w, r) {
+		return "", false
+	}
 	if rejectCredentialCSRF(w, r) {
 		return "", false
 	}

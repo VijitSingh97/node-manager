@@ -115,8 +115,10 @@ Package installation does not start services or prompt. Run
 `sudo bitcoin-stack init` for APT, `bitcoin-stack init` for Homebrew, or
 `./stack init` for source. A fresh setup starts Bitcoin only, downloads missing
 images, uses default data directories, and leaves node LAN interfaces closed.
-The dashboard has no password by default, chooses a private LAN address
-automatically, and prints its URL. Use it on a trusted LAN.
+The dashboard gets one generated 32-character password on a new install,
+chooses a private LAN address automatically, and prints its URL and login once.
+Use it on a trusted LAN. Configuration rejects missing or empty dashboard
+passwords before applying changes.
 
 Use **Settings → Node set → Install** to add a chain later. A confirmation dialog
 shows the node's estimated post-sync disk use and fills in its default absolute
@@ -161,7 +163,7 @@ View-only wallets are optional steps in their dashboard cards. Keep endpoint
 credentials separate from personal view-only material; never enter a seed
 phrase or private spend key. **Node controls**, after wallets, contains separate
 **Alerts** and **LAN access** sections followed by deactivation. Credential reveal
-and reset require a dashboard password; it can be added in global Settings.
+and reset require a dashboard sign-in from the last 15 minutes.
 Monero ZMQ and Tari gRPC have no password controls.
 
 Global Settings also contains launch at boot/login, Appearance, Dashboard

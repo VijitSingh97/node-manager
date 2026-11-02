@@ -77,6 +77,7 @@ install -m 644 LICENSE "$docs/copyright"
 for guide in README architecture configuration getting-started homebrew hardware nodes notifications operations privacy watch-only; do
   install -m 644 "docs/$guide.md" "$docs/docs/"
 done
+install -m 644 docs/Caddyfile.example "$docs/docs/"
 install -m 644 config.example.json "$share/"
 
 cat >"$package/DEBIAN/control" <<CONTROL

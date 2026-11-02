@@ -13,8 +13,10 @@ fail() {
   exit 1
 }
 
-# 1. Runs with NO config.json — defaults applied, RPC credentials auto-generated
-(cd "$tmp" && ./configure.sh) >/dev/null || fail "zero-config run failed"
+# 1. A baseline dashboard password is required before configure renders defaults.
+(cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "configure accepted a missing dashboard password"
+printf '%s\n' '{"dashboard":{"password":"configuretest12"}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null || fail "configured defaults run failed"
 [ -f "$tmp/.config.lock" ] || fail "standalone configure did not use the shared config lock"
 grep -q '^BITCOIN_RPC_USER=admin$' "$tmp/.env" || fail "RPC user default is not 'admin'"
 grep -qE '^BITCOIN_RPC_PASSWORD=[a-zA-Z0-9]{16,}$' "$tmp/.env" || fail "RPC password not auto-generated"
@@ -25,7 +27,7 @@ monero_wallet_rpc_password=$(sed -n 's/^MONERO_WALLET_RPC_PASSWORD=//p' "$tmp/.e
 monero_wallet_password=$(sed -n 's/^MONERO_WALLET_PASSWORD=//p' "$tmp/.env")
 tari_wallet_rpc_password=$(sed -n 's/^TARI_WALLET_RPC_PASSWORD=//p' "$tmp/.env")
 tari_wallet_password=$(sed -n 's/^TARI_WALLET_PASSWORD=//p' "$tmp/.env")
-if [ -n "$dashboard_password" ] || [ -z "$monero_password" ] || [ -z "$monero_wallet_rpc_password" ] || [ -z "$monero_wallet_password" ] || [ -z "$tari_wallet_rpc_password" ] || [ -z "$tari_wallet_password" ]; then
+if [ "$dashboard_password" != configuretest12 ] || [ -z "$monero_password" ] || [ -z "$monero_wallet_rpc_password" ] || [ -z "$monero_wallet_password" ] || [ -z "$tari_wallet_rpc_password" ] || [ -z "$tari_wallet_password" ]; then
   fail "fresh install password defaults are wrong"
 fi
 passwords=$(printf '%s\n' "$rpc_password" "$monero_password" "$monero_wallet_rpc_password" "$monero_wallet_password" "$tari_wallet_rpc_password" "$tari_wallet_password" | sort -u | wc -l | tr -d ' ')
@@ -50,6 +52,7 @@ grep -q '^BITCOIN_STEADY_MEM_LIMIT_MB=2048$' "$tmp/.env" || fail "Bitcoin steady
 grep -q '^MONERO_STEADY_CPUS=1$' "$tmp/.env" || fail "Monero steady CPU default is not 1"
 grep -q '^MONERO_STEADY_MEM_LIMIT_MB=2048$' "$tmp/.env" || fail "Monero steady memory default is not 2048 MB"
 grep -q '^DASHBOARD_ONION=0$' "$tmp/.env" || fail "fresh install dashboard onion default is not off"
+grep -q '^DASHBOARD_PUBLIC_URL=$' "$tmp/.env" || fail "fresh install dashboard public URL default is not empty"
 grep -q '^STACK_RESTART_POLICY=on-failure:5$' "$tmp/.env" || fail "fresh install restart policy is not crash-only"
 watch_b64=$(sed -n 's/^WATCH_WALLETS_B64=//p' "$tmp/.env")
 watch_json=$(printf '%s' "$watch_b64" | openssl base64 -d -A)
@@ -113,7 +116,7 @@ grep -q '^COMPOSE_PROJECT_NAME=bitcoin-starter-stack$' "$legacy/.env" || fail "l
 legacy_missing="$tmp/legacy-missing-prune"
 mkdir "$legacy_missing"
 cp configure.sh "$legacy_missing/"
-printf 'BITCOIN_RPC_USER=bitcoin\nBITCOIN_RPC_PASSWORD=oldrpc\n' >"$legacy_missing/.env"
+printf 'BITCOIN_RPC_USER=bitcoin\nBITCOIN_RPC_PASSWORD=oldrpc\nDASHBOARD_PASSWORD=legacydashboard12\n' >"$legacy_missing/.env"
 (cd "$legacy_missing" && ./configure.sh) >/dev/null
 grep -q '^BITCOIN_DBCACHE=3000$' "$legacy_missing/.env" || fail "pre-dbcache environment did not retain the legacy 3000 MB default"
 grep -q '^BITCOIN_PRUNE=0$' "$legacy_missing/.env" || fail "existing pre-prune environment was converted to pruning"
@@ -121,14 +124,14 @@ grep -q '^BITCOIN_PRUNE=0$' "$legacy_missing/.env" || fail "existing pre-prune e
 existing_custom="$tmp/existing-custom-dbcache"
 mkdir "$existing_custom"
 cp configure.sh "$existing_custom/"
-printf 'BITCOIN_RPC_USER=bitcoin\nBITCOIN_RPC_PASSWORD=oldrpc\nBITCOIN_DBCACHE=512\n' >"$existing_custom/.env"
+printf 'BITCOIN_RPC_USER=bitcoin\nBITCOIN_RPC_PASSWORD=oldrpc\nDASHBOARD_PASSWORD=legacydashboard12\nBITCOIN_DBCACHE=512\n' >"$existing_custom/.env"
 (cd "$existing_custom" && ./configure.sh) >/dev/null
 grep -q '^BITCOIN_DBCACHE=512$' "$existing_custom/.env" || fail "custom existing dbcache was replaced"
 
 legacy_limits="$tmp/legacy-limits"
 mkdir "$legacy_limits"
 cp configure.sh "$legacy_limits/"
-printf 'BITCOIN_RPC_USER=bitcoin\nBITCOIN_RPC_PASSWORD=oldrpc\nBITCOIN_STEADY_CPUS=0.75\nBITCOIN_STEADY_MEM_LIMIT_MB=1536\nMONERO_STEADY_CPUS=1.25\nMONERO_STEADY_MEM_LIMIT_MB=3072\n' >"$legacy_limits/.env"
+printf 'BITCOIN_RPC_USER=bitcoin\nBITCOIN_RPC_PASSWORD=oldrpc\nDASHBOARD_PASSWORD=legacydashboard12\nBITCOIN_STEADY_CPUS=0.75\nBITCOIN_STEADY_MEM_LIMIT_MB=1536\nMONERO_STEADY_CPUS=1.25\nMONERO_STEADY_MEM_LIMIT_MB=3072\n' >"$legacy_limits/.env"
 (cd "$legacy_limits" && ./configure.sh) >/dev/null
 grep -q '^BITCOIN_STEADY_CPUS=0.75$' "$legacy_limits/.env" || fail "existing Bitcoin steady CPU limit was replaced"
 grep -q '^BITCOIN_STEADY_MEM_LIMIT_MB=1536$' "$legacy_limits/.env" || fail "existing Bitcoin steady memory limit was replaced"
@@ -143,12 +146,11 @@ grep -q '^BITCOIN_INBOUND_ONION=0$' "$legacy/.env" || fail "explicit inbound_oni
 grep -q '^DASHBOARD_ONION=0$' "$legacy/.env" || fail "explicit dashboard.onion=false was ignored"
 
 echo '{"dashboard":{"password":""}}' >"$legacy/config.json"
-(cd "$legacy" && ./configure.sh) >/dev/null
-grep -q '^DASHBOARD_PASSWORD=$' "$legacy/.env" || fail "explicit empty dashboard password was ignored"
+(cd "$legacy" && ./configure.sh) >/dev/null 2>&1 && fail "explicit empty dashboard password was accepted"
 
 # 3. A config.json without credentials still gets auto-generated ones
 rm -f "$tmp/.env"
-echo '{"bitcoin": {"dbcache_mb": 512}}' >"$tmp/config.json"
+echo '{"bitcoin": {"dbcache_mb": 512}, "dashboard": {"password": "partialconfig12"}}' >"$tmp/config.json"
 (cd "$tmp" && ./configure.sh) >/dev/null
 grep -qE '^BITCOIN_RPC_USER=[a-zA-Z0-9]+$' "$tmp/.env" || fail "creds not auto-generated with partial config"
 grep -q '^BITCOIN_DBCACHE=512$' "$tmp/.env" || fail "partial config override not applied"
@@ -168,9 +170,34 @@ echo '{"bitcoin": {"node_username": "u", "node_password": "p", "prune_mb": "lots
 echo '{"bitcoin": {"node_username": "u", "node_password": "p"}, "dashboard": {"password": "a b"}}' >"$tmp/config.json"
 (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "special characters in dashboard password were accepted"
 
-# 7. Happy path renders .env with defaults applied
+# 7. Protected reverse-proxy mode requires an HTTPS origin, a baseline password,
+# and a loopback dashboard bind.
+echo '{"bitcoin":{"node_username":"u","node_password":"p"},"dashboard":{"public_url":"https://node.example.com","password":"longenough12","bind_ip":"127.0.0.1"}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null || fail "protected dashboard configuration failed"
+grep -q '^DASHBOARD_PUBLIC_URL=https://node.example.com$' "$tmp/.env" || fail "dashboard public URL was not rendered"
+grep -q '^DASHBOARD_PASSWORD=longenough12$' "$tmp/.env" || fail "protected dashboard password was not rendered"
+for invalid in 'http://node.example.com' 'https://node.example.com/' 'https://user:pass@node.example.com' 'https://node.example.com/path' 'https://node.example.com?x=1' 'https://node.example.com#x' 'https://node..example.com' 'https://[::::]' 'https://node.example.com:0' 'https://node.example.com:65536' 'https://node.example.com:70000'; do
+  printf '%s\n' "{\"dashboard\":{\"public_url\":\"$invalid\",\"password\":\"longenough12\"}}" >"$tmp/config.json"
+  (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "invalid public URL was accepted: $invalid"
+done
+sed -i.bak 's|^DASHBOARD_PUBLIC_URL=.*$|DASHBOARD_PUBLIC_URL=https://stale.example.com|' "$tmp/.env"
+rm -f "$tmp/.env.bak"
+echo '{"dashboard":{"public_url":"","password":"longenough12"}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null || fail "explicit empty public URL did not clear the rendered value"
+grep -q '^DASHBOARD_PUBLIC_URL=$' "$tmp/.env" || fail "explicit empty public URL inherited stale .env value"
+echo '{"dashboard":{"public_url":"https://node.example.com","password":"longenough12"}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null || fail "public URL could not be enabled after explicit clear"
+grep -q '^DASHBOARD_PUBLIC_URL=https://node.example.com$' "$tmp/.env" || fail "public URL was not restored after explicit clear"
+echo '{"dashboard":{"public_url":null,"password":"longenough12"}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "null public URL was accepted"
+echo '{"dashboard":{"public_url":"https://node.example.com","password":"short"}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "short protected dashboard password was accepted"
+echo '{"dashboard":{"public_url":"https://node.example.com","password":"longenough12","bind_ip":"192.168.1.20"}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "non-loopback protected dashboard bind was accepted"
+
+# 8. Happy path renders .env with defaults applied
 cat >"$tmp/config.json" <<'EOF'
-{"bitcoin": {"node_username": "myuser", "node_password": "mypass123"}}
+{"bitcoin": {"node_username": "myuser", "node_password": "mypass123"}, "dashboard": {"password": "happyconfig12"}}
 EOF
 rm -f "$tmp/.env"
 (cd "$tmp" && ./configure.sh) >/dev/null
@@ -185,7 +212,7 @@ grep -q '^BITCOIN_BLOCKFILTERINDEX=0$' "$tmp/.env" || fail "blockfilterindex def
 grep -q '^BITCOIN_RPC_EXPOSE=0$' "$tmp/.env" || fail "LAN RPC exposure default not applied"
 grep -q '^COMPOSE_FILE=docker-compose.yml$' "$tmp/.env" || fail "default compose file selection is wrong"
 grep -q '^COMPOSE_PROJECT_NAME=node-manager-source$' "$tmp/.env" || fail "fresh source install did not use its Node Manager Compose project"
-grep -q '^DASHBOARD_PASSWORD=$' "$tmp/.env" || fail "dashboard password should default to disabled"
+grep -q '^DASHBOARD_PASSWORD=happyconfig12$' "$tmp/.env" || fail "dashboard password baseline was not retained"
 grep -qE '^MONERO_RPC_PASSWORD=[a-zA-Z0-9]{16,}$' "$tmp/.env" || fail "Monero RPC password was not independently generated"
 grep -qE '^MONERO_WALLET_RPC_PASSWORD=[a-zA-Z0-9]{16,}$' "$tmp/.env" || fail "Monero wallet RPC password was not generated"
 grep -qE '^MONERO_WALLET_PASSWORD=[a-zA-Z0-9]{16,}$' "$tmp/.env" || fail "Monero wallet password was not generated"
@@ -244,7 +271,7 @@ perms=$(ls -l "$tmp/.env" | cut -c1-10)
 # 10. Custom values are honored
 cat >"$tmp/config.json" <<'EOF'
 {"bitcoin": {"node_username": "u", "node_password": "longrpcpassword1234567890", "data_dir": "./elsewhere", "dbcache_mb": 512, "prune_mb": 550, "inbound_onion": true, "rpc_expose": true, "rpc_bind_ip": "192.168.1.118", "rpc_port": 18332},
- "dashboard": {"password": "dashpass1", "onion": true, "bind_ip": "192.168.1.117", "launch_at_boot": true},
+ "dashboard": {"password": "dashpassword12", "onion": true, "bind_ip": "192.168.1.117", "launch_at_boot": true},
  "notifications": {"telegram_bot_token": "123:abc-DEF", "telegram_chat_id": "-10042", "healthchecks_url": "https://hc-ping.com/uuid", "alert_new_block": true, "alert_new_block_monero": true, "alert_new_block_tari": true, "alert_new_block_litecoin": true, "alert_new_block_dogecoin": true, "alert_new_block_bitcoincash": true, "alert_new_block_zcash": true},
  "wallets": [{"name": "Cold storage", "key": "34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo", "birthday": "2021-01-01"}]}
 EOF
@@ -257,7 +284,7 @@ grep -q '^BITCOIN_RPC_EXPOSE=1$' "$tmp/.env" || fail "rpc_expose=true not render
 grep -q '^BITCOIN_RPC_BIND_IP=192.168.1.118$' "$tmp/.env" || fail "RPC LAN bind not rendered"
 grep -q '^BITCOIN_RPC_PORT=18332$' "$tmp/.env" || fail "RPC host port not rendered"
 grep -q '^COMPOSE_FILE=docker-compose.yml:docker-compose.rpc.yml$' "$tmp/.env" || fail "RPC compose override not enabled"
-grep -q '^DASHBOARD_PASSWORD=dashpass1$' "$tmp/.env" || fail "dashboard password not rendered"
+grep -q '^DASHBOARD_PASSWORD=dashpassword12$' "$tmp/.env" || fail "dashboard password not rendered"
 grep -q '^DASHBOARD_ONION=1$' "$tmp/.env" || fail "dashboard onion not rendered"
 grep -q '^DASHBOARD_BIND_IP=192.168.1.117$' "$tmp/.env" || fail "dashboard LAN bind not rendered"
 grep -q '^STACK_RESTART_POLICY=unless-stopped$' "$tmp/.env" || fail "launch at boot was not rendered"
@@ -314,7 +341,7 @@ echo '{"bitcoin": {"sync_over_clearnet": false}}' >"$tmp/config.json"
 grep -q '^BITCOIN_SYNC_OVER_CLEARNET=' "$tmp/.env" && fail "legacy clearnet variable remains in .env"
 
 # Dashboard publication is limited to loopback and RFC1918 IPv4 addresses.
-printf 'DASHBOARD_BIND_IP=192.168.50.40\n' >"$tmp/.env"
+printf 'DASHBOARD_BIND_IP=192.168.50.40\nDASHBOARD_PASSWORD=fixturepassword12\n' >"$tmp/.env"
 echo '{"dashboard":{"bind_ip":"auto"}}' >"$tmp/config.json"
 (cd "$tmp" && BITCOIN_STACK_DEFAULT_BIND_IP=192.168.50.41 ./configure.sh) >/dev/null
 grep -q '^DASHBOARD_BIND_IP=192.168.50.41$' "$tmp/.env" || fail "auto dashboard bind reused a stale address"
@@ -346,18 +373,18 @@ echo '{"bitcoin":{"node_password":"short"}}' >"$tmp/config.json"
 (cd "$tmp" && ./configure.sh) >/dev/null || fail "short internal-only RPC password was rejected"
 rm -f "$tmp/.env"
 for bind_ip in 10.1.2.3 172.16.0.1 172.31.255.254 192.168.50.4; do
-  jq -n --arg ip "$bind_ip" '{bitcoin:{rpc_expose:true,rpc_bind_ip:$ip}}' >"$tmp/config.json"
+  jq -n --arg ip "$bind_ip" '{bitcoin:{rpc_expose:true,rpc_bind_ip:$ip},dashboard:{password:"fixturepassword12"}}' >"$tmp/config.json"
   (cd "$tmp" && ./configure.sh) >/dev/null || fail "private RPC bind $bind_ip was rejected"
 done
 for bind_ip in '' 0.0.0.0 127.0.0.1 8.8.8.8 172.15.0.1 172.32.0.1 192.169.1.1 ::1 999.1.1.1 010.0.0.1; do
-  jq -n --arg ip "$bind_ip" '{bitcoin:{rpc_expose:true,rpc_bind_ip:$ip}}' >"$tmp/config.json"
+  jq -n --arg ip "$bind_ip" '{bitcoin:{rpc_expose:true,rpc_bind_ip:$ip},dashboard:{password:"fixturepassword12"}}' >"$tmp/config.json"
   (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "unsafe RPC bind $bind_ip was accepted"
 done
 for rpc_port in 0 65536 -1 '"8332x"'; do
-  printf '{"bitcoin":{"rpc_expose":true,"rpc_bind_ip":"192.168.1.117","rpc_port":%s}}\n' "$rpc_port" >"$tmp/config.json"
+  printf '{"bitcoin":{"rpc_expose":true,"rpc_bind_ip":"192.168.1.117","rpc_port":%s},"dashboard":{"password":"fixturepassword12"}}\n' "$rpc_port" >"$tmp/config.json"
   (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "unsafe RPC port $rpc_port was accepted"
 done
-jq -n '{bitcoin:{rpc_expose:true,rpc_bind_ip:"192.168.1.117",rpc_port:80},dashboard:{bind_ip:"192.168.1.117"}}' >"$tmp/config.json"
+jq -n '{bitcoin:{rpc_expose:true,rpc_bind_ip:"192.168.1.117",rpc_port:80},dashboard:{bind_ip:"192.168.1.117",password:"fixturepassword12"}}' >"$tmp/config.json"
 (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "RPC/dashboard host port conflict was accepted"
 
 # inbound_onion defaults off; explicit true opts in
@@ -383,7 +410,7 @@ echo '{"bitcoin": {"mem_limit_mb": "lots"}}' >"$tmp/config.json"
 (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "non-numeric mem_limit_mb was accepted"
 rm -f "$tmp/config.json"
 
-# 12. Passwordless onion dashboards are rejected.
+# 12. Passwordless and mixed protected ingress dashboards are rejected.
 warn="$tmp/warn"
 mkdir "$warn"
 cp configure.sh "$warn/"
@@ -394,7 +421,12 @@ EOF
 if out=$(cd "$warn" && ./configure.sh 2>&1); then
   fail "passwordless onion dashboard was accepted"
 fi
-echo "$out" | grep -q "dashboard.password is required" || fail "passwordless onion error is not actionable"
+echo "$out" | grep -q "dashboard.password must be 12 to 128" || fail "passwordless onion error is not actionable"
+printf '%s\n' '{"dashboard":{"password":"longenough12","onion":true,"public_url":"https://node.example.com"}}' >"$warn/config.json"
+if out=$(cd "$warn" && ./configure.sh 2>&1); then
+  fail "dashboard onion and public URL were accepted together"
+fi
+echo "$out" | grep -q "mutually exclusive" || fail "mixed protected ingress error is not actionable"
 
 # 13. Zcash renders as a selectable Tor-only node with an authenticated LAN proxy.
 multi="$tmp/multi"
@@ -403,6 +435,7 @@ cp configure.sh VERSION "$multi/"
 cat >"$multi/config.json" <<'EOF'
 {
   "bitcoin": {"enabled": false},
+  "dashboard": {"password": "multiconfig12"},
   "zcash": {
     "enabled": true,
     "node_password": "abcdefghijklmnopqrstuvwx",
@@ -421,7 +454,7 @@ grep -q '^ZCASH_STEADY_MEM_LIMIT_MB=4096$' "$multi/.env" || fail "Zcash post-syn
 grep -q '^ZCASH_DATA_DIR=./data/zcash$' "$multi/.env" || fail "Zcash data path default changed"
 
 cat >"$multi/config.json" <<'EOF'
-{"bitcoin":{"enabled":false},"tari":{"enabled":true,"grpc_expose":false}}
+{"bitcoin":{"enabled":false},"tari":{"enabled":true,"grpc_expose":false},"dashboard":{"password":"multiconfig12"}}
 EOF
 (cd "$multi" && ./configure.sh) >/dev/null
 grep -q '^COMPOSE_FILE=docker-compose.yml:docker-compose.tari-wallet.yml$' "$multi/.env" ||
@@ -433,6 +466,7 @@ if command -v git >/dev/null; then
   gtmp=$(mktemp -d)
   cp configure.sh "$gtmp/"
   printf '9.9.9\n' >"$gtmp/VERSION"
+  printf '%s\n' '{"dashboard":{"password":"taggedconfig12"}}' >"$gtmp/config.json"
   (
     cd "$gtmp"
     git init -q && git config user.email t@t && git config user.name t

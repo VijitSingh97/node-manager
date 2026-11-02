@@ -244,53 +244,53 @@ func TestTariWatchHTTPRejectsSecretsAndRequiresCSRF(t *testing.T) {
 	store.now = func() time.Time { return now }
 	writeTariCapability(t, store, now)
 	a := &app{cfg: cfg, tariWatch: store, log: log.New(io.Discard, "", 0)}
+	initializeTestDashboardAuth(t, a)
+	handler := a.routes()
 	body := `{"name":"Cold","public_spend_key":"` + strings.Repeat("b", 64) + `","view_key":"` + strings.Repeat("a", 64) + `","birthday":"2025-01-01"}`
 	request := httptest.NewRequest(http.MethodPost, "/api/tari/watch", strings.NewReader(body))
+	request.SetBasicAuth("admin", "secret")
 	response := httptest.NewRecorder()
-	a.apiTariWatchAdd(response, request)
+	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("missing CSRF = %d", response.Code)
 	}
 	request = httptest.NewRequest(http.MethodPost, "/api/tari/watch", strings.NewReader(strings.TrimSuffix(body, "}")+`,"seed":"unsafe"}`))
+	request.SetBasicAuth("admin", "secret")
 	request.Header.Set("X-Requested-With", "fetch")
 	response = httptest.NewRecorder()
-	a.apiTariWatchAdd(response, request)
+	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("private seed field = %d", response.Code)
 	}
 	request = httptest.NewRequest(http.MethodPost, "/api/tari/watch", strings.NewReader(body))
+	request.SetBasicAuth("admin", "secret")
 	request.Header.Set("X-Requested-With", "fetch")
 	response = httptest.NewRecorder()
-	a.apiTariWatchAdd(response, request)
+	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusAccepted || strings.Contains(response.Body.String(), strings.Repeat("a", 64)) {
 		t.Fatalf("valid create = %d", response.Code)
 	}
 	request = httptest.NewRequest(http.MethodPost, "/api/tari/watch", strings.NewReader(body))
+	request.SetBasicAuth("admin", "secret")
 	request.Header.Set("X-Requested-With", "fetch")
 	response = httptest.NewRecorder()
-	a.apiTariWatchAdd(response, request)
+	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusConflict {
 		t.Fatalf("second wallet = %d", response.Code)
 	}
-	passwordlessCfg := a.cfg
-	passwordlessCfg.dashboardPassword = ""
-	passwordless := &app{cfg: passwordlessCfg, tariWatch: store, log: log.New(io.Discard, "", 0)}
-	response = httptest.NewRecorder()
-	passwordless.apiTariWatch(response, httptest.NewRequest(http.MethodGet, "/api/tari/watch", nil))
-	if response.Code != http.StatusForbidden {
-		t.Fatalf("passwordless personal wallet = %d", response.Code)
-	}
 	walletID := store.List()[0].ID
 	request = httptest.NewRequest(http.MethodDelete, "/api/tari/watch/"+walletID, nil)
-	request.SetPathValue("id", walletID)
+	request.SetBasicAuth("admin", "secret")
 	response = httptest.NewRecorder()
-	a.apiTariWatchRemove(response, request)
+	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("delete missing CSRF = %d", response.Code)
 	}
 	now = now.Add(31 * time.Second)
 	response = httptest.NewRecorder()
-	a.apiTariWatch(response, httptest.NewRequest(http.MethodGet, "/api/tari/watch", nil))
+	request = httptest.NewRequest(http.MethodGet, "/api/tari/watch", nil)
+	request.SetBasicAuth("admin", "secret")
+	handler.ServeHTTP(response, request)
 	var unavailable struct {
 		Available bool              `json:"available"`
 		Wallets   []TariWatchWallet `json:"wallets"`

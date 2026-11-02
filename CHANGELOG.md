@@ -6,6 +6,21 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Require dashboard sign-in on every installation. New installs generate a
+  password; existing installations must set a valid `dashboard.password`
+  before applying or upgrading to this version.
+- Replace the browser login popup with a sign-in page, expiring sessions, and
+  sign-out. Password changes revoke all sessions, and managing RPC credentials
+  requires a recent sign-in. Machine clients must send preemptive Basic
+  credentials with username `admin`.
+- Add an optional HTTPS reverse-proxy profile and Caddy example, with a
+  loopback-only dashboard backend, canonical origin validation, and secure
+  session cookies. VPN access remains recommended for VPS administration.
+- Bound password verification work, strengthen browser security headers, and
+  add a dependency vulnerability check to CI.
+
 ## [1.32.0] - 2026-10-31
 
 ### Added

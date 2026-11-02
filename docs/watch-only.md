@@ -55,9 +55,8 @@ The rebuildable `watch_scan_cache.json` can be backed up and removed from the
 state volume to request a new scan; keep `wallets.json` and
 `balance_history.json` intact.
 
-Personal wallet views and add/remove controls are available on the trusted LAN.
-Add a dashboard password in Settings, or preset it in `config.json`, to restrict
-access. Fresh Bitcoin state includes one clearly marked public example; see
+Personal wallet views and add/remove controls require dashboard authentication.
+Fresh Bitcoin state includes one clearly marked public example; see
 [Bitcoin public example](#bitcoin-public-example-and-seeding-from-configjson).
 
 ## Litecoin and Bitcoin Cash addresses
@@ -340,7 +339,7 @@ edits you make in the UI stick, and further `config.json` changes are ignored.
 - **An xpub is still sensitive.** Anyone who has it can follow the addresses and
   balances derived from that account. It's stored in the private wallet list;
   existing Core watch-wallet files can also contain it. Keep access to the box and dashboard
-  controlled, and set a dashboard password if it's reachable beyond your LAN.
+  controlled. Dashboard sign-in is required; use a VPN or HTTPS for remote access.
 - **Wallet data stays on the box.** Balances come directly from your nodes;
   wallet keys and addresses are never sent to external services. The separate BTC
   and XMR price lookups send only asset and currency names to CoinGecko through Tor.

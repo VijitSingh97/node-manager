@@ -69,6 +69,13 @@ for required in \
   ./usr/lib/bitcoin-starter-stack/docker-compose.zcash-rpc.yml \
   ./usr/lib/bitcoin-starter-stack/runtime-images.json \
   ./usr/lib/bitcoin-starter-stack/build/dashboard/main.go \
+  ./usr/lib/bitcoin-starter-stack/build/dashboard/login.go \
+  ./usr/lib/bitcoin-starter-stack/build/dashboard/sessions.go \
+  ./usr/lib/bitcoin-starter-stack/build/dashboard/index.html \
+  ./usr/lib/bitcoin-starter-stack/build/dashboard/login.html \
+  ./usr/lib/bitcoin-starter-stack/build/dashboard/static/login.css \
+  ./usr/lib/bitcoin-starter-stack/build/dashboard/static/session.js \
+  ./usr/lib/bitcoin-starter-stack/build/dashboard/static/theme-init.js \
   ./usr/lib/bitcoin-starter-stack/build/monero/Dockerfile \
   ./usr/lib/bitcoin-starter-stack/build/monero/wallet-entrypoint.sh \
   ./usr/lib/bitcoin-starter-stack/build/monero/wallet-healthcheck.sh \
@@ -94,6 +101,7 @@ for required in \
   ./usr/lib/systemd/system/bitcoin-starter-stack-node-control.service \
   ./usr/lib/systemd/system/bitcoin-starter-stack-node-control.timer \
   ./usr/share/doc/bitcoin-starter-stack/README.md \
+  ./usr/share/doc/bitcoin-starter-stack/docs/Caddyfile.example \
   ./usr/share/doc/bitcoin-starter-stack/docs/nodes.md \
   ./usr/share/doc/bitcoin-starter-stack/docs/privacy.md; do
   grep -q " $required$" "$tmp/contents" || fail "package is missing $required"
@@ -255,12 +263,14 @@ printf '%s' "$out" | grep -q 'sudo apt install --only-upgrade bitcoin-starter-st
 init_out=$(BITCOIN_STACK_DEFAULT_BIND_IP=192.168.1.116 FAKE_IMAGES_MISSING=1 "$wrapper" init)
 [ "$(jq -r '.bitcoin.enabled' "$config_dir/config.json")" = true ] || fail "package init did not default to Bitcoin"
 [ "$(jq -r '.bitcoin.resource_profile' "$config_dir/config.json")" = compact ] || fail "package init did not select the compact Bitcoin profile"
-[ "$(jq -r '.dashboard.password' "$config_dir/config.json")" = "" ] || fail "package init did not default to a passwordless dashboard"
+dashboard_password=$(jq -r '.dashboard.password' "$config_dir/config.json")
+[[ "$dashboard_password" =~ ^[a-f0-9]{32}$ ]] || fail "package init did not generate a 32-character dashboard password"
+[ "$(stat -c '%a' "$config_dir/config.json" 2>/dev/null || stat -f '%Lp' "$config_dir/config.json")" = 600 ] || fail "package init config is not mode 600"
 [ "$(jq -r '.dashboard.bind_ip' "$config_dir/config.json")" = auto ] || fail "package init did not preserve automatic LAN binding"
 [ "$(jq -r '.dashboard.launch_at_boot' "$config_dir/config.json")" = false ] || fail "package init enabled launch at boot"
 [ "$(jq -r '.bitcoin.data_dir // empty' "$config_dir/config.json")" = "" ] || fail "package init stored the default FHS data path"
 jq -e '(.bitcoin | has("node_password") | not)' "$config_dir/config.json" >/dev/null || fail "package init stored generated credentials in config"
-printf '%s' "$init_out" | grep -q 'Dashboard password — default off' || fail "package init did not report its passwordless default"
+printf '%s' "$init_out" | grep -q "Dashboard — username: admin  password: $dashboard_password" || fail "package init did not print its generated dashboard credential"
 printf '%s' "$init_out" | grep -q 'Bitcoin RPC — username: admin  password:' || fail "package init did not print the Bitcoin credentials"
 printf '%s' "$init_out" | grep -q 'Monero RPC' && fail "package init printed credentials for an unselected node"
 printf '%s' "$init_out" | grep -qE 'Dashboard password \(|Nodes to run \(|data directory \[|Download missing containers' && fail "package init still prompts for setup answers"
@@ -272,7 +282,7 @@ grep -q 'systemctl enable --now bitcoin-starter-stack-node-control.timer' "$log"
 
 env_file=$state_dir/.env
 [ -f "$env_file" ] || fail "generated state is outside the package state directory"
-grep -q '^DASHBOARD_PASSWORD=$' "$env_file" || fail "fresh package install enabled dashboard authentication"
+grep -q "^DASHBOARD_PASSWORD=$dashboard_password$" "$env_file" || fail "fresh package install did not retain dashboard authentication"
 grep -q '^DASHBOARD_BIND_IP=192.168.1.116$' "$env_file" || fail "fresh package install did not use the detected LAN address"
 grep -q '^BITCOIN_RPC_USER=admin$' "$env_file" || fail "fresh package install did not generate the Bitcoin RPC user"
 bitcoin_password=$(sed -n 's/^BITCOIN_RPC_PASSWORD=//p' "$env_file")
@@ -329,7 +339,7 @@ sed -i 's/^BITCOIN_DBCACHE=.*/BITCOIN_DBCACHE=512/' "$env_file"
 grep -q '^BITCOIN_DBCACHE=512$' "$env_file" || fail "existing package dbcache was replaced"
 
 rm -f "$env_file"
-printf '%s\n' '{"bitcoin":{"rpc_expose":true,"rpc_bind_ip":"192.168.1.117","rpc_port":18332},"wallets":[{"name":"Configured","key":"34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo"}]}' >"$config_dir/config.json"
+printf '%s\n' '{"bitcoin":{"rpc_expose":true,"rpc_bind_ip":"192.168.1.117","rpc_port":18332},"dashboard":{"password":"packagetestdashboardpassword"},"wallets":[{"name":"Configured","key":"34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo"}]}' >"$config_dir/config.json"
 : >"$log"
 "$wrapper" apply >/dev/null
 grep -q '^BITCOIN_PRUNE=10000$' "$env_file" || fail "unrelated fresh config disabled the package pruning default"

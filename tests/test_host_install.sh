@@ -51,17 +51,17 @@ export HOST_TEST_OS=Darwin
 export BITCOIN_STACK_CONFIG_DIR="$tmp/live config" BITCOIN_STACK_STATE_DIR="$tmp/live state"
 export BITCOIN_STACK_DATA_DIR="$tmp/live data"
 mkdir -p "$BITCOIN_STACK_CONFIG_DIR" "$BITCOIN_STACK_STATE_DIR" "$BITCOIN_STACK_DATA_DIR"
-printf '{"wallets":[]}\n' >"$BITCOIN_STACK_CONFIG_DIR/config.json"
+printf '{"dashboard":{"password":"hostinstalltest"},"wallets":[]}\n' >"$BITCOIN_STACK_CONFIG_DIR/config.json"
 "$root/configure.sh" >/dev/null
 grep -q '^DASHBOARD_PORT=8080$' "$BITCOIN_STACK_STATE_DIR/.env" || fail "Homebrew defaults to a privileged dashboard port"
-printf '{"dashboard":{"port":8083},"wallets":[]}\n' >"$BITCOIN_STACK_CONFIG_DIR/config.json"
+printf '{"dashboard":{"password":"hostinstalltest","port":8083},"wallets":[]}\n' >"$BITCOIN_STACK_CONFIG_DIR/config.json"
 "$root/configure.sh" >/dev/null
 grep -q '^DASHBOARD_PORT=8083$' "$BITCOIN_STACK_STATE_DIR/.env" || fail "custom dashboard port did not render"
 for port in 0 65536 '"08080"' '"8083:80"'; do
-  printf '{"dashboard":{"port":%s}}\n' "$port" >"$BITCOIN_STACK_CONFIG_DIR/config.json"
+  printf '{"dashboard":{"password":"hostinstalltest","port":%s}}\n' "$port" >"$BITCOIN_STACK_CONFIG_DIR/config.json"
   "$root/configure.sh" >/dev/null 2>&1 && fail "invalid dashboard port accepted: $port"
 done
-printf '{"dashboard":{"port":8332,"bind_ip":"192.168.1.8"},"bitcoin":{"rpc_expose":true,"rpc_bind_ip":"192.168.1.8"}}\n' >"$BITCOIN_STACK_CONFIG_DIR/config.json"
+printf '{"dashboard":{"password":"hostinstalltest","port":8332,"bind_ip":"192.168.1.8"},"bitcoin":{"rpc_expose":true,"rpc_bind_ip":"192.168.1.8"}}\n' >"$BITCOIN_STACK_CONFIG_DIR/config.json"
 "$root/configure.sh" >/dev/null 2>&1 && fail "custom dashboard/RPC port collision accepted"
 
 nested="$tmp/unrelated-repo/Cellar/payload"
@@ -69,7 +69,7 @@ mkdir -p "$nested"
 git -C "$tmp/unrelated-repo" init -q
 cp "$root/configure.sh" "$nested/configure.sh"
 printf '9.8.7\n' >"$nested/VERSION"
-printf '{"wallets":[]}\n' >"$BITCOIN_STACK_CONFIG_DIR/config.json"
+printf '{"dashboard":{"password":"hostinstalltest"},"wallets":[]}\n' >"$BITCOIN_STACK_CONFIG_DIR/config.json"
 BITCOIN_STACK_ROOT="$nested" "$nested/configure.sh" >/dev/null
 grep -q '^STACK_VERSION=9.8.7$' "$BITCOIN_STACK_STATE_DIR/.env" || fail "packaged payload inherited an unrelated Git checkout version"
 if [ "$(/usr/bin/uname -s)" = Darwin ]; then

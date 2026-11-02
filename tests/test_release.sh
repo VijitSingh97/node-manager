@@ -23,8 +23,10 @@ git cat-file -e HEAD:scripts/node-port-control 2>/dev/null && runtime_helpers="s
 for required in stack configure.sh docker-compose.yml docker-compose.rpc.yml config.example.json VERSION \
   .dockerignore .gitignore README.md CHANGELOG.md LICENSE SECURITY.md \
   build/dashboard/Dockerfile build/dashboard/go.mod build/dashboard/main.go build/dashboard/settings.go \
-  build/dashboard/auth.go build/dashboard/credentials.go build/dashboard/static/credentials.js \
-  build/dashboard/index.html build/dashboard/THIRD_PARTY_NOTICES build/dashboard/static/watch.js \
+  build/dashboard/auth.go build/dashboard/credentials.go build/dashboard/login.go build/dashboard/sessions.go \
+  build/dashboard/index.html build/dashboard/login.html build/dashboard/THIRD_PARTY_NOTICES \
+  build/dashboard/static/credentials.js build/dashboard/static/login.css build/dashboard/static/session.js \
+  build/dashboard/static/theme-init.js build/dashboard/static/watch.js \
   build/dashboard/static/prices.js build/dashboard/static/settings.js build/tor/Dockerfile build/tor/entrypoint.sh build/tor/torrc \
   build/monero/Dockerfile build/monero/entrypoint.sh build/monero/healthcheck.sh \
   build/monero/wallet-entrypoint.sh build/monero/wallet-healthcheck.sh \
@@ -35,7 +37,7 @@ for required in stack configure.sh docker-compose.yml docker-compose.rpc.yml con
   docker-compose.monero-rpc.yml docker-compose.monero-zmq.yml docker-compose.tari-grpc.yml \
   docker-compose.litecoin-rpc.yml docker-compose.dogecoin-rpc.yml docker-compose.bitcoincash-rpc.yml docker-compose.zcash-rpc.yml \
   build/dashboard/static/nodes.js docs/nodes.md $runtime_helpers \
-  docs/getting-started.md docs/configuration.md docs/operations.md docs/watch-only.md docs/privacy.md; do
+  docs/Caddyfile.example docs/getting-started.md docs/configuration.md docs/operations.md docs/watch-only.md docs/privacy.md; do
   grep -Fxq "$required" "$tmp/contents" || fail "release archive is missing $required"
 done
 if grep -Ev '^scripts/$|^scripts/(node-port-control|node-control|node-resource-profile|bitcoin-stack)$' "$tmp/contents" | grep -Eq '(^|/)(tests|parity|experiments|images)(/|$)|(_test\.go|\.test\.mjs|\.proto|\.pyc)$|^(\.github/|\.gitattributes$|\.gitleaks\.toml$|AGENTS\.md$|CONTRIBUTING\.md$|scripts/|packaging/|tools/|docs/(developer-bot|releasing)\.md$|build/dashboard/package\.json$)'; then

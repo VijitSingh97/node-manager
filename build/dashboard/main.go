@@ -23,6 +23,7 @@ type config struct {
 	rpcUser                 string
 	rpcPassword             string
 	dashboardPassword       string
+	dashboardPublicURL      string
 	dataDir                 string
 	stateDir                string
 	version                 string
@@ -71,6 +72,12 @@ func envConfig() (config, error) {
 	}
 	if cfg.port == "" {
 		cfg.port = "8000"
+	}
+	if err := configureDashboardOrigin(&cfg, os.Getenv("DASHBOARD_PUBLIC_URL")); err != nil {
+		return config{}, err
+	}
+	if cfg.dashboardPublicURL != "" && enabled(os.Getenv("DASHBOARD_ONION")) {
+		return config{}, errors.New("DASHBOARD_PUBLIC_URL and DASHBOARD_ONION cannot be enabled together")
 	}
 	portNumber, err := strconv.Atoi(cfg.port)
 	if err != nil || portNumber < 1 || portNumber > 65535 {
@@ -265,11 +272,14 @@ func runDashboardServers(ctx context.Context, stop func(), a *app, servers []*ht
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		client := &http.Client{Timeout: 5 * time.Second}
-		response, err := client.Get("http://127.0.0.1:" + envOr("PORT", "8000") + "/api/fees")
+		response, err := client.Get("http://127.0.0.1:" + envOr("PORT", "8000") + "/healthz")
 		if err != nil {
 			os.Exit(1)
 		}
 		response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			os.Exit(1)
+		}
 		return
 	}
 	cfg, err := envConfig()
@@ -284,9 +294,9 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	handler := a.routes()
-	servers := []*http.Server{{Addr: ":" + cfg.port, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 6 * time.Minute, IdleTimeout: 60 * time.Second}}
+	servers := []*http.Server{{Addr: ":" + cfg.port, Handler: handler, MaxHeaderBytes: 16 << 10, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 6 * time.Minute, IdleTimeout: 60 * time.Second}}
 	if cfg.settingsPort != "" {
-		servers = append(servers, &http.Server{Addr: ":" + cfg.settingsPort, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 6 * time.Minute, IdleTimeout: 60 * time.Second})
+		servers = append(servers, &http.Server{Addr: ":" + cfg.settingsPort, Handler: handler, MaxHeaderBytes: 16 << 10, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 6 * time.Minute, IdleTimeout: 60 * time.Second})
 		logger.Printf("onion settings listener enabled on :%s", cfg.settingsPort)
 	}
 	if node, ok := cfg.nodes[nodeZcash]; ok && node.Enabled && node.RPCEndpoint != "" {

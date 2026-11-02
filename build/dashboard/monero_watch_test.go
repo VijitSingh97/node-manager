@@ -129,6 +129,9 @@ func newMoneroWatchTestApp(t *testing.T, fixture *moneroWalletFixture) (*app, ht
 
 func newMoneroWatchTestAppWithOptions(t *testing.T, fixture *moneroWalletFixture, publicExample bool, dashboardPassword string) (*app, http.Handler, string) {
 	t.Helper()
+	if dashboardPassword == "" {
+		dashboardPassword = "dashboard-secret"
+	}
 	walletServer := httptest.NewServer(http.HandlerFunc(fixture.handler))
 	t.Cleanup(walletServer.Close)
 	bitcoinFixture := &rpcFixture{}

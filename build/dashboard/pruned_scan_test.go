@@ -265,7 +265,7 @@ func newPrunedTestApp(t *testing.T, stateDir string, mock *prunedRPCMock) (*app,
 func addPrunedWatch(t *testing.T, handler http.Handler, name, key string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/api/watch", strings.NewReader(`{"name":"`+name+`","key":"`+key+`"}`))
-	req.SetBasicAuth("user", "secret")
+	req.SetBasicAuth("admin", "secret")
 	req.Header.Set("X-Requested-With", "fetch")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, req)
@@ -876,7 +876,7 @@ func TestPrunedWatchCacheBecomesStaleAcrossTipChange(t *testing.T) {
 		server := httptest.NewServer(handler)
 		defer server.Close()
 		req, _ := http.NewRequest(http.MethodGet, server.URL+"/api/watch", nil)
-		req.SetBasicAuth("user", "secret")
+		req.SetBasicAuth("admin", "secret")
 		resp, err := server.Client().Do(req)
 		if err != nil {
 			t.Fatal(err)

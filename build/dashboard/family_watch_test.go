@@ -122,6 +122,9 @@ func (f *familyWatchRPCFixture) calls() []string {
 
 func newFamilyWatchTestApp(t *testing.T, password string) (*app, http.Handler, map[string]*familyWatchRPCFixture, string) {
 	t.Helper()
+	if password == "" {
+		password = "dashboard-secret"
+	}
 	stateDir := t.TempDir()
 	nodes := make(map[string]nodeConfig)
 	fixtures := make(map[string]*familyWatchRPCFixture)
@@ -133,6 +136,7 @@ func newFamilyWatchTestApp(t *testing.T, password string) (*app, http.Handler, m
 		nodes[id] = nodeConfig{ID: id, Name: map[string]string{nodeLitecoin: "Litecoin", nodeBitcoinCash: "Bitcoin Cash"}[id], Enabled: true, Active: true, ActiveSet: true, Supported: true, Protocol: "bitcoin-json-rpc", RPCURL: server.URL, RPCUser: fixture.user, RPCPassword: fixture.password}
 	}
 	a := &app{cfg: config{stateDir: stateDir, dashboardPassword: password, nodes: nodes}, log: log.New(io.Discard, "", 0), nodeHealth: make(map[string]nodeHealthSnapshot)}
+	initializeTestDashboardAuth(t, a)
 	a.familyWatch = newFamilyWatchManager(a)
 	return a, a.routes(), fixtures, stateDir
 }
@@ -150,7 +154,7 @@ func familyWatchRequest(t *testing.T, handler http.Handler, method, path, passwo
 	request := httptest.NewRequest(method, path, reader)
 	request.Header.Set("X-Requested-With", "fetch")
 	if password != "" {
-		request.SetBasicAuth("dashboard", password)
+		request.SetBasicAuth("admin", password)
 	}
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -192,8 +196,8 @@ func TestFamilyWatchHTTPValidatesWithNativeRPCAndReturnsExactBalances(t *testing
 	}
 }
 
-func TestFamilyWatchAuthPrivateInputAndPasswordlessPrivacy(t *testing.T) {
-	_, handler, _, _ := newFamilyWatchTestApp(t, "secret")
+func TestFamilyWatchRequiresAuthAndRejectsPrivateInput(t *testing.T) {
+	a, handler, _, _ := newFamilyWatchTestApp(t, "secret")
 	if response := familyWatchRequest(t, handler, http.MethodPost, "/api/litecoin/watch", "", map[string]any{"label": "Private", "address": "private-key"}); response.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated add = %d", response.Code)
 	}
@@ -209,23 +213,22 @@ func TestFamilyWatchAuthPrivateInputAndPasswordlessPrivacy(t *testing.T) {
 		}
 	}
 	request := httptest.NewRequest(http.MethodPost, "/api/litecoin/watch", strings.NewReader(`{"label":"No CSRF","address":"address"}`))
-	request.SetBasicAuth("dashboard", "secret")
+	request.SetBasicAuth("admin", "secret")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("missing same-origin header = %d %s", response.Code, response.Body.String())
 	}
 
-	a, publicHandler, _, _ := newFamilyWatchTestApp(t, "")
-	if response := familyWatchRequest(t, publicHandler, http.MethodGet, "/api/litecoin/watch", "", nil); response.Code != http.StatusOK {
-		t.Fatalf("public example = %d %s", response.Code, response.Body.String())
+	if response := familyWatchRequest(t, handler, http.MethodGet, "/api/litecoin/watch", "", nil); response.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous public example = %d %s", response.Code, response.Body.String())
 	}
 	store := a.familyWatch.stores[nodeLitecoin]
 	if _, err := store.add("Personal", "canonical-personal"); err != nil {
 		t.Fatal(err)
 	}
-	if response := familyWatchRequest(t, publicHandler, http.MethodGet, "/api/litecoin/watch", "", nil); response.Code != http.StatusForbidden {
-		t.Fatalf("passwordless personal roster = %d %s", response.Code, response.Body.String())
+	if response := familyWatchRequest(t, handler, http.MethodGet, "/api/litecoin/watch", "", nil); response.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous personal roster = %d %s", response.Code, response.Body.String())
 	}
 }
 

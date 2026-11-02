@@ -55,6 +55,7 @@ type diskInfo struct {
 
 type pageData struct {
 	NodeName             string
+	PasswordEnabled      bool
 	BitcoinEnabled       bool
 	Loading              bool
 	LastKnownSync        bool
@@ -111,6 +112,10 @@ type app struct {
 	familyWatch      *familyWatchManager
 	tariWatch        *TariWatchStore
 	dashboardAuth    *dashboardAuth
+	sessions         *dashboardSessions
+	loginLimiter     *loginLimiter
+	passwordWork     *passwordWorkLimiter
+	passwordAttempts chan struct{}
 	controlMu        sync.Mutex
 	ctx              context.Context
 }
@@ -126,14 +131,21 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 	if err := removeLegacyUpgradeRequest(cfg.stateDir); err != nil {
 		return nil, err
 	}
-	t, err := template.ParseFiles(templatePath)
+	t, err := template.ParseFiles(templatePath, filepath.Join(filepath.Dir(templatePath), "login.html"))
 	if err != nil {
 		return nil, err
 	}
 	a := &app{cfg: cfg, rpc: rpc, template: t, static: http.StripPrefix("/static/", http.FileServer(http.Dir(staticPath))), log: logger, additionalFees: make(map[string][]float64), nodeHealth: make(map[string]nodeHealthSnapshot)}
+	a.sessions = newDashboardSessions()
+	a.loginLimiter = newLoginLimiter()
+	a.passwordWork = newPasswordWorkLimiter()
+	a.passwordAttempts = make(chan struct{}, 2)
 	a.dashboardAuth, err = newDashboardAuth(cfg.stateDir, cfg.dashboardPassword)
 	if err != nil {
 		return nil, err
+	}
+	if !a.dashboardAuth.enabled {
+		return nil, errors.New("dashboard sign-in requires a password; set dashboard.password in config.json before starting")
 	}
 	a.watch = NewWatchStore(cfg.stateDir)
 	if a.watch.ScanErr() != nil {
@@ -260,6 +272,7 @@ func (a *app) loadingPageData() pageData {
 
 func (a *app) render(w http.ResponseWriter, data pageData) {
 	data.NodeName = a.monitor.nodeName
+	data.PasswordEnabled = a.hasDashboardPassword()
 	data.UpdateNote = a.monitor.UpdateNote()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := a.template.ExecuteTemplate(w, "index.html", data); err != nil {

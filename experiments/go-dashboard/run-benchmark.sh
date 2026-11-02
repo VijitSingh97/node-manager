@@ -197,7 +197,7 @@ done
 for url in "$go_url" "$python_url"; do
   ready=0
   for _ in $(seq 1 60); do
-    if curl -fsS -u bench:benchpass "$url/" >/dev/null; then
+    if curl -fsS -u admin:benchpass "$url/" >/dev/null; then
       ready=1
       break
     fi

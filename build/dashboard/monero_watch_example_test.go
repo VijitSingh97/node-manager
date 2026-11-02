@@ -61,7 +61,7 @@ func TestMoneroPublicExampleSeedsAsynchronouslyAndStaysReceivedOnly(t *testing.T
 	}
 }
 
-func TestMoneroPublicExamplePasswordlessReadOnlyAndDeletionPersists(t *testing.T) {
+func TestMoneroPublicExampleRequiresAuthenticationAndDeletionPersists(t *testing.T) {
 	fixture := &moneroWalletFixture{}
 	a, handler, stateDir := newMoneroWatchTestAppWithOptions(t, fixture, true, "")
 	ctx, cancel := context.WithCancel(context.Background())
@@ -76,15 +76,19 @@ func TestMoneroPublicExamplePasswordlessReadOnlyAndDeletionPersists(t *testing.T
 
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/monero/watch", nil))
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"has_password":false`) || !strings.Contains(response.Body.String(), moneroPublicExampleAddress) {
-		t.Fatalf("passwordless public response = %d %q", response.Code, response.Body.String())
+	if response.Code != http.StatusUnauthorized || strings.Contains(response.Body.String(), moneroPublicExampleAddress) {
+		t.Fatalf("anonymous public response = %d %q", response.Code, response.Body.String())
+	}
+	response = request(t, handler, http.MethodGet, "/api/monero/watch", "")
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"has_password":true`) || !strings.Contains(response.Body.String(), moneroPublicExampleAddress) {
+		t.Fatalf("authenticated public response = %d %q", response.Code, response.Body.String())
 	}
 	mutation := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodDelete, "/api/monero/watch/"+wallet.ID, nil)
 	req.Header.Set("X-Requested-With", "fetch")
 	handler.ServeHTTP(mutation, req)
-	if mutation.Code != http.StatusForbidden {
-		t.Fatalf("passwordless mutation = %d", mutation.Code)
+	if mutation.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous mutation = %d", mutation.Code)
 	}
 
 	if removed, err := a.moneroWatch.Remove(wallet.ID); err != nil || !removed {

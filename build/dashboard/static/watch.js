@@ -7,6 +7,7 @@
 // Every bit of user data (labels, keys) goes in via textContent — no XSS.
 import { towerLayout, WIDE_MIN } from "./tower.js";
 import { points } from "./sparkline.js";
+import { dashboardFetch as fetch } from "./session.js";
 
 const CSRF = { "X-Requested-With": "fetch" }; // blocks cross-site form posts
 const POLL_MS = 15000;

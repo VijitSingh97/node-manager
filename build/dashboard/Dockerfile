@@ -11,6 +11,7 @@ WORKDIR /app
 COPY --from=build --chmod=0755 /dashboard ./dashboard
 COPY --from=build --chmod=0644 /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --chmod=0644 build/dashboard/index.html ./index.html
+COPY --chmod=0644 build/dashboard/login.html ./login.html
 COPY --chmod=0755 build/dashboard/static ./static
 COPY --chmod=0644 VERSION ./VERSION
 COPY --chmod=0644 build/dashboard/THIRD_PARTY_NOTICES ./THIRD_PARTY_NOTICES

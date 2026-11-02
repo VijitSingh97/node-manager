@@ -1,3 +1,5 @@
+import { dashboardFetch as fetch } from "./session.js";
+
 export const NODE_IDS = ["bitcoin", "monero", "tari", "litecoin", "dogecoin", "bitcoincash", "zcash"];
 const NODES = new Set(NODE_IDS);
 

@@ -331,7 +331,7 @@ dashboard_url="http://127.0.0.1:$dashboard_port/api/$chain"
 status_file="$work/status.json"
 deadline=$((SECONDS + smoke_timeout))
 while [ "$SECONDS" -lt "$deadline" ]; do
-  printf 'user = "x:%s"\nsilent\nshow-error\nmax-time = 10\n' "$dashboard_secret" |
+  printf 'user = "admin:%s"\nsilent\nshow-error\nmax-time = 10\n' "$dashboard_secret" |
     curl --config - "$dashboard_url" >"$status_file" 2>/dev/null || true
   jq -e '.enabled == true and .available == true' "$status_file" >/dev/null 2>&1 && break
   sleep 5

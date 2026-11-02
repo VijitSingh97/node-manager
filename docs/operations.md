@@ -28,8 +28,9 @@ the core Bitcoin deployment:
 - `bitcoin` — RPC answers `getblockchaininfo`, authenticated with Core's
   `.cookie` file (30 min grace: RPC returns "warming up" during startup
   block verification).
-- `dashboard` — any HTTP response on port 8000 (inside the container); a
-  401 under basic auth still counts as healthy.
+- `dashboard` — unauthenticated `/healthz` on port 8000 inside the container
+  must return HTTP 200. It reports application liveness without node or wallet
+  details; node health is checked separately.
 
 `docker ps` shows the state. Run `./stack doctor` or `bitcoin-stack doctor` for
 a health report. From a source checkout,
@@ -59,13 +60,17 @@ rendered runtime is retained until the file is explicitly approved once.
 Open the gear menu to change the dashboard login. Enter the current password,
 then the new password twice. It must contain 12–128 characters and no control
 characters. The old password stops working immediately; reload and sign in
-with the new one. The dashboard stores only a salted hash in
+with the new one. The dashboard stores only a salted PBKDF2 hash in
 `/state/dashboard_auth.json` inside the `dashboard_state` named volume. That
 saved login takes precedence over the baseline in `config.json` and `.env`.
-If authentication is currently disabled, leave the current-password field blank
-to add a password from Settings. Existing logins still require their current
-password. A passwordless dashboard allows trusted LAN users to manage the
-application; add a password before sharing access with less-trusted devices.
+Authentication is required for all dashboard sessions. Existing logins require
+their current password before a change.
+Changing the dashboard password signs out every browser session. RPC credential
+reveal and reset require a dashboard login from the last 15 minutes; older
+sessions are sent back to the login page. Browser sessions expire after 30
+minutes without an authenticated request or 24 hours after sign-in, whichever
+comes first. Sessions are held in memory, so a dashboard restart logs out all
+browsers.
 
 If the dashboard password is forgotten, set a new baseline
 `dashboard.password` in the installation's `config.json`, then stop the
@@ -78,7 +83,7 @@ actual volume name, so inspect the deployment before making this offline change
 or ask the installer administrator to perform it.
 
 Node credentials are in the selected tower's settings, after its wallet
-section. Add a dashboard password before revealing or resetting RPC credentials.
+section. Authenticate before revealing or resetting RPC credentials.
 For an enabled authenticated LAN RPC listener, **Show password**
 reveals that node's username and password only after an explicit click. To
 rotate the password, type `reset`. The host helper creates a new 48-character
@@ -200,11 +205,16 @@ first — a live copy of `chainstate/` is corrupt by construction.
   height, headers, verification progress, peers in/out, disk, uptime,
   pruned flag, `bitcoin_node_up`, and (once synced) mempool size/bytes and
   `bitcoin_fee_sat_vb` for 1/3/6-block targets. It sits behind the same
-  optional basic auth as the dashboard.
+  required dashboard authentication. Machine clients must send preemptive
+  Basic credentials with username `admin` and the current dashboard password;
+  the server does not send a Basic-auth challenge. For example,
+  `curl --user admin https://node.example.com/metrics` prompts for the password
+  locally. Browsers use session sign-in; use a cookie-free command-line client
+  for Basic authentication.
 - **Telegram / Healthchecks.io:** see [Notifications](notifications.md).
 - **Fee sparkline:** the dashboard samples the next-block fee once a minute
   into an in-memory 24-hour series (reset on restart) and draws it under the
-  fee row. Served as JSON at `/api/fees` (behind the same optional auth).
+  fee row. Served as JSON at `/api/fees` behind the same authentication.
 
 ## Self-healing (a deliberate non-feature)
 
