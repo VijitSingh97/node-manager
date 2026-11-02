@@ -278,9 +278,11 @@ class DashboardContracts(unittest.TestCase):
         self.assertIn('bitcoin_node_up 0', self.call('/metrics')[1])
 
     def test_ibd_avoids_fee_and_mempool_reads(self):
-        self.fixture.state['ibd'] = True
+        self.stop()
         with self.fixture.lock:
+            self.fixture.state['ibd'] = True
             self.fixture.state['calls'].clear()
+        self.start()
         body = self.bitcoin_panel(self.call('/')[1])
         self.assertNotIn('Mempool:', body)
         methods = [row[1] for row in self.fixture.state['calls']]
