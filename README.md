@@ -170,13 +170,15 @@ For APT, edit `/etc/bitcoin-starter-stack/config.json` with `sudo` and run
 host config. Install Caddy from its [official Ubuntu packages](https://caddyserver.com/docs/install#debian-ubuntu-raspbian),
 copy the example to `/etc/caddy/Caddyfile`, set `dashboard.port` to `8080` in
 the config, point the domain's DNS at the VPS, replace the domain, and allow
-Caddy's ports 80/443 (or restrict access through a VPN/firewall allowlist).
+Caddy's ports 80/443 for redirects and automatic public certificates.
+If both ports are restricted to a VPN or IP allowlist, use DNS-based certificate
+validation or the VPN's HTTPS service instead.
 Validate with
 `sudo caddy validate --config /etc/caddy/Caddyfile`, then `sudo systemctl reload caddy`.
 The example uses backend `127.0.0.1:8080` so Caddy owns the public 80/443 ports;
 if the dashboard binds to `::1`, use `[::1]:8080` instead.
 Preserve `Host`, overwrite
-`X-Node-Manager-Client-IP`, and allow only HTTPS or VPN ports in the host
+`X-Node-Manager-Client-IP`, and allow only Caddy's 80/443 and any VPN ports in the host
 firewall. Docker published ports bypass UFW. Keep all RPC, ZMQ, and gRPC
 exposure settings false. ACME and Tailscale remain host-managed outside Tor.
 
