@@ -1,8 +1,4 @@
-// Refresh the status panel in place instead of reloading the page, so the
-// tower animation and the chosen theme never reset. Replaces the old
-// <meta http-equiv="refresh">. Fetches the same URL, parses it, and swaps
-// only #live — the canvas, theme toggle, and scripts live outside it and
-// persist. Loading/ready shell transitions reload so persistent features mount.
+// Keep persistent controls mounted while the node's status changes.
 const INTERVAL_MS = 30000;
 
 function layout(doc) {
@@ -21,6 +17,21 @@ export function replaceUpdateViews(current, next) {
   }
 }
 
+export function replaceLive(current, next) {
+  const nextLive = next.getElementById("live");
+  const currentLive = current.getElementById("live");
+  if (!nextLive || !currentLive) return false;
+  const price = current.getElementById("btc-price");
+  const nextPrice = nextLive.querySelector("#btc-price");
+  if (price && nextPrice) nextPrice.replaceWith(price);
+  replaceUpdateViews(current, next);
+  currentLive.replaceWith(nextLive);
+  for (const name of ["center", "center-screen"]) {
+    current.body.classList.toggle(name, next.body.classList.contains(name));
+  }
+  return true;
+}
+
 if (typeof document !== "undefined") {
   let reloading = false;
 
@@ -36,15 +47,7 @@ if (typeof document !== "undefined") {
         }
         return;
       }
-      replaceUpdateViews(document, doc);
-      const next = doc.getElementById("live");
-      const cur = document.getElementById("live");
-      if (next && cur) {
-        const price = document.getElementById("btc-price");
-        const nextPrice = next.querySelector("#btc-price");
-        if (price && nextPrice) nextPrice.replaceWith(price);
-        cur.replaceWith(next);
-        // let the fee sparkline redraw into the fresh canvas
+      if (replaceLive(document, doc)) {
         window.dispatchEvent(new Event("live-updated"));
       }
     } catch {

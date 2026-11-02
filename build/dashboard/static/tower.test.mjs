@@ -91,12 +91,18 @@ test("sync progress keeps the last usable value through transient outages", () =
   assert.equal(retainedSyncProgress("-2", 42.5), 0);
 });
 
-test("tower build eases toward sync progress and honors reduced motion", () => {
-  const first = nextBuildProgress(0, 0.8, 100);
-  assert.ok(first > 0 && first < 0.8);
-  assert.ok(nextBuildProgress(first, 0.8, 100) > first);
-  assert.equal(nextBuildProgress(0, 0.8, 100, true), 0.8);
-  assert.ok(nextBuildProgress(0.8, 0.4, 100) < 0.8);
+test("tower build starts at the first known sync progress", () => {
+  assert.equal(retainedSyncProgress(null), null);
+  assert.equal(nextBuildProgress(null, 0.8, 100), 0.8);
+});
+
+test("tower build animates later progress changes and honors reduced motion", () => {
+  const rising = nextBuildProgress(0.4, 0.8, 100);
+  assert.ok(rising > 0.4 && rising < 0.8);
+  assert.ok(nextBuildProgress(rising, 0.8, 100) > rising);
+  const falling = nextBuildProgress(0.8, 0.4, 100);
+  assert.ok(falling > 0.4 && falling < 0.8);
+  assert.equal(nextBuildProgress(0.4, 0.8, 100, true), 0.8);
 });
 
 test("cube layers build upward while the tower base stays fixed", () => {
@@ -352,10 +358,12 @@ test("renderer keeps the focused label live through opening, switching, and clos
 
   try {
     await import(`./tower.js?render-frames=${Date.now()}`);
+    const initialBitcoinRows = bitcoinFillCount();
     body.dataset.hoverNode = "bitcoin";
     for (let i = 0; i < 35; i++) step(100);
     step(100);
     const overviewBitcoinRows = bitcoinFillCount();
+    assert.equal(initialBitcoinRows, overviewBitcoinRows, "the first frame must start at the known sync height");
     assert.ok(Number(choices[0].style.zIndex) > Number(choices[2].style.zIndex),
       "a shorter syncing tower should stack in front of a synced neighbor");
     body.dataset.node = "bitcoin";

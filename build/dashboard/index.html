@@ -34,6 +34,7 @@
   <div id="bitcoin-panel" class="stack-col node-panel" data-node-panel="bitcoin" hidden>
     <button class="node-panel-close" type="button" data-close-node aria-label="Close Bitcoin status">✕</button>
     <section class="card node-inactive-state"><h2>Bitcoin</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>
+    {{if .BitcoinEnabled}}<div id="tower-stats" class="tower-stats" hidden></div>{{end}}
     <div id="live"{{if .LastKnownSync}} data-sync-percent="{{printf "%.6f" .Progress}}"{{end}}><div class="loading-card{{if .LastKnownSync}} sync-card{{end}}">
     {{if not .BitcoinEnabled}}
     <h2>Bitcoin</h2>
@@ -49,8 +50,18 @@
     <p>Connecting to the Bitcoin node...</p>
     {{end}}
     {{if .BitcoinEnabled}}<p style="color: var(--muted); font-size: 0.8rem;">The dashboard will load automatically when the node is ready. Still stuck? Run ./stack doctor.</p>{{end}}
+    {{if .BitcoinEnabled}}<section id="btc-price" data-price-asset="bitcoin" hidden>
+      <hr>
+      <div class="price-row">
+        <span class="price-label">Bitcoin price</span>
+        <strong id="btc-price-value" class="price-value" data-price-value>—</strong>
+        <select id="btc-price-currency" class="price-currency" data-price-currency aria-label="Bitcoin price currency"></select>
+        <span id="btc-price-status" class="price-status" data-price-status>Price unavailable</span>
+      </div>
+    </section>{{end}}
     <p style="color: var(--faint); font-size: 0.7rem;">{{.Version}}</p>
     </div></div>
+    {{if .BitcoinEnabled}}<section id="watch" class="card watch-card" hidden></section>{{end}}
     <section class="card node-power-card" style="--node-accent:#f2a900">
       <h2>Node controls</h2>
       <p id="bitcoin-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
@@ -534,6 +545,6 @@ bitcoin-stack apply</code></pre>
   <script type="module" src="/static/tari-watch.js"></script>
   <script type="module" src="/static/family-watch.js"></script>
   <script type="module" src="/static/settings.js"></script>
-  {{if and .BitcoinEnabled (not .Loading)}}<script type="module" src="/static/watch.js"></script>{{end}}
+  {{if .BitcoinEnabled}}<script type="module" src="/static/watch.js"></script>{{end}}
 </body>
 </html>
