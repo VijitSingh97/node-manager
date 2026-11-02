@@ -474,6 +474,97 @@ test("renderer leaves block zero blank and draws one confirmed block as one cube
   assert.equal(await render("145", "100"), 144 + 2, "144 confirmed blocks should become exactly one tower layer");
 });
 
+test("mature towers keep the next block visible in overview and focus", async () => {
+  const style = () => ({ setProperty(name, value) { this[name] = value; } });
+  let path = [];
+  let pathFilled = false;
+  let strokes = [];
+  const saved = [];
+  const context = new Proxy({
+    shadowBlur: 0,
+    globalAlpha: 1,
+    beginPath() { path = []; pathFilled = false; },
+    moveTo(x, y) { path.push([x, y]); },
+    lineTo(x, y) { path.push([x, y]); },
+    fill() { pathFilled = true; },
+    stroke() {
+      strokes.push({ path: path.map((point) => [...point]), filled: pathFilled, alpha: this.globalAlpha });
+    },
+    save() { saved.push({ shadowBlur: this.shadowBlur, globalAlpha: this.globalAlpha }); },
+    restore() { Object.assign(this, saved.pop()); },
+  }, { get(target, key) { return target[key] ?? (() => {}); } });
+  const canvas = { getContext: () => context, style: style() };
+  const label = { hidden: true, innerHTML: "", style: style() };
+  const overview = { hidden: false, scrollLeft: 0, style: style(), addEventListener() {} };
+  const choice = { dataset: { selectNode: "bitcoin", nodeActive: "1" }, hidden: false, style: style() };
+  const live = { dataset: { nextBlock: "974305", syncPercent: "100" } };
+  const body = { dataset: { node: "", towerLabels: "0" } };
+  const elements = { tower: canvas, "tower-label": label, "node-overview": overview, live };
+  const frames = [];
+  let theme = "dark";
+  globalThis.document = {
+    body,
+    hidden: false,
+    documentElement: { getAttribute: () => theme },
+    getElementById: (id) => elements[id] || null,
+    querySelectorAll: () => [choice],
+    querySelector: () => choice,
+  };
+  globalThis.window = {
+    devicePixelRatio: 1,
+    innerWidth: 1280,
+    innerHeight: 900,
+    matchMedia: () => ({ matches: false }),
+    addEventListener() {},
+  };
+  globalThis.requestAnimationFrame = (callback) => { frames.push(callback); };
+  let now = performance.now() + 100;
+  const step = (count = 1) => {
+    for (let i = 0; i < count; i++) {
+      now += 100;
+      strokes = [];
+      const frame = frames.shift();
+      assert.ok(frame, "renderer should schedule another frame");
+      frame(now);
+    }
+  };
+  const pending = () => strokes.filter((stroke) =>
+    stroke.path.length === 4 && !stroke.filled && stroke.alpha > 0);
+  const signature = () => pending().map((stroke) => stroke.path
+    .map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" ")).join(" | ");
+
+  try {
+    await import(`./tower.js?mature-pending=${Date.now()}`);
+    assert.equal(pending().length, 3, "boundary height needs a three-face pending cube in overview");
+    const overviewBoundary = signature();
+
+    body.dataset.node = "bitcoin";
+    step(8);
+    assert.equal(pending().length, 3, "boundary height needs a three-face pending cube in focus");
+    const focusedBoundary = signature();
+
+    body.dataset.node = "";
+    step(8);
+    live.dataset.nextBlock = "974310";
+    step(35);
+    assert.equal(pending().length, 3, "non-boundary height needs a three-face pending cube in overview");
+    assert.notEqual(signature(), overviewBoundary, "the pending cube should follow the next height");
+
+    body.dataset.node = "bitcoin";
+    step(8);
+    assert.equal(pending().length, 3, "non-boundary height needs a three-face pending cube in focus");
+    assert.notEqual(signature(), focusedBoundary, "the focused pending cube should follow the next height");
+
+    theme = "light";
+    step();
+    assert.equal(pending().length, 3, "light mode needs the same unfilled pending cube");
+  } finally {
+    delete globalThis.document;
+    delete globalThis.window;
+    delete globalThis.requestAnimationFrame;
+  }
+});
+
 test("towerLayout stacks (centres the tower) below the wide breakpoint", () => {
   for (const W of [375, 900, 1023]) {  // phones through the awkward mid-range
     const m = towerLayout(W);
