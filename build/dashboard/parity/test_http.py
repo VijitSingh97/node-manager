@@ -361,14 +361,20 @@ class DashboardContracts(unittest.TestCase):
     def test_wallet_scanning_and_stale_history(self):
         self.add()
         core_name = self.wallet_name()
-        self.fixture.state['wallets'][core_name]['mode']='scanning'
+        with self.fixture.lock:
+            self.fixture.state['wallets'][core_name]['mode']='scanning'
         self.assertEqual(self.body()['wallets'][0]['state'], 'scanning')
         self.stop()
         kid=hashlib.sha256(ADDRESS.encode()).hexdigest()[:16]
         (self.state_dir/'balance_history.json').write_text(json.dumps({kid:[[100,0.5],[3700,0.75]]}))
-        self.fixture.state['wallets'][core_name]['mode']='error'
+        with self.fixture.lock:
+            self.fixture.state['wallets'][core_name]['mode']='error'
         self.start()
-        row=self.body()['wallets'][0]
+        for _ in range(30):
+            row=self.body()['wallets'][0]
+            if row['state'] != 'pending':
+                break
+            time.sleep(0.1)
         self.assertEqual((row['state'],row['btc'],row['history']), ('stale','0.75',[0.5,0.75]))
 
     def test_static_and_fee_contract(self):
