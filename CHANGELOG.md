@@ -6,6 +6,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.33.0] - 2026-11-02
+
 ### Changed
 
 - Require dashboard sign-in on every installation. New installs generate a
@@ -23,6 +25,7 @@ All notable changes to this project are documented here. Format follows
 
 ### Fixed
 
+- Refresh node status in place without replaying tower growth on routine updates.
 - Keep the next block's flashing slot visible on full-height towers in both
   the overview and focused views.
 
@@ -913,7 +916,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.32.0...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.0...HEAD
+[1.33.0]: https://github.com/VijitSingh97/node-manager/compare/v1.32.0...v1.33.0
 [1.32.0]: https://github.com/VijitSingh97/node-manager/compare/v1.31.1...v1.32.0
 [1.31.1]: https://github.com/VijitSingh97/node-manager/releases/tag/v1.31.1
 [1.31.0]: https://github.com/VijitSingh97/node-manager/releases/tag/v1.31.0

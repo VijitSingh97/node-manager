@@ -7,9 +7,9 @@ or start Docker, download images, run setup, or start a node.
 Homebrew installs Bash, flock, jq, and OpenSSL for the host commands; Linuxbrew
 also installs iproute2. Docker remains an external prerequisite.
 
-Version `v1.32.0` is the first Homebrew release. The release workflow publishes
-the runtime archive and all required container images before it opens the
-generated formula PR. The version becomes available from the tap only after
+The release workflow publishes the runtime archive and all required container
+images before it opens the generated formula PR. A new version becomes
+available from the tap only after
 that PR is reviewed and merged. The tap keeps its legacy name for compatibility
 but uses the canonical `node-manager` repository URL below.
 
@@ -26,8 +26,8 @@ brew install vijitsingh97/bitcoin-starter-stack/bitcoin-starter-stack
 bitcoin-stack init
 ```
 
-If the formula update PR has not merged yet, `brew install` cannot install
-`v1.32.0`; use the release tarball instead or wait for the tap update. Do not
+If a release's formula update PR has not merged yet, `brew install` still
+installs the previous version; use the release tarball or wait for the tap update. Do not
 substitute an unreleased branch or a locally generated formula for a public
 installation.
 

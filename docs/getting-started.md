@@ -31,10 +31,10 @@ On Ubuntu, install `jq`, `openssl`, `curl`, `iproute2`, and optionally
 
 ### Homebrew on macOS or Linux
 
-Version `v1.32.0` is the first Homebrew release. The release workflow publishes
-the archive and images first, then opens a PR that updates the formula in this
-legacy-named tap. The commands below install `v1.32.0` after that formula PR is
-reviewed and merged:
+Homebrew installs the latest release available in this legacy-named tap. The
+release workflow publishes the archive and images first, then opens a PR that
+updates the formula. A new version becomes available after that PR is reviewed
+and merged:
 
 ```bash
 brew tap vijitsingh97/bitcoin-starter-stack https://github.com/VijitSingh97/node-manager.git
@@ -99,8 +99,7 @@ upgrade leaves it stopped. A configuration file that differs from its last
 approved state remains pending and is not applied by the unattended upgrade.
 Homebrew and source installations continue to use their manual update flows.
 
-After the `v1.32.0` APT job and Pages deployment succeed, add its dedicated
-signed repository:
+Add the dedicated signed repository:
 
 ```bash
 sudo apt update
@@ -141,7 +140,7 @@ tools and check out the published release:
 ```bash
 sudo apt update
 sudo apt install ca-certificates curl git iproute2 jq openssl util-linux
-git clone --branch v1.32.0 --depth 1 https://github.com/VijitSingh97/node-manager.git
+git clone --branch v1.33.0 --depth 1 https://github.com/VijitSingh97/node-manager.git
 cd node-manager
 ./stack init
 ```
