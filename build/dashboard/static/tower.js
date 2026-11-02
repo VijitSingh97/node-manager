@@ -80,7 +80,7 @@ export function retainedSyncProgress(value, previous = null) {
 export function nextBuildProgress(current, target, dtMs, reduce = false) {
   const from = Math.min(1, Math.max(0, Number(current) || 0));
   const to = Math.min(1, Math.max(0, Number(target) || 0));
-  if (reduce || from === to) return to;
+  if (current === null || reduce || from === to) return to;
   const next = from + (to - from) * (1 - Math.exp(-Math.max(0, dtMs) / 360));
   return Math.abs(next - to) < 0.0005 ? to : next;
 }
@@ -465,7 +465,7 @@ if (typeof document !== "undefined") {
 
     const previewHighlight = Object.fromEntries(NODE_IDS.map((node) => [node, 0]));
     const knownProgress = Object.fromEntries(NODE_IDS.map((node) => [node, null]));
-    const buildProgress = Object.fromEntries(NODE_IDS.map((node) => [node, 0]));
+    const buildProgress = Object.fromEntries(NODE_IDS.map((node) => [node, null]));
     const knownBlockFill = Object.fromEntries(NODE_IDS.map((node) => [node, null]));
     const knownConfirmedBlocks = Object.fromEntries(NODE_IDS.map((node) => [node, null]));
     const displayedBlockFill = Object.fromEntries(NODE_IDS.map((node) => [node, null]));
@@ -507,7 +507,9 @@ if (typeof document !== "undefined") {
         previewGeometry[node] = nextLayoutPoint(previewGeometry[node], {
           x: target.x, y: target.y, tw: target.tw,
         }, dt, reduce);
-        buildProgress[node] = nextBuildProgress(buildProgress[node], (knownProgress[node] ?? 0) / 100, dt, reduce);
+        if (knownProgress[node] !== null) {
+          buildProgress[node] = nextBuildProgress(buildProgress[node], knownProgress[node] / 100, dt, reduce);
+        }
         const targetFill = retainedBlockFill(liveElement(node)?.dataset?.nextBlock, knownBlockFill[node]);
         knownConfirmedBlocks[node] = retainedConfirmedBlocks(
           liveElement(node)?.dataset?.nextBlock, knownConfirmedBlocks[node]);

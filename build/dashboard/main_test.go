@@ -13,6 +13,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	nethtml "golang.org/x/net/html"
 )
 
 type rpcFixture struct {
@@ -212,6 +214,19 @@ func request(t *testing.T, handler http.Handler, method, path, password string) 
 	return w
 }
 
+func assertBitcoinPersistentMounts(t *testing.T, body string, enabled bool) {
+	t.Helper()
+	want := 0
+	if enabled {
+		want = 1
+	}
+	for _, marker := range []string{`id="tower-stats"`, `id="watch"`, `id="btc-price"`, `/static/watch.js`} {
+		if count := strings.Count(body, marker); count != want {
+			t.Errorf("%q count = %d, want %d", marker, count, want)
+		}
+	}
+}
+
 func TestDashboardCannotBeFramed(t *testing.T) {
 	_, handler := testApp(t, &rpcFixture{}, "dashboard-secret")
 	for _, path := range []string{"/", "/api/settings", "/api/settings/ports", "/missing"} {
@@ -247,6 +262,7 @@ func TestIndexAuthRPCParityAndEscaping(t *testing.T) {
 		t.Fatalf("status = %d", got.Code)
 	}
 	body := got.Body.String()
+	assertBitcoinPersistentMounts(t, body, true)
 	for _, want := range []string{"900000 / 900001", "4200 tx", "10 / 10 / 10", "Pruned", `id="btc-price"`, `/static/prices.js`, "192.168.1.50:8332 · LAN", "Configured LAN access", `class="node-set-title">mini-1 &lt;node&gt; Node Set</h1>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body missing %q", want)
@@ -268,6 +284,7 @@ func TestInvalidRPCRendersLoading(t *testing.T) {
 	if got.Code != http.StatusOK || !strings.Contains(got.Body.String(), "Bitcoin Node Initializing") {
 		t.Fatalf("response = %d %q", got.Code, got.Body.String())
 	}
+	assertBitcoinPersistentMounts(t, got.Body.String(), true)
 	if strings.Contains(got.Body.String(), "% synced") {
 		t.Fatal("unavailable Core must not invent a sync percentage")
 	}
@@ -458,6 +475,7 @@ func TestBitcoinDisabledDoesNotReachRPCOrStartBitcoinWorkers(t *testing.T) {
 	if index.Code != http.StatusOK || !strings.Contains(index.Body.String(), "Not configured") || strings.Contains(index.Body.String(), "Bitcoin Node Initializing") || strings.Contains(index.Body.String(), "/static/watch.js") {
 		t.Fatalf("disabled index = %d %q", index.Code, index.Body.String())
 	}
+	assertBitcoinPersistentMounts(t, index.Body.String(), false)
 	for _, marker := range []string{`id="monero-panel"`, `id="tari-panel"`, `id="litecoin-panel"`, `id="dogecoin-panel"`, `id="bitcoincash-panel"`, `id="zcash-panel"`, `id="settings-dialog"`, `/static/nodes.js`, `/static/prices.js`, `/static/settings.js`} {
 		if !strings.Contains(index.Body.String(), marker) {
 			t.Fatalf("Bitcoin-disabled page omitted shared dashboard marker %q", marker)
@@ -1084,28 +1102,52 @@ func TestPriceCacheStartsWithBackgroundWorkers(t *testing.T) {
 }
 
 func TestPriceWidgetLivesInsideStatusCard(t *testing.T) {
-	source, err := os.ReadFile("index.html")
+	_, handler := testApp(t, &rpcFixture{}, "")
+	rendered := request(t, handler, http.MethodGet, "/", "").Body.String()
+	doc, err := nethtml.Parse(strings.NewReader(rendered))
 	if err != nil {
 		t.Fatal(err)
 	}
-	html := string(source)
-	widget := strings.Index(html, `id="btc-price"`)
-	if widget < 0 {
-		t.Fatal("price widget missing")
+	var findID func(*nethtml.Node, string) *nethtml.Node
+	findID = func(node *nethtml.Node, id string) *nethtml.Node {
+		for _, attr := range node.Attr {
+			if attr.Key == "id" && attr.Val == id {
+				return node
+			}
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			if found := findID(child, id); found != nil {
+				return found
+			}
+		}
+		return nil
 	}
-	live := strings.LastIndex(html[:widget], `<div id="live"`)
-	fees := strings.LastIndex(html[:widget], `id="spark-fee"`)
-	footer := strings.Index(html[widget:], `class="footer"`)
-	liveClose := strings.Index(html[widget:], "      </div>\n    </div>\n    <section id=\"watch\"")
-	divider := strings.Index(html[widget:], "<hr>")
-	priceRow := strings.Index(html[widget:], `class="price-row"`)
-	if live < 0 || fees < live || footer < 0 || liveClose < 0 {
+	liveNode := findID(doc, "live")
+	widgetNode := findID(doc, "btc-price")
+	insideLive := false
+	for ancestor := widgetNode; ancestor != nil; ancestor = ancestor.Parent {
+		if ancestor == liveNode {
+			insideLive = true
+			break
+		}
+	}
+	if liveNode == nil || widgetNode == nil || !insideLive {
+		t.Fatal("price widget must be nested inside #live")
+	}
+
+	live := strings.Index(rendered, `<div id="live"`)
+	fees := strings.Index(rendered, `id="spark-fee"`)
+	widget := strings.Index(rendered, `id="btc-price"`)
+	priceRow := strings.Index(rendered, `class="price-row"`)
+	footer := strings.Index(rendered, `class="footer"`)
+	watch := strings.Index(rendered, `id="watch"`)
+	if live < 0 || fees < live || widget < fees || priceRow < widget || footer < priceRow || watch < footer {
 		t.Fatal("price widget must be inside #live after fees and before the status footer")
 	}
-	if divider < 0 || priceRow < 0 || divider > priceRow || priceRow > footer {
+	if !strings.Contains(rendered[widget:priceRow], "<hr>") {
 		t.Fatal("price widget must put a divider before the price row and footer")
 	}
-	if strings.Count(html, `/static/prices.js`) != 1 {
+	if strings.Count(rendered, `/static/prices.js`) != 1 {
 		t.Fatal("price module must load exactly once")
 	}
 }
