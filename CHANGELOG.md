@@ -21,6 +21,11 @@ All notable changes to this project are documented here. Format follows
 - Bound password verification work, strengthen browser security headers, and
   add a dependency vulnerability check to CI.
 
+### Fixed
+
+- Keep the next block's flashing slot visible on full-height towers in both
+  the overview and focused views.
+
 ## [1.32.0] - 2026-10-31
 
 ### Added

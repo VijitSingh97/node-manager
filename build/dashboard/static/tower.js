@@ -452,11 +452,15 @@ if (typeof document !== "undefined") {
           poly([p(gx, gy + 1, 1), p(gx + 1, gy + 1, 1), p(gx + 1, gy + 1, 0), p(gx, gy + 1, 0)], pal.side, pal.edge, 0);
           poly([p(gx + 1, gy, 1), p(gx + 1, gy + 1, 1), p(gx + 1, gy + 1, 0), p(gx + 1, gy, 0)], pal.dark, pal.edge, 0);
           poly(top, pal.top, pal.edge, 0);
-          if (idx === confirmed - 1) {
-            const loading = loadingHighlight(opacity, pulse, pal.glow);
-            ctx.globalAlpha = pal.alpha * loading.opacity;
-            poly(top, null, pal.edge, loading.glow);
-          }
+        }
+        if (confirmed < PER_LAYER && (depthCount > 0 || confirmed > 0)) {
+          const { gx, gy } = gridCell(confirmed);
+          const top = [p(gx, gy, 1), p(gx + 1, gy, 1), p(gx + 1, gy + 1, 1), p(gx, gy + 1, 1)];
+          const loading = loadingHighlight(opacity, pulse, pal.glow);
+          ctx.globalAlpha = pal.alpha * loading.opacity;
+          poly([p(gx, gy + 1, 1), p(gx + 1, gy + 1, 1), p(gx + 1, gy + 1, 0), p(gx, gy + 1, 0)], null, pal.edge, loading.glow);
+          poly([p(gx + 1, gy, 1), p(gx + 1, gy + 1, 1), p(gx + 1, gy + 1, 0), p(gx + 1, gy, 0)], null, pal.edge, loading.glow);
+          poly(top, null, pal.edge, loading.glow);
         }
       }
       if (depthCount > 0) drawTowerGlow(p, depthCount, pal, highlight, opacity, layerFill === null ? 0 : 1);
