@@ -253,6 +253,29 @@ shows the overridable settings with their defaults:
 | `notifications.alert_new_block_<node>` | `false` | Independent new-block alerts for `tari`, `litecoin`, `dogecoin`, `bitcoincash`, or `zcash`, sent only after that node is synced. |
 | `wallets` | Binance public example for source; empty for a pruned APT/Homebrew install | First-start **seed** for watch-only balances — each `{ name, key, birthday? }`, where `key` is a public extended key, public descriptor, or address. The example is clearly marked and excluded from personal totals. Set `[]` to opt out. After first start the saved dashboard list is authoritative. Personal wallet views and changes require dashboard authentication. See [Watch-only](watch-only.md). |
 
+### Custom data directories on APT installs
+
+The dashboard's host helpers run inside a strict systemd sandbox that can
+write only to `/etc/bitcoin-starter-stack` and `/var/lib/bitcoin-starter-stack`.
+Installing a node from the dashboard with a data folder outside those paths
+(for example under `/home`) is rejected until you extend the sandbox for that
+path on the host — an explicit operator decision:
+
+```bash
+sudo systemctl edit bitcoin-starter-stack-node-control bitcoin-starter-stack-port-control
+```
+
+```ini
+[Service]
+ProtectHome=false
+ReadWritePaths=/home/nodes
+```
+
+`ProtectSystem=strict` stays in effect, so everything else remains read-only;
+`ProtectHome=false` is needed only for paths under `/home`. Nodes already
+running from such a directory keep working either way — only dashboard-driven
+installs and applies touch the host paths.
+
 `configure.sh` applies the defaults above for any omitted key, and generates
 strong random RPC credentials on first run (reused on later runs).
 Starting and applying use local images only. See [Tor-only networking](privacy.md)

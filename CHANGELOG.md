@@ -6,6 +6,18 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.33.2] - 2026-11-08
+
+### Fixed
+
+- Keep dashboard-driven config applies working on APT hosts whose data
+  directories live outside the control helpers' systemd sandbox (for
+  example under `/home`). `configure.sh` no longer fails when it cannot
+  recreate such a directory; the directory already exists on the host.
+  The sandbox itself stays strict by default — installing a node to a
+  custom data folder requires a per-host override, now documented in the
+  configuration guide.
+
 ## [1.33.1] - 2026-11-08
 
 ### Added

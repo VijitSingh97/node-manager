@@ -861,10 +861,10 @@ chmod 600 "$env_tmp"
 mv -f "$env_tmp" "$env_file"
 
 # Create the data dir up front, or docker creates it root-owned
-# and bitcoind (uid 1000) can't write to it
-mkdir -p "$data_dir"
-mkdir -p "$monero_data_dir"
-mkdir -p "$tari_data_dir" "$litecoin_data_dir" "$dogecoin_data_dir" "$bitcoincash_data_dir" "$zcash_data_dir"
+# and bitcoind (uid 1000) can't write to it. Sandboxed callers (the systemd
+# control units) cannot reach custom dirs outside their ReadWritePaths; those
+# already exist on the host, so creation failures are tolerated.
+mkdir -p "$data_dir" "$monero_data_dir" "$tari_data_dir" "$litecoin_data_dir" "$dogecoin_data_dir" "$bitcoincash_data_dir" "$zcash_data_dir" 2>/dev/null || true
 if [ "$package_managed" = "1" ] && [ -n "$BITCOIN_STACK_DATA_DIR" ] && [ "$data_dir" = "${BITCOIN_STACK_DATA_DIR%/}/bitcoin" ]; then
   chown 1000:1000 "$data_dir"
   chmod 700 "$data_dir"
