@@ -595,4 +595,13 @@ echo '{"bitcoin":{"resource_profile":"tiny"}}' >"$tmp/config.json"
 echo '{"monero":{"resource_profile":"tiny"}}' >"$tmp/config.json"
 (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "unknown Monero resource profile was accepted"
 
+# Package-managed runs must survive a missing BITCOIN_STACK_DATA_DIR, as the
+# systemd control helpers once ran without it and crashed under set -u.
+pkg_tmp=$(mktemp -d)
+printf '%s\n' '{"dashboard":{"password":"configuretest12"}}' >"$pkg_tmp/config.json"
+cp configure.sh "$pkg_tmp/"
+(cd "$pkg_tmp" && env -u BITCOIN_STACK_DATA_DIR BITCOIN_STACK_PACKAGE_MANAGED=1 ./configure.sh) >/dev/null ||
+  fail "package-managed configure failed without BITCOIN_STACK_DATA_DIR"
+rm -rf "$pkg_tmp"
+
 echo "PASS: test_configure.sh"
