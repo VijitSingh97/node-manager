@@ -13,7 +13,7 @@ func TestDashboardSessionsLifecycleAndTokenStorage(t *testing.T) {
 	now := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
 	seen := make(map[string]bool)
 	for range 16 {
-		token, err := sessions.issue(now)
+		token, err := sessions.issue(now, false)
 		raw, decodeErr := base64.RawURLEncoding.DecodeString(token)
 		if err != nil || decodeErr != nil || len(raw) != 32 || len(token) != 43 || seen[token] {
 			t.Fatalf("invalid session token: len=%d raw=%d err=%v decode=%v", len(token), len(raw), err, decodeErr)
@@ -53,11 +53,11 @@ func TestDashboardSessionsLifecycleAndTokenStorage(t *testing.T) {
 func TestDashboardSessionsIdleAndAbsoluteExpiry(t *testing.T) {
 	now := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
 	sessions := newDashboardSessions()
-	idle, _ := sessions.issue(now)
+	idle, _ := sessions.issue(now, false)
 	if !sessions.valid(idle, now.Add(dashboardSessionIdle-time.Nanosecond)) || sessions.valid(idle, now.Add(2*dashboardSessionIdle)) {
 		t.Fatal("idle expiry boundary is incorrect")
 	}
-	absolute, _ := sessions.issue(now)
+	absolute, _ := sessions.issue(now, false)
 	for elapsed := 29 * time.Minute; elapsed < dashboardSessionLifetime; elapsed += 29 * time.Minute {
 		if !sessions.valid(absolute, now.Add(elapsed)) {
 			t.Fatalf("active session expired at %v", elapsed)
@@ -68,10 +68,25 @@ func TestDashboardSessionsIdleAndAbsoluteExpiry(t *testing.T) {
 	}
 }
 
+func TestDashboardSessionsRememberedExpiry(t *testing.T) {
+	now := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
+	sessions := newDashboardSessions()
+	remembered, _ := sessions.issue(now, true)
+	if !sessions.valid(remembered, now.Add(2*dashboardSessionIdle)) {
+		t.Fatal("remembered session hit the idle timeout")
+	}
+	if !sessions.valid(remembered, now.Add(dashboardSessionRememberLifetime-time.Nanosecond)) {
+		t.Fatal("remembered session expired before its lifetime")
+	}
+	if sessions.valid(remembered, now.Add(dashboardSessionRememberLifetime)) {
+		t.Fatal("remembered session survived its lifetime")
+	}
+}
+
 func TestDashboardSessionsRecentAuthentication(t *testing.T) {
 	now := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
 	sessions := newDashboardSessions()
-	token, _ := sessions.issue(now)
+	token, _ := sessions.issue(now, false)
 	if !sessions.recent(token, now.Add(dashboardSessionRecent-time.Nanosecond)) {
 		t.Fatal("recent session rejected early")
 	}
@@ -85,7 +100,7 @@ func TestDashboardSessionsRecentAuthentication(t *testing.T) {
 	if sessions.recent(token, now) || sessions.recent("malformed", now) {
 		t.Fatal("invalid session passed recent authentication")
 	}
-	idle, _ := sessions.issue(now)
+	idle, _ := sessions.issue(now, false)
 	if sessions.recent(idle, now.Add(dashboardSessionIdle)) {
 		t.Fatal("idle session passed recent authentication")
 	}
@@ -96,12 +111,12 @@ func TestDashboardSessionsCapacityEvictsLeastRecentlyUsed(t *testing.T) {
 	now := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
 	tokens := make([]string, dashboardSessionLimit)
 	for i := range tokens {
-		tokens[i], _ = sessions.issue(now)
+		tokens[i], _ = sessions.issue(now, false)
 	}
 	if !sessions.valid(tokens[0], now.Add(time.Second)) {
 		t.Fatal("could not refresh session")
 	}
-	newest, _ := sessions.issue(now.Add(time.Second))
+	newest, _ := sessions.issue(now.Add(time.Second), false)
 	if len(sessions.sessions) != dashboardSessionLimit || !sessions.valid(tokens[0], now.Add(2*time.Second)) || sessions.valid(tokens[1], now.Add(2*time.Second)) || !sessions.valid(newest, now.Add(2*time.Second)) {
 		t.Fatal("capacity did not deterministically evict the oldest idle session")
 	}
@@ -115,7 +130,7 @@ func TestDashboardSessionsConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func(offset int) {
 			defer wg.Done()
-			token, err := sessions.issue(now.Add(time.Duration(offset) * time.Millisecond))
+			token, err := sessions.issue(now.Add(time.Duration(offset)*time.Millisecond), false)
 			if err != nil {
 				t.Errorf("issue: %v", err)
 				return

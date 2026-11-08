@@ -45,6 +45,18 @@
   font: inherit;
 }
 
+.login-card .login-remember {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.login-card .login-remember input {
+  width: auto;
+  margin: 0;
+}
+
 .login-card input:focus-visible,
 .login-card button:focus-visible {
   outline: 2px solid var(--accent);
