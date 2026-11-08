@@ -6,6 +6,26 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.33.1] - 2026-11-08
+
+### Added
+
+- "Remember me for 30 days" checkbox on the dashboard sign-in page. A
+  remembered session skips the idle timeout; password changes still revoke
+  all sessions, and RPC credential management still requires a recent
+  sign-in.
+
+### Changed
+
+- Update Zakura (Zcash) to 1.8.0.
+
+### Fixed
+
+- Install nodes from the dashboard on APT installations. The systemd control
+  helpers ran without `BITCOIN_STACK_DATA_DIR`, so install and config-apply
+  requests crashed `configure.sh` and the dashboard sat on "Applying host
+  change…" indefinitely while recovery retried forever.
+
 ## [1.33.0] - 2026-11-02
 
 ### Changed
@@ -916,7 +936,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.0...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.1...HEAD
+[1.33.1]: https://github.com/VijitSingh97/node-manager/compare/v1.33.0...v1.33.1
 [1.33.0]: https://github.com/VijitSingh97/node-manager/compare/v1.32.0...v1.33.0
 [1.32.0]: https://github.com/VijitSingh97/node-manager/compare/v1.31.1...v1.32.0
 [1.31.1]: https://github.com/VijitSingh97/node-manager/releases/tag/v1.31.1
