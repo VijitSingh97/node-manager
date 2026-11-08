@@ -11,6 +11,7 @@ Environment=BITCOIN_STACK_PACKAGE_MANAGED=1
 Environment=BITCOIN_STACK_ROOT=/usr/lib/bitcoin-starter-stack
 Environment=BITCOIN_STACK_STATE_DIR=/var/lib/bitcoin-starter-stack
 Environment=BITCOIN_STACK_CONFIG_DIR=/etc/bitcoin-starter-stack
+Environment=BITCOIN_STACK_DATA_DIR=/var/lib/bitcoin-starter-stack/data
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true

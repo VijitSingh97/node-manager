@@ -9,6 +9,7 @@ config_file=$config_dir/config.json
 env_file=$state_dir/.env
 stack_command=${BITCOIN_STACK_COMMAND:-./stack}
 package_managed=${BITCOIN_STACK_PACKAGE_MANAGED:-0}
+BITCOIN_STACK_DATA_DIR=${BITCOIN_STACK_DATA_DIR:-}
 umask 077
 mkdir -p "$state_dir" "$config_dir"
 if [ "${BITCOIN_STACK_CONFIG_LOCK_HELD:-0}" != 1 ]; then
@@ -864,11 +865,11 @@ mv -f "$env_tmp" "$env_file"
 mkdir -p "$data_dir"
 mkdir -p "$monero_data_dir"
 mkdir -p "$tari_data_dir" "$litecoin_data_dir" "$dogecoin_data_dir" "$bitcoincash_data_dir" "$zcash_data_dir"
-if [ "$package_managed" = "1" ] && [ "$data_dir" = "${BITCOIN_STACK_DATA_DIR%/}/bitcoin" ]; then
+if [ "$package_managed" = "1" ] && [ -n "$BITCOIN_STACK_DATA_DIR" ] && [ "$data_dir" = "${BITCOIN_STACK_DATA_DIR%/}/bitcoin" ]; then
   chown 1000:1000 "$data_dir"
   chmod 700 "$data_dir"
 fi
-if [ "$package_managed" = "1" ]; then
+if [ "$package_managed" = "1" ] && [ -n "$BITCOIN_STACK_DATA_DIR" ]; then
   for node_dir in "$tari_data_dir" "$litecoin_data_dir" "$dogecoin_data_dir" "$bitcoincash_data_dir"; do
     case "$node_dir" in "${BITCOIN_STACK_DATA_DIR%/}"/*) chown 1000:1000 "$node_dir"; chmod 700 "$node_dir" ;; esac
   done
@@ -879,7 +880,7 @@ if [ "$package_managed" = "1" ]; then
       ;;
   esac
 fi
-if [ "$package_managed" = "1" ] && [ "$monero_data_dir" = "${BITCOIN_STACK_DATA_DIR%/}/monero" ]; then
+if [ "$package_managed" = "1" ] && [ -n "$BITCOIN_STACK_DATA_DIR" ] && [ "$monero_data_dir" = "${BITCOIN_STACK_DATA_DIR%/}/monero" ]; then
   chown 1000:1000 "$monero_data_dir"
   chmod 700 "$monero_data_dir"
 fi
