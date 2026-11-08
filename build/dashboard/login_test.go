@@ -239,7 +239,7 @@ func TestPasswordChangeRevokesAllBrowserSessions(t *testing.T) {
 
 func TestCredentialRevealRequiresRecentSignIn(t *testing.T) {
 	a, handler := testApp(t, &rpcFixture{}, "dashboard-secret")
-	token, err := a.sessions.issue(time.Now().Add(-16 * time.Minute))
+	token, err := a.sessions.issue(time.Now().Add(-16*time.Minute), false)
 	if err != nil {
 		t.Fatal(err)
 	}

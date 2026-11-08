@@ -12,22 +12,24 @@ import (
 )
 
 const (
-	dashboardSessionLimit    = 64
-	dashboardSessionIdle     = 30 * time.Minute
-	dashboardSessionLifetime = 24 * time.Hour
-	dashboardSessionRecent   = 15 * time.Minute
-	loginFailureLimit        = 10
-	loginFailureWindow       = time.Minute
-	loginLimiterKeyLimit     = 1024
-	loginOverflowKey         = "*"
-	passwordWorkBurst        = 32
-	passwordWorkRate         = 5
+	dashboardSessionLimit            = 64
+	dashboardSessionIdle             = 30 * time.Minute
+	dashboardSessionLifetime         = 24 * time.Hour
+	dashboardSessionRememberLifetime = 30 * 24 * time.Hour
+	dashboardSessionRecent           = 15 * time.Minute
+	loginFailureLimit                = 10
+	loginFailureWindow               = time.Minute
+	loginLimiterKeyLimit             = 1024
+	loginOverflowKey                 = "*"
+	passwordWorkBurst                = 32
+	passwordWorkRate                 = 5
 )
 
 type dashboardSession struct {
 	issued   time.Time
 	lastSeen time.Time
 	order    uint64
+	remember bool
 }
 
 type dashboardSessions struct {
@@ -53,6 +55,9 @@ func dashboardSessionKey(token string) ([32]byte, bool) {
 }
 
 func sessionExpired(session dashboardSession, now time.Time) bool {
+	if session.remember {
+		return !now.Before(session.issued.Add(dashboardSessionRememberLifetime))
+	}
 	return !now.Before(session.lastSeen.Add(dashboardSessionIdle)) || !now.Before(session.issued.Add(dashboardSessionLifetime))
 }
 
@@ -64,7 +69,7 @@ func (sessions *dashboardSessions) pruneLocked(now time.Time) {
 	}
 }
 
-func (sessions *dashboardSessions) issue(now time.Time) (string, error) {
+func (sessions *dashboardSessions) issue(now time.Time, remember bool) (string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", err
@@ -87,7 +92,7 @@ func (sessions *dashboardSessions) issue(now time.Time) (string, error) {
 		delete(sessions.sessions, oldestKey)
 	}
 	sessions.next++
-	sessions.sessions[key] = dashboardSession{issued: now, lastSeen: now, order: sessions.next}
+	sessions.sessions[key] = dashboardSession{issued: now, lastSeen: now, order: sessions.next, remember: remember}
 	return token, nil
 }
 

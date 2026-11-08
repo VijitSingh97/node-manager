@@ -159,7 +159,7 @@ func (a *app) auth(next http.Handler) http.Handler {
 			return
 		}
 		if user, password, ok := r.BasicAuth(); ok && !a.browserSignIn(r) {
-			_, status, retry := a.passwordAttempt(r, user, password, false)
+			_, status, retry := a.passwordAttempt(r, user, password, false, false)
 			if status == http.StatusOK {
 				r = r.WithContext(context.WithValue(r.Context(), dashboardAuthMethod{}, "basic"))
 				next.ServeHTTP(w, r)
@@ -185,7 +185,7 @@ func writeAuthError(w http.ResponseWriter, status int, retry time.Duration) {
 	http.Error(w, "Sign-in required", status)
 }
 
-func (a *app) passwordAttempt(r *http.Request, user, password string, issueSession bool) (string, int, time.Duration) {
+func (a *app) passwordAttempt(r *http.Request, user, password string, issueSession, remember bool) (string, int, time.Duration) {
 	now := time.Now()
 	remote, identified := a.loginClient(r)
 	if identified {
@@ -214,7 +214,7 @@ func (a *app) passwordAttempt(r *http.Request, user, password string, issueSessi
 	if !issueSession {
 		return "", http.StatusOK, 0
 	}
-	token, err := a.sessions.issue(time.Now())
+	token, err := a.sessions.issue(time.Now(), remember)
 	if err != nil {
 		return "", http.StatusServiceUnavailable, 0
 	}
@@ -272,7 +272,8 @@ func (a *app) loginPost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Sign-in expired. Reload the sign-in page and try again.", http.StatusForbidden)
 		return
 	}
-	token, status, retry := a.passwordAttempt(r, r.PostForm.Get("username"), r.PostForm.Get("password"), true)
+	remember := r.PostForm.Get("remember") == "1"
+	token, status, retry := a.passwordAttempt(r, r.PostForm.Get("username"), r.PostForm.Get("password"), true, remember)
 	if status != http.StatusOK {
 		message := "Username or password is incorrect."
 		if status == http.StatusTooManyRequests {
@@ -286,7 +287,11 @@ func (a *app) loginPost(w http.ResponseWriter, r *http.Request) {
 	}
 	a.sessions.revoke(a.sessionToken(r))
 	a.useBrowserSignIn(w, r)
-	a.setAuthCookie(w, r, "session", token, dashboardSessionLifetime)
+	sessionLifetime := dashboardSessionLifetime
+	if remember {
+		sessionLifetime = dashboardSessionRememberLifetime
+	}
+	a.setAuthCookie(w, r, "session", token, sessionLifetime)
 	a.setAuthCookie(w, r, "login", "", -time.Second)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
