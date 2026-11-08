@@ -604,4 +604,13 @@ cp configure.sh "$pkg_tmp/"
   fail "package-managed configure failed without BITCOIN_STACK_DATA_DIR"
 rm -rf "$pkg_tmp"
 
+# A data dir that cannot be created (e.g. outside a sandboxed helper's
+# writable paths) must not abort configure; the dir already exists on the host.
+sandbox_tmp=$(mktemp -d)
+printf '%s\n' '{"dashboard":{"password":"configuretest12"},"bitcoin":{"data_dir":"/nonexistent-root-probe/bitcoin"}}' >"$sandbox_tmp/config.json"
+cp configure.sh "$sandbox_tmp/"
+(cd "$sandbox_tmp" && ./configure.sh) >/dev/null ||
+  fail "configure aborted on an uncreatable data dir"
+rm -rf "$sandbox_tmp"
+
 echo "PASS: test_configure.sh"
