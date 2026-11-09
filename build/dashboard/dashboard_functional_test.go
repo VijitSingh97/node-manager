@@ -420,3 +420,11 @@ func TestDashboardUpdateNoticeIsInformational(t *testing.T) {
 		})
 	}
 }
+
+func TestDashboardSettingsPanelShowsVersion(t *testing.T) {
+	fixture := newDashboardFixture(t)
+	body := responseBody(t, fixture.request(t, http.MethodGet, "/"))
+	if !strings.Contains(body, `<p id="settings-version" class="settings-note">node-manager v1.2.0</p>`) {
+		t.Fatal("settings dialog does not show the running version")
+	}
+}
