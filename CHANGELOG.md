@@ -6,6 +6,15 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Healthchecks pings now retry up to twice over fresh Tor circuits (one-off
+  SOCKS credentials, so Tor's stream isolation builds a new path) before a
+  failure is recorded. A single bad circuit — roughly one in eight fresh
+  circuit builds fails on a busy daemon — no longer counts as a missed ping,
+  which was flapping Healthchecks while the node was healthy. Pings stay
+  Tor-only.
+
 ## [1.33.2] - 2026-11-08
 
 ### Fixed

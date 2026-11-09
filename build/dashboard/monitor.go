@@ -78,8 +78,9 @@ type Monitor struct {
 	settingsErr        error
 	settingsOverridden bool
 
-	client     *http.Client
-	now        func() time.Time
+	client         *http.Client
+	freshTorClient func() *http.Client
+	now            func() time.Time
 	diskFreeGB func(string) (float64, error)
 	output     io.Writer
 	tickEvery  time.Duration
@@ -129,6 +130,7 @@ func NewMonitor(version, dataDir, stateDir string) *Monitor {
 		settingsErr:        settingsErr,
 		settingsOverridden: overridden,
 		client:             newTorHTTPClient(torProxy),
+		freshTorClient:     func() *http.Client { return newIsolatedTorHTTPClient(torProxy) },
 		now:                time.Now,
 		diskFreeGB:         freeGB,
 		output:             os.Stdout,
