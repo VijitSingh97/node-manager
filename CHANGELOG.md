@@ -6,6 +6,12 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.33.3] - 2026-11-09
+
+### Changed
+
+- build(deps): bump `zakuracore/zakura` from 1.8.0 to 1.8.3.
+
 ### Fixed
 
 - Healthchecks pings now retry up to twice over fresh Tor circuits (one-off
@@ -957,7 +963,9 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.1...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.3...HEAD
+[1.33.3]: https://github.com/VijitSingh97/node-manager/compare/v1.33.2...v1.33.3
+[1.33.2]: https://github.com/VijitSingh97/node-manager/compare/v1.33.1...v1.33.2
 [1.33.1]: https://github.com/VijitSingh97/node-manager/compare/v1.33.0...v1.33.1
 [1.33.0]: https://github.com/VijitSingh97/node-manager/compare/v1.32.0...v1.33.0
 [1.32.0]: https://github.com/VijitSingh97/node-manager/compare/v1.31.1...v1.32.0
