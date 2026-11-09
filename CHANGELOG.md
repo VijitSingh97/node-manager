@@ -6,6 +6,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.33.4] - 2026-11-09
+
 ### Changed
 
 - Default post-sync memory ceilings for Litecoin, Dogecoin, and Bitcoin Cash
@@ -985,7 +987,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.3...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.4...HEAD
+[1.33.4]: https://github.com/VijitSingh97/node-manager/compare/v1.33.3...v1.33.4
 [1.33.3]: https://github.com/VijitSingh97/node-manager/compare/v1.33.2...v1.33.3
 [1.33.2]: https://github.com/VijitSingh97/node-manager/compare/v1.33.1...v1.33.2
 [1.33.1]: https://github.com/VijitSingh97/node-manager/compare/v1.33.0...v1.33.1
