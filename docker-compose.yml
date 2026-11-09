@@ -238,7 +238,7 @@ services:
     labels:
       - "io.node-starter-stack.resource-profile=${LITECOIN_RESOURCE_PROFILE:-off}"
       - "io.node-starter-stack.steady-cpus=${LITECOIN_STEADY_CPUS:-1}"
-      - "io.node-starter-stack.steady-memory-mb=${LITECOIN_STEADY_MEM_LIMIT_MB:-4096}"
+      - "io.node-starter-stack.steady-memory-mb=${LITECOIN_STEADY_MEM_LIMIT_MB:-2048}"
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
     environment:
@@ -268,7 +268,7 @@ services:
     labels:
       - "io.node-starter-stack.resource-profile=${DOGECOIN_RESOURCE_PROFILE:-off}"
       - "io.node-starter-stack.steady-cpus=${DOGECOIN_STEADY_CPUS:-1}"
-      - "io.node-starter-stack.steady-memory-mb=${DOGECOIN_STEADY_MEM_LIMIT_MB:-4096}"
+      - "io.node-starter-stack.steady-memory-mb=${DOGECOIN_STEADY_MEM_LIMIT_MB:-2048}"
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
     environment:
@@ -298,7 +298,7 @@ services:
     labels:
       - "io.node-starter-stack.resource-profile=${BITCOINCASH_RESOURCE_PROFILE:-off}"
       - "io.node-starter-stack.steady-cpus=${BITCOINCASH_STEADY_CPUS:-1}"
-      - "io.node-starter-stack.steady-memory-mb=${BITCOINCASH_STEADY_MEM_LIMIT_MB:-4096}"
+      - "io.node-starter-stack.steady-memory-mb=${BITCOINCASH_STEADY_MEM_LIMIT_MB:-2048}"
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
     volumes: ["${BITCOINCASH_DATA_DIR:-./data/bitcoincash}:/data"]
@@ -418,7 +418,7 @@ services:
       LITECOIN_RPC_BIND_IP: ${LITECOIN_RPC_BIND_IP:-127.0.0.1}
       LITECOIN_RPC_PORT: ${LITECOIN_RPC_PORT:-9332}
       LITECOIN_STEADY_CPUS: ${LITECOIN_STEADY_CPUS:-1}
-      LITECOIN_STEADY_MEM_LIMIT_MB: ${LITECOIN_STEADY_MEM_LIMIT_MB:-4096}
+      LITECOIN_STEADY_MEM_LIMIT_MB: ${LITECOIN_STEADY_MEM_LIMIT_MB:-2048}
       LITECOIN_RESOURCE_PROFILE: ${LITECOIN_RESOURCE_PROFILE:-off}
       DOGECOIN_ENABLED: ${DOGECOIN_ENABLED:-0}
       DOGECOIN_ACTIVE: ${DOGECOIN_ACTIVE:-1}
@@ -430,7 +430,7 @@ services:
       DOGECOIN_RPC_BIND_IP: ${DOGECOIN_RPC_BIND_IP:-127.0.0.1}
       DOGECOIN_RPC_PORT: ${DOGECOIN_RPC_PORT:-22555}
       DOGECOIN_STEADY_CPUS: ${DOGECOIN_STEADY_CPUS:-1}
-      DOGECOIN_STEADY_MEM_LIMIT_MB: ${DOGECOIN_STEADY_MEM_LIMIT_MB:-4096}
+      DOGECOIN_STEADY_MEM_LIMIT_MB: ${DOGECOIN_STEADY_MEM_LIMIT_MB:-2048}
       DOGECOIN_RESOURCE_PROFILE: ${DOGECOIN_RESOURCE_PROFILE:-off}
       BITCOINCASH_ENABLED: ${BITCOINCASH_ENABLED:-0}
       BITCOINCASH_ACTIVE: ${BITCOINCASH_ACTIVE:-1}
@@ -442,7 +442,7 @@ services:
       BITCOINCASH_RPC_BIND_IP: ${BITCOINCASH_RPC_BIND_IP:-127.0.0.1}
       BITCOINCASH_RPC_PORT: ${BITCOINCASH_RPC_PORT:-8332}
       BITCOINCASH_STEADY_CPUS: ${BITCOINCASH_STEADY_CPUS:-1}
-      BITCOINCASH_STEADY_MEM_LIMIT_MB: ${BITCOINCASH_STEADY_MEM_LIMIT_MB:-4096}
+      BITCOINCASH_STEADY_MEM_LIMIT_MB: ${BITCOINCASH_STEADY_MEM_LIMIT_MB:-2048}
       BITCOINCASH_RESOURCE_PROFILE: ${BITCOINCASH_RESOURCE_PROFILE:-off}
       ZCASH_ENABLED: ${ZCASH_ENABLED:-0}
       ZCASH_ACTIVE: ${ZCASH_ACTIVE:-1}

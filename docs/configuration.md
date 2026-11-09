@@ -125,7 +125,7 @@ shows the overridable settings with their defaults:
         "prune_mb": 10000,
         "resource_profile": "off",
         "steady_cpus": 1,
-        "steady_mem_limit_mb": 4096,
+        "steady_mem_limit_mb": 2048,
         "rpc_expose": false,
         "rpc_bind_ip": "",
         "rpc_port": 9332
@@ -138,7 +138,7 @@ shows the overridable settings with their defaults:
         "prune_mb": 10000,
         "resource_profile": "off",
         "steady_cpus": 1,
-        "steady_mem_limit_mb": 4096,
+        "steady_mem_limit_mb": 2048,
         "rpc_expose": false,
         "rpc_bind_ip": "",
         "rpc_port": 22555
@@ -151,7 +151,7 @@ shows the overridable settings with their defaults:
         "prune_mb": 10000,
         "resource_profile": "off",
         "steady_cpus": 1,
-        "steady_mem_limit_mb": 4096,
+        "steady_mem_limit_mb": 2048,
         "rpc_expose": false,
         "rpc_bind_ip": "",
         "rpc_port": 8332
@@ -232,7 +232,7 @@ shows the overridable settings with their defaults:
 | `<node>.data_dir` | `./data/<node>` (source), managed data directory for APT/Homebrew | Host directory for that chain's data. APT uses `/var/lib/bitcoin-starter-stack/data/<node>`; Homebrew uses its platform data path above. |
 | `<node>.resource_profile` | `off`; `compact` for APT/Homebrew default setup selections or dashboard installs | Syncs uncapped, then applies that node's steady ceiling after repeated healthy sync checks. |
 | `<node>.steady_cpus` | `1` | Independent post-sync CPU ceiling for Tari, Litecoin, Dogecoin, Bitcoin Cash, or Zcash. |
-| `<node>.steady_mem_limit_mb` | `4096` | Independent post-sync memory-plus-swap ceiling for those base nodes. Tari's separate wallet sidecar is not included. This is a budget, not a qualified minimum. |
+| `<node>.steady_mem_limit_mb` | `2048` for Litecoin, Dogecoin, and Bitcoin Cash; `4096` for Tari and Zcash | Independent post-sync memory-plus-swap ceiling for those base nodes. Tari's separate wallet sidecar is not included. This is a budget, not a qualified minimum. |
 | `tari.pruning_horizon` | `10000` | Positive retained-block horizon for Minotari's pruned state. |
 | `tari.grpc_expose`, `grpc_bind_ip`, `grpc_port` | `false`, `""`, `18142` | Optional unauthenticated Tari mining gRPC for Pithead on a trusted private LAN or WireGuard link. It is separate from the internal authenticated view-only wallet service. |
 | `litecoin.prune_mb`, `dogecoin.prune_mb`, `bitcoincash.prune_mb` | `10000` | Recent block-file target in MiB. Chainstate and other state are additional. |
