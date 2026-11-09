@@ -415,8 +415,8 @@ FAKE_PULL_FAIL=1 HOME="$tmp" PATH="$stub:$PATH" ./stack pull >/dev/null 2>&1 && 
 
 rm -f "$FAKE_LOG"
 upgrade_out=$(PATH="$stub:$PATH" ./stack upgrade)
-printf '%s' "$upgrade_out" | grep -q 'sudo apt install --only-upgrade bitcoin-starter-stack' || fail "upgrade omitted APT instructions"
-printf '%s' "$upgrade_out" | grep -q 'brew upgrade bitcoin-starter-stack' || fail "upgrade omitted Homebrew instructions"
+printf '%s' "$upgrade_out" | grep -q 'sudo apt install --only-upgrade node-manager' || fail "upgrade omitted APT instructions"
+printf '%s' "$upgrade_out" | grep -q 'brew upgrade node-manager' || fail "upgrade omitted Homebrew instructions"
 printf '%s' "$upgrade_out" | grep -q 'node-manager/releases/latest' || fail "upgrade omitted GitHub releases"
 [ ! -f "$FAKE_LOG" ] || fail "upgrade touched Docker or another host service"
 
@@ -454,7 +454,7 @@ printf '%s' "$out" | grep -q 'host-service: started for this login session' || f
 : >"$FAKE_LOG"
 echo '{"dashboard": {"password": "hunterpassword12", "control": false}}' >config.json
 BITCOIN_STACK_PACKAGE_MANAGED=brew FAKE_UNAME=Darwin HOME="$tmp" PATH="$stub:$PATH" ./stack apply >/dev/null
-grep -q '^brew services start bitcoin-starter-stack$' "$FAKE_LOG" || fail "ensure_agent: Homebrew supervisor was not started"
+grep -q '^brew services start node-manager$' "$FAKE_LOG" || fail "ensure_agent: Homebrew supervisor was not started"
 
 # systemd unit enabled -> stack stays out of the way entirely
 cat >"$stub/systemctl" <<'EOS'

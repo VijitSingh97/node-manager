@@ -75,7 +75,7 @@ func TestPriceCacheRefreshAndSnapshot(t *testing.T) {
 			t.Fatalf("request = %s %s", r.Method, r.URL)
 		}
 		userAgent := r.UserAgent()
-		if userAgent == "" || strings.HasPrefix(userAgent, "Go-http-client/") || !strings.Contains(userAgent, "bitcoin-starter-stack-dashboard") || !strings.Contains(userAgent, "github.com/VijitSingh97/node-manager") {
+		if userAgent == "" || strings.HasPrefix(userAgent, "Go-http-client/") || !strings.Contains(userAgent, "node-manager-dashboard") || !strings.Contains(userAgent, "github.com/VijitSingh97/node-manager") {
 			return response(http.StatusTooManyRequests, ""), nil
 		}
 		return response(http.StatusOK, priceResponse(now.Unix())), nil

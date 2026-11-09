@@ -1,12 +1,12 @@
 [Unit]
-Description=Check Node Starter Stack sync resource profiles
+Description=Check Node Manager sync resource profiles
 
 [Timer]
 OnBootSec=2min
 OnUnitActiveSec=1min
 RandomizedDelaySec=10s
 Persistent=true
-Unit=bitcoin-starter-stack-resource-profile.service
+Unit=node-manager-resource-profile.service
 
 [Install]
 WantedBy=timers.target

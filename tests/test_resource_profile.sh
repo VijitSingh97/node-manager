@@ -380,8 +380,8 @@ grep -q ' start monero$' "$log" || fail "Monero was not restarted after a dirty 
 ! grep -q '^update ' "$log" || fail "Monero was capped after a dirty stop"
 grep -q '|blocked|' "$case_root/state/resource-profile/monero" || fail "dirty Monero stop was not marked blocked"
 
-grep -q '^ProtectSystem=strict$' packaging/systemd/bitcoin-starter-stack-resource-profile.service || fail "systemd service is not filesystem-hardened"
-grep -q '^RestrictAddressFamilies=AF_UNIX$' packaging/systemd/bitcoin-starter-stack-resource-profile.service || fail "systemd service can use public network sockets"
-grep -q '^Persistent=true$' packaging/systemd/bitcoin-starter-stack-resource-profile.timer || fail "systemd timer does not catch up after reboot"
+grep -q '^ProtectSystem=strict$' packaging/systemd/node-manager-resource-profile.service || fail "systemd service is not filesystem-hardened"
+grep -q '^RestrictAddressFamilies=AF_UNIX$' packaging/systemd/node-manager-resource-profile.service || fail "systemd service can use public network sockets"
+grep -q '^Persistent=true$' packaging/systemd/node-manager-resource-profile.timer || fail "systemd timer does not catch up after reboot"
 
 echo "PASS: test_resource_profile.sh"

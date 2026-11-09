@@ -445,14 +445,14 @@
         <legend>Update available</legend>
         {{if .UpdateNote}}<p><strong>{{.UpdateNote}}</strong></p>
         <p class="settings-note">Back up first, then use the same installation method you used originally.</p>
-        <p><b>Ubuntu / APT</b></p><pre><code>sudo bitcoin-stack backup
+        <p><b>Ubuntu / APT</b></p><pre><code>sudo node-manager backup
 sudo apt update
-sudo apt install --only-upgrade bitcoin-starter-stack</code></pre>
-        <p><b>macOS / Homebrew</b></p><pre><code>bitcoin-stack backup
+sudo apt install --only-upgrade node-manager</code></pre>
+        <p><b>macOS / Homebrew</b></p><pre><code>node-manager backup
 brew update
-brew upgrade bitcoin-starter-stack
-bitcoin-stack pull
-bitcoin-stack apply</code></pre>
+brew upgrade node-manager
+node-manager pull
+node-manager apply</code></pre>
         <p><a href="https://github.com/VijitSingh97/node-manager/releases/latest" target="_blank" rel="noopener noreferrer">Download the latest GitHub release</a> · <a href="https://github.com/VijitSingh97/node-manager/blob/main/docs/operations.md#upgrading" target="_blank" rel="noopener noreferrer">Full upgrade instructions</a></p>{{end}}
       </fieldset>
       <fieldset id="settings-node-alerts" hidden>

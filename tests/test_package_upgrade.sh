@@ -92,9 +92,9 @@ grep -q '^COMPOSE_PROFILES=bitcoin$' "$tmp/state/.env" || fail "package upgrade 
 grep -q 'compose .* pull tor bitcoin dashboard' "$log" || fail "package upgrade did not pull the running subset"
 grep -q 'compose .* up -d --pull never --no-build --no-deps tor bitcoin dashboard' "$log" || fail "package upgrade did not recreate the running subset"
 grep -q '^STACK_VERSION=' "$tmp/state/.env" || fail "package upgrade did not render the installed version"
-grep -q '^enable --now bitcoin-starter-stack-resource-profile.timer$' "$systemctl_log" || fail "package upgrade did not enable post-sync resource controls"
-grep -q '^enable --now bitcoin-starter-stack-port-control.timer$' "$systemctl_log" || fail "package upgrade did not enable LAN port controls"
-grep -q '^enable --now bitcoin-starter-stack-node-control.timer$' "$systemctl_log" || fail "package upgrade did not enable node controls"
+grep -q '^enable --now node-manager-resource-profile.timer$' "$systemctl_log" || fail "package upgrade did not enable post-sync resource controls"
+grep -q '^enable --now node-manager-port-control.timer$' "$systemctl_log" || fail "package upgrade did not enable LAN port controls"
+grep -q '^enable --now node-manager-node-control.timer$' "$systemctl_log" || fail "package upgrade did not enable node controls"
 
 : >"$log"
 printf '%s\n' tor dashboard >"$running"
@@ -129,8 +129,8 @@ FAKE_UP_FAIL_ONCE=1 ./stack package-upgrade >"$up_failure" 2>&1 && fail "package
 [ "$(grep -c ' up -d ' "$log")" = 1 ] || fail "recreation failure attempted an unsafe image downgrade"
 [ -f "$tmp/state/.package-upgrade-pending" ] || fail "recreation failure did not leave a retry marker"
 [ "$(sed -n 's/^STACK_VERSION=//p' "$tmp/state/.approved.env")" != old-release ] || fail "recreation failure did not preserve the new approved runtime"
-grep -q 'sudo bitcoin-stack up tor bitcoin dashboard' "$up_failure" || fail "recreation failure omitted the interrupted service recovery command"
-grep -q 'sudo bitcoin-stack package-upgrade' "$up_failure" || fail "recreation failure omitted the activation retry command"
+grep -q 'sudo node-manager up tor bitcoin dashboard' "$up_failure" || fail "recreation failure omitted the interrupted service recovery command"
+grep -q 'sudo node-manager package-upgrade' "$up_failure" || fail "recreation failure omitted the activation retry command"
 
 : >"$log"
 printf '%s\n' tor dashboard >"$running"

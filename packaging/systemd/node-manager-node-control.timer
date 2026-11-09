@@ -1,5 +1,5 @@
 [Unit]
-Description=Watch Node Starter Stack node state requests
+Description=Watch Node Manager node state requests
 
 [Timer]
 OnBootSec=30s

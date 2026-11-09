@@ -31,18 +31,18 @@ export BITCOIN_STACK_ROOT="$tmp/payload"
 export BITCOIN_STACK_PACKAGE_MANAGED=brew
 export HOST_TEST_OS=Darwin
 unset BITCOIN_STACK_HOME BITCOIN_STACK_CONFIG_DIR BITCOIN_STACK_STATE_DIR BITCOIN_STACK_DATA_DIR
-paths=$(scripts/bitcoin-stack help)
-expected=$(printf '%s\n' "$HOME/Library/Application Support/bitcoin-starter-stack/config" "$HOME/Library/Application Support/bitcoin-starter-stack/state" "$HOME/Library/Application Support/bitcoin-starter-stack/data" brew)
+paths=$(scripts/node-manager help)
+expected=$(printf '%s\n' "$HOME/Library/Application Support/node-manager/config" "$HOME/Library/Application Support/node-manager/state" "$HOME/Library/Application Support/node-manager/data" brew)
 [ "$paths" = "$expected" ] || fail "Mac paths do not preserve spaces or use per-user directories"
 export HOST_TEST_OS=Linux XDG_CONFIG_HOME="$tmp/xdg config" XDG_DATA_HOME="$tmp/xdg data"
-paths=$(scripts/bitcoin-stack help)
-expected=$(printf '%s\n' "$XDG_CONFIG_HOME/bitcoin-starter-stack" "$XDG_DATA_HOME/bitcoin-starter-stack/state" "$XDG_DATA_HOME/bitcoin-starter-stack/data" brew)
+paths=$(scripts/node-manager help)
+expected=$(printf '%s\n' "$XDG_CONFIG_HOME/node-manager" "$XDG_DATA_HOME/node-manager/state" "$XDG_DATA_HOME/node-manager/data" brew)
 [ "$paths" = "$expected" ] || fail "Linux Homebrew paths do not honor XDG"
-BITCOIN_STACK_CONFIG_DIR=relative scripts/bitcoin-stack help >/dev/null 2>&1 && fail "relative state path was accepted"
+BITCOIN_STACK_CONFIG_DIR=relative scripts/node-manager help >/dev/null 2>&1 && fail "relative state path was accepted"
 export BITCOIN_STACK_PACKAGE_MANAGED=1
 export BITCOIN_STACK_CONFIG_DIR="$tmp/apt/config" BITCOIN_STACK_STATE_DIR="$tmp/apt/state"
 export BITCOIN_STACK_DATA_DIR="$tmp/apt/data"
-paths=$(scripts/bitcoin-stack help)
+paths=$(scripts/node-manager help)
 expected=$(printf '%s\n' "$BITCOIN_STACK_CONFIG_DIR" "$BITCOIN_STACK_STATE_DIR" "$BITCOIN_STACK_DATA_DIR" 1)
 [ "$paths" = "$expected" ] || fail "APT wrapper contract changed"
 
@@ -105,7 +105,7 @@ SH
 chmod +x "$payload/configure.sh" "$payload/scripts/"* "$tmp/bin/docker"
 export BITCOIN_STACK_ROOT=$payload HOST_TEST_LOG="$tmp/host.log" HOST_TEST_DOCKER_READY="$tmp/docker-ready"
 rm -f "$BITCOIN_STACK_CONFIG_DIR/config.json" "$BITCOIN_STACK_STATE_DIR/.env"
-"$root/scripts/bitcoin-stack" host-service >"$tmp/service.log" 2>&1 &
+"$root/scripts/node-manager" host-service >"$tmp/service.log" 2>&1 &
 service_pid=$!
 sleep 1
 [ ! -f "$HOST_TEST_LOG" ] || fail "service did work without saved configuration"
@@ -120,7 +120,7 @@ for action in configure node-control node-port-control node-resource-profile; do
   grep -q "^$action$" "$HOST_TEST_LOG" || { cat "$tmp/service.log"; fail "host service did not run $action"; }
 done
 grep -q '^compose .* up ' "$HOST_TEST_LOG" || { cat "$tmp/service.log"; fail "host service did not start configured nodes"; }
-"$root/scripts/bitcoin-stack" host-service >/dev/null 2>&1 && fail "host service allowed duplicate supervision"
+"$root/scripts/node-manager" host-service >/dev/null 2>&1 && fail "host service allowed duplicate supervision"
 kill "$service_pid"
 wait "$service_pid"
 service_pid=
@@ -128,7 +128,7 @@ service_pid=
 : >"$HOST_TEST_LOG"
 rm -f "$BITCOIN_STACK_STATE_DIR/.env" "$BITCOIN_STACK_STATE_DIR/.approved.env" "$BITCOIN_STACK_STATE_DIR/.approved-config.json"
 printf '{"dashboard":{"launch_at_boot":false}}\n' >"$BITCOIN_STACK_CONFIG_DIR/config.json"
-"$root/scripts/bitcoin-stack" host-service >"$tmp/service-off.log" 2>&1 &
+"$root/scripts/node-manager" host-service >"$tmp/service-off.log" 2>&1 &
 service_pid=$!
 for ((attempt=0; attempt<15; attempt++)); do
   if [ -f "$HOST_TEST_LOG" ] && grep -q '^node-control$' "$HOST_TEST_LOG"; then break; fi
@@ -140,11 +140,11 @@ kill "$service_pid"
 wait "$service_pid"
 service_pid=
 
-"$root/scripts/bitcoin-stack" upgrade >"$tmp/upgrade.log"
-grep -q 'brew upgrade bitcoin-starter-stack' "$tmp/upgrade.log" || fail "Homebrew upgrade uses source checkout"
+"$root/scripts/node-manager" upgrade >"$tmp/upgrade.log"
+grep -q 'brew upgrade node-manager' "$tmp/upgrade.log" || fail "Homebrew upgrade uses source checkout"
 configure_before=$(grep -c '^configure$' "$HOST_TEST_LOG")
-"$root/scripts/bitcoin-stack" pull >/dev/null
+"$root/scripts/node-manager" pull >/dev/null
 configure_after=$(grep -c '^configure$' "$HOST_TEST_LOG")
 [ "$configure_after" -eq "$((configure_before + 1))" ] || fail "pull reused stale image tags instead of rendering the installed version"
-grep -q 'bitcoin-stack pull' "$tmp/upgrade.log" || fail "Homebrew upgrade instructions omit new images"
+grep -q 'node-manager pull' "$tmp/upgrade.log" || fail "Homebrew upgrade instructions omit new images"
 echo "PASS: test_host_install.sh"

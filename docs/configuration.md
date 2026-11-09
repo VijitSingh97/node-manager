@@ -15,22 +15,22 @@ A password changed in the dashboard remains authoritative over
 that baseline; see [credential recovery](operations.md#dashboard-and-node-credentials).
 Restore never prints credentials.
 
-APT installations use `bitcoin-stack` in place of `./stack`. Their config is
-`/etc/bitcoin-starter-stack/config.json`; generated credentials and backups live
-under `/var/lib/bitcoin-starter-stack`, and chain data defaults to the dedicated
-`/var/lib/bitcoin-starter-stack/data/bitcoin` and
-`/var/lib/bitcoin-starter-stack/data/monero` directories. Run package commands
+APT installations use `node-manager` in place of `./stack`. Their config is
+`/etc/node-manager/config.json`; generated credentials and backups live
+under `/var/lib/node-manager`, and chain data defaults to the dedicated
+`/var/lib/node-manager/data/bitcoin` and
+`/var/lib/node-manager/data/monero` directories. Run package commands
 with `sudo`. A fresh package installation with no config or prior `.env` defaults
 to `prune_mb: 10000`; an explicit config or existing generated value always wins.
 
-Homebrew installations also use `bitcoin-stack`, without `sudo`. On macOS,
+Homebrew installations also use `node-manager`, without `sudo`. On macOS,
 configuration lives at
-`~/Library/Application Support/bitcoin-starter-stack/config/config.json`, with
+`~/Library/Application Support/node-manager/config/config.json`, with
 generated state and chain data in the sibling `state/` and `data/<node>/`
 directories. Linuxbrew follows XDG: configuration defaults to
-`${XDG_CONFIG_HOME:-~/.config}/bitcoin-starter-stack/config.json`, while state
+`${XDG_CONFIG_HOME:-~/.config}/node-manager/config.json`, while state
 and data default below
-`${XDG_DATA_HOME:-~/.local/share}/bitcoin-starter-stack/`. Homebrew-managed
+`${XDG_DATA_HOME:-~/.local/share}/node-manager/`. Homebrew-managed
 upgrades use `brew upgrade` explicitly.
 Linuxbrew safely initializes empty default node directories with the container
 UIDs after images are present. It does not take ownership of non-empty or custom
@@ -46,9 +46,9 @@ Use the command and paths for your installation:
 | Install | Configuration to edit | Generated private state | Apply and check |
 |---|---|---|---|
 | Source | `config.json` in the extracted directory | `.env` and `backups/` beside it | `./stack apply && ./stack status` |
-| Homebrew on macOS | `~/Library/Application Support/bitcoin-starter-stack/config/config.json` | sibling `state/` directory | `bitcoin-stack apply && bitcoin-stack status` |
-| Linuxbrew | `${XDG_CONFIG_HOME:-~/.config}/bitcoin-starter-stack/config.json` | `${XDG_DATA_HOME:-~/.local/share}/bitcoin-starter-stack/state/` | `bitcoin-stack apply && bitcoin-stack status` |
-| APT | `/etc/bitcoin-starter-stack/config.json` | `/var/lib/bitcoin-starter-stack/.env` and `backups/` | `sudo bitcoin-stack apply && sudo bitcoin-stack status` |
+| Homebrew on macOS | `~/Library/Application Support/node-manager/config/config.json` | sibling `state/` directory | `node-manager apply && node-manager status` |
+| Linuxbrew | `${XDG_CONFIG_HOME:-~/.config}/node-manager/config.json` | `${XDG_DATA_HOME:-~/.local/share}/node-manager/state/` | `node-manager apply && node-manager status` |
+| APT | `/etc/node-manager/config.json` | `/var/lib/node-manager/.env` and `backups/` | `sudo node-manager apply && sudo node-manager status` |
 
 The dashboard repeats the active host path in **Settings → Config**, directly
 below Healthchecks. This is a read-only display from the installed host helper;
@@ -56,7 +56,7 @@ edit that file and use the apply command in the table when a setting is not
 available in the dashboard.
 
 Installation never runs setup. Run `./stack init` for source,
-`bitcoin-stack init` for Homebrew, or `sudo bitcoin-stack init` for APT. This
+`node-manager init` for Homebrew, or `sudo node-manager init` for APT. This
 noninteractive command downloads missing images and starts the default stack,
 or preserves and starts a configuration you created beforehand. Save printed
 node credentials in a password manager. Set the required dashboard password
@@ -202,7 +202,7 @@ shows the overridable settings with their defaults:
 | `bitcoin.enabled` | `true` | Runs the Bitcoin node. Set false for a Monero-only installation. |
 | `bitcoin.node_username` | `admin` | RPC username used by the dashboard and optional LAN wallet connections. Letters and numbers only. |
 | `bitcoin.node_password` | auto-generated | Separate Bitcoin RPC password. Existing explicit or rendered credentials remain unchanged. bitcoind receives only a salted hash (`rpcauth`). Letters and numbers only; LAN exposure requires at least 24 characters. |
-| `bitcoin.data_dir` | `./data/bitcoin` (source), managed data directory for APT/Homebrew | Where the blockchain lives on the host. APT uses `/var/lib/bitcoin-starter-stack/data/bitcoin`; Homebrew uses the platform data path above. Relative source paths resolve from the repo root. |
+| `bitcoin.data_dir` | `./data/bitcoin` (source), managed data directory for APT/Homebrew | Where the blockchain lives on the host. APT uses `/var/lib/node-manager/data/bitcoin`; Homebrew uses the platform data path above. Relative source paths resolve from the repo root. |
 | `bitcoin.dbcache_mb` | `128` | Bitcoin Core's UTXO cache size in MB. Size it to your RAM — see [Hardware](hardware.md#ram). Existing installs keep their rendered cache setting when this key is omitted; the Compose fallback remains 3000 for older `.env` files that predate this setting. |
 | `bitcoin.prune_mb` | `10000` | Keeps 10,000 MiB of recent block files after full validation. Existing explicit configuration and rendered state remain unchanged. `0` remains an advanced manual archival setting; any nonzero value must be ≥ `550`. See [Pruned node](#pruned-node). |
 | `bitcoin.inbound_onion` | `false` | `true` publishes a Tor onion service so your node accepts inbound connections and serves available blocks with no IP exposure. See [Inbound onion service](#inbound-onion-service). |
@@ -229,7 +229,7 @@ shows the overridable settings with their defaults:
 | `monero.zmq_port` | `18083` | Host port for the opt-in ZMQ relay. |
 | `<node>.enabled` | `false` for Tari, Litecoin, Dogecoin, Bitcoin Cash, and Zcash | Adds that node to the configured stack and dashboard. At least one node must be enabled. |
 | `<node>.active` | `true` | Starts the configured node. Dashboard deactivation changes this to `false` while preserving data and configuration. |
-| `<node>.data_dir` | `./data/<node>` (source), managed data directory for APT/Homebrew | Host directory for that chain's data. APT uses `/var/lib/bitcoin-starter-stack/data/<node>`; Homebrew uses its platform data path above. |
+| `<node>.data_dir` | `./data/<node>` (source), managed data directory for APT/Homebrew | Host directory for that chain's data. APT uses `/var/lib/node-manager/data/<node>`; Homebrew uses its platform data path above. |
 | `<node>.resource_profile` | `off`; `compact` for APT/Homebrew default setup selections or dashboard installs | Syncs uncapped, then applies that node's steady ceiling after repeated healthy sync checks. |
 | `<node>.steady_cpus` | `1` | Independent post-sync CPU ceiling for Tari, Litecoin, Dogecoin, Bitcoin Cash, or Zcash. |
 | `<node>.steady_mem_limit_mb` | `2048` for Litecoin, Dogecoin, and Bitcoin Cash; `4096` for Tari and Zcash | Independent post-sync memory-plus-swap ceiling for those base nodes. Tari's separate wallet sidecar is not included. This is a budget, not a qualified minimum. |
@@ -256,13 +256,13 @@ shows the overridable settings with their defaults:
 ### Custom data directories on APT installs
 
 The dashboard's host helpers run inside a strict systemd sandbox that can
-write only to `/etc/bitcoin-starter-stack` and `/var/lib/bitcoin-starter-stack`.
+write only to `/etc/node-manager` and `/var/lib/node-manager`.
 Installing a node from the dashboard with a data folder outside those paths
 (for example under `/home`) is rejected until you extend the sandbox for that
 path on the host — an explicit operator decision:
 
 ```bash
-sudo systemctl edit bitcoin-starter-stack-node-control bitcoin-starter-stack-port-control
+sudo systemctl edit node-manager-node-control node-manager-port-control
 ```
 
 ```ini
@@ -325,7 +325,7 @@ Edit the installation's existing `config.json` to change those fields; keep its
 other settings. Then run:
 
 ```bash
-bitcoin-stack apply  # use sudo for an APT install
+node-manager apply  # use sudo for an APT install
 ```
 
 Tari, Litecoin, Dogecoin, Bitcoin Cash, and Zcash base nodes use 4096 MiB by default;
@@ -344,7 +344,7 @@ ceilings totaling 8 CPUs and 25 GiB before Tor, dashboard, Docker, filesystem
 cache, and host overhead. These figures add configured ceilings; they are not
 measurements of actual use or a qualified host minimum.
 
-APT uses `bitcoin-starter-stack-resource-profile.timer`; Homebrew's user service
+APT uses `node-manager-resource-profile.timer`; Homebrew's user service
 runs the same helper. It never runs inside the dashboard or mounts the Docker
 socket there. Initial sync remains
 uncapped by this profile. Explicit manual Docker limits and the legacy
@@ -425,13 +425,13 @@ restarts the affected services. Reveal the new login and update every external
 client. Reset is unavailable when the node is inactive. Tari gRPC and Monero
 ZMQ do not display made-up credentials.
 
-For APT installs, `bitcoin-stack init`, `up`, and `apply` enable
-`bitcoin-starter-stack-port-control.timer`. Source installs reuse the host
+For APT installs, `node-manager init`, `up`, and `apply` enable
+`node-manager-port-control.timer`. Source installs reuse the host
 agent for authenticated trusted-LAN controls. On
 macOS source installs, setup starts a session helper with a private
 `host-service.log`; Homebrew registers the user service automatically. No host
 control runs inside the dashboard, and it has no Docker socket. Homebrew uses
-`bitcoin-stack host-service` through `brew services` for these requests. Port settings persist across reboot because the host
+`node-manager host-service` through `brew services` for these requests. Port settings persist across reboot because the host
 configuration is updated.
 
 The Appearance section includes **Label towers**, off by default. It saves the

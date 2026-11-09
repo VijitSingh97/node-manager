@@ -4,7 +4,7 @@ services:
       - tari_wallet:/tari-wallet
 
   tari-wallet:
-    image: ghcr.io/vijitsingh97/bitcoin-starter-stack-tari-wallet:${STACK_VERSION:?Run stack init or configure.sh first}
+    image: ghcr.io/vijitsingh97/node-manager-tari-wallet:${STACK_VERSION:?Run stack init or configure.sh first}
     build:
       context: ${STACK_ROOT:-.}
       dockerfile: build/tari-wallet/Dockerfile

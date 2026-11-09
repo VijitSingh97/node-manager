@@ -33,9 +33,10 @@ optional node interfaces stay on your trusted LAN.
 - Telegram alerts, Healthchecks.io, live sync progress, disk monitoring, and
   per-node controls.
 
-Version 1.32.0 is the first multi-chain Node Manager release. The package and
-command retain the names `bitcoin-starter-stack` and `bitcoin-stack` so existing
-installations and data paths continue to work.
+The package, command, images, and formula are named `node-manager`. Existing
+`bitcoin-starter-stack` installations upgrade in place: APT migrates
+automatically through a transitional package, and `bitcoin-stack` remains as a
+compatibility command.
 
 ## Ubuntu install with APT
 
@@ -52,17 +53,17 @@ sudo docker compose version
 sudo apt update
 sudo apt install ca-certificates curl
 sudo install -d -m 0755 /etc/apt/keyrings
-curl -fsSL https://vijitsingh97.github.io/node-manager/bitcoin-starter-stack.asc \
-  | sudo tee /etc/apt/keyrings/bitcoin-starter-stack.asc >/dev/null
-sudo tee /etc/apt/sources.list.d/bitcoin-starter-stack.sources >/dev/null <<'EOF'
+curl -fsSL https://vijitsingh97.github.io/node-manager/node-manager.asc \
+  | sudo tee /etc/apt/keyrings/node-manager.asc >/dev/null
+sudo tee /etc/apt/sources.list.d/node-manager.sources >/dev/null <<'EOF'
 Types: deb
 URIs: https://vijitsingh97.github.io/node-manager/
 Suites: ./
-Signed-By: /etc/apt/keyrings/bitcoin-starter-stack.asc
+Signed-By: /etc/apt/keyrings/node-manager.asc
 EOF
 sudo apt update
-sudo apt install bitcoin-starter-stack
-sudo bitcoin-stack init
+sudo apt install node-manager
+sudo node-manager init
 ```
 
 The signing key fingerprint is
@@ -78,8 +79,8 @@ services for an initialized, running stack. This may briefly restart affected
 nodes. A stopped stack stays stopped, and pending configuration edits are not
 applied automatically.
 
-Configuration: `/etc/bitcoin-starter-stack/config.json`<br>
-State and chain data: `/var/lib/bitcoin-starter-stack/`
+Configuration: `/etc/node-manager/config.json`<br>
+State and chain data: `/var/lib/node-manager/`
 
 See the [getting-started guide](docs/getting-started.md) for custom storage,
 first-boot configuration, upgrades, and package-feed trust details.
@@ -118,16 +119,16 @@ docker compose version
 Install Node Manager and start the default node:
 
 ```bash
-brew tap vijitsingh97/bitcoin-starter-stack https://github.com/VijitSingh97/node-manager.git
-brew install vijitsingh97/bitcoin-starter-stack/bitcoin-starter-stack
-bitcoin-stack init
+brew tap vijitsingh97/node-manager https://github.com/VijitSingh97/node-manager.git
+brew install vijitsingh97/node-manager/node-manager
+node-manager init
 ```
 
 The dashboard defaults to port `8080`. Setup chooses a private LAN address when
 one is available and prints the exact URL.
 
-Configuration: `~/Library/Application Support/bitcoin-starter-stack/config/config.json`<br>
-State and chain data: `~/Library/Application Support/bitcoin-starter-stack/`
+Configuration: `~/Library/Application Support/node-manager/config/config.json`<br>
+State and chain data: `~/Library/Application Support/node-manager/`
 
 Enable **Launch at login** in Settings if the stack should return when you sign
 in. Docker Desktop must also be running. See the [Homebrew guide](docs/homebrew.md)
@@ -167,8 +168,8 @@ at once is rejected:
 Replace the example password with your own random value; `openssl rand -hex 16`
 generates a compatible password.
 
-For APT, edit `/etc/bitcoin-starter-stack/config.json` with `sudo` and run
-`sudo bitcoin-stack apply`; for a source install, edit `config.json` and run
+For APT, edit `/etc/node-manager/config.json` with `sudo` and run
+`sudo node-manager apply`; for a source install, edit `config.json` and run
 `./stack apply`. See [Caddyfile.example](docs/Caddyfile.example) for a minimal
 host config. Install Caddy from its [official Ubuntu packages](https://caddyserver.com/docs/install#debian-ubuntu-raspbian),
 copy the example to `/etc/caddy/Caddyfile`, set `dashboard.port` to `8080` in
@@ -204,9 +205,9 @@ See [per-node disk and resource estimates](docs/nodes.md) before adding chains.
 ## After installation
 
 ```bash
-bitcoin-stack status
-bitcoin-stack up
-bitcoin-stack down
+node-manager status
+node-manager up
+node-manager down
 ```
 
 Use `sudo` with an APT installation. Configure nodes from the dashboard and see

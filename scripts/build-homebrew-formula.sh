@@ -8,7 +8,7 @@ usage() {
 }
 
 release_url=
-output=dist/Formula/bitcoin-starter-stack.rb
+output=dist/Formula/node-manager.rb
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --url)
@@ -43,25 +43,25 @@ if grep -Eq '(^/|(^|/)\.\.(/|$))' "$contents"; then
   exit 1
 fi
 for required in \
-  bitcoin-starter-stack/stack \
-  bitcoin-starter-stack/configure.sh \
-  bitcoin-starter-stack/VERSION \
-  bitcoin-starter-stack/docker-compose.yml \
-  bitcoin-starter-stack/docker-compose.tari-wallet.yml \
-  bitcoin-starter-stack/build/dashboard/Dockerfile \
-  bitcoin-starter-stack/build/bitcoin/bitcoin.conf \
-  bitcoin-starter-stack/build/tari/config.toml \
-  bitcoin-starter-stack/build/tari/entrypoint.sh \
-  bitcoin-starter-stack/build/tari-wallet/Dockerfile \
-  bitcoin-starter-stack/build/tari-wallet/go.mod \
-  bitcoin-starter-stack/build/tari-wallet/launcher.go \
-  bitcoin-starter-stack/build/tari-wallet/config.toml \
-  bitcoin-starter-stack/build/zcash/zakurad.toml \
-  bitcoin-starter-stack/build/zcash/healthcheck.sh \
-  bitcoin-starter-stack/scripts/bitcoin-stack \
-  bitcoin-starter-stack/scripts/node-control \
-  bitcoin-starter-stack/scripts/node-port-control \
-  bitcoin-starter-stack/scripts/node-resource-profile; do
+  node-manager/stack \
+  node-manager/configure.sh \
+  node-manager/VERSION \
+  node-manager/docker-compose.yml \
+  node-manager/docker-compose.tari-wallet.yml \
+  node-manager/build/dashboard/Dockerfile \
+  node-manager/build/bitcoin/bitcoin.conf \
+  node-manager/build/tari/config.toml \
+  node-manager/build/tari/entrypoint.sh \
+  node-manager/build/tari-wallet/Dockerfile \
+  node-manager/build/tari-wallet/go.mod \
+  node-manager/build/tari-wallet/launcher.go \
+  node-manager/build/tari-wallet/config.toml \
+  node-manager/build/zcash/zakurad.toml \
+  node-manager/build/zcash/healthcheck.sh \
+  node-manager/scripts/node-manager \
+  node-manager/scripts/node-control \
+  node-manager/scripts/node-port-control \
+  node-manager/scripts/node-resource-profile; do
   grep -Fxq "$required" "$contents" || {
     echo "release archive is missing $required" >&2
     exit 1
@@ -72,7 +72,7 @@ printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || {
   echo "VERSION must be plain semantic version" >&2
   exit 1
 }
-release_url=${release_url:-https://github.com/VijitSingh97/node-manager/releases/download/v${version}/bitcoin-starter-stack.tar.gz}
+release_url=${release_url:-https://github.com/VijitSingh97/node-manager/releases/download/v${version}/node-manager.tar.gz}
 case "$release_url" in
   https://* | file:///*) ;;
   *) echo "release URL must use https:// or an absolute file:// URL" >&2; exit 1 ;;
@@ -96,5 +96,5 @@ mkdir -p "$(dirname "$output")"
 sed -e "s|@VERSION@|$version_escaped|g" \
   -e "s|@RELEASE_URL@|$url_escaped|g" \
   -e "s|@SHA256@|$checksum_escaped|g" \
-  Formula/bitcoin-starter-stack.rb.in >"$output"
+  Formula/node-manager.rb.in >"$output"
 echo "Wrote $output for v$version ($checksum)"

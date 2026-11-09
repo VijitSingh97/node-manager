@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-stack_root=${BITCOIN_STACK_ROOT:-/usr/lib/bitcoin-starter-stack}
-state_root=${BITCOIN_STACK_STATE_DIR:-/var/lib/bitcoin-starter-stack}
+stack_root=${BITCOIN_STACK_ROOT:-/usr/lib/node-manager}
+state_root=${BITCOIN_STACK_STATE_DIR:-/var/lib/node-manager}
 env_file=${BITCOIN_STACK_ENV_FILE:-$state_root/.env}
 docker_bin=${DOCKER_BIN:-docker}
 profile_state=$state_root/resource-profile

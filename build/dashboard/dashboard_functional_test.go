@@ -375,10 +375,10 @@ func TestDashboardUpdateNoticeIsInformational(t *testing.T) {
 	page := responseBody(t, fixture.request(t, http.MethodGet, "/"))
 	for _, want := range []string{
 		"stack v1.3.0 available (running v1.2.0)",
-		"sudo apt install --only-upgrade bitcoin-starter-stack",
-		"bitcoin-stack pull",
-		"brew upgrade bitcoin-starter-stack",
-		"bitcoin-stack apply",
+		"sudo apt install --only-upgrade node-manager",
+		"node-manager pull",
+		"brew upgrade node-manager",
+		"node-manager apply",
 		"https://github.com/VijitSingh97/node-manager/releases/latest",
 	} {
 		if !strings.Contains(page, want) {
@@ -388,7 +388,7 @@ func TestDashboardUpdateNoticeIsInformational(t *testing.T) {
 	if strings.Contains(page, "Upgrade now") || strings.Contains(page, "/static/upgrade.js") {
 		t.Fatal("page still offers an in-app upgrade")
 	}
-	if strings.Contains(page, "sudo bitcoin-stack pull") || strings.Contains(page, "sudo bitcoin-stack apply") {
+	if strings.Contains(page, "sudo node-manager pull") || strings.Contains(page, "sudo node-manager apply") {
 		t.Fatal("APT instructions still require manual container activation")
 	}
 	for _, method := range []string{http.MethodGet, http.MethodPost} {

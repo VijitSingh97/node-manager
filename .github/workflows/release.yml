@@ -46,17 +46,17 @@ jobs:
 
       - name: Build tarball
         run: |
-          git archive --format=tar.gz --prefix=bitcoin-starter-stack/ \
-            -o bitcoin-starter-stack.tar.gz "$GITHUB_REF_NAME"
+          git archive --format=tar.gz --prefix=node-manager/ \
+            -o node-manager.tar.gz "$GITHUB_REF_NAME"
 
       - name: Build Homebrew formula
-        run: scripts/build-homebrew-formula.sh bitcoin-starter-stack.tar.gz
+        run: scripts/build-homebrew-formula.sh node-manager.tar.gz
 
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" bitcoin-starter-stack.tar.gz dist/Formula/bitcoin-starter-stack.rb \
+          gh release create "$GITHUB_REF_NAME" node-manager.tar.gz dist/Formula/node-manager.rb \
             --title "$GITHUB_REF_NAME" --notes-file /tmp/notes.md
 
   # Runtime images must exist before installable release assets are published.
@@ -83,7 +83,7 @@ jobs:
         run: |
           v="${GITHUB_REF_NAME#v}"
           owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          base="ghcr.io/$owner/bitcoin-starter-stack"
+          base="ghcr.io/$owner/node-manager"
           docker buildx build --platform linux/amd64,linux/arm64 \
             -t "$base-tor:$v" -t "$base-tor:latest" --push ./build/tor
           docker buildx build --platform linux/amd64,linux/arm64 \
@@ -132,10 +132,10 @@ jobs:
           branch="codex/homebrew-v$version"
           existing=$(tools/developer-bot.py gh pr list --state all --head "$branch" --json number --jq length)
           test "$existing" = 0 || exit 0
-          gh release download "$GITHUB_REF_NAME" --pattern bitcoin-starter-stack.tar.gz --dir "$RUNNER_TEMP"
+          gh release download "$GITHUB_REF_NAME" --pattern node-manager.tar.gz --dir "$RUNNER_TEMP"
           PACKAGE_VERSION="$version" scripts/build-homebrew-formula.sh \
-            --output Formula/bitcoin-starter-stack.rb "$RUNNER_TEMP/bitcoin-starter-stack.tar.gz"
-          git add Formula/bitcoin-starter-stack.rb
+            --output Formula/node-manager.rb "$RUNNER_TEMP/node-manager.tar.gz"
+          git add Formula/node-manager.rb
           git diff --cached --quiet && exit 0
           git switch -c "$branch"
           tools/developer-bot.py git commit -m "Update Homebrew formula to v$version"
@@ -171,7 +171,7 @@ jobs:
           git merge-base --is-ancestor HEAD refs/remotes/origin/main
           scripts/resolve-runtime-images.sh >"$RUNNER_TEMP/runtime-images.json"
           RUNTIME_IMAGE_DIGESTS_FILE="$RUNNER_TEMP/runtime-images.json" scripts/build-deb.sh
-          dpkg-deb --info dist/*.deb
+          for deb in dist/*.deb; do dpkg-deb --info "$deb"; done
       - name: Build signed APT feed
         env:
           APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
@@ -194,13 +194,14 @@ jobs:
           Types: deb
           URIs: file:$state/feed/
           Suites: ./
-          Signed-By: $state/feed/bitcoin-starter-stack.asc
+          Signed-By: $state/feed/node-manager.asc
           EOF
           options=(-o "Dir::Etc::sourcelist=$state/sources.sources" -o Dir::Etc::sourceparts=- -o "Dir::State::lists=$state/lists")
           sudo apt-get "${options[@]}" update
           cd "$state/download"
+          sudo apt-get "${options[@]}" download node-manager
           sudo apt-get "${options[@]}" download bitcoin-starter-stack
-          dpkg-deb --info ./*.deb
+          for deb in ./*.deb; do dpkg-deb --info "$deb"; done
       - name: Upload package assets
         env:
           GH_TOKEN: ${{ github.token }}

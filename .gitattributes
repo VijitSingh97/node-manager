@@ -24,4 +24,5 @@ AGENTS.md export-ignore
 docs/developer-bot.md export-ignore
 tools export-ignore
 Formula export-ignore
+formula_renames.json export-ignore
 scripts/build-homebrew-formula.sh export-ignore

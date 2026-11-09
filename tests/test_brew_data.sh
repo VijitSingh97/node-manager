@@ -81,7 +81,7 @@ cat >"$fake_bin/brew" <<'EOF'
 #!/bin/sh
 set -eu
 printf '%s\n' "$*" >>"$FAKE_BREW_LOG"
-[ "$*" = "services start bitcoin-starter-stack" ]
+[ "$*" = "services start node-manager" ]
 EOF
 cat >"$fake_bin/systemctl" <<'EOF'
 #!/bin/sh
@@ -145,7 +145,7 @@ EOF
 
 new_case fresh
 ./stack up
-grep -qx 'services start bitcoin-starter-stack' "$FAKE_BREW_LOG" || fail "Homebrew startup did not register the host supervisor"
+grep -qx 'services start node-manager' "$FAKE_BREW_LOG" || fail "Homebrew startup did not register the host supervisor"
 run_line=$(grep '^docker <run>' "$FAKE_DOCKER_LOG")
 for flag in '<--network> <none>' '<--read-only>' '<--security-opt> <no-new-privileges>' \
   '<--cap-drop> <ALL>' '<--cap-add> <CHOWN>' '<--cap-add> <DAC_READ_SEARCH>' '<--cap-add> <FOWNER>' \

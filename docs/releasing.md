@@ -21,7 +21,7 @@ them — including a Bitcoin Core security update — is a normal release
 Multi-arch images (amd64 and arm64/Raspberry Pi) for seven first-party runtime
 components — `tor`, `dashboard`, `monero`, `tari-wallet`, `litecoin`,
 `dogecoin`, and `bitcoincash` — are built and published to GHCR
-(`ghcr.io/vijitsingh97/bitcoin-starter-stack-*`) per release by the `images`
+(`ghcr.io/vijitsingh97/node-manager-*`) per release by the `images`
 job in the [Release workflow](../.github/workflows/release.yml). Bitcoin Core,
 the Tari base node, and Zakura use pinned upstream images rather than duplicate
 first-party builds.
@@ -67,7 +67,7 @@ Versioning rules:
    the **full CI suite** (shellcheck, unit tests, compose contract, e2e
    boot with the egress audit) runs against the tagged commit, and only
    then is the GitHub Release published — title, notes extracted from the
-   changelog section, and a `bitcoin-starter-stack.tar.gz` source tarball
+   changelog section, and a `node-manager.tar.gz` source tarball
    (`git archive`, filtered by `.gitattributes`).
 
 The tarball contains runtime source and Docker inputs, configuration, the license,
@@ -104,7 +104,7 @@ RUNTIME_IMAGE_DIGESTS_FILE=/tmp/node-manager-runtime-images.json scripts/build-d
 A first installation remains inert. On an actual version upgrade, the package's
 `postinst` activates images only for an initialized, running package deployment.
 It preserves approved settings, data, volumes, and deliberately stopped services.
-Activation failures are reported for retry with `bitcoin-stack package-upgrade`;
+Activation failures are reported for retry with `node-manager package-upgrade`;
 Docker or registry outages do not leave dpkg unconfigured.
 It builds the architecture-independent package, creates and signs the feed,
 verifies that feed with an isolated APT client, uploads the package and checksum
@@ -118,13 +118,13 @@ monitored periodic re-signing so an idle project does not break every user's
 
 ## How users get a release
 
-- **Tarball:** obtain and unpack `bitcoin-starter-stack.tar.gz`, then run
+- **Tarball:** obtain and unpack `node-manager.tar.gz`, then run
   `./stack init` to download missing images and start.
 - **APT:** after the signed Pages deployment succeeds, install the package from
   `https://vijitsingh97.github.io/node-manager` and run
-  `sudo bitcoin-stack init` explicitly.
+  `sudo node-manager init` explicitly.
 - **Homebrew:** after the generated formula PR is merged, install from the
-  legacy-named `vijitsingh97/bitcoin-starter-stack` tap, whose explicit remote
+  legacy-named `vijitsingh97/node-manager` tap, whose explicit remote
   is the canonical `VijitSingh97/node-manager` repository.
 - **Git:** users select the published release tag themselves, then pull its
   images and apply it. Source builds stay in a separately controlled environment.
@@ -135,10 +135,10 @@ monitored periodic re-signing so an idle project does not break every user's
 
 ## Homebrew formula
 
-The release uploads a generated `bitcoin-starter-stack.rb` beside the runtime
+The release uploads a generated `node-manager.rb` beside the runtime
 archive. The formula pins that exact archive's SHA-256; it is not a development
 checkout. After both the release and its multi-architecture container images
-publish, the developer bot opens a PR updating `Formula/bitcoin-starter-stack.rb`
+publish, the developer bot opens a PR updating `Formula/node-manager.rb`
 on `main`. The release is **not available through Homebrew until that PR is
 reviewed and merged**.
 The job uses the same `DEVELOPER_BOT_APP_ID` variable (or secret) and
@@ -148,8 +148,8 @@ the formula asset is still generated but no tap-update PR is opened.
 To generate the same formula manually from a downloaded release archive:
 
 ```bash
-scripts/build-homebrew-formula.sh bitcoin-starter-stack.tar.gz
+scripts/build-homebrew-formula.sh node-manager.tar.gz
 ```
 
-The output is `dist/Formula/bitcoin-starter-stack.rb`. Never point a public
+The output is `dist/Formula/node-manager.rb`. Never point a public
 formula at a local test archive or publish a new formula before its images exist.

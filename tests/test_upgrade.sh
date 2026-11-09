@@ -19,8 +19,8 @@ done
 
 out=$(PATH="$tmp/bin:$PATH" ./stack upgrade)
 printf '%s\n' "$out" | grep -q 'does not update itself' || fail "manual-update policy is missing"
-printf '%s\n' "$out" | grep -q 'sudo apt install --only-upgrade bitcoin-starter-stack' || fail "APT instructions are missing"
-printf '%s\n' "$out" | grep -q 'brew upgrade bitcoin-starter-stack' || fail "Homebrew instructions are missing"
+printf '%s\n' "$out" | grep -q 'sudo apt install --only-upgrade node-manager' || fail "APT instructions are missing"
+printf '%s\n' "$out" | grep -q 'brew upgrade node-manager' || fail "Homebrew instructions are missing"
 printf '%s\n' "$out" | grep -q 'node-manager/releases/latest' || fail "GitHub instructions are missing"
 printf '%s\n' "$out" | grep -q './stack pull' || fail "runtime image instructions are missing"
 printf '%s\n' "$out" | grep -q './stack apply' || fail "runtime apply instructions are missing"

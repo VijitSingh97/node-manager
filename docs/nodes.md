@@ -6,8 +6,9 @@ setup. Each selected chain gets a separate data directory and resource profile.
 RPC credentials are separate for each authenticated endpoint; the dashboard has
 its own password.
 
-The package and existing data paths retain the `bitcoin-starter-stack` name for
-upgrade compatibility. Changing the product name does not move chain data.
+Upgrades from `bitcoin-starter-stack` move the managed directories to the
+`node-manager` paths and leave compatibility symlinks behind; chain data is
+never copied or relocated across filesystems.
 
 ## Storage and resource planning
 
@@ -112,7 +113,7 @@ back to an external block explorer.
 ## Default setup and adding nodes
 
 Package installation does not start services or prompt. Run
-`sudo bitcoin-stack init` for APT, `bitcoin-stack init` for Homebrew, or
+`sudo node-manager init` for APT, `node-manager init` for Homebrew, or
 `./stack init` for source. A fresh setup starts Bitcoin only, downloads missing
 images, uses default data directories, and leaves node LAN interfaces closed.
 The dashboard gets one generated 32-character password on a new install,
@@ -132,7 +133,7 @@ it never changes ownership recursively on existing files. To reuse an existing
 chain database, set its path in `config.json` and apply that configuration.
 
 APT management helpers can write only inside the package’s managed directories.
-Use the default `/var/lib/bitcoin-starter-stack/data/<node>` path, or mount
+Use the default `/var/lib/node-manager/data/<node>` path, or mount
 another disk at that path. An arbitrary external path such as `/mnt/...` or
 `/home/nodes/...` needs an administrator to grant that exact directory to the
 node-control and port-control systemd services first. Homebrew uses the current
@@ -149,7 +150,7 @@ Settings.
 
 For another combination or storage location on first start, create
 `config.json` before `init`; see [first-start customization](getting-started.md#customize-before-first-start).
-Package data defaults to `/var/lib/bitcoin-starter-stack/data/<node>`; Homebrew
+Package data defaults to `/var/lib/node-manager/data/<node>`; Homebrew
 uses user-owned Application Support/XDG data, and source uses `./data/<node>`.
 
 Fresh managed installs use the `compact` resource profile: sync is uncapped,

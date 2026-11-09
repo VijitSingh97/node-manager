@@ -14,7 +14,7 @@ import (
 
 const (
 	coinGeckoPriceURL     = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,monero,minotari,litecoin,dogecoin,bitcoin-cash,zcash&vs_currencies=usd,eur,gbp,inr,cad,aud,jpy,rub,cny&include_last_updated_at=true"
-	priceUserAgent        = "bitcoin-starter-stack-dashboard (+https://github.com/VijitSingh97/node-manager)"
+	priceUserAgent        = "node-manager-dashboard (+https://github.com/VijitSingh97/node-manager)"
 	priceStartupRetry     = 10 * time.Second
 	priceRefreshEvery     = 5 * time.Minute
 	priceStaleAfter       = 15 * time.Minute

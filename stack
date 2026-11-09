@@ -246,6 +246,8 @@ container_id() {
 guard_package_containers() {
   [ "$package_managed" != 0 ] || return 0
   local service id config working_dir
+  local legacy_stack_root=${stack_root//node-manager/bitcoin-starter-stack}
+  local legacy_state_dir=${state_dir//node-manager/bitcoin-starter-stack}
   for service in tor bitcoin monero monero-wallet tari tari-wallet litecoin dogecoin bitcoincash zcash dashboard; do
     if ! id=$(container_id "$service"); then
       echo "Existing $service container ownership could not be queried; package mode will not replace it." >&2
@@ -257,7 +259,7 @@ guard_package_containers() {
       return 1
     }
     case ",$config," in
-      *",$stack_root/docker-compose.yml,"*) ;;
+      *",$stack_root/docker-compose.yml,"* | *",$legacy_stack_root/docker-compose.yml,"*) ;;
       *)
         echo "Existing $service container belongs to another installation; package mode will not replace it." >&2
         echo "Keep the source deployment or stop it and plan a manual migration; see docs/operations.md." >&2
@@ -265,7 +267,7 @@ guard_package_containers() {
         ;;
     esac
     working_dir=$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' "$id" 2>/dev/null) || return 1
-    if [ "$working_dir" != "$state_dir" ]; then
+    if [ "$working_dir" != "$state_dir" ] && [ "$working_dir" != "$legacy_state_dir" ]; then
       echo "Existing $service container belongs to another installation; this installation will not replace it." >&2
       return 1
     fi
@@ -420,7 +422,7 @@ init() {
 
 ensure_resource_profile_timer() {
   [ "$package_managed" = "1" ] || return 0
-  unit=bitcoin-starter-stack-resource-profile.timer
+  unit='node-manager-resource-profile.timer'
   if [ "$(env_get BITCOIN_RESOURCE_PROFILE)" = compact ] || [ "$(env_get MONERO_RESOURCE_PROFILE)" = compact ] ||
     [ "$(env_get TARI_RESOURCE_PROFILE)" = compact ] || [ "$(env_get LITECOIN_RESOURCE_PROFILE)" = compact ] ||
     [ "$(env_get DOGECOIN_RESOURCE_PROFILE)" = compact ] || [ "$(env_get BITCOINCASH_RESOURCE_PROFILE)" = compact ] ||
@@ -435,7 +437,7 @@ ensure_resource_profile_timer() {
 
 ensure_port_control_timer() {
   [ "$package_managed" = "1" ] || return 0
-  unit=bitcoin-starter-stack-port-control.timer
+  unit='node-manager-port-control.timer'
   systemctl daemon-reload >/dev/null 2>&1 || true
   systemctl enable --now "$unit" >/dev/null 2>&1 ||
     echo "WARN  could not enable LAN port controls; run: sudo systemctl enable --now $unit"
@@ -444,8 +446,8 @@ ensure_port_control_timer() {
 ensure_node_control_timer() {
   [ "$package_managed" = "1" ] || return 0
   systemctl daemon-reload >/dev/null 2>&1 || true
-  systemctl enable --now bitcoin-starter-stack-node-control.timer >/dev/null 2>&1 ||
-    echo "WARN  could not enable node controls; run: sudo systemctl enable --now bitcoin-starter-stack-node-control.timer"
+  systemctl enable --now node-manager-node-control.timer >/dev/null 2>&1 ||
+    echo "WARN  could not enable node controls; run: sudo systemctl enable --now node-manager-node-control.timer"
 }
 
 sync_node_runtime() {
@@ -724,9 +726,9 @@ package_upgrade() {
     mark_package_upgrade_pending
     unlock_config
     echo "The new containers could not be fully activated; no automatic image downgrade was attempted." >&2
-    echo "Check the current state with: sudo bitcoin-stack status" >&2
-    echo "Restart the services interrupted by activation with: sudo bitcoin-stack up ${upgrade_services[*]}" >&2
-    echo "Retry activation with: sudo bitcoin-stack package-upgrade" >&2
+    echo "Check the current state with: sudo node-manager status" >&2
+    echo "Restart the services interrupted by activation with: sudo node-manager up ${upgrade_services[*]}" >&2
+    echo "Retry activation with: sudo node-manager package-upgrade" >&2
     return 1
   fi
   sync_node_runtime || echo "WARN  containers were updated, but dashboard node state will synchronize on its next refresh." >&2
@@ -938,11 +940,11 @@ Back up first if you want a restore point:
 
   Ubuntu / APT
     sudo apt update
-    sudo apt install --only-upgrade bitcoin-starter-stack
+    sudo apt install --only-upgrade node-manager
 
   macOS / Homebrew
     brew update
-    brew upgrade bitcoin-starter-stack
+    brew upgrade node-manager
     $stack_command pull
     $stack_command apply
 
@@ -962,7 +964,7 @@ ensure_agent() {
       echo "Homebrew is required to start dashboard host controls." >&2
       return 1
     }
-    brew services start bitcoin-starter-stack >/dev/null || {
+    brew services start node-manager >/dev/null || {
       echo "Homebrew could not start dashboard host controls." >&2
       return 1
     }

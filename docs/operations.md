@@ -4,7 +4,7 @@
 
 Use `./stack` for operations; it prevents implicit image downloads and builds.
 The explicit `pull` command uses the host's existing Docker settings. Package
-installs use `bitcoin-stack` instead of `./stack` (with `sudo` for APT). Direct
+installs use `node-manager` instead of `./stack` (with `sudo` for APT). Direct
 `docker compose` examples run from a configured source checkout.
 
 | Command | What it does |
@@ -32,7 +32,7 @@ the core Bitcoin deployment:
   must return HTTP 200. It reports application liveness without node or wallet
   details; node health is checked separately.
 
-`docker ps` shows the state. Run `./stack doctor` or `bitcoin-stack doctor` for
+`docker ps` shows the state. Run `./stack doctor` or `node-manager doctor` for
 a health report. From a source checkout,
 `docker inspect --format '{{json .State.Health}}' "$(docker compose ps -q bitcoin)"`
 shows recent probe output when diagnosing.
@@ -101,7 +101,7 @@ installation method you used originally and back up before updating.
 **Ubuntu / APT:**
 
 ```bash
-sudo bitcoin-stack backup
+sudo node-manager backup
 sudo apt update
 sudo apt upgrade
 ```
@@ -111,9 +111,9 @@ services that were running. Changed services may restart. A stopped deployment
 stays stopped, and configuration edits still awaiting approval are not applied.
 If Docker or the registry is unavailable, APT keeps the package installed and
 reports activation as pending. After correcting the problem, retry with
-`sudo bitcoin-stack package-upgrade`. Inspect `sudo bitcoin-stack status` and
-`sudo bitcoin-stack doctor` if activation reports a failure. If activation partly
-started and left a service stopped, use the specific `bitcoin-stack up` command
+`sudo node-manager package-upgrade`. Inspect `sudo node-manager status` and
+`sudo node-manager doctor` if activation reports a failure. If activation partly
+started and left a service stopped, use the specific `node-manager up` command
 printed in the error before retrying. Recovery starts are explicit so later
 upgrades cannot override a service you deliberately stopped. No volumes or old
 images are deleted, and a failed partial activation never automatically downgrades
@@ -122,11 +122,11 @@ a node database.
 **macOS / Homebrew:**
 
 ```bash
-bitcoin-stack backup
+node-manager backup
 brew update
-brew upgrade bitcoin-starter-stack
-bitcoin-stack pull
-bitcoin-stack apply
+brew upgrade node-manager
+node-manager pull
+node-manager apply
 ```
 
 **GitHub download / source:** download the runtime archive from
@@ -137,15 +137,15 @@ Back up and stop the existing stack, replace its runtime files while preserving
 tag yourself before pulling images and applying. Review release notes for data
 migration requirements; node databases may not support downgrades.
 
-`bitcoin-stack upgrade` (or `./stack upgrade`) only prints instructions. It does
+`node-manager upgrade` (or `./stack upgrade`) only prints instructions. It does
 not fetch, check out, download, or apply a release. Installation and container
 downloads use the host connection; see [Privacy](privacy.md#downloads-and-upgrades).
 
 The first package release is for fresh installations. Do not run
-`sudo bitcoin-stack up` beside an existing source checkout: the package refuses to
+`sudo node-manager up` beside an existing source checkout: the package refuses to
 replace containers whose Compose labels point at another installation. Keep an
 existing production node source-managed until a manual migration is planned.
-Package mode uses its own `bitcoin-starter-stack-apt` Compose project, so stopped
+Package mode uses its own `node-manager-apt` Compose project, so stopped
 source installations' named volumes are not adopted by a fresh package install.
 That transition must stop and back up the old deployment, set
 `bitcoin.data_dir` to the existing absolute chain path, and preserve the Compose
@@ -158,7 +158,7 @@ Node Manager releases, rather than individual Bitcoin Core or other node release
 Local development builds require a separately controlled build environment.
 
 Older source installs may have an `@reboot` entry or a manually created
-`bitcoin-stack-upgrade-agent.service`. The compatibility agent now handles only
+`node-manager-upgrade-agent.service`. The compatibility agent now handles only
 validated node controls; it cannot update the application. The removed
 `dashboard.control` setting is ignored. Keep the host helper running if you use
 dashboard node management.
@@ -172,8 +172,8 @@ dashboard node management.
 ./stack restart dashboard               # reload restored dashboard state
 ```
 
-APT installations use `sudo bitcoin-stack backup` and write archives under
-`/var/lib/bitcoin-starter-stack/backups`; restore and apply with `sudo` as well.
+APT installations use `sudo node-manager backup` and write archives under
+`/var/lib/node-manager/backups`; restore and apply with `sudo` as well.
 
 A backup holds the stack configuration and dashboard state, but excludes chain
 data and encrypted Monero wallet files:
