@@ -1,9 +1,9 @@
 class NodeManager < Formula
   desc "Run private cryptocurrency nodes behind Tor"
   homepage "https://github.com/VijitSingh97/node-manager"
-  url "https://github.com/VijitSingh97/node-manager/releases/download/v1.33.3/bitcoin-starter-stack.tar.gz"
-  version "1.33.3"
-  sha256 "2371450c70bfbf116406647fdb78ec1875e65a2d4f0f1f8e4cedae9db880f6fe"
+  url "https://github.com/VijitSingh97/node-manager/releases/download/v1.33.4/node-manager.tar.gz"
+  version "1.33.4"
+  sha256 "285dd9a7c45b5dd9737da5df9c08aaab2aee3c52493f2efd55361956f97a3645"
   license "MIT"
 
   depends_on "bash"
@@ -18,7 +18,7 @@ class NodeManager < Formula
     libexec.install "stack", "configure.sh", "VERSION", ".dockerignore"
     libexec.install Dir["docker-compose*.yml"]
     libexec.install "build"
-    (libexec/"scripts").install "scripts/bitcoin-stack", "scripts/node-control", "scripts/node-port-control",
+    (libexec/"scripts").install "scripts/node-manager", "scripts/node-control", "scripts/node-port-control",
                                 "scripts/node-resource-profile"
 
     dependency_path = [formula_opt_bin("bash"), formula_opt_bin("flock"), formula_opt_bin("jq"),
@@ -35,7 +35,7 @@ class NodeManager < Formula
       export BITCOIN_STACK_ROOT="#{opt_libexec}"
       export BITCOIN_STACK_PACKAGE_MANAGED=brew
       export PATH="#{dependency_path.join(":")}:#{HOMEBREW_PREFIX}/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-      exec "#{formula_opt_bin("bash")}/bash" "#{opt_libexec}/scripts/bitcoin-stack" "$@"
+      exec "#{formula_opt_bin("bash")}/bash" "#{opt_libexec}/scripts/node-manager" "$@"
     SH
     bin.install_symlink bin/"node-manager" => "bitcoin-stack"
   end
