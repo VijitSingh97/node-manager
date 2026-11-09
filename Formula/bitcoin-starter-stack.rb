@@ -1,9 +1,9 @@
 class BitcoinStarterStack < Formula
   desc "Run private cryptocurrency nodes behind Tor"
   homepage "https://github.com/VijitSingh97/node-manager"
-  url "https://github.com/VijitSingh97/node-manager/releases/download/v1.33.2/bitcoin-starter-stack.tar.gz"
-  version "1.33.2"
-  sha256 "42f58f9b3516ae651d1fa96d94133efa319b79bbad57a042ccd53e1eb6d3ad2a"
+  url "https://github.com/VijitSingh97/node-manager/releases/download/v1.33.3/bitcoin-starter-stack.tar.gz"
+  version "1.33.3"
+  sha256 "2371450c70bfbf116406647fdb78ec1875e65a2d4f0f1f8e4cedae9db880f6fe"
   license "MIT"
 
   depends_on "bash"
