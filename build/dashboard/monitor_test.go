@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -32,6 +33,12 @@ func response(code int, body string) *http.Response {
 	}
 }
 
+func testFreshTorClient() *http.Client {
+	return &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("fresh circuits unavailable in tests")
+	})}
+}
+
 func configuredMonitor(t *testing.T, handler roundTripFunc) *Monitor {
 	t.Helper()
 	t.Setenv("TELEGRAM_BOT_TOKEN", "123:secret")
@@ -41,6 +48,7 @@ func configuredMonitor(t *testing.T, handler roundTripFunc) *Monitor {
 	t.Setenv("HEALTHCHECKS_URL", "")
 	m := NewMonitor("1.2.0", t.TempDir(), t.TempDir())
 	m.client = &http.Client{Transport: handler}
+	m.freshTorClient = testFreshTorClient
 	m.diskFreeGB = func(string) (float64, error) { return 1000, nil }
 	m.output = io.Discard
 	return m
@@ -747,6 +755,7 @@ func TestHealthchecksRetriesThenThrottlesAndUsesFailEndpoint(t *testing.T) {
 	t.Setenv("TELEGRAM_BOT_TOKEN", "")
 	t.Setenv("HEALTHCHECKS_URL", "https://hc-ping.com/private-uuid/?source=node")
 	m := NewMonitor("dev", t.TempDir(), t.TempDir())
+	m.freshTorClient = testFreshTorClient
 	m.diskFreeGB = func(string) (float64, error) { return 1000, nil }
 	m.output = io.Discard
 	m.settings.NodeDownAfterMinutes = 60
@@ -1198,6 +1207,84 @@ func TestHealthchecksRejectsUnencryptedOrCredentialedURLs(t *testing.T) {
 	}
 }
 
+func TestHealthchecksPingRetriesOnFreshCircuits(t *testing.T) {
+	var primary, fresh atomic.Int32
+	m := configuredMonitor(t, func(*http.Request) (*http.Response, error) {
+		primary.Add(1)
+		return nil, errors.New("circuit failed")
+	})
+	m.settings.HealthchecksEnabled = true
+	m.settings.HealthchecksURL = "https://hc-ping.com/id"
+	m.freshTorClient = func() *http.Client {
+		return &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			if fresh.Add(1) == 2 {
+				return response(http.StatusOK, "ok"), nil
+			}
+			return nil, errors.New("circuit failed")
+		})}
+	}
+	if !m.pingHealthchecks(t.Context(), true) {
+		t.Fatal("ping failed despite a successful fresh-circuit retry")
+	}
+	if primary.Load() != 1 || fresh.Load() != 2 {
+		t.Fatalf("attempts: primary=%d fresh=%d, want 1 and 2", primary.Load(), fresh.Load())
+	}
+}
+
+func TestSOCKS5ConnectAuthenticatesWithCredentials(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	serverErr := make(chan error, 1)
+	go func() {
+		serverErr <- func() error {
+			greeting := make([]byte, 3)
+			if _, err := io.ReadFull(server, greeting); err != nil {
+				return err
+			}
+			if greeting[2] != 2 {
+				return fmt.Errorf("auth method = %d, want 2", greeting[2])
+			}
+			if _, err := server.Write([]byte{5, 2}); err != nil {
+				return err
+			}
+			head := make([]byte, 2)
+			if _, err := io.ReadFull(server, head); err != nil {
+				return err
+			}
+			user := make([]byte, int(head[1]))
+			if _, err := io.ReadFull(server, user); err != nil {
+				return err
+			}
+			if string(user) != "alice" {
+				return fmt.Errorf("username = %q", user)
+			}
+			passLen := make([]byte, 1)
+			if _, err := io.ReadFull(server, passLen); err != nil {
+				return err
+			}
+			if _, err := io.CopyN(io.Discard, server, int64(passLen[0])); err != nil {
+				return err
+			}
+			if _, err := server.Write([]byte{1, 0}); err != nil {
+				return err
+			}
+			connect := make([]byte, 4+1+len("remote.example")+2)
+			if _, err := io.ReadFull(server, connect); err != nil {
+				return err
+			}
+			_, err := server.Write([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
+			return err
+		}()
+	}()
+	if err := socks5Connect(client, "remote.example:443", "alice", "0"); err != nil {
+		t.Fatalf("socks5Connect with credentials failed: %v", err)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatalf("proxy side: %v", err)
+	}
+}
+
 func TestTorClientDoesNotFollowRedirects(t *testing.T) {
 	client := newTorHTTPClient("127.0.0.1:1")
 	var requests int
@@ -1239,7 +1326,7 @@ func TestSOCKSHandshakeCancellationClosesStalledConnection(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	result := make(chan error, 1)
 	go func() {
-		_, err := socks5DialContext(ln.Addr().String())(ctx, "tcp", "remote.example:443")
+		_, err := socks5DialContext(ln.Addr().String(), "", "")(ctx, "tcp", "remote.example:443")
 		result <- err
 	}()
 	select {
@@ -1273,6 +1360,7 @@ func TestTransportErrorsRedactSecrets(t *testing.T) {
 	m.client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		return nil, errors.New(r.URL.String())
 	})}
+	m.freshTorClient = testFreshTorClient
 	m.sendTelegram(t.Context(), "hello")
 	m.pingHealthchecks(t.Context(), true)
 	got := output.String()

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -13,9 +14,18 @@ import (
 )
 
 func newTorHTTPClient(proxy string) *http.Client {
+	return torHTTPClient(proxy, "", "")
+}
+
+// One-off SOCKS credentials make Tor's IsolateSOCKSAuth build a fresh circuit.
+func newIsolatedTorHTTPClient(proxy string) *http.Client {
+	return torHTTPClient(proxy, rand.Text(), "0")
+}
+
+func torHTTPClient(proxy, user, password string) *http.Client {
 	transport := &http.Transport{
 		Proxy:                 nil,
-		DialContext:           socks5DialContext(proxy),
+		DialContext:           socks5DialContext(proxy, user, password),
 		ForceAttemptHTTP2:     true,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,
@@ -30,7 +40,7 @@ func newTorHTTPClient(proxy string) *http.Client {
 	}
 }
 
-func socks5DialContext(proxy string) func(context.Context, string, string) (net.Conn, error) {
+func socks5DialContext(proxy, user, password string) func(context.Context, string, string) (net.Conn, error) {
 	return func(ctx context.Context, network, address string) (net.Conn, error) {
 		if network != "tcp" && network != "tcp4" && network != "tcp6" {
 			return nil, errors.New("SOCKS5 only supports TCP")
@@ -48,7 +58,7 @@ func socks5DialContext(proxy string) func(context.Context, string, string) (net.
 		}
 		_ = conn.SetDeadline(handshakeDeadline)
 		stopCancel := context.AfterFunc(ctx, func() { conn.Close() })
-		if err := socks5Connect(conn, address); err != nil {
+		if err := socks5Connect(conn, address, user, password); err != nil {
 			stopCancel()
 			conn.Close()
 			if ctx.Err() != nil {
@@ -65,13 +75,32 @@ func socks5DialContext(proxy string) func(context.Context, string, string) (net.
 	}
 }
 
-func socks5Connect(conn net.Conn, address string) error {
-	if _, err := conn.Write([]byte{5, 1, 0}); err != nil {
+func socks5Connect(conn net.Conn, address, user, password string) error {
+	method := byte(0)
+	if user != "" {
+		method = 2
+	}
+	if _, err := conn.Write([]byte{5, 1, method}); err != nil {
 		return errors.New("SOCKS5 handshake failed")
 	}
 	response := make([]byte, 2)
-	if _, err := io.ReadFull(conn, response); err != nil || response[0] != 5 || response[1] != 0 {
+	if _, err := io.ReadFull(conn, response); err != nil || response[0] != 5 || response[1] != method {
 		return errors.New("SOCKS5 handshake failed")
+	}
+	if method == 2 {
+		if len(user) > 255 || len(password) > 255 {
+			return errors.New("SOCKS5 credentials invalid")
+		}
+		auth := append([]byte{1, byte(len(user))}, user...)
+		auth = append(auth, byte(len(password)))
+		auth = append(auth, password...)
+		if _, err := conn.Write(auth); err != nil {
+			return errors.New("SOCKS5 authentication failed")
+		}
+		status := make([]byte, 2)
+		if _, err := io.ReadFull(conn, status); err != nil || status[1] != 0 {
+			return errors.New("SOCKS5 authentication failed")
+		}
 	}
 	host, portText, err := net.SplitHostPort(address)
 	if err != nil {

@@ -84,24 +84,42 @@ func (m *Monitor) pingHealthchecks(ctx context.Context, healthy bool) bool {
 	if !healthy {
 		endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/fail"
 	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
-	if err != nil {
-		m.logEvent("healthchecks ping failed: request failed")
-		return false
+	reason := "request failed"
+	for attempt := 0; attempt < 3; attempt++ {
+		client := m.client
+		if attempt > 0 {
+			client = m.freshTorClient()
+		}
+		ok := func() bool {
+			attemptCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
+			req, err := http.NewRequestWithContext(attemptCtx, http.MethodGet, endpoint.String(), nil)
+			if err != nil {
+				return false
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				return false
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				reason = fmt.Sprintf("HTTP %d", resp.StatusCode)
+				return false
+			}
+			return true
+		}()
+		if attempt > 0 {
+			client.CloseIdleConnections()
+		}
+		if ok {
+			return true
+		}
+		if ctx.Err() != nil {
+			break
+		}
 	}
-	resp, err := m.client.Do(req)
-	if err != nil {
-		m.logEvent("healthchecks ping failed: request failed")
-		return false
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		m.logEvent(fmt.Sprintf("healthchecks ping failed: HTTP %d", resp.StatusCode))
-		return false
-	}
-	return true
+	m.logEvent("healthchecks ping failed: " + reason)
+	return false
 }
 func (m *Monitor) logEvent(text string) {
 	m.logMu.Lock()
