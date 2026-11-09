@@ -23,6 +23,7 @@ APP_SLUG = "bitcoin-starter-stack-developer"
 API = "https://api.github.com"
 PERMISSIONS = {
     "contents": "write",
+    "issues": "write",
     "metadata": "read",
     "pull_requests": "write",
     "workflows": "write",
