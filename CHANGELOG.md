@@ -6,6 +6,16 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Default post-sync memory ceilings for Litecoin, Dogecoin, and Bitcoin Cash
+  drop from 4096 to 2048 MiB. These pruned Core-fork nodes run default
+  database caches and stay well under 2 GiB at steady state; the resource
+  profile still refuses to cap a node whose measured usage does not fit,
+  so an undersized budget leaves the node unlimited rather than restarting
+  it. Tari and Zcash keep 4096 MiB (Zakura is a Zebra fork with a 4 GiB
+  stated minimum). Explicit `steady_mem_limit_mb` settings are unaffected.
+
 ## [1.33.3] - 2026-11-09
 
 ### Changed

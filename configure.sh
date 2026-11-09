@@ -258,8 +258,12 @@ monero_steady_mem_limit_mb=$(jq -r '.monero.steady_mem_limit_mb // empty' <<<"$c
 [ -n "$monero_steady_cpus" ] || monero_steady_cpus=1
 [ -n "$monero_steady_mem_limit_mb" ] || monero_steady_mem_limit_mb=2048
 for node in tari litecoin dogecoin bitcoincash zcash; do
+  case "$node" in
+    litecoin | dogecoin | bitcoincash) default_steady_mem=2048 ;;
+    *) default_steady_mem=4096 ;;
+  esac
   cpus=$(jq -r --arg node "$node" '.[$node].steady_cpus // 1' <<<"$config")
-  memory=$(jq -r --arg node "$node" '.[$node].steady_mem_limit_mb // 4096' <<<"$config")
+  memory=$(jq -r --arg node "$node" --argjson default "$default_steady_mem" '.[$node].steady_mem_limit_mb // $default' <<<"$config")
   case "$node" in
     tari) tari_steady_cpus=$cpus; tari_steady_mem_limit_mb=$memory ;;
     litecoin) litecoin_steady_cpus=$cpus; litecoin_steady_mem_limit_mb=$memory ;;
