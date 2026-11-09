@@ -1,0 +1,20 @@
+[Unit]
+Description=Apply Node Manager node state requests
+After=docker.service
+Requires=docker.service
+ConditionPathExists=/var/lib/node-manager/.env
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/node-manager/node-control
+Environment=BITCOIN_STACK_PACKAGE_MANAGED=1
+Environment=BITCOIN_STACK_ROOT=/usr/lib/node-manager
+Environment=BITCOIN_STACK_STATE_DIR=/var/lib/node-manager
+Environment=BITCOIN_STACK_CONFIG_DIR=/etc/node-manager
+Environment=BITCOIN_STACK_DATA_DIR=/var/lib/node-manager/data
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/etc/node-manager /var/lib/node-manager
+RestrictAddressFamilies=AF_UNIX AF_NETLINK

@@ -6,7 +6,7 @@ case "$version" in '' | [!0-9]* | *[!A-Za-z0-9.-]* | *[.-]) echo 'Invalid runtim
 [ "${#version}" -le 128 ] || exit 1
 result='{}'
 for service in tor dashboard monero tari-wallet litecoin dogecoin bitcoincash; do
-  image="ghcr.io/vijitsingh97/bitcoin-starter-stack-$service:$version"
+  image="ghcr.io/vijitsingh97/node-manager-$service:$version"
   manifest=$(docker buildx imagetools inspect "$image" --format '{{json .Manifest}}')
   digest=$(printf '%s' "$manifest" | jq -er '
     select(any(.manifests[]; .platform.os == "linux" and .platform.architecture == "amd64")) |

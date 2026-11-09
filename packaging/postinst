@@ -6,19 +6,53 @@ export PATH HOME
 
 [ "${1:-}" = configure ] || exit 0
 old_version=${2:-}
-[ -n "$old_version" ] || exit 0
 new_version='@VERSION@'
-/usr/bin/dpkg --compare-versions "$new_version" gt "$old_version" || exit 0
 
-state=/var/lib/bitcoin-starter-stack
+migrated=0
+for pair in /etc/bitcoin-starter-stack:/etc/node-manager /var/lib/bitcoin-starter-stack:/var/lib/node-manager; do
+  old=${pair%%:*}
+  new=${pair#*:}
+  if [ -d "$old" ] && [ ! -L "$old" ] && [ ! -e "$new" ]; then
+    mv "$old" "$new"
+    ln -s "$new" "$old"
+    migrated=1
+  fi
+done
+if [ "$migrated" = 1 ]; then
+  for unit in node-control port-control resource-profile; do
+    for kind in service timer; do
+      old_dropin=/etc/systemd/system/bitcoin-starter-stack-$unit.$kind.d
+      new_dropin=/etc/systemd/system/node-manager-$unit.$kind.d
+      if [ -d "$old_dropin" ] && [ ! -e "$new_dropin" ]; then
+        mv "$old_dropin" "$new_dropin"
+      fi
+    done
+    wants=/etc/systemd/system/timers.target.wants/bitcoin-starter-stack-$unit.timer
+    if [ -L "$wants" ]; then
+      systemctl stop "bitcoin-starter-stack-$unit.timer" "bitcoin-starter-stack-$unit.service" >/dev/null 2>&1 || true
+      systemctl disable "bitcoin-starter-stack-$unit.timer" >/dev/null 2>&1 || true
+      rm -f "$wants"
+      systemctl enable --now "node-manager-$unit.timer" >/dev/null 2>&1 || true
+    fi
+  done
+  systemctl daemon-reload >/dev/null 2>&1 || true
+fi
+
+if [ -n "$old_version" ]; then
+  /usr/bin/dpkg --compare-versions "$new_version" gt "$old_version" || exit 0
+else
+  [ "$migrated" = 1 ] || exit 0
+fi
+
+state=/var/lib/node-manager
 [ -s "$state/.env" ] && [ -s "$state/.approved-config.json" ] && [ -s "$state/.approved.env" ] || exit 0
 
 if ! env -i \
   HOME=/root \
   PATH=/usr/sbin:/usr/bin:/sbin:/bin \
   DEBIAN_FRONTEND=noninteractive \
-  /usr/bin/bitcoin-stack package-upgrade </dev/null; then
+  /usr/bin/node-manager package-upgrade </dev/null; then
   echo "WARNING: Node Manager was installed, but its running containers could not be updated." >&2
-  echo "After fixing Docker, retry with: sudo bitcoin-stack package-upgrade" >&2
+  echo "After fixing Docker, retry with: sudo node-manager package-upgrade" >&2
 fi
 exit 0

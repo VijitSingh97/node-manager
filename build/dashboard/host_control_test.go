@@ -16,7 +16,7 @@ func writeHostCapability(t *testing.T, a *app, pending bool) string {
 	if pending {
 		revision = strings.Repeat("a", 64)
 	}
-	b, _ := json.Marshal(hostControlCapability{Timestamp: time.Now().Unix(), Platform: "linux", BootKind: "boot", InstallSupported: true, BootSupported: true, BootEnabled: false, ConfigPending: pending, ConfigRevision: revision, ConfigPath: "/etc/bitcoin-starter-stack/config.json", DataPaths: map[string]string{"bitcoin": "/var/lib/bitcoin-starter-stack/data/bitcoin", "monero": "/var/lib/bitcoin-starter-stack/data/monero"}})
+	b, _ := json.Marshal(hostControlCapability{Timestamp: time.Now().Unix(), Platform: "linux", BootKind: "boot", InstallSupported: true, BootSupported: true, BootEnabled: false, ConfigPending: pending, ConfigRevision: revision, ConfigPath: "/etc/node-manager/config.json", DataPaths: map[string]string{"bitcoin": "/var/lib/node-manager/data/bitcoin", "monero": "/var/lib/node-manager/data/monero"}})
 	if err := os.WriteFile(a.nodeControlPath("capability"), b, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestHostControlQueuesInstallAndReportsBootState(t *testing.T) {
 	writeHostCapability(t, a, false)
 	response := hostControlHTTP(a, http.MethodGet, "", false, "192.168.1.20:4321")
 	var view hostControlView
-	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &view) != nil || !view.Available || !view.InstallSupported || !view.BootSupported || view.BootEnabled || view.ConfigPath != "/etc/bitcoin-starter-stack/config.json" || view.Nodes[1].DataDir != "/var/lib/bitcoin-starter-stack/data/monero" {
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &view) != nil || !view.Available || !view.InstallSupported || !view.BootSupported || view.BootEnabled || view.ConfigPath != "/etc/node-manager/config.json" || view.Nodes[1].DataDir != "/var/lib/node-manager/data/monero" {
 		t.Fatalf("host view = %d %#v", response.Code, view)
 	}
 	response = hostControlHTTP(a, http.MethodPost, `{"action":"install","node":"monero"}`, true, "192.168.1.20:4321")

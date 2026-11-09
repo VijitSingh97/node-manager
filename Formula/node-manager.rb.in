@@ -1,4 +1,4 @@
-class BitcoinStarterStack < Formula
+class NodeManager < Formula
   desc "Run private cryptocurrency nodes behind Tor"
   homepage "https://github.com/VijitSingh97/node-manager"
   url "@RELEASE_URL@"
@@ -18,7 +18,7 @@ class BitcoinStarterStack < Formula
     libexec.install "stack", "configure.sh", "VERSION", ".dockerignore"
     libexec.install Dir["docker-compose*.yml"]
     libexec.install "build"
-    (libexec/"scripts").install "scripts/bitcoin-stack", "scripts/node-control", "scripts/node-port-control",
+    (libexec/"scripts").install "scripts/node-manager", "scripts/node-control", "scripts/node-port-control",
                                 "scripts/node-resource-profile"
 
     dependency_path = [formula_opt_bin("bash"), formula_opt_bin("flock"), formula_opt_bin("jq"),
@@ -28,24 +28,25 @@ class BitcoinStarterStack < Formula
       dependency_path << Formula["iproute2"].opt_sbin
     end
 
-    (bin/"bitcoin-stack").write <<~SH
+    (bin/"node-manager").write <<~SH
       #!#{formula_opt_bin("bash")}/bash
       set -euo pipefail
 
       export BITCOIN_STACK_ROOT="#{opt_libexec}"
       export BITCOIN_STACK_PACKAGE_MANAGED=brew
       export PATH="#{dependency_path.join(":")}:#{HOMEBREW_PREFIX}/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-      exec "#{formula_opt_bin("bash")}/bash" "#{opt_libexec}/scripts/bitcoin-stack" "$@"
+      exec "#{formula_opt_bin("bash")}/bash" "#{opt_libexec}/scripts/node-manager" "$@"
     SH
+    bin.install_symlink bin/"node-manager" => "bitcoin-stack"
   end
 
   service do
-    run [opt_bin/"bitcoin-stack", "host-service"]
+    run [opt_bin/"node-manager", "host-service"]
     keep_alive crashed: true
     restart_delay 10
     process_type :background
-    log_path var/"log/bitcoin-starter-stack.log"
-    error_log_path var/"log/bitcoin-starter-stack.log"
+    log_path var/"log/node-manager.log"
+    error_log_path var/"log/node-manager.log"
     environment_variables PATH: std_service_path_env
   end
 
@@ -54,7 +55,7 @@ class BitcoinStarterStack < Formula
       Docker Desktop (macOS) or Docker Engine with Compose 2.33.1+ (Linux) is required and is not installed by this formula.
 
       Setup is explicit and does not run during installation:
-        bitcoin-stack init
+        node-manager init
 
       Setup starts the Homebrew host supervisor automatically. Launch at login
       defaults off and can be enabled from Global Settings in the dashboard.
@@ -66,19 +67,19 @@ class BitcoinStarterStack < Formula
     ENV["XDG_CONFIG_HOME"] = testpath/"xdg-config"
     ENV["XDG_DATA_HOME"] = testpath/"xdg-data"
     config_path = if OS.mac?
-      testpath/"Library/Application Support/bitcoin-starter-stack/config/config.json"
+      testpath/"Library/Application Support/node-manager/config/config.json"
     else
-      testpath/"xdg-config/bitcoin-starter-stack/config.json"
+      testpath/"xdg-config/node-manager/config.json"
     end
     state_path = if OS.mac?
-      testpath/"Library/Application Support/bitcoin-starter-stack/state"
+      testpath/"Library/Application Support/node-manager/state"
     else
-      testpath/"xdg-data/bitcoin-starter-stack/state"
+      testpath/"xdg-data/node-manager/state"
     end
     data_path = if OS.mac?
-      testpath/"Library/Application Support/bitcoin-starter-stack/data"
+      testpath/"Library/Application Support/node-manager/data"
     else
-      testpath/"xdg-data/bitcoin-starter-stack/data"
+      testpath/"xdg-data/node-manager/data"
     end
     config_path.dirname.mkpath
     state_path.mkpath

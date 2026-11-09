@@ -1,12 +1,12 @@
 [Unit]
-Description=Check Node Starter Stack LAN port settings
+Description=Check Node Manager LAN port settings
 
 [Timer]
 OnBootSec=1min
 OnUnitActiveSec=15s
 RandomizedDelaySec=2s
 Persistent=true
-Unit=bitcoin-starter-stack-port-control.service
+Unit=node-manager-port-control.service
 
 [Install]
 WantedBy=timers.target

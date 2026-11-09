@@ -905,9 +905,9 @@ if PATH=$tmp:$PATH "$case_root/root/stack" apply-credential-settings bitcoin >/d
   fail "direct credential apply started an inactive node"
 fi
 
-grep -q '^ProtectSystem=strict$' packaging/systemd/bitcoin-starter-stack-port-control.service || fail "systemd service is not filesystem-hardened"
-grep -q '^RestrictAddressFamilies=AF_UNIX AF_NETLINK$' packaging/systemd/bitcoin-starter-stack-port-control.service ||
+grep -q '^ProtectSystem=strict$' packaging/systemd/node-manager-port-control.service || fail "systemd service is not filesystem-hardened"
+grep -q '^RestrictAddressFamilies=AF_UNIX AF_NETLINK$' packaging/systemd/node-manager-port-control.service ||
   fail "systemd service lacks its restricted Unix and socket-diagnostic families"
-grep -q '^Persistent=true$' packaging/systemd/bitcoin-starter-stack-port-control.timer || fail "systemd timer does not catch up after reboot"
+grep -q '^Persistent=true$' packaging/systemd/node-manager-port-control.timer || fail "systemd timer does not catch up after reboot"
 
 echo "PASS: test_port_control.sh"

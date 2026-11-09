@@ -152,7 +152,7 @@ jobs:
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Build and test the package
         run: |
-          shellcheck packaging/postinst scripts/resolve-runtime-images.sh scripts/bitcoin-stack scripts/build-deb.sh scripts/build-apt.sh scripts/build-homebrew-formula.sh scripts/node-resource-profile scripts/node-port-control scripts/node-control tests/test_package.sh tests/test_package_upgrade.sh tests/test_runtime_images.sh tests/test_apt.sh tests/test_homebrew.sh tests/test_host_install.sh tests/test_brew_data.sh tests/test_resource_profile.sh tests/test_port_control.sh tests/test_node_control.sh
+          shellcheck packaging/postinst scripts/resolve-runtime-images.sh scripts/node-manager scripts/build-deb.sh scripts/build-apt.sh scripts/build-homebrew-formula.sh scripts/node-resource-profile scripts/node-port-control scripts/node-control tests/test_package.sh tests/test_package_upgrade.sh tests/test_runtime_images.sh tests/test_apt.sh tests/test_homebrew.sh tests/test_host_install.sh tests/test_brew_data.sh tests/test_resource_profile.sh tests/test_port_control.sh tests/test_node_control.sh
           tests/test_package.sh
           tests/test_package_upgrade.sh
           tests/test_runtime_images.sh
@@ -167,13 +167,13 @@ jobs:
         run: |
           printf '#!/bin/sh\nexit 101\n' >/usr/sbin/policy-rc.d
           chmod 755 /usr/sbin/policy-rc.d
-          package="./dist/bitcoin-starter-stack_$(cat VERSION)_all.deb"
+          package="./dist/node-manager_$(cat VERSION)_all.deb"
           apt-get install -y --no-install-recommends "$package"
-          test "$(dpkg-query -W -f='${Version}' bitcoin-starter-stack)" = "$(cat VERSION)"
-          test ! -e /etc/bitcoin-starter-stack
-          test ! -e /var/lib/bitcoin-starter-stack
-          mkdir -p /var/lib/bitcoin-starter-stack
-          touch /var/lib/bitcoin-starter-stack/keep
+          test "$(dpkg-query -W -f='${Version}' node-manager)" = "$(cat VERSION)"
+          test ! -e /etc/node-manager
+          test ! -e /var/lib/node-manager
+          mkdir -p /var/lib/node-manager
+          touch /var/lib/node-manager/keep
           apt-get install -y --reinstall "$package"
-          apt-get purge -y bitcoin-starter-stack
-          test -f /var/lib/bitcoin-starter-stack/keep
+          apt-get purge -y node-manager
+          test -f /var/lib/node-manager/keep

@@ -173,7 +173,7 @@ port-forwarding, via a Tor onion service:
 ```
 
 `./stack apply`, then find the dashboard onion address in the doctor report
-(use `bitcoin-stack` instead of `./stack` for a package installation):
+(use `node-manager` instead of `./stack` for a package installation):
 
 ```bash
 ./stack doctor

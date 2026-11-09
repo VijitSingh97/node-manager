@@ -124,7 +124,7 @@ printf '%s\n' "$expected" | grep -Eq '^[0-9A-Fa-f]{40}$' || {
 key=$(mktemp)
 trap 'rm -f "$key"' EXIT
 curl --fail --show-error --silent \
-  https://vijitsingh97.github.io/node-manager/bitcoin-starter-stack.asc \
+  https://vijitsingh97.github.io/node-manager/node-manager.asc \
   --output "$key"
 listing=$(gpg --batch --show-keys --with-colons "$key") || {
   echo 'Unable to parse the APT signing key.' >&2
@@ -140,16 +140,16 @@ actual=$(awk -F: '
   exit 1
 }
 sudo install -d -m 0755 /etc/apt/keyrings
-sudo install -m 0644 "$key" /etc/apt/keyrings/bitcoin-starter-stack.asc
-sudo tee /etc/apt/sources.list.d/bitcoin-starter-stack.sources >/dev/null <<'EOF'
+sudo install -m 0644 "$key" /etc/apt/keyrings/node-manager.asc
+sudo tee /etc/apt/sources.list.d/node-manager.sources >/dev/null <<'EOF'
 Types: deb
 URIs: https://vijitsingh97.github.io/node-manager/
 Suites: ./
-Signed-By: /etc/apt/keyrings/bitcoin-starter-stack.asc
+Signed-By: /etc/apt/keyrings/node-manager.asc
 EOF
 sudo apt update
-sudo apt install bitcoin-starter-stack
-sudo bitcoin-stack init
+sudo apt install node-manager
+sudo node-manager init
 ```
 
 Fresh APT installation does not run setup or start containers; `init` does that

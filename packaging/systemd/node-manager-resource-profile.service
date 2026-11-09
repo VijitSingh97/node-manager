@@ -1,0 +1,15 @@
+[Unit]
+Description=Apply steady resource limits to synced Node Manager nodes
+After=docker.service
+Requires=docker.service
+ConditionPathExists=/var/lib/node-manager/.env
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/node-manager/node-resource-profile
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/node-manager
+RestrictAddressFamilies=AF_UNIX

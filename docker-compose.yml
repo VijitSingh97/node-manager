@@ -9,7 +9,7 @@ x-logging: &logging
 services:
   tor:
     # Prebuilt release image; downloads use the host's Docker settings.
-    image: ghcr.io/vijitsingh97/bitcoin-starter-stack-tor:${STACK_VERSION:?Run stack init or configure.sh first}
+    image: ghcr.io/vijitsingh97/node-manager-tor:${STACK_VERSION:?Run stack init or configure.sh first}
     build: ${STACK_ROOT:-.}/build/tor
     security_opt:
       - no-new-privileges:true
@@ -118,7 +118,7 @@ services:
       - 127.0.0.1
 
   monero:
-    image: ghcr.io/vijitsingh97/bitcoin-starter-stack-monero:${STACK_VERSION:?Run stack init or configure.sh first}
+    image: ghcr.io/vijitsingh97/node-manager-monero:${STACK_VERSION:?Run stack init or configure.sh first}
     build:
       context: ${STACK_ROOT:-.}/build/monero
     profiles: ["monero"]
@@ -156,7 +156,7 @@ services:
       - 127.0.0.1
 
   monero-wallet:
-    image: ghcr.io/vijitsingh97/bitcoin-starter-stack-monero:${STACK_VERSION:?Run stack init or configure.sh first}
+    image: ghcr.io/vijitsingh97/node-manager-monero:${STACK_VERSION:?Run stack init or configure.sh first}
     build:
       context: ${STACK_ROOT:-.}/build/monero
     profiles: ["monero"]
@@ -232,7 +232,7 @@ services:
     dns: ["127.0.0.1"]
 
   litecoin:
-    image: ghcr.io/vijitsingh97/bitcoin-starter-stack-litecoin:${STACK_VERSION:?Run stack init or configure.sh first}
+    image: ghcr.io/vijitsingh97/node-manager-litecoin:${STACK_VERSION:?Run stack init or configure.sh first}
     build: ${STACK_ROOT:-.}/build/litecoin
     profiles: ["litecoin"]
     labels:
@@ -262,7 +262,7 @@ services:
     dns: ["127.0.0.1"]
 
   dogecoin:
-    image: ghcr.io/vijitsingh97/bitcoin-starter-stack-dogecoin:${STACK_VERSION:?Run stack init or configure.sh first}
+    image: ghcr.io/vijitsingh97/node-manager-dogecoin:${STACK_VERSION:?Run stack init or configure.sh first}
     build: ${STACK_ROOT:-.}/build/dogecoin
     profiles: ["dogecoin"]
     labels:
@@ -292,7 +292,7 @@ services:
     dns: ["127.0.0.1"]
 
   bitcoincash:
-    image: ghcr.io/vijitsingh97/bitcoin-starter-stack-bitcoincash:${STACK_VERSION:?Run stack init or configure.sh first}
+    image: ghcr.io/vijitsingh97/node-manager-bitcoincash:${STACK_VERSION:?Run stack init or configure.sh first}
     build: ${STACK_ROOT:-.}/build/bitcoincash
     profiles: ["bitcoincash"]
     labels:
@@ -359,7 +359,7 @@ services:
 
   dashboard:
     # Prebuilt release image, with an explicit build target for development.
-    image: ghcr.io/vijitsingh97/bitcoin-starter-stack-dashboard:${STACK_VERSION:?Run stack init or configure.sh first}
+    image: ghcr.io/vijitsingh97/node-manager-dashboard:${STACK_VERSION:?Run stack init or configure.sh first}
     build:
       context: ${STACK_ROOT:-.}
       dockerfile: build/dashboard/Dockerfile

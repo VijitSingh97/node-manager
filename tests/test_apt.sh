@@ -33,7 +33,7 @@ for guide in README.md docs/getting-started.md; do
   grep -Fq 'Types: deb' "$guide" || fail "$guide does not use deb822 sources"
   grep -Fq 'URIs: https://vijitsingh97.github.io/node-manager/' "$guide" || fail "$guide uses the wrong APT feed"
   grep -Fq 'Suites: ./' "$guide" || fail "$guide does not use the flat repository"
-  grep -Fq 'Signed-By: /etc/apt/keyrings/bitcoin-starter-stack.asc' "$guide" || fail "$guide does not scope the signing key"
+  grep -Fq 'Signed-By: /etc/apt/keyrings/node-manager.asc' "$guide" || fail "$guide does not scope the signing key"
   grep -Fq '72FD656754BD7534E274360A37070C2730C0B4EA' "$guide" || fail "$guide omits the published key fingerprint"
 done
 
@@ -43,7 +43,7 @@ export SOURCE_DATE_EPOCH=1700000000
 export PACKAGE_VERSION=0.0.0test
 export GNUPGHOME=$tmp/gnupg
 mkdir -m 700 "$GNUPGHOME"
-gpg --batch --passphrase '' --quick-generate-key 'bitcoin-starter-stack package test' rsa2048 sign 0 >/dev/null 2>&1
+gpg --batch --passphrase '' --quick-generate-key 'node-manager package test' rsa2048 sign 0 >/dev/null 2>&1
 APT_SIGNING_FINGERPRINT=$(gpg --batch --with-colons --fingerprint --list-secret-keys | awk -F: '$1 == "fpr" {print $10; exit}')
 export APT_SIGNING_FINGERPRINT
 [ -n "$APT_SIGNING_FINGERPRINT" ] || fail "test signing key has no fingerprint"
@@ -99,15 +99,15 @@ cat >"$state/sources.sources" <<EOF
 Types: deb
 URIs: file:$state/feed/
 Suites: ./
-Signed-By: $state/feed/bitcoin-starter-stack.asc
+Signed-By: $state/feed/node-manager.asc
 EOF
 options=(-o "Dir::Etc::sourcelist=$state/sources.sources" -o Dir::Etc::sourceparts=- -o "Dir::State::lists=$state/lists")
 apt-get "${options[@]}" update >/dev/null
-(cd "$state/download" && apt-get "${options[@]}" download bitcoin-starter-stack >/dev/null)
+(cd "$state/download" && apt-get "${options[@]}" download node-manager >/dev/null)
 
-printf 'tampered' >>"$state/feed/bitcoin-starter-stack_${PACKAGE_VERSION}_all.deb"
+printf 'tampered' >>"$state/feed/node-manager_${PACKAGE_VERSION}_all.deb"
 rm -f "$state/download"/*.deb
-if (cd "$state/download" && apt-get "${options[@]}" download bitcoin-starter-stack >/dev/null 2>&1); then
+if (cd "$state/download" && apt-get "${options[@]}" download node-manager >/dev/null 2>&1); then
   fail "APT accepted a package that did not match signed metadata"
 fi
 

@@ -2,24 +2,33 @@
 set -eu
 
 package_managed=${BITCOIN_STACK_PACKAGE_MANAGED:-1}
+migrate_legacy_dir() {
+  if [ -d "$1" ] && [ ! -L "$1" ] && [ ! -e "$2" ]; then
+    mv "$1" "$2"
+    ln -s "$2" "$1"
+  fi
+}
 if [ "$package_managed" = brew ]; then
   case "$(uname -s)" in
     Darwin)
-      app_root=${BITCOIN_STACK_HOME:-${HOME:?}/Library/Application Support/bitcoin-starter-stack}
+      migrate_legacy_dir "${HOME:?}/Library/Application Support/bitcoin-starter-stack" "${HOME:?}/Library/Application Support/node-manager"
+      app_root=${BITCOIN_STACK_HOME:-${HOME:?}/Library/Application Support/node-manager}
       default_config=$app_root/config
       default_state=$app_root/state
       default_data=$app_root/data
       ;;
     Linux)
-      default_config=${XDG_CONFIG_HOME:-${HOME:?}/.config}/bitcoin-starter-stack
-      default_state=${XDG_DATA_HOME:-${HOME:?}/.local/share}/bitcoin-starter-stack/state
-      default_data=${XDG_DATA_HOME:-${HOME:?}/.local/share}/bitcoin-starter-stack/data
+      migrate_legacy_dir "${XDG_CONFIG_HOME:-${HOME:?}/.config}/bitcoin-starter-stack" "${XDG_CONFIG_HOME:-${HOME:?}/.config}/node-manager"
+      migrate_legacy_dir "${XDG_DATA_HOME:-${HOME:?}/.local/share}/bitcoin-starter-stack" "${XDG_DATA_HOME:-${HOME:?}/.local/share}/node-manager"
+      default_config=${XDG_CONFIG_HOME:-${HOME:?}/.config}/node-manager
+      default_state=${XDG_DATA_HOME:-${HOME:?}/.local/share}/node-manager/state
+      default_data=${XDG_DATA_HOME:-${HOME:?}/.local/share}/node-manager/data
       ;;
-    *) echo "bitcoin-stack supports macOS and Linux." >&2; exit 1 ;;
+    *) echo "node-manager supports macOS and Linux." >&2; exit 1 ;;
   esac
 else
-  default_config=/etc/bitcoin-starter-stack
-  default_state=/var/lib/bitcoin-starter-stack
+  default_config=/etc/node-manager
+  default_state=/var/lib/node-manager
   default_data=$default_state/data
 fi
 config_dir=${BITCOIN_STACK_CONFIG_DIR:-$default_config}
@@ -38,7 +47,7 @@ mkdir -p "$config_dir" "$state_dir" "$data_dir" || {
   echo "Could not create package configuration and state directories; check ownership and permissions (APT installations may need sudo)." >&2
   exit 1
 }
-stack_root=${BITCOIN_STACK_ROOT:-/usr/lib/bitcoin-starter-stack}
+stack_root=${BITCOIN_STACK_ROOT:-/usr/lib/node-manager}
 if [ "$package_managed" = brew ]; then
   asset_files='build/bitcoin/bitcoin.conf
 build/tari/config.toml
@@ -88,6 +97,6 @@ export BITCOIN_STACK_ROOT="$stack_root"
 export BITCOIN_STACK_CONFIG_DIR="$config_dir"
 export BITCOIN_STACK_STATE_DIR="$state_dir"
 export BITCOIN_STACK_DATA_DIR="$data_dir"
-export BITCOIN_STACK_COMMAND=bitcoin-stack
+export BITCOIN_STACK_COMMAND=node-manager
 export BITCOIN_STACK_PACKAGE_MANAGED="$package_managed"
 exec "$BITCOIN_STACK_ROOT/stack" "$@"

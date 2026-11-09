@@ -26,15 +26,15 @@ test("host controls expose installed nodes, platform startup wording, and revisi
   const view = hostControlModel({
     available: true, install_supported: true, boot_supported: true, boot_enabled: true, boot_kind: "login",
     config_pending: true, config_revision: revision,
-    config_path: "/etc/bitcoin-starter-stack/config.json",
-    nodes: [{ id: "bitcoin", name: "Bitcoin", installed: true, data_dir: "/var/lib/bitcoin-starter-stack/data/bitcoin", disk_estimate: "28–56 GiB", disk_note: "Estimate", interfaces: [{ id: "bitcoin_rpc", name: "RPC", host_port: 8332 }] }, { id: "unknown", installed: true }],
+    config_path: "/etc/node-manager/config.json",
+    nodes: [{ id: "bitcoin", name: "Bitcoin", installed: true, data_dir: "/var/lib/node-manager/data/bitcoin", disk_estimate: "28–56 GiB", disk_note: "Estimate", interfaces: [{ id: "bitcoin_rpc", name: "RPC", host_port: 8332 }] }, { id: "unknown", installed: true }],
     status: { action: "install", state: "pending", message: "Installing…" },
   });
   assert.equal(view.nodes.bitcoin.installed, true);
   assert.equal(view.nodes.monero.installed, false);
   assert.equal(view.config_pending, true);
   assert.equal(view.boot_kind, "login");
-  assert.equal(view.config_path, "/etc/bitcoin-starter-stack/config.json");
+  assert.equal(view.config_path, "/etc/node-manager/config.json");
   assert.deepEqual(view.nodes.bitcoin.interfaces, [{ id: "bitcoin_rpc", name: "RPC", enabled: false, host_port: 8332 }]);
   assert.equal(bootControlLabel(view.boot_kind), "Launch at login");
   assert.deepEqual(hostActionPayload("install", "monero"), { action: "install", node: "monero" });

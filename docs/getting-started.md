@@ -37,9 +37,9 @@ updates the formula. A new version becomes available after that PR is reviewed
 and merged:
 
 ```bash
-brew tap vijitsingh97/bitcoin-starter-stack https://github.com/VijitSingh97/node-manager.git
-brew install vijitsingh97/bitcoin-starter-stack/bitcoin-starter-stack
-bitcoin-stack init
+brew tap vijitsingh97/node-manager https://github.com/VijitSingh97/node-manager.git
+brew install vijitsingh97/node-manager/node-manager
+node-manager init
 ```
 
 Installation is inert. The explicit `init` command creates default private
@@ -48,8 +48,8 @@ and chain data outside its Cellar so upgrades preserve them:
 
 | Host | Configuration | Generated state and chain data |
 |---|---|---|
-| macOS | `~/Library/Application Support/bitcoin-starter-stack/config/config.json` | `~/Library/Application Support/bitcoin-starter-stack/state/` and `data/<node>/` |
-| Linuxbrew | `${XDG_CONFIG_HOME:-~/.config}/bitcoin-starter-stack/config.json` | `${XDG_DATA_HOME:-~/.local/share}/bitcoin-starter-stack/state/` and `data/<node>/` |
+| macOS | `~/Library/Application Support/node-manager/config/config.json` | `~/Library/Application Support/node-manager/state/` and `data/<node>/` |
+| Linuxbrew | `${XDG_CONFIG_HOME:-~/.config}/node-manager/config.json` | `${XDG_DATA_HOME:-~/.local/share}/node-manager/state/` and `data/<node>/` |
 
 Before first Linuxbrew startup, Node Manager uses an already downloaded local
 image to give each empty default data directory the UID expected by its
@@ -63,7 +63,7 @@ Launch at login** to choose whether the configured application should return
 when you sign in. On a Mac, Docker Desktop must be running; its own start-at-login
 setting is separate. The user service cannot start containers before login.
 Turning this option off leaves the current nodes running. Use
-`bitcoin-stack down` to stop them now.
+`node-manager down` to stop them now.
 
 Homebrew uses port **8080**. Setup prints the selected private-LAN URL, or
 localhost if no private interface is available. See the complete
@@ -76,15 +76,15 @@ unqualified.
 Version `v1.32.0` is the first Ubuntu 24.04 APT release. Its release workflow
 publishes the package only after the matching amd64 and arm64 images pass the
 release gate, verifies the signed feed with APT, and then deploys it to GitHub
-Pages. It installs the `bitcoin-stack` command globally and keeps mutable files
+Pages. It installs the `node-manager` command globally and keeps mutable files
 in standard system locations:
 
-- configuration: `/etc/bitcoin-starter-stack/config.json`
-- generated credentials and backups: `/var/lib/bitcoin-starter-stack/`
-- chain data: `/var/lib/bitcoin-starter-stack/data/<node>/`
+- configuration: `/etc/node-manager/config.json`
+- generated credentials and backups: `/var/lib/node-manager/`
+- chain data: `/var/lib/node-manager/data/<node>/`
 
 APT installation does not start containers, run setup, or change an existing
-checkout. Run `sudo bitcoin-stack init` explicitly after installation. A new
+checkout. Run `sudo node-manager init` explicitly after installation. A new
 package install defaults to `prune_mb: 10000`; existing configuration and
 generated state always win, so an upgrade never converts a full node to pruning.
 Existing package installations retain their saved Compose project and volumes.
@@ -105,17 +105,17 @@ Add the dedicated signed repository:
 sudo apt update
 sudo apt install ca-certificates curl
 sudo install -d -m 0755 /etc/apt/keyrings
-curl -fsSL https://vijitsingh97.github.io/node-manager/bitcoin-starter-stack.asc \
-  | sudo tee /etc/apt/keyrings/bitcoin-starter-stack.asc >/dev/null
-sudo tee /etc/apt/sources.list.d/bitcoin-starter-stack.sources >/dev/null <<'EOF'
+curl -fsSL https://vijitsingh97.github.io/node-manager/node-manager.asc \
+  | sudo tee /etc/apt/keyrings/node-manager.asc >/dev/null
+sudo tee /etc/apt/sources.list.d/node-manager.sources >/dev/null <<'EOF'
 Types: deb
 URIs: https://vijitsingh97.github.io/node-manager/
 Suites: ./
-Signed-By: /etc/apt/keyrings/bitcoin-starter-stack.asc
+Signed-By: /etc/apt/keyrings/node-manager.asc
 EOF
 sudo apt update
-sudo apt install bitcoin-starter-stack
-sudo bitcoin-stack init
+sudo apt install node-manager
+sudo node-manager init
 ```
 
 The signing key fingerprint is
@@ -167,12 +167,19 @@ canonical URL once:
 git remote set-url origin https://github.com/VijitSingh97/node-manager.git
 ```
 
-Package installs do not need this step. Their package, command, and data-path
-names intentionally remain `bitcoin-starter-stack` and `bitcoin-stack`.
+Package installs do not need this step. An existing `bitcoin-starter-stack`
+APT installation migrates to `node-manager` on its next `sudo apt update &&
+sudo apt upgrade`: a transitional package pulls in `node-manager`, the
+configuration and state directories move to `/etc/node-manager` and
+`/var/lib/node-manager` (compatibility symlinks stay at the old paths), enabled
+systemd timers and their drop-in overrides carry over, and `bitcoin-stack`
+remains available as a symlink to `node-manager`. Node data and the running
+containers are preserved. The feed also keeps publishing the signing key as
+`bitcoin-starter-stack.asc`, so existing APT source files keep verifying.
 
 ## Default first start
 
-Run `bitcoin-stack init` for Homebrew, `sudo bitcoin-stack init` for APT, or
+Run `node-manager init` for Homebrew, `sudo node-manager init` for APT, or
 `./stack init` for source. A fresh run:
 
 1. Starts **Bitcoin only**, pruned to 10 GB of recent block files (plan roughly
@@ -186,7 +193,7 @@ Run `bitcoin-stack init` for Homebrew, `sudo bitcoin-stack init` for APT, or
    generated separately with username `admin` and retained on later applies.
 4. Downloads missing versioned container images and starts the application.
 5. Leaves launch at boot/login off. APT and Homebrew users can enable it in
-   global Settings. After a later reboot with it off, run `bitcoin-stack up`
+   global Settings. After a later reboot with it off, run `node-manager up`
    (`sudo` for APT), or `./stack up` for source, to start the application
    manually.
 
@@ -235,9 +242,9 @@ your installation's configuration path:
 
 | Install | File to create |
 |---|---|
-| APT | `/etc/bitcoin-starter-stack/config.json` |
-| macOS Homebrew | `~/Library/Application Support/bitcoin-starter-stack/config/config.json` |
-| Linuxbrew | `${XDG_CONFIG_HOME:-~/.config}/bitcoin-starter-stack/config.json` |
+| APT | `/etc/node-manager/config.json` |
+| macOS Homebrew | `~/Library/Application Support/node-manager/config/config.json` |
+| Linuxbrew | `${XDG_CONFIG_HOME:-~/.config}/node-manager/config.json` |
 | Source | `config.json` beside `stack` |
 
 For example, this selects Bitcoin and Monero and keeps automatic LAN detection:
@@ -267,7 +274,7 @@ retained.
 ## Later configuration changes
 
 Dashboard changes save through the host helper. For a file edit, change the
-existing `config.json` and run `bitcoin-stack apply` (`sudo` for APT), or
+existing `config.json` and run `node-manager apply` (`sudo` for APT), or
 `./stack apply` for source. This explicitly approves the new configuration and
 recreates changed services using local images. If you manually enable a new
 node in the file, download its images first with `pull`.
@@ -284,14 +291,14 @@ this possible; never delete it as a way to apply an edit.
 1. **Tor bootstraps** (a minute or two):
 
    ```bash
-   bitcoin-stack logs tor    # package install; wait for "Bootstrapped 100% (done)"
+   node-manager logs tor    # package install; wait for "Bootstrapped 100% (done)"
    ./stack logs tor          # source install
    ```
 
 2. **Bitcoin Core finds onion peers and syncs headers**, then blocks:
 
    ```bash
-   bitcoin-stack logs bitcoin    # package install
+   node-manager logs bitcoin    # package install
    ./stack logs bitcoin          # source install
    ```
 
@@ -322,8 +329,8 @@ its RPC is warmed up.
 
 ```bash
 ./stack status        # source install
-sudo bitcoin-stack status  # package install
-bitcoin-stack status  # Homebrew install
+sudo node-manager status  # package install
+node-manager status  # Homebrew install
 ```
 
 If something looks wrong, see

@@ -15,6 +15,18 @@ All notable changes to this project are documented here. Format follows
   so an undersized budget leaves the node unlimited rather than restarting
   it. Tari and Zcash keep 4096 MiB (Zakura is a Zebra fork with a 4 GiB
   stated minimum). Explicit `steady_mem_limit_mb` settings are unaffected.
+- Renamed every published artifact from `bitcoin-starter-stack` to
+  `node-manager` (#156): the APT package (with a transitional
+  `bitcoin-starter-stack` package for automatic upgrades), the GHCR runtime
+  images, the Homebrew formula (mapped via `formula_renames.json`), the systemd
+  units, the release tarball, and the `node-manager` command
+  (`bitcoin-stack` remains a compatibility symlink). Upgrades move
+  `/etc/bitcoin-starter-stack` and `/var/lib/bitcoin-starter-stack` to the
+  `node-manager` paths, leave compatibility symlinks behind, migrate enabled
+  timers with their drop-in overrides, and preserve node data, containers, and
+  Compose project names. The APT feed keeps its original `Origin`/`Label` and
+  still publishes the signing key under the old `bitcoin-starter-stack.asc`
+  name so existing hosts keep updating without manual steps.
 
 ## [1.33.3] - 2026-11-09
 

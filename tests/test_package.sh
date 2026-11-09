@@ -33,14 +33,14 @@ RUNTIME_IMAGE_DIGESTS_FILE=$tmp/invalid-runtime-images.json SOURCE_DATE_EPOCH=17
 source_version=$(cat VERSION)
 unset PACKAGE_VERSION
 SOURCE_DATE_EPOCH=1700000000 scripts/build-deb.sh >/dev/null
-default_deb="dist/bitcoin-starter-stack_${source_version}_all.deb"
+default_deb="dist/node-manager_${source_version}_all.deb"
 cp "$default_deb" "$tmp/default-first.deb"
 SOURCE_DATE_EPOCH=1700000000 scripts/build-deb.sh >/dev/null
 cmp -s "$tmp/default-first.deb" "$default_deb" || fail "default package build is not reproducible"
 
 export PACKAGE_VERSION=1.31.1-0pr125.abcdef0
 SOURCE_DATE_EPOCH=1700000000 scripts/build-deb.sh >/dev/null
-deb="dist/bitcoin-starter-stack_${PACKAGE_VERSION}_all.deb"
+deb="dist/node-manager_${PACKAGE_VERSION}_all.deb"
 cp "$deb" "$tmp/first.deb"
 SOURCE_DATE_EPOCH=1700000000 scripts/build-deb.sh >/dev/null
 cmp -s "$tmp/first.deb" "$deb" || fail "package build is not reproducible"
@@ -48,62 +48,62 @@ cmp -s "$tmp/first.deb" "$deb" || fail "package build is not reproducible"
 dpkg-deb -c "$deb" >"$tmp/contents"
 [ "$(dpkg-deb -f "$deb" Version)" = "$PACKAGE_VERSION" ] || fail "package version override was ignored"
 for invalid in 1.0+candidate candidate; do
-  invalid_deb="dist/bitcoin-starter-stack_${invalid}_all.deb"
+  invalid_deb="dist/node-manager_${invalid}_all.deb"
   rm -f "$invalid_deb"
   PACKAGE_VERSION=$invalid SOURCE_DATE_EPOCH=1700000000 scripts/build-deb.sh >/dev/null 2>&1 && fail "invalid package version was accepted: $invalid"
   [ ! -e "$invalid_deb" ] || fail "invalid package version produced an artifact: $invalid"
 done
 for required in \
-  ./usr/bin/bitcoin-stack \
-  ./usr/lib/bitcoin-starter-stack/stack \
-  ./usr/lib/bitcoin-starter-stack/configure.sh \
-  ./usr/lib/bitcoin-starter-stack/docker-compose.yml \
-  ./usr/lib/bitcoin-starter-stack/docker-compose.tari-wallet.yml \
-  ./usr/lib/bitcoin-starter-stack/docker-compose.rpc.yml \
-  ./usr/lib/bitcoin-starter-stack/docker-compose.monero-rpc.yml \
-  ./usr/lib/bitcoin-starter-stack/docker-compose.monero-zmq.yml \
-  ./usr/lib/bitcoin-starter-stack/docker-compose.tari-grpc.yml \
-  ./usr/lib/bitcoin-starter-stack/docker-compose.litecoin-rpc.yml \
-  ./usr/lib/bitcoin-starter-stack/docker-compose.dogecoin-rpc.yml \
-  ./usr/lib/bitcoin-starter-stack/docker-compose.bitcoincash-rpc.yml \
-  ./usr/lib/bitcoin-starter-stack/docker-compose.zcash-rpc.yml \
-  ./usr/lib/bitcoin-starter-stack/runtime-images.json \
-  ./usr/lib/bitcoin-starter-stack/build/dashboard/main.go \
-  ./usr/lib/bitcoin-starter-stack/build/dashboard/login.go \
-  ./usr/lib/bitcoin-starter-stack/build/dashboard/sessions.go \
-  ./usr/lib/bitcoin-starter-stack/build/dashboard/index.html \
-  ./usr/lib/bitcoin-starter-stack/build/dashboard/login.html \
-  ./usr/lib/bitcoin-starter-stack/build/dashboard/static/login.css \
-  ./usr/lib/bitcoin-starter-stack/build/dashboard/static/session.js \
-  ./usr/lib/bitcoin-starter-stack/build/dashboard/static/theme-init.js \
-  ./usr/lib/bitcoin-starter-stack/build/monero/Dockerfile \
-  ./usr/lib/bitcoin-starter-stack/build/monero/wallet-entrypoint.sh \
-  ./usr/lib/bitcoin-starter-stack/build/monero/wallet-healthcheck.sh \
-  ./usr/lib/bitcoin-starter-stack/build/tari/config.toml \
-  ./usr/lib/bitcoin-starter-stack/build/tari-wallet/Dockerfile \
-  ./usr/lib/bitcoin-starter-stack/build/tari-wallet/launcher.go \
-  ./usr/lib/bitcoin-starter-stack/build/tari-wallet/config.toml \
-  ./usr/lib/bitcoin-starter-stack/build/litecoin/Dockerfile \
-  ./usr/lib/bitcoin-starter-stack/build/dogecoin/Dockerfile \
-  ./usr/lib/bitcoin-starter-stack/build/bitcoincash/Dockerfile \
-  ./usr/lib/bitcoin-starter-stack/build/bitcoincash/entrypoint.sh \
-  ./usr/lib/bitcoin-starter-stack/build/bitcoincash/healthcheck.sh \
-  ./usr/lib/bitcoin-starter-stack/build/zcash/zakurad.toml \
-  ./usr/lib/bitcoin-starter-stack/build/zcash/healthcheck.sh \
-  ./usr/lib/bitcoin-starter-stack/build/tor/torrc \
-  ./usr/lib/bitcoin-starter-stack/node-resource-profile \
-  ./usr/lib/bitcoin-starter-stack/node-port-control \
-  ./usr/lib/bitcoin-starter-stack/node-control \
-  ./usr/lib/systemd/system/bitcoin-starter-stack-resource-profile.service \
-  ./usr/lib/systemd/system/bitcoin-starter-stack-resource-profile.timer \
-  ./usr/lib/systemd/system/bitcoin-starter-stack-port-control.service \
-  ./usr/lib/systemd/system/bitcoin-starter-stack-port-control.timer \
-  ./usr/lib/systemd/system/bitcoin-starter-stack-node-control.service \
-  ./usr/lib/systemd/system/bitcoin-starter-stack-node-control.timer \
-  ./usr/share/doc/bitcoin-starter-stack/README.md \
-  ./usr/share/doc/bitcoin-starter-stack/docs/Caddyfile.example \
-  ./usr/share/doc/bitcoin-starter-stack/docs/nodes.md \
-  ./usr/share/doc/bitcoin-starter-stack/docs/privacy.md; do
+  ./usr/bin/node-manager \
+  ./usr/lib/node-manager/stack \
+  ./usr/lib/node-manager/configure.sh \
+  ./usr/lib/node-manager/docker-compose.yml \
+  ./usr/lib/node-manager/docker-compose.tari-wallet.yml \
+  ./usr/lib/node-manager/docker-compose.rpc.yml \
+  ./usr/lib/node-manager/docker-compose.monero-rpc.yml \
+  ./usr/lib/node-manager/docker-compose.monero-zmq.yml \
+  ./usr/lib/node-manager/docker-compose.tari-grpc.yml \
+  ./usr/lib/node-manager/docker-compose.litecoin-rpc.yml \
+  ./usr/lib/node-manager/docker-compose.dogecoin-rpc.yml \
+  ./usr/lib/node-manager/docker-compose.bitcoincash-rpc.yml \
+  ./usr/lib/node-manager/docker-compose.zcash-rpc.yml \
+  ./usr/lib/node-manager/runtime-images.json \
+  ./usr/lib/node-manager/build/dashboard/main.go \
+  ./usr/lib/node-manager/build/dashboard/login.go \
+  ./usr/lib/node-manager/build/dashboard/sessions.go \
+  ./usr/lib/node-manager/build/dashboard/index.html \
+  ./usr/lib/node-manager/build/dashboard/login.html \
+  ./usr/lib/node-manager/build/dashboard/static/login.css \
+  ./usr/lib/node-manager/build/dashboard/static/session.js \
+  ./usr/lib/node-manager/build/dashboard/static/theme-init.js \
+  ./usr/lib/node-manager/build/monero/Dockerfile \
+  ./usr/lib/node-manager/build/monero/wallet-entrypoint.sh \
+  ./usr/lib/node-manager/build/monero/wallet-healthcheck.sh \
+  ./usr/lib/node-manager/build/tari/config.toml \
+  ./usr/lib/node-manager/build/tari-wallet/Dockerfile \
+  ./usr/lib/node-manager/build/tari-wallet/launcher.go \
+  ./usr/lib/node-manager/build/tari-wallet/config.toml \
+  ./usr/lib/node-manager/build/litecoin/Dockerfile \
+  ./usr/lib/node-manager/build/dogecoin/Dockerfile \
+  ./usr/lib/node-manager/build/bitcoincash/Dockerfile \
+  ./usr/lib/node-manager/build/bitcoincash/entrypoint.sh \
+  ./usr/lib/node-manager/build/bitcoincash/healthcheck.sh \
+  ./usr/lib/node-manager/build/zcash/zakurad.toml \
+  ./usr/lib/node-manager/build/zcash/healthcheck.sh \
+  ./usr/lib/node-manager/build/tor/torrc \
+  ./usr/lib/node-manager/node-resource-profile \
+  ./usr/lib/node-manager/node-port-control \
+  ./usr/lib/node-manager/node-control \
+  ./usr/lib/systemd/system/node-manager-resource-profile.service \
+  ./usr/lib/systemd/system/node-manager-resource-profile.timer \
+  ./usr/lib/systemd/system/node-manager-port-control.service \
+  ./usr/lib/systemd/system/node-manager-port-control.timer \
+  ./usr/lib/systemd/system/node-manager-node-control.service \
+  ./usr/lib/systemd/system/node-manager-node-control.timer \
+  ./usr/share/doc/node-manager/README.md \
+  ./usr/share/doc/node-manager/docs/Caddyfile.example \
+  ./usr/share/doc/node-manager/docs/nodes.md \
+  ./usr/share/doc/node-manager/docs/privacy.md; do
   grep -q " $required$" "$tmp/contents" || fail "package is missing $required"
 done
 if grep -Eq '/(tests|parity|experiments|images|__pycache__|\.pytest_cache)/|_test\.go$|\.test\.mjs$|\.proto$|package\.json$|/\.coverage$|\.pyc$|docs/releasing\.md$|\.(jpg|jpeg)$' "$tmp/contents"; then
@@ -127,7 +127,7 @@ done
 [ -x "$tmp/control/postinst" ] || fail "package is missing its post-upgrade activation hook"
 grep -q 'dpkg --compare-versions.* gt ' "$tmp/control/postinst" || fail "postinst does not reject reinstalls and downgrades"
 grep -q 'env -i' "$tmp/control/postinst" || fail "postinst passes the package-manager environment to Docker"
-grep -q '/usr/bin/bitcoin-stack package-upgrade' "$tmp/control/postinst" || fail "postinst does not use the package activation command"
+grep -q '/usr/bin/node-manager package-upgrade' "$tmp/control/postinst" || fail "postinst does not use the package activation command"
 if grep -q '@VERSION@' "$tmp/control/postinst"; then
   fail "postinst package version placeholder was not rendered"
 fi
@@ -141,8 +141,8 @@ printf 'ready\n' >"$postinst_state/.env"
 printf 'ready\n' >"$postinst_state/.approved-config.json"
 printf 'ready\n' >"$postinst_state/.approved.env"
 sed \
-  -e "s|state=/var/lib/bitcoin-starter-stack|state=$postinst_state|" \
-  -e "s|/usr/bin/bitcoin-stack package-upgrade|$postinst_helper package-upgrade|" \
+  -e "s|state=/var/lib/node-manager|state=$postinst_state|" \
+  -e "s|/usr/bin/node-manager package-upgrade|$postinst_helper package-upgrade|" \
   "$tmp/control/postinst" >"$postinst_fixture"
 chmod 755 "$postinst_fixture"
 cat >"$postinst_helper" <<'EOF'
@@ -172,29 +172,29 @@ grep -q 'command=package-upgrade' "$postinst_log" || fail "postinst did not invo
 
 root=$tmp/root
 dpkg-deb -x "$deb" "$root"
-[ "$(cat "$root/usr/lib/bitcoin-starter-stack/VERSION")" = "$PACKAGE_VERSION" ] || fail "payload VERSION does not match package metadata"
-packaged_main=$root/usr/lib/bitcoin-starter-stack/docker-compose.yml
-packaged_tari=$root/usr/lib/bitcoin-starter-stack/docker-compose.tari-wallet.yml
+[ "$(cat "$root/usr/lib/node-manager/VERSION")" = "$PACKAGE_VERSION" ] || fail "payload VERSION does not match package metadata"
+packaged_main=$root/usr/lib/node-manager/docker-compose.yml
+packaged_tari=$root/usr/lib/node-manager/docker-compose.tari-wallet.yml
 total_pinned=0
 for service in tor dashboard monero tari-wallet litecoin dogecoin bitcoincash; do
   digest=$(jq -r --arg service "$service" '.[$service]' "$RUNTIME_IMAGE_DIGESTS_FILE")
   expected=1
   [ "$service" != monero ] || expected=2
-  count=$({ grep -hF "ghcr.io/vijitsingh97/bitcoin-starter-stack-$service:$PACKAGE_VERSION@$digest" "$packaged_main" "$packaged_tari" || true; } | wc -l | tr -d ' ')
+  count=$({ grep -hF "ghcr.io/vijitsingh97/node-manager-$service:$PACKAGE_VERSION@$digest" "$packaged_main" "$packaged_tari" || true; } | wc -l | tr -d ' ')
   [ "$count" = "$expected" ] || fail "package did not bind $service to its published digest"
   total_pinned=$((total_pinned + count))
 done
 [ "$total_pinned" = 8 ] || fail "package runtime digest set is incomplete"
-if grep -hEq 'ghcr.io/vijitsingh97/bitcoin-starter-stack-[^:]+:\$\{STACK_VERSION' "$packaged_main" "$packaged_tari"; then
+if grep -hEq 'ghcr.io/vijitsingh97/node-manager-[^:]+:\$\{STACK_VERSION' "$packaged_main" "$packaged_tari"; then
   fail "package retained a mutable first-party runtime tag"
 fi
 awk '$1 == "image:" && ($2 ~ /^bitcoin\/bitcoin:/ || $2 ~ /^ghcr.io\/tari-project\// || $2 ~ /^zakuracore\/zakura:/) { print $2 }' docker-compose.yml |
   while IFS= read -r image; do
     grep -Fq "image: $image" "$packaged_main" || fail "package changed external image pin $image"
   done
-privacy=$root/usr/share/doc/bitcoin-starter-stack/docs/privacy.md
+privacy=$root/usr/share/doc/node-manager/docs/privacy.md
 grep -q "^expected='72FD656754BD7534E274360A37070C2730C0B4EA'$" "$privacy" || fail "published feed fingerprint is missing"
-grep -q 'bitcoin-starter-stack.asc' "$privacy" || fail "feed key download is missing"
+grep -q 'node-manager.asc' "$privacy" || fail "feed key download is missing"
 grep -q -- '--proxy' "$privacy" && fail "feed key download forces a host proxy"
 grep -q -- 'gpg --batch --show-keys --with-colons' "$privacy" || fail "feed key fingerprint is not verified"
 grep -q 'primary_keys++' "$privacy" || fail "feed key check does not reject extra primary keys"
@@ -244,19 +244,19 @@ EOF
 chmod +x "$fake/systemctl"
 
 home=$tmp/home
-config_dir=$tmp/etc/bitcoin-starter-stack
-state_dir=$tmp/var/lib/bitcoin-starter-stack
+config_dir=$tmp/etc/node-manager
+state_dir=$tmp/var/lib/node-manager
 data_root=$state_dir/data
 log=$tmp/docker.log
-wrapper=$root/usr/bin/bitcoin-stack
-runtime=$root/usr/lib/bitcoin-starter-stack
+wrapper=$root/usr/bin/node-manager
+runtime=$root/usr/lib/node-manager
 export HOME=$home BITCOIN_STACK_CONFIG_DIR=$config_dir BITCOIN_STACK_STATE_DIR=$state_dir BITCOIN_STACK_DATA_DIR=$data_root
 export BITCOIN_STACK_ROOT=$runtime FAKE_DOCKER_LOG=$log PATH=$fake:$PATH
 
-"$wrapper" help | grep -q 'Usage: bitcoin-stack' || fail "package command help is wrong"
+"$wrapper" help | grep -q 'Usage: node-manager' || fail "package command help is wrong"
 [ ! -e "$log" ] || fail "help invoked Docker"
 out=$("$wrapper" upgrade)
-printf '%s' "$out" | grep -q 'sudo apt install --only-upgrade bitcoin-starter-stack' || fail "upgrade omitted APT instructions"
+printf '%s' "$out" | grep -q 'sudo apt install --only-upgrade node-manager' || fail "upgrade omitted APT instructions"
 [ ! -e "$log" ] || fail "package upgrade invoked Docker"
 
 : >"$log"
@@ -276,9 +276,9 @@ printf '%s' "$init_out" | grep -q 'Monero RPC' && fail "package init printed cre
 printf '%s' "$init_out" | grep -qE 'Dashboard password \(|Nodes to run \(|data directory \[|Download missing containers' && fail "package init still prompts for setup answers"
 grep -q -- 'compose .* pull' "$log" || fail "package init did not pull missing images"
 grep -q -- 'compose .* up -d --pull never --no-build' "$log" || fail "package init start allows implicit pulls or builds"
-grep -q 'systemctl enable --now bitcoin-starter-stack-resource-profile.timer' "$log" || fail "package init did not start the resource profile timer"
-grep -q 'systemctl enable --now bitcoin-starter-stack-port-control.timer' "$log" || fail "package init did not start the LAN port-control timer"
-grep -q 'systemctl enable --now bitcoin-starter-stack-node-control.timer' "$log" || fail "package init did not start the node-control timer"
+grep -q 'systemctl enable --now node-manager-resource-profile.timer' "$log" || fail "package init did not start the resource profile timer"
+grep -q 'systemctl enable --now node-manager-port-control.timer' "$log" || fail "package init did not start the LAN port-control timer"
+grep -q 'systemctl enable --now node-manager-node-control.timer' "$log" || fail "package init did not start the node-control timer"
 
 env_file=$state_dir/.env
 [ -f "$env_file" ] || fail "generated state is outside the package state directory"
@@ -317,8 +317,8 @@ grep -q -- "--env-file $env_file" "$log" || fail "Compose did not use package st
 grep -q -- "-f $runtime/docker-compose.yml up -d" "$log" || fail "Compose did not use immutable payload"
 grep -q -- "-f $runtime/docker-compose.rpc.yml" "$log" && fail "default package startup loaded the RPC override"
 
-preset_config_dir=$tmp/preset/etc/bitcoin-starter-stack
-preset_state_dir=$tmp/preset/var/lib/bitcoin-starter-stack
+preset_config_dir=$tmp/preset/etc/node-manager
+preset_state_dir=$tmp/preset/var/lib/node-manager
 preset_data_root=$preset_state_dir/data
 mkdir -p "$preset_config_dir"
 jq -nc --arg data_dir "$preset_data_root/custom-monero" \
@@ -366,12 +366,12 @@ rm -f "$config_dir/config.json"
 grep -q '^BITCOIN_PRUNE=0$' "$env_file" || fail "existing full-node state was converted to pruning"
 
 : >"$log"
-FAKE_EXISTING_CONFIG=/source/bitcoin-starter-stack/docker-compose.yml "$wrapper" up >"$tmp/existing.out" 2>&1 && fail "package startup replaced a source-managed container"
+FAKE_EXISTING_CONFIG=/source/node-manager/docker-compose.yml "$wrapper" up >"$tmp/existing.out" 2>&1 && fail "package startup replaced a source-managed container"
 grep -q 'belongs to another installation' "$tmp/existing.out" || fail "existing deployment refusal is unclear"
 grep -q 'compose .* up ' "$log" && fail "existing deployment refusal reached Compose up"
 
 : >"$log"
-FAKE_EXISTING_SERVICE=tari-wallet FAKE_EXISTING_CONFIG=/source/bitcoin-starter-stack/docker-compose.yml \
+FAKE_EXISTING_SERVICE=tari-wallet FAKE_EXISTING_CONFIG=/source/node-manager/docker-compose.yml \
   "$wrapper" up >"$tmp/existing-tari-wallet.out" 2>&1 && fail "package startup replaced a source-managed Tari wallet container"
 grep -q 'Existing tari-wallet container belongs to another installation' "$tmp/existing-tari-wallet.out" || fail "Tari wallet deployment refusal is unclear"
 grep -q 'compose .* up ' "$log" && fail "Tari wallet deployment refusal reached Compose up"
