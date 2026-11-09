@@ -6,6 +6,13 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.33.5] - 2026-11-09
+
+### Added
+
+- The dashboard settings dialog shows the running node-manager version
+  under its heading (#163).
+
 ## [1.33.4] - 2026-11-09
 
 ### Changed
@@ -987,7 +994,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.4...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.5...HEAD
+[1.33.5]: https://github.com/VijitSingh97/node-manager/compare/v1.33.4...v1.33.5
 [1.33.4]: https://github.com/VijitSingh97/node-manager/compare/v1.33.3...v1.33.4
 [1.33.3]: https://github.com/VijitSingh97/node-manager/compare/v1.33.2...v1.33.3
 [1.33.2]: https://github.com/VijitSingh97/node-manager/compare/v1.33.1...v1.33.2
