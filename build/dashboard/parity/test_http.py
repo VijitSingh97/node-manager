@@ -111,14 +111,27 @@ class DashboardContracts(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.state_dir = Path(self.temp.name)
-        self.fixture = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Fixture)
-        self.fixture.lock = threading.Lock()
-        self.fixture.state = {'calls': [], 'wallets': {}, 'down': False, 'ibd': False, 'pruned': False, 'version': '/Satoshi:31.1.0/'}
+        self.fixture = None
+        self.fresh_fixture()
         self.go_dashboard = 'DASHBOARD_COMMAND' in os.environ
-        self.thread = threading.Thread(target=self.fixture.serve_forever, daemon=True)
-        self.thread.start()
         self.log = (self.state_dir / 'server.log').open('w+')
         self.start()
+
+    def fresh_fixture(self):
+        # A new port per dashboard instance: an in-flight RPC from the previous
+        # instance can otherwise be recorded after the new instance started.
+        state = {'calls': [], 'wallets': {}, 'down': False, 'ibd': False, 'pruned': False, 'version': '/Satoshi:31.1.0/'}
+        if self.fixture is not None:
+            with self.fixture.lock:
+                state = dict(self.fixture.state, calls=[])
+            self.fixture.shutdown()
+            self.fixture.server_close()
+            self.thread.join()
+        self.fixture = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Fixture)
+        self.fixture.lock = threading.Lock()
+        self.fixture.state = state
+        self.thread = threading.Thread(target=self.fixture.serve_forever, daemon=True)
+        self.thread.start()
 
     def start(self, password='paritypass', expect_failure=False):
         with socket.socket() as listener:
@@ -160,6 +173,7 @@ class DashboardContracts(unittest.TestCase):
             self.process.kill()
             self.process.wait()
             self.fail('dashboard failed graceful shutdown')
+        self.fresh_fixture()
 
     def tearDown(self):
         self.stop()
@@ -281,7 +295,6 @@ class DashboardContracts(unittest.TestCase):
         self.stop()
         with self.fixture.lock:
             self.fixture.state['ibd'] = True
-            self.fixture.state['calls'].clear()
         self.start()
         body = self.bitcoin_panel(self.call('/')[1])
         self.assertNotIn('Mempool:', body)
@@ -341,7 +354,11 @@ class DashboardContracts(unittest.TestCase):
         self.assertEqual(imported, {'desc':f'addr({ADDRESS})#fixture','timestamp':1615766400,'active':False,'internal':False})
         self.stop()
         self.start()
-        restarted = self.body()['wallets'][0]
+        for _ in range(300):
+            restarted = self.body()['wallets'][0]
+            if restarted['state'] != 'pending':
+                break
+            time.sleep(0.01)
         self.assertEqual((restarted['name'], restarted['state'], restarted['btc']),
                          ('Cold', 'ok', '1.23456789'))
         self.assertEqual(self.call('/api/watch/Cold', 'DELETE')[0], 200)
