@@ -322,6 +322,15 @@ write_host_stats() {
   printf 'stack %s\nstack %s\n' "$stack_root" "$state_root"
   docker_root=$("$docker_bin" info --format '{{.DockerRootDir}}' 2>/dev/null)
   [ -n "$docker_root" ] && printf 'stack %s\n' "$docker_root")
+  node_sizes=$(for service in bitcoin monero tari litecoin dogecoin bitcoincash zcash; do
+    upper=$(printf '%s' "$service" | tr '[:lower:]' '[:upper:]')
+    dir=$(env_get "${upper}_DATA_DIR")
+    [ -n "$dir" ] || dir=$state_root/data/$service
+    [ -d "$dir" ] || continue
+    kb=$(du -sk "$dir" 2>/dev/null | awk '{print $1}')
+    case "$kb" in ('' | *[!0-9]*) continue ;; esac
+    printf '%s %s\n' "$service" "$((kb * 1024))"
+  done)
   payload=$(printf '%s\n' "$stats" | awk -F '\t' -v project="$project_name" -v cpus="$cpus" '
     index($1, project "-") == 1 {
       service = substr($1, length(project) + 2)
@@ -340,6 +349,7 @@ write_host_stats() {
       else next
       printf "%s %.4f %.0f\n", service, cpu / cpus, value * factor
     }' | jq -Rn --argjson cpus "$cpus" --argjson mem_total "$mem_total" --argjson now "$current_time" '
+      def rows($s): $s | split("\n") | map(select(length > 0) | [splits("[[:space:]]+")]);
       [inputs | select(length > 0) | split(" ") | {service: .[0], cpu: (.[1] | tonumber), mem: (.[2] | tonumber)}] |
       reduce .[] as $row ({nodes: {}, other: {cpu_pct: 0, mem_bytes: 0}};
         if ["bitcoin", "monero", "tari", "litecoin", "dogecoin", "bitcoincash", "zcash"] | index($row.service)
@@ -347,15 +357,16 @@ write_host_stats() {
         else .other = {cpu_pct: (.other.cpu_pct + $row.cpu), mem_bytes: (.other.mem_bytes + $row.mem)}
         end) |
       {updated: $now, cpus: $cpus, mem_total_bytes: $mem_total, nodes: .nodes, other: .other} |
+      reduce (rows($nodesizes)[]) as $row (.;
+        .nodes[$row[0]] = ((.nodes[$row[0]] // {cpu_pct: 0, mem_bytes: 0}) + {disk_bytes: ($row[1] | tonumber? // 0)})) |
       . + {disks: (
-        def rows($s): $s | split("\n") | map(select(length > 0) | [splits("[[:space:]]+")]);
         (rows($hostdisks) | map({name: .[0], mount: .[5], total: (.[1] | tonumber? // 0), free: (.[3] | tonumber? // 0)}) | map(select(.total > 0))) as $mounts |
         (rows($nodedirs) | map(. as $d |
           ($mounts | map(. as $disk | select(($d[1] == $disk.mount) or ($d[1] | startswith($disk.mount + "/")) or ($disk.mount == "/"))) | sort_by(-(.mount | length)) | .[0]) as $best |
           select($best != null) | {service: $d[0], device: $best.name})) as $owners |
         $mounts | unique_by(.name) | map({name: .name, disk_total_bytes: .total, disk_free_bytes: .free,
           nodes: [.name as $device | $owners[] | select(.device == $device) | .service] | unique})
-      )}' --arg hostdisks "$host_disks" --arg nodedirs "$node_dirs") || return 0
+      )}' --arg hostdisks "$host_disks" --arg nodedirs "$node_dirs" --arg nodesizes "$node_sizes") || return 0
   [ -n "$payload" ] || return 0
   printf '%s' "$payload" | "$docker_bin" exec -i -u 1000 "$dashboard" sh -c 'umask 077; cat > /state/host-stats.json.tmp && mv /state/host-stats.json.tmp /state/host-stats.json' 2>/dev/null || true
 }

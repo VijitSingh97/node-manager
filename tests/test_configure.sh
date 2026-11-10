@@ -414,6 +414,20 @@ echo '{"bitcoin": {"mem_limit_mb": "lots"}}' >"$tmp/config.json"
 (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "non-numeric mem_limit_mb was accepted"
 rm -f "$tmp/config.json"
 
+# hard caps: defaults render 0 (unlimited); set values render; non-numeric cpus rejected
+(cd "$tmp" && ./configure.sh) >/dev/null
+grep -q '^BITCOIN_CPUS=0$' "$tmp/.env" || fail "bitcoin cpus default should render 0"
+grep -q '^MONERO_CPUS=0$' "$tmp/.env" || fail "monero cpus default should render 0"
+grep -q '^MONERO_MEM_LIMIT=0$' "$tmp/.env" || fail "monero mem default should render 0"
+echo '{"bitcoin": {"cpus": 0.5}, "monero": {"cpus": 1, "mem_limit_mb": 2048}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null
+grep -q '^BITCOIN_CPUS=0.5$' "$tmp/.env" || fail "bitcoin cpus 0.5 should render"
+grep -q '^MONERO_CPUS=1$' "$tmp/.env" || fail "monero cpus 1 should render"
+grep -q '^MONERO_MEM_LIMIT=2048m$' "$tmp/.env" || fail "monero mem_limit_mb 2048 should render 2048m"
+echo '{"bitcoin": {"cpus": "fast"}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "non-numeric cpus was accepted"
+rm -f "$tmp/config.json"
+
 # 12. Passwordless and mixed protected ingress dashboards are rejected.
 warn="$tmp/warn"
 mkdir "$warn"

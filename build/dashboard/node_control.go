@@ -164,8 +164,9 @@ func (a *app) apiNodes(w http.ResponseWriter, _ *http.Request) {
 }
 
 type hostStatsUsage struct {
-	CPUPct   float64 `json:"cpu_pct"`
-	MemBytes uint64  `json:"mem_bytes"`
+	CPUPct    float64 `json:"cpu_pct"`
+	MemBytes  uint64  `json:"mem_bytes"`
+	DiskBytes uint64  `json:"disk_bytes,omitempty"`
 }
 
 type hostStatsFile struct {

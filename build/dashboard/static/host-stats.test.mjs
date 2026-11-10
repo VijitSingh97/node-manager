@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { diskViews, zoomSlices, pieView, rescaleToStack, arcPath, NODE_COLORS } from "./host-stats.js";
+import { diskViews, zoomSlices, pieView, rescaleToStack, arcPath, withCollectorSizes, NODE_COLORS, OTHER_COLOR } from "./host-stats.js";
 
 const GiB = 1024 ** 3;
 
@@ -128,4 +128,24 @@ test("arcPath produces unit-circle arcs with the right large-arc flag", () => {
   assert.equal(arcPath(0, 0.25), "M 1.0000 0.0000 A 1 1 0 0 1 0.0000 1.0000 L 0 0 Z");
   assert.match(arcPath(0, 0.75), /A 1 1 0 1 1/);
   assert.match(arcPath(0, 1), /A 1 1 0 1 1 1 -0\.0002/);
+});
+
+test("withCollectorSizes seeds from collector disk bytes and lets live RPC sizes win", () => {
+  const stats = { nodes: { bitcoin: { cpu_pct: 0, mem_bytes: 0, disk_bytes: 9 * GiB }, monero: { cpu_pct: 3, mem_bytes: GiB, disk_bytes: 28 * GiB } } };
+  const merged = withCollectorSizes(stats, new Map([["monero", 30 * GiB], ["bitcoin", 0]]));
+  assert.equal(merged.get("bitcoin"), 9 * GiB);
+  assert.equal(merged.get("monero"), 30 * GiB);
+  assert.equal(withCollectorSizes(null, new Map()).size, 0);
+});
+
+test("other and free slices use distinct colors on bars and pies", () => {
+  const host = { disk_available: true, disk_total_bytes: 1000 * GiB, disk_free_bytes: 400 * GiB };
+  const bar = diskViews(host, new Map([["bitcoin", 100 * GiB]])).bars[0];
+  const other = bar.slices.find((s) => s.id === "other");
+  const free = bar.slices.find((s) => s.id === "free");
+  assert.equal(other.color, OTHER_COLOR);
+  assert.notEqual(other.color, free.color);
+  const view = pieView({ cpus: 4, mem_total_bytes: 8 * GiB, nodes: {}, other: { cpu_pct: 5, mem_bytes: GiB } });
+  assert.equal(view.cpu.find((s) => s.id === "other").color, OTHER_COLOR);
+  assert.notEqual(view.cpu.find((s) => s.id === "other").color, view.cpu.find((s) => s.id === "idle").color);
 });
