@@ -1505,3 +1505,60 @@ func TestForwardHostEventsTelegramsNewHostLinesOnce(t *testing.T) {
 		t.Fatalf("completed line was not forwarded: %v", messages)
 	}
 }
+
+func TestForwardHostEventsRetriesFailedSends(t *testing.T) {
+	var messages []string
+	failing := true
+	m := configuredMonitor(t, func(r *http.Request) (*http.Response, error) {
+		if failing {
+			return response(http.StatusInternalServerError, `{}`), nil
+		}
+		var payload struct {
+			Text string `json:"text"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		messages = append(messages, payload.Text)
+		return response(http.StatusOK, `{"ok":true}`), nil
+	})
+	m.forwardHostEvents(t.Context())
+	if err := os.WriteFile(m.eventsLog, []byte("2026-11-10T21:00:00Z Host: thermal throttle at 95C — capped monero at 1.00 CPUs\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m.forwardHostEvents(t.Context())
+	if len(messages) != 0 {
+		t.Fatalf("failed send delivered anyway: %v", messages)
+	}
+	failing = false
+	m.forwardHostEvents(t.Context())
+	m.forwardHostEvents(t.Context())
+	if len(messages) != 1 || !strings.Contains(messages[0], "capped monero at 1.00 CPUs") {
+		t.Fatalf("failed send was not retried exactly once: %v", messages)
+	}
+}
+
+func TestForwardHostEventsSurvivesLogRotation(t *testing.T) {
+	var messages []string
+	m := configuredMonitor(t, func(r *http.Request) (*http.Response, error) {
+		var payload struct {
+			Text string `json:"text"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		messages = append(messages, payload.Text)
+		return response(http.StatusOK, `{"ok":true}`), nil
+	})
+	filler := strings.Repeat("2026-11-10T20:00:00Z filler line\n", 120000)
+	hostLine := "2026-11-10T21:00:00Z Host: thermal throttle at 93C — capped bitcoin at 0.50 CPUs\n"
+	if err := os.WriteFile(m.eventsLog, []byte(filler+hostLine), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m.hostEventsOffset = int64(len(filler))
+	m.logEvent("trigger rotation")
+	m.forwardHostEvents(t.Context())
+	if len(messages) != 1 || !strings.Contains(messages[0], "capped bitcoin at 0.50 CPUs") {
+		t.Fatalf("host line lost or duplicated across rotation: %v", messages)
+	}
+}

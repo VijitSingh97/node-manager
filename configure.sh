@@ -687,6 +687,10 @@ esac
 if [ "$monero_mem_limit_mb" = "0" ]; then
   monero_mem_limit=0
 else
+  if [ "$monero_mem_limit_mb" -lt 64 ]; then
+    echo "monero.mem_limit_mb must be 0 or at least 64."
+    exit 1
+  fi
   monero_mem_limit="${monero_mem_limit_mb}m"
 fi
 for cpus_pair in "bitcoin:$bitcoin_cpus" "monero:$monero_cpus" "tari:$tari_cpus" "litecoin:$litecoin_cpus" "dogecoin:$dogecoin_cpus" "bitcoincash:$bitcoincash_cpus" "zcash:$zcash_cpus"; do
@@ -711,8 +715,8 @@ if [ "$thermal_limit_c" != 0 ]; then
     exit 1
   fi
   [ "$thermal_resume_c" != 0 ] || thermal_resume_c=$((thermal_limit_c - 10))
-  if [ "$thermal_resume_c" -ge "$thermal_limit_c" ]; then
-    echo "host.thermal_resume_c must be below host.thermal_limit_c."
+  if [ "$thermal_resume_c" -ge "$thermal_limit_c" ] || [ "$thermal_resume_c" -lt 20 ]; then
+    echo "host.thermal_resume_c must be between 20 and host.thermal_limit_c."
     exit 1
   fi
 fi

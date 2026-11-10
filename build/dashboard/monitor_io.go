@@ -144,15 +144,31 @@ func (m *Monitor) forwardHostEvents(ctx context.Context) {
 			f.Close()
 		}
 	}
+	m.logMu.Unlock()
+	settings := m.notificationSettings()
+	telegramOn := settings.TelegramEnabled && settings.TelegramBotToken != "" && settings.TelegramChatID != ""
+	consumed := 0
+	failed := false
+	for rest := string(chunk); rest != ""; {
+		line, more, _ := strings.Cut(rest, "\n")
+		rest = more
+		if _, text, found := strings.Cut(line, " "); found && strings.HasPrefix(text, "Host: ") && telegramOn {
+			if !m.sendTelegram(ctx, "🌡 "+strings.TrimPrefix(text, "Host: ")) {
+				failed = true
+				break
+			}
+		}
+		consumed += len(line) + 1
+	}
+	m.logMu.Lock()
+	if failed {
+		m.hostEventsOffset -= int64(len(chunk) - consumed)
+		if m.hostEventsOffset < 0 {
+			m.hostEventsOffset = 0
+		}
+	}
 	moved := m.hostEventsOffset != start
 	m.logMu.Unlock()
-	for _, line := range strings.Split(strings.TrimRight(string(chunk), "\n"), "\n") {
-		_, text, found := strings.Cut(line, " ")
-		if !found || !strings.HasPrefix(text, "Host: ") {
-			continue
-		}
-		m.sendTelegram(ctx, "🌡 "+strings.TrimPrefix(text, "Host: "))
-	}
 	if moved {
 		m.saveState()
 	}
@@ -166,6 +182,15 @@ func (m *Monitor) logEvent(text string) {
 		if err := rotateEventLog(m.eventsLog); err != nil {
 			m.writeOutput("Event log write failed")
 			return
+		}
+		if rotated, err := os.Stat(m.eventsLog); err == nil {
+			if removed := stat.Size() - rotated.Size(); removed > 0 {
+				if m.hostEventsOffset > removed {
+					m.hostEventsOffset -= removed
+				} else {
+					m.hostEventsOffset = 0
+				}
+			}
 		}
 	}
 	f, err := os.OpenFile(m.eventsLog, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)

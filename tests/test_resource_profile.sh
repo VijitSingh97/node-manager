@@ -427,7 +427,7 @@ printf '90000\n' >"$case_root/thermal/temp"
 export RESOURCE_THERMAL_GLOB="$case_root/thermal/temp" FAKE_EVENTS_OUT=$tmp/thermal-events.log
 run_profile
 grep -q '^2000000000 ' "$caps/xmr-id" || fail "hot pass did not halve monero from unlimited"
-[ "$(cat "$case_root/state/thermal-throttle/monero")" = 0 ] || fail "original monero cap was not saved"
+[ "$(cat "$case_root/state/thermal-throttle/monero")" = "xmr-id 0" ] || fail "original cap missing its container id"
 tick_profile
 grep -q '^1000000000 ' "$caps/xmr-id" || fail "second hot pass did not halve again"
 printf '70000\n' >"$case_root/thermal/temp"
@@ -435,7 +435,24 @@ tick_profile
 grep -q '^0 ' "$caps/xmr-id" || fail "cool pass did not restore monero to unlimited"
 [ ! -f "$case_root/state/thermal-throttle/monero" ] || fail "throttle state was not cleared"
 grep -q 'thermal throttle at 90C' "$tmp/thermal-events.log" || fail "throttle event line missing"
-grep -q 'thermal throttle released at 70C' "$tmp/thermal-events.log" || fail "release event line missing"
+grep -q 'thermal throttle released (cooled to 70C)' "$tmp/thermal-events.log" || fail "release event line missing"
+
+printf '90000\n' >"$case_root/thermal/temp"
+run_profile
+grep -q '^2000000000 ' "$caps/xmr-id" || fail "re-throttle did not halve monero"
+sed -i.bak 's/^THERMAL_LIMIT_C=85$/THERMAL_LIMIT_C=0/' "$case_root/state/.env"
+run_profile
+grep -q '^0 ' "$caps/xmr-id" || fail "disabling the throttle did not restore monero"
+grep -q 'thermal throttle released (throttle disabled)' "$tmp/thermal-events.log" || fail "disable release event missing"
+sed -i.bak 's/^THERMAL_LIMIT_C=0$/THERMAL_LIMIT_C=85/' "$case_root/state/.env"
+run_profile
+grep -q '^2000000000 ' "$caps/xmr-id" || fail "throttle did not re-engage for recreate case"
+export FAKE_MONERO_ID=xmr-id-2
+printf '70000\n' >"$case_root/thermal/temp"
+run_profile
+[ ! -f "$case_root/state/thermal-throttle/monero" ] || fail "recreated container kept stale throttle state"
+[ ! -f "$caps/xmr-id-2" ] || fail "stale original restored onto recreated container"
+export FAKE_MONERO_ID=xmr-id
 unset RESOURCE_THERMAL_GLOB FAKE_EVENTS_OUT
 
 echo "PASS: test_resource_profile.sh"

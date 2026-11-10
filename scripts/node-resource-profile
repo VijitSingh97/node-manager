@@ -312,19 +312,27 @@ thermal_event() {
 }
 
 thermal_check() {
+  throttle_dir=$state_root/thermal-throttle
   limit=$(env_get THERMAL_LIMIT_C)
-  case "$limit" in ('' | 0 | *[!0-9]*) return 0 ;; esac
+  case "$limit" in ('' | 0 | *[!0-9]*)
+    [ -d "$throttle_dir" ] && thermal_restore "throttle disabled"
+    return 0
+    ;;
+  esac
   resume=$(env_get THERMAL_RESUME_C)
   case "$resume" in ('' | 0 | *[!0-9]*) resume=$((limit - 10)) ;; esac
   # shellcheck disable=SC2086
   temp=$(cat ${RESOURCE_THERMAL_GLOB:-/sys/class/thermal/thermal_zone*/temp} 2>/dev/null | sort -n | tail -n 1)
-  case "$temp" in ('' | *[!0-9]*) return 0 ;; esac
+  case "$temp" in ('' | *[!0-9]*)
+    [ -d "$throttle_dir" ] && thermal_restore "thermal sensor unreadable"
+    return 0
+    ;;
+  esac
   temp=$((temp / 1000))
-  throttle_dir=$state_root/thermal-throttle
   if [ "$temp" -ge "$limit" ]; then
     host_cpus=$("$docker_bin" info --format '{{.NCPU}}' 2>/dev/null)
     case "$host_cpus" in ('' | 0 | *[!0-9]*) return 0 ;; esac
-    mkdir -p "$throttle_dir"
+    mkdir -p "$throttle_dir" || return 0
     for service in bitcoin monero tari litecoin dogecoin bitcoincash zcash; do
       id=$(container_id "$service") || continue
       [ -n "$id" ] || continue
@@ -339,25 +347,37 @@ thermal_check() {
         printf "%.0f", half
       }')
       [ -n "$new_nanos" ] || continue
-      [ -f "$throttle_dir/$service" ] || printf '%s\n' "$cur_nanos" >"$throttle_dir/$service"
+      saved_id=
+      [ ! -f "$throttle_dir/$service" ] || saved_id=$(awk '{print $1; exit}' "$throttle_dir/$service")
+      if [ "$saved_id" != "$id" ]; then
+        printf '%s %s\n' "$id" "$cur_nanos" >"$throttle_dir/$service" || continue
+      fi
       cpus_value=$(awk -v n="$new_nanos" 'BEGIN { printf "%.2f", n / 1000000000 }')
       "$docker_bin" update --cpus "$cpus_value" "$id" >/dev/null 2>&1 || continue
       thermal_event "thermal throttle at ${temp}C — capped $service at ${cpus_value} CPUs"
     done
   elif [ "$temp" -le "$resume" ] && [ -d "$throttle_dir" ]; then
-    for file in "$throttle_dir"/*; do
-      [ -f "$file" ] || continue
-      service=${file##*/}
-      orig_nanos=$(cat "$file")
-      case "$orig_nanos" in ('' | *[!0-9]*) orig_nanos=0 ;; esac
-      id=$(container_id "$service") || { rm -f "$file"; continue; }
-      [ -n "$id" ] || { rm -f "$file"; continue; }
-      cpus_value=$(awk -v n="$orig_nanos" 'BEGIN { printf "%.2f", n / 1000000000 }')
-      "$docker_bin" update --cpus "$cpus_value" "$id" >/dev/null 2>&1 || continue
-      rm -f "$file"
-      thermal_event "thermal throttle released at ${temp}C — restored $service"
-    done
+    thermal_restore "cooled to ${temp}C"
   fi
+}
+
+thermal_restore() {
+  for file in "$throttle_dir"/*; do
+    [ -f "$file" ] || continue
+    service=${file##*/}
+    saved_id=$(awk '{print $1; exit}' "$file")
+    orig_nanos=$(awk '{print $2; exit}' "$file")
+    case "$orig_nanos" in ('' | *[!0-9]*) orig_nanos=0 ;; esac
+    id=$(container_id "$service") || { rm -f "$file"; continue; }
+    if [ -z "$id" ] || [ "$id" != "$saved_id" ]; then
+      rm -f "$file"
+      continue
+    fi
+    cpus_value=$(awk -v n="$orig_nanos" 'BEGIN { printf "%.2f", n / 1000000000 }')
+    "$docker_bin" update --cpus "$cpus_value" "$id" >/dev/null 2>&1 || continue
+    rm -f "$file" "$profile_state/$service"
+    thermal_event "thermal throttle released ($1) — restored $service"
+  done
 }
 
 write_host_stats() {

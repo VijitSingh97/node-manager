@@ -439,6 +439,10 @@ echo '{"host": {"thermal_limit_c": 85, "thermal_resume_c": 90}}' >"$tmp/config.j
 (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "thermal resume above limit was accepted"
 echo '{"host": {"thermal_limit_c": 300}}' >"$tmp/config.json"
 (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "thermal limit 300 was accepted"
+echo '{"host": {"thermal_limit_c": 50, "thermal_resume_c": 1}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "thermal resume 1 was accepted"
+echo '{"monero": {"mem_limit_mb": 5}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "monero mem_limit_mb 5 was accepted"
 rm -f "$tmp/config.json"
 
 # 12. Passwordless and mixed protected ingress dashboards are rejected.
