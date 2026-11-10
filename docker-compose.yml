@@ -210,6 +210,7 @@ services:
     read_only: true
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
+    cpus: ${TARI_CPUS:-0}
     environment:
       WAIT_FOR_TOR: "1"
       TARI_PRUNING_HORIZON: ${TARI_PRUNING_HORIZON:-10000}
@@ -242,6 +243,7 @@ services:
       - "io.node-starter-stack.steady-memory-mb=${LITECOIN_STEADY_MEM_LIMIT_MB:-2048}"
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
+    cpus: ${LITECOIN_CPUS:-0}
     environment:
       LITECOIN_RPC_USER: ${LITECOIN_RPC_USER:?run ./configure.sh first}
       LITECOIN_RPC_PASSWORD: ${LITECOIN_RPC_PASSWORD:?run ./configure.sh first}
@@ -272,6 +274,7 @@ services:
       - "io.node-starter-stack.steady-memory-mb=${DOGECOIN_STEADY_MEM_LIMIT_MB:-2048}"
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
+    cpus: ${DOGECOIN_CPUS:-0}
     environment:
       DOGECOIN_RPC_USER: ${DOGECOIN_RPC_USER:?run ./configure.sh first}
       DOGECOIN_RPC_PASSWORD: ${DOGECOIN_RPC_PASSWORD:?run ./configure.sh first}
@@ -302,6 +305,7 @@ services:
       - "io.node-starter-stack.steady-memory-mb=${BITCOINCASH_STEADY_MEM_LIMIT_MB:-2048}"
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
+    cpus: ${BITCOINCASH_CPUS:-0}
     volumes: ["${BITCOINCASH_DATA_DIR:-./data/bitcoincash}:/data"]
     stop_grace_period: 5m
     restart: ${STACK_RESTART_POLICY:-on-failure:5}
@@ -333,6 +337,7 @@ services:
     read_only: true
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
+    cpus: ${ZCASH_CPUS:-0}
     # Zakura's root entrypoint needs to traverse a pre-existing private data directory before dropping privileges.
     cap_add: ["CHOWN", "DAC_READ_SEARCH", "SETGID", "SETUID"]
     environment:

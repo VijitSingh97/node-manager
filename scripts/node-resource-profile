@@ -303,6 +303,62 @@ apply_profile() {
   echo "resource-profile: capped synced $service at ${steady_cpus} CPU and ${memory_limit_mb} MiB memory"
 }
 
+thermal_event() {
+  echo "resource-profile: $1"
+  dashboard=$(container_id dashboard)
+  [ -n "$dashboard" ] || return 0
+  printf '%sZ Host: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%S)" "$1" |
+    "$docker_bin" exec -i -u 1000 "$dashboard" sh -c 'cat >> /state/events.log' 2>/dev/null || true
+}
+
+thermal_check() {
+  limit=$(env_get THERMAL_LIMIT_C)
+  case "$limit" in ('' | 0 | *[!0-9]*) return 0 ;; esac
+  resume=$(env_get THERMAL_RESUME_C)
+  case "$resume" in ('' | 0 | *[!0-9]*) resume=$((limit - 10)) ;; esac
+  temp=$(cat ${RESOURCE_THERMAL_GLOB:-/sys/class/thermal/thermal_zone*/temp} 2>/dev/null | sort -n | tail -n 1)
+  case "$temp" in ('' | *[!0-9]*) return 0 ;; esac
+  temp=$((temp / 1000))
+  throttle_dir=$state_root/thermal-throttle
+  if [ "$temp" -ge "$limit" ]; then
+    host_cpus=$("$docker_bin" info --format '{{.NCPU}}' 2>/dev/null)
+    case "$host_cpus" in ('' | 0 | *[!0-9]*) return 0 ;; esac
+    mkdir -p "$throttle_dir"
+    for service in bitcoin monero tari litecoin dogecoin bitcoincash zcash; do
+      id=$(container_id "$service") || continue
+      [ -n "$id" ] || continue
+      cur=$(current_limits "$id") || continue
+      cur_nanos=${cur%% *}
+      case "$cur_nanos" in ('' | *[!0-9]*) continue ;; esac
+      new_nanos=$(awk -v cur="$cur_nanos" -v cpus="$host_cpus" 'BEGIN {
+        effective = cur > 0 ? cur : cpus * 1000000000
+        half = effective / 2
+        if (half < 250000000) half = 250000000
+        if (cur > 0 && half >= cur) exit
+        printf "%.0f", half
+      }')
+      [ -n "$new_nanos" ] || continue
+      [ -f "$throttle_dir/$service" ] || printf '%s\n' "$cur_nanos" >"$throttle_dir/$service"
+      cpus_value=$(awk -v n="$new_nanos" 'BEGIN { printf "%.2f", n / 1000000000 }')
+      "$docker_bin" update --cpus "$cpus_value" "$id" >/dev/null 2>&1 || continue
+      thermal_event "thermal throttle at ${temp}C — capped $service at ${cpus_value} CPUs"
+    done
+  elif [ "$temp" -le "$resume" ] && [ -d "$throttle_dir" ]; then
+    for file in "$throttle_dir"/*; do
+      [ -f "$file" ] || continue
+      service=${file##*/}
+      orig_nanos=$(cat "$file")
+      case "$orig_nanos" in ('' | *[!0-9]*) orig_nanos=0 ;; esac
+      id=$(container_id "$service") || { rm -f "$file"; continue; }
+      [ -n "$id" ] || { rm -f "$file"; continue; }
+      cpus_value=$(awk -v n="$orig_nanos" 'BEGIN { printf "%.2f", n / 1000000000 }')
+      "$docker_bin" update --cpus "$cpus_value" "$id" >/dev/null 2>&1 || continue
+      rm -f "$file"
+      thermal_event "thermal throttle released at ${temp}C — restored $service"
+    done
+  fi
+}
+
 write_host_stats() {
   dashboard=$(container_id dashboard)
   [ -n "$dashboard" ] || return 0
@@ -372,6 +428,7 @@ write_host_stats() {
 }
 
 current_time=${RESOURCE_NOW_EPOCH:-$(date +%s)}
+thermal_check || true
 apply_profile bitcoin BITCOIN_RESOURCE_PROFILE bitcoin_synced BITCOIN_STEADY_CPUS BITCOIN_STEADY_MEM_LIMIT_MB
 apply_profile monero MONERO_RESOURCE_PROFILE monero_synced MONERO_STEADY_CPUS MONERO_STEADY_MEM_LIMIT_MB
 apply_profile tari TARI_RESOURCE_PROFILE tari_synced TARI_STEADY_CPUS TARI_STEADY_MEM_LIMIT_MB

@@ -42,6 +42,7 @@
         "resource_profile": "off",
         "steady_cpus": 1,
         "steady_mem_limit_mb": 4096,
+        "cpus": 0,
         "grpc_expose": false,
         "grpc_bind_ip": "",
         "grpc_port": 18142
@@ -55,6 +56,7 @@
         "resource_profile": "off",
         "steady_cpus": 1,
         "steady_mem_limit_mb": 4096,
+        "cpus": 0,
         "rpc_expose": false,
         "rpc_bind_ip": "",
         "rpc_port": 9332
@@ -68,6 +70,7 @@
         "resource_profile": "off",
         "steady_cpus": 1,
         "steady_mem_limit_mb": 4096,
+        "cpus": 0,
         "rpc_expose": false,
         "rpc_bind_ip": "",
         "rpc_port": 22555
@@ -81,6 +84,7 @@
         "resource_profile": "off",
         "steady_cpus": 1,
         "steady_mem_limit_mb": 4096,
+        "cpus": 0,
         "rpc_expose": false,
         "rpc_bind_ip": "",
         "rpc_port": 8332
@@ -93,6 +97,7 @@
         "resource_profile": "off",
         "steady_cpus": 1,
         "steady_mem_limit_mb": 4096,
+        "cpus": 0,
         "rpc_expose": false,
         "rpc_bind_ip": "",
         "rpc_port": 8232
@@ -104,6 +109,10 @@
         "bind_ip": "auto",
         "launch_at_boot": false,
         "port": 80
+    },
+    "host": {
+        "thermal_limit_c": 0,
+        "thermal_resume_c": 0
     },
     "notifications": {
         "telegram_bot_token": "",

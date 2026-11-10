@@ -428,6 +428,19 @@ echo '{"bitcoin": {"cpus": "fast"}}' >"$tmp/config.json"
 (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "non-numeric cpus was accepted"
 rm -f "$tmp/config.json"
 
+# family hard caps and host thermal knobs
+echo '{"tari": {"cpus": 0.5}, "host": {"thermal_limit_c": 85}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null
+grep -q '^TARI_CPUS=0.5$' "$tmp/.env" || fail "tari cpus 0.5 should render"
+grep -q '^LITECOIN_CPUS=0$' "$tmp/.env" || fail "litecoin cpus default should render 0"
+grep -q '^THERMAL_LIMIT_C=85$' "$tmp/.env" || fail "thermal limit should render"
+grep -q '^THERMAL_RESUME_C=75$' "$tmp/.env" || fail "thermal resume should default to limit-10"
+echo '{"host": {"thermal_limit_c": 85, "thermal_resume_c": 90}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "thermal resume above limit was accepted"
+echo '{"host": {"thermal_limit_c": 300}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "thermal limit 300 was accepted"
+rm -f "$tmp/config.json"
+
 # 12. Passwordless and mixed protected ingress dashboards are rejected.
 warn="$tmp/warn"
 mkdir "$warn"

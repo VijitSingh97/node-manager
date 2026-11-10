@@ -116,6 +116,7 @@ shows the overridable settings with their defaults:
         "resource_profile": "off",
         "steady_cpus": 1,
         "steady_mem_limit_mb": 4096,
+        "cpus": 0,
         "grpc_expose": false,
         "grpc_bind_ip": "",
         "grpc_port": 18142
@@ -129,6 +130,7 @@ shows the overridable settings with their defaults:
         "resource_profile": "off",
         "steady_cpus": 1,
         "steady_mem_limit_mb": 2048,
+        "cpus": 0,
         "rpc_expose": false,
         "rpc_bind_ip": "",
         "rpc_port": 9332
@@ -142,6 +144,7 @@ shows the overridable settings with their defaults:
         "resource_profile": "off",
         "steady_cpus": 1,
         "steady_mem_limit_mb": 2048,
+        "cpus": 0,
         "rpc_expose": false,
         "rpc_bind_ip": "",
         "rpc_port": 22555
@@ -155,6 +158,7 @@ shows the overridable settings with their defaults:
         "resource_profile": "off",
         "steady_cpus": 1,
         "steady_mem_limit_mb": 2048,
+        "cpus": 0,
         "rpc_expose": false,
         "rpc_bind_ip": "",
         "rpc_port": 8332
@@ -167,6 +171,7 @@ shows the overridable settings with their defaults:
         "resource_profile": "off",
         "steady_cpus": 1,
         "steady_mem_limit_mb": 4096,
+        "cpus": 0,
         "rpc_expose": false,
         "rpc_bind_ip": "",
         "rpc_port": 8232
@@ -177,6 +182,10 @@ shows the overridable settings with their defaults:
         "bind_ip": "auto",
         "port": 80,
         "launch_at_boot": false
+    },
+    "host": {
+        "thermal_limit_c": 0,
+        "thermal_resume_c": 0
     },
     "notifications": {
         "telegram_bot_token": "",
@@ -237,6 +246,7 @@ shows the overridable settings with their defaults:
 | `<node>.active` | `true` | Starts the configured node. Dashboard deactivation changes this to `false` while preserving data and configuration. |
 | `<node>.data_dir` | `./data/<node>` (source), managed data directory for APT/Homebrew | Host directory for that chain's data. APT uses `/var/lib/node-manager/data/<node>`; Homebrew uses its platform data path above. |
 | `<node>.resource_profile` | `off`; `compact` for APT/Homebrew default setup selections or dashboard installs | Syncs uncapped, then applies that node's steady ceiling after repeated healthy sync checks. |
+| `<node>.cpus` | `0` (unlimited) | Hard CPU cap for Tari, Litecoin, Dogecoin, Bitcoin Cash, or Zcash; same semantics as `bitcoin.cpus`. |
 | `<node>.steady_cpus` | `1` | Independent post-sync CPU ceiling for Tari, Litecoin, Dogecoin, Bitcoin Cash, or Zcash. |
 | `<node>.steady_mem_limit_mb` | `2048` for Litecoin, Dogecoin, and Bitcoin Cash; `4096` for Tari and Zcash | Independent post-sync memory-plus-swap ceiling for those base nodes. Tari's separate wallet sidecar is not included. This is a budget, not a qualified minimum. |
 | `tari.pruning_horizon` | `10000` | Positive retained-block horizon for Minotari's pruned state. |
@@ -251,6 +261,8 @@ shows the overridable settings with their defaults:
 | `dashboard.bind_ip` | `auto` | Select the default network interface's RFC1918 IPv4 address each time configuration is rendered, falling back to `127.0.0.1` when no supported private interface is available. Set loopback for access only from this machine, or an explicit private host address. Public and wildcard binds are rejected; `::1` is accepted only with `dashboard.public_url`. |
 | `dashboard.port` | `80`; `8080` for a fresh Homebrew install | Host TCP port for the dashboard (`1`–`65535`). Edit this key before setup or apply it later when the default conflicts with another service. |
 | `dashboard.launch_at_boot` | `false` | Start the configured application after reboot for APT, or after login for user Homebrew services. Global Settings applies this through the host helper, including container restart policy; disabling it leaves the current application running and uses up to five retries for crashes without startup after a Docker restart. Source installs without a managed service report this control as unavailable. |
+| `host.thermal_limit_c` | `0` (off) | Opt-in host thermal throttle (Linux, `/sys/class/thermal`). At or above this temperature the resource-profile timer halves running node containers' CPU caps each pass toward a 0.25-CPU floor, instead of anything stopping them. `50`–`110`. Actions are logged to `/state/events.log` (`./stack events`). |
+| `host.thermal_resume_c` | `0` (limit − 10) | Temperature at or below which the pre-throttle CPU caps are restored exactly, including unlimited. Must be below `thermal_limit_c`. |
 | `notifications.telegram_bot_token` | `""` (off) | With `telegram_chat_id`, enables Telegram alerts (node down/recovered, sync complete, disk low) — see [Notifications](notifications.md#telegram-alerts). |
 | `notifications.telegram_chat_id` | `""` (off) | The chat that receives alerts. |
 | `notifications.healthchecks_url` | `""` (off) | Healthchecks.io ping URL for a dead-man's switch — see [Notifications](notifications.md#healthchecksio-dead-mans-switch). |

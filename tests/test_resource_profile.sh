@@ -129,6 +129,12 @@ case "$1" in
     ;;
   update)
     cpus=$3
+    if [ "$#" = 4 ]; then
+      id=$4
+      nanos=$(awk -v value="$cpus" 'BEGIN { printf "%.0f\n", value * 1000000000 }')
+      printf '%s 0 0\n' "$nanos" >"$FAKE_CAPS/$id"
+      exit 0
+    fi
     memory=${5%m}
     swap=${7%m}
     id=$8
@@ -139,7 +145,10 @@ case "$1" in
     ;;
   exec)
     if [ "${2:-}" = -i ]; then
-      cat >"${FAKE_HOST_STATS_OUT:-/dev/null}"
+      case "$*" in
+        *events.log*) cat >>"${FAKE_EVENTS_OUT:-/dev/null}" ;;
+        *) cat >"${FAKE_HOST_STATS_OUT:-/dev/null}" ;;
+      esac
     else
       [ "${FAKE_TARI_SYNCED:-0}" = 1 ]
     fi
@@ -407,5 +416,26 @@ run_profile
 unset FAKE_HOST_STATS_OUT
 [ -s "$tmp/host-stats-payload.json" ] || fail "collector wrote no host stats payload"
 jq -e '.cpus == 4 and .nodes.monero.cpu_pct > 40 and .nodes.bitcoin.disk_bytes > 0 and .nodes.bitcoin.cpu_pct == 0' "$tmp/host-stats-payload.json" >/dev/null || fail "host stats payload lost the stopped node's disk bytes"
+
+new_case thermal
+cat >>"$case_root/state/.env" <<'ENVEOF'
+THERMAL_LIMIT_C=85
+THERMAL_RESUME_C=75
+ENVEOF
+mkdir -p "$case_root/thermal"
+printf '90000\n' >"$case_root/thermal/temp"
+export RESOURCE_THERMAL_GLOB="$case_root/thermal/temp" FAKE_EVENTS_OUT=$tmp/thermal-events.log
+run_profile
+grep -q '^2000000000 ' "$caps/xmr-id" || fail "hot pass did not halve monero from unlimited"
+[ "$(cat "$case_root/state/thermal-throttle/monero")" = 0 ] || fail "original monero cap was not saved"
+tick_profile
+grep -q '^1000000000 ' "$caps/xmr-id" || fail "second hot pass did not halve again"
+printf '70000\n' >"$case_root/thermal/temp"
+tick_profile
+grep -q '^0 ' "$caps/xmr-id" || fail "cool pass did not restore monero to unlimited"
+[ ! -f "$case_root/state/thermal-throttle/monero" ] || fail "throttle state was not cleared"
+grep -q 'thermal throttle at 90C' "$tmp/thermal-events.log" || fail "throttle event line missing"
+grep -q 'thermal throttle released at 70C' "$tmp/thermal-events.log" || fail "release event line missing"
+unset RESOURCE_THERMAL_GLOB FAKE_EVENTS_OUT
 
 echo "PASS: test_resource_profile.sh"

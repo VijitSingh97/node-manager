@@ -191,6 +191,8 @@ mem_limit_mb=$(jq -r '.bitcoin.mem_limit_mb // 0' <<<"$config")
 bitcoin_cpus=$(jq -r '.bitcoin.cpus // 0' <<<"$config")
 monero_cpus=$(jq -r '.monero.cpus // 0' <<<"$config")
 monero_mem_limit_mb=$(jq -r '.monero.mem_limit_mb // 0' <<<"$config")
+thermal_limit_c=$(jq -r '.host.thermal_limit_c // 0' <<<"$config")
+thermal_resume_c=$(jq -r '.host.thermal_resume_c // 0' <<<"$config")
 inbound_onion=$(jq -r 'if ((.bitcoin // {}) | has("inbound_onion")) then if .bitcoin.inbound_onion == true then 1 else 0 end else empty end' <<<"$config")
 [ -n "$inbound_onion" ] || inbound_onion=$(sed -n 's/^BITCOIN_INBOUND_ONION=//p' "$env_file" 2>/dev/null || true)
 [ -n "$inbound_onion" ] || inbound_onion=0
@@ -267,12 +269,13 @@ for node in tari litecoin dogecoin bitcoincash zcash; do
   esac
   cpus=$(jq -r --arg node "$node" '.[$node].steady_cpus // 1' <<<"$config")
   memory=$(jq -r --arg node "$node" --argjson default "$default_steady_mem" '.[$node].steady_mem_limit_mb // $default' <<<"$config")
+  hard_cpus=$(jq -r --arg node "$node" '.[$node].cpus // 0' <<<"$config")
   case "$node" in
-    tari) tari_steady_cpus=$cpus; tari_steady_mem_limit_mb=$memory ;;
-    litecoin) litecoin_steady_cpus=$cpus; litecoin_steady_mem_limit_mb=$memory ;;
-    dogecoin) dogecoin_steady_cpus=$cpus; dogecoin_steady_mem_limit_mb=$memory ;;
-    bitcoincash) bitcoincash_steady_cpus=$cpus; bitcoincash_steady_mem_limit_mb=$memory ;;
-    zcash) zcash_steady_cpus=$cpus; zcash_steady_mem_limit_mb=$memory ;;
+    tari) tari_steady_cpus=$cpus; tari_steady_mem_limit_mb=$memory; tari_cpus=$hard_cpus ;;
+    litecoin) litecoin_steady_cpus=$cpus; litecoin_steady_mem_limit_mb=$memory; litecoin_cpus=$hard_cpus ;;
+    dogecoin) dogecoin_steady_cpus=$cpus; dogecoin_steady_mem_limit_mb=$memory; dogecoin_cpus=$hard_cpus ;;
+    bitcoincash) bitcoincash_steady_cpus=$cpus; bitcoincash_steady_mem_limit_mb=$memory; bitcoincash_cpus=$hard_cpus ;;
+    zcash) zcash_steady_cpus=$cpus; zcash_steady_mem_limit_mb=$memory; zcash_cpus=$hard_cpus ;;
   esac
 done
 dashboard_onion=$(jq -r 'if ((.dashboard // {}) | has("onion")) then if .dashboard.onion == true then 1 else 0 end else empty end' <<<"$config")
@@ -686,12 +689,33 @@ if [ "$monero_mem_limit_mb" = "0" ]; then
 else
   monero_mem_limit="${monero_mem_limit_mb}m"
 fi
-for cpus_pair in "bitcoin:$bitcoin_cpus" "monero:$monero_cpus"; do
+for cpus_pair in "bitcoin:$bitcoin_cpus" "monero:$monero_cpus" "tari:$tari_cpus" "litecoin:$litecoin_cpus" "dogecoin:$dogecoin_cpus" "bitcoincash:$bitcoincash_cpus" "zcash:$zcash_cpus"; do
   if ! awk -v value="${cpus_pair#*:}" 'BEGIN { exit !(value ~ /^[0-9]+([.][0-9][0-9]?)?$/ && value <= 256) }'; then
     echo "${cpus_pair%%:*}.cpus must be a number of CPUs (0 = unlimited)."
     exit 1
   fi
 done
+case "$thermal_limit_c" in *[!0-9]*)
+  echo "host.thermal_limit_c must be a whole number of degrees Celsius (0 = off)."
+  exit 1
+  ;;
+esac
+case "$thermal_resume_c" in *[!0-9]*)
+  echo "host.thermal_resume_c must be a whole number of degrees Celsius (0 = limit minus 10)."
+  exit 1
+  ;;
+esac
+if [ "$thermal_limit_c" != 0 ]; then
+  if [ "$thermal_limit_c" -lt 50 ] || [ "$thermal_limit_c" -gt 110 ]; then
+    echo "host.thermal_limit_c must be between 50 and 110."
+    exit 1
+  fi
+  [ "$thermal_resume_c" != 0 ] || thermal_resume_c=$((thermal_limit_c - 10))
+  if [ "$thermal_resume_c" -ge "$thermal_limit_c" ]; then
+    echo "host.thermal_resume_c must be below host.thermal_limit_c."
+    exit 1
+  fi
+fi
 
 # blockfilterindex needs the full chain — bitcoind refuses to start with pruning
 if [ "$blockfilterindex" = "1" ] && [ "$prune" != "0" ]; then
@@ -771,6 +795,8 @@ BITCOIN_INBOUND_ONION=$inbound_onion
 BITCOIN_BLOCKFILTERINDEX=$blockfilterindex
 BITCOIN_MEM_LIMIT=$bitcoin_mem_limit
 BITCOIN_CPUS=$bitcoin_cpus
+THERMAL_LIMIT_C=$thermal_limit_c
+THERMAL_RESUME_C=$thermal_resume_c
 BITCOIN_RESOURCE_PROFILE=$bitcoin_resource_profile
 BITCOIN_STEADY_CPUS=$bitcoin_steady_cpus
 BITCOIN_STEADY_MEM_LIMIT_MB=$bitcoin_steady_mem_limit_mb
@@ -811,6 +837,7 @@ TARI_GRPC_PORT=$tari_grpc_port
 TARI_RESOURCE_PROFILE=$tari_resource_profile
 TARI_STEADY_CPUS=$tari_steady_cpus
 TARI_STEADY_MEM_LIMIT_MB=$tari_steady_mem_limit_mb
+TARI_CPUS=$tari_cpus
 LITECOIN_ENABLED=$litecoin_enabled
 LITECOIN_ACTIVE=$litecoin_active
 LITECOIN_RPC_URL=http://172.29.0.33:9332
@@ -824,6 +851,7 @@ LITECOIN_RPC_PORT=$litecoin_rpc_port
 LITECOIN_RESOURCE_PROFILE=$litecoin_resource_profile
 LITECOIN_STEADY_CPUS=$litecoin_steady_cpus
 LITECOIN_STEADY_MEM_LIMIT_MB=$litecoin_steady_mem_limit_mb
+LITECOIN_CPUS=$litecoin_cpus
 DOGECOIN_ENABLED=$dogecoin_enabled
 DOGECOIN_ACTIVE=$dogecoin_active
 DOGECOIN_RPC_URL=http://172.29.0.34:22555
@@ -837,6 +865,7 @@ DOGECOIN_RPC_PORT=$dogecoin_rpc_port
 DOGECOIN_RESOURCE_PROFILE=$dogecoin_resource_profile
 DOGECOIN_STEADY_CPUS=$dogecoin_steady_cpus
 DOGECOIN_STEADY_MEM_LIMIT_MB=$dogecoin_steady_mem_limit_mb
+DOGECOIN_CPUS=$dogecoin_cpus
 BITCOINCASH_ENABLED=$bitcoincash_enabled
 BITCOINCASH_ACTIVE=$bitcoincash_active
 BITCOINCASH_RPC_URL=http://172.29.0.35:8332
@@ -850,6 +879,7 @@ BITCOINCASH_RPC_PORT=$bitcoincash_rpc_port
 BITCOINCASH_RESOURCE_PROFILE=$bitcoincash_resource_profile
 BITCOINCASH_STEADY_CPUS=$bitcoincash_steady_cpus
 BITCOINCASH_STEADY_MEM_LIMIT_MB=$bitcoincash_steady_mem_limit_mb
+BITCOINCASH_CPUS=$bitcoincash_cpus
 ZCASH_ENABLED=$zcash_enabled
 ZCASH_ACTIVE=$zcash_active
 ZCASH_RPC_URL=http://172.29.0.36:8232
@@ -862,6 +892,7 @@ ZCASH_RPC_PORT=$zcash_rpc_port
 ZCASH_RESOURCE_PROFILE=$zcash_resource_profile
 ZCASH_STEADY_CPUS=$zcash_steady_cpus
 ZCASH_STEADY_MEM_LIMIT_MB=$zcash_steady_mem_limit_mb
+ZCASH_CPUS=$zcash_cpus
 DASHBOARD_PASSWORD=$dashboard_password
 DASHBOARD_ONION=$dashboard_onion
 DASHBOARD_PUBLIC_URL=$dashboard_public_url
