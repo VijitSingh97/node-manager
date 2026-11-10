@@ -25,7 +25,7 @@ func nodeControlHTTP(a *app, method, path, body string, csrf bool) *httptest.Res
 func TestNodeControlRequiresExactConfirmationAndQueuesPrivateRequest(t *testing.T) {
 	dir := t.TempDir()
 	node := nodeConfig{ID: nodeLitecoin, Name: "Litecoin", Enabled: true, Supported: true}
-	a := &app{cfg: config{bitcoinDisabled: true, dashboardPassword: "secret", stateDir: dir, nodes: map[string]nodeConfig{nodeLitecoin: node}}}
+	a := &app{cfg: config{bitcoinDisabled: true, dashboardPassword: "secret", stateDir: dir, dataDir: dir, nodes: map[string]nodeConfig{nodeLitecoin: node}}}
 	initializeTestDashboardAuth(t, a)
 	if err := os.WriteFile(a.nodeControlPath("capability"), []byte("ready\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -57,8 +57,14 @@ func TestNodeControlRequiresExactConfirmationAndQueuesPrivateRequest(t *testing.
 	var nodesView struct {
 		ControlPending bool               `json:"control_pending"`
 		Status         *nodeControlStatus `json:"status"`
+		Host           struct {
+			DiskAvailable  bool   `json:"disk_available"`
+			DiskTotalBytes uint64 `json:"disk_total_bytes"`
+			DiskFreeBytes  uint64 `json:"disk_free_bytes"`
+		} `json:"host"`
 	}
-	if nodesResponse.Code != http.StatusOK || json.Unmarshal(nodesResponse.Body.Bytes(), &nodesView) != nil || !nodesView.ControlPending || nodesView.Status == nil || nodesView.Status.ID != queued.ID || nodesView.Status.Node != nodeLitecoin || nodesView.Status.Active || nodesView.Status.State != "pending" {
+	if nodesResponse.Code != http.StatusOK || json.Unmarshal(nodesResponse.Body.Bytes(), &nodesView) != nil || !nodesView.ControlPending || nodesView.Status == nil || nodesView.Status.ID != queued.ID || nodesView.Status.Node != nodeLitecoin || nodesView.Status.Active || nodesView.Status.State != "pending" ||
+		!nodesView.Host.DiskAvailable || nodesView.Host.DiskTotalBytes == 0 || nodesView.Host.DiskFreeBytes > nodesView.Host.DiskTotalBytes {
 		t.Fatalf("pending nodes view = %d %#v", nodesResponse.Code, nodesView)
 	}
 }
@@ -110,7 +116,7 @@ func TestNodeRuntimeFallsBackToConfiguredActiveFlagsWhenStateIsMissing(t *testin
 func TestNodeControlActivationAndAvailabilityAreIndependent(t *testing.T) {
 	dir := t.TempDir()
 	node := nodeConfig{ID: nodeLitecoin, Name: "Litecoin", Enabled: true, Supported: true}
-	a := &app{cfg: config{bitcoinDisabled: true, dashboardPassword: "secret", stateDir: dir, nodes: map[string]nodeConfig{nodeLitecoin: node}}}
+	a := &app{cfg: config{bitcoinDisabled: true, dashboardPassword: "secret", stateDir: dir, dataDir: dir, nodes: map[string]nodeConfig{nodeLitecoin: node}}}
 	initializeTestDashboardAuth(t, a)
 	if err := os.WriteFile(filepath.Join(dir, "node-runtime.json"), []byte(`{"litecoin":false}`), 0o600); err != nil {
 		t.Fatal(err)

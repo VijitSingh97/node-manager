@@ -154,7 +154,9 @@ func (a *app) apiNodes(w http.ResponseWriter, _ *http.Request) {
 	if !pending {
 		status = a.readNodeControlStatus()
 	}
-	writeJSON(w, map[string]any{"nodes": nodes, "control_available": a.nodeControlAvailable(), "control_pending": pending, "status": status})
+	disk := diskUsage(a.cfg.dataDir)
+	writeJSON(w, map[string]any{"nodes": nodes, "control_available": a.nodeControlAvailable(), "control_pending": pending, "status": status,
+		"host": map[string]any{"disk_available": disk.Total > 0, "disk_total_bytes": disk.Total, "disk_free_bytes": disk.Free}})
 }
 
 func (a *app) nodeControlAvailable() bool {

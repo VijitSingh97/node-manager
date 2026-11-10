@@ -57,6 +57,7 @@ type notificationSettings struct {
 	NodeDownAfterMinutes     int    `json:"node_down_after_minutes"`
 	LowDiskGiB               int    `json:"low_disk_gib"`
 	TowerLabels              bool   `json:"tower_labels"`
+	ComputerStats            bool   `json:"computer_stats"`
 	DefaultCurrency          string `json:"default_currency"`
 }
 
@@ -83,6 +84,7 @@ type settingsUpdate struct {
 	NodeDownAfterMinutes     *int    `json:"node_down_after_minutes,omitempty"`
 	LowDiskGiB               *int    `json:"low_disk_gib,omitempty"`
 	TowerLabels              *bool   `json:"tower_labels,omitempty"`
+	ComputerStats            *bool   `json:"computer_stats,omitempty"`
 	DefaultCurrency          *string `json:"default_currency,omitempty"`
 	present                  map[string]bool
 }
@@ -304,6 +306,9 @@ func (update settingsUpdate) apply(current notificationSettings) (notificationSe
 	if update.TowerLabels != nil {
 		next.TowerLabels = *update.TowerLabels
 	}
+	if update.ComputerStats != nil {
+		next.ComputerStats = *update.ComputerStats
+	}
 	if update.DefaultCurrency != nil {
 		next.DefaultCurrency = *update.DefaultCurrency
 	}
@@ -371,6 +376,7 @@ func (m *Monitor) settingsView(canConfigure bool) (map[string]any, error) {
 		"bitcoincash_enabled":         m.extraEnabled[nodeBitcoinCash],
 		"zcash_enabled":               m.extraEnabled[nodeZcash],
 		"tower_labels":                m.settings.TowerLabels,
+		"computer_stats":              m.settings.ComputerStats,
 		"default_currency":            m.settings.DefaultCurrency,
 		"overridden":                  m.settingsOverridden,
 		"can_configure":               canConfigure,
@@ -492,6 +498,7 @@ func (a *app) apiSettingsGet(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("scope") == "appearance" {
 		writeJSON(w, map[string]any{
 			"tower_labels":     view["tower_labels"],
+			"computer_stats":   view["computer_stats"],
 			"default_currency": view["default_currency"],
 		})
 		return

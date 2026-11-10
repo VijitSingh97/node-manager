@@ -45,6 +45,7 @@ export function notificationPayload(values) {
     alert_new_block: !!values.alert_new_block_bitcoin,
     alert_new_block_monero: !!values.alert_new_block_monero,
     tower_labels: !!values.tower_labels,
+    computer_stats: !!values.computer_stats,
     default_currency: normalizeDefaultCurrency(values.default_currency),
     ...alertPreferenceModel(values),
   };
@@ -284,8 +285,11 @@ export function normalizeDefaultCurrency(value) {
 }
 
 export function applyAppearance(data, root = typeof document === "undefined" ? undefined : document.body, target = typeof document === "undefined" ? undefined : document) {
-  const detail = { tower_labels: data?.tower_labels === true, default_currency: normalizeDefaultCurrency(data?.default_currency) };
-  if (root?.dataset) root.dataset.towerLabels = detail.tower_labels ? "1" : "0";
+  const detail = { tower_labels: data?.tower_labels === true, computer_stats: data?.computer_stats === true, default_currency: normalizeDefaultCurrency(data?.default_currency) };
+  if (root?.dataset) {
+    root.dataset.towerLabels = detail.tower_labels ? "1" : "0";
+    root.dataset.computerStats = detail.computer_stats ? "1" : "0";
+  }
   if (target?.dispatchEvent) target.dispatchEvent(new CustomEvent("appearance-updated", { detail }));
   return detail;
 }
@@ -324,6 +328,7 @@ if (typeof document !== "undefined") {
   const moneroNewBlock = byId("monero-new-block");
   const extraNewBlock = Object.fromEntries(extraNodes.map(node => [node, byId(`${node}-new-block`)]));
   const towerLabels = byId("tower-labels");
+  const computerStats = byId("computer-stats");
   const defaultCurrency = byId("default-currency");
   const save = byId("save");
   const reset = byId("reset");
@@ -641,6 +646,7 @@ if (typeof document !== "undefined") {
     renderPortControl(data.port_control);
     if (scope === "global") {
       towerLabels.checked = !!data.tower_labels;
+      computerStats.checked = !!data.computer_stats;
       defaultCurrency.value = normalizeDefaultCurrency(data.default_currency);
       applyAppearance(data);
       if (Object.hasOwn(data, "telegram_chat_id")) chat.value = data.telegram_chat_id || "";
@@ -652,7 +658,7 @@ if (typeof document !== "undefined") {
     token.placeholder = "Paste your bot token";
     url.placeholder = "https://hc-ping.com/…";
     reset.disabled = !allowed || !data.overridden;
-    telegramEnabled.disabled = healthchecksEnabled.disabled = bitcoinNewBlock.disabled = moneroNewBlock.disabled = towerLabels.disabled = defaultCurrency.disabled = !allowed;
+    telegramEnabled.disabled = healthchecksEnabled.disabled = bitcoinNewBlock.disabled = moneroNewBlock.disabled = towerLabels.disabled = computerStats.disabled = defaultCurrency.disabled = !allowed;
     updateInputs();
     updatePortPlan();
   };
@@ -703,7 +709,7 @@ if (typeof document !== "undefined") {
   async function load(scope = "global") {
     allowed = false;
     save.disabled = reset.disabled = true;
-    telegramEnabled.disabled = healthchecksEnabled.disabled = bitcoinNewBlock.disabled = moneroNewBlock.disabled = towerLabels.disabled = defaultCurrency.disabled = true;
+    telegramEnabled.disabled = healthchecksEnabled.disabled = bitcoinNewBlock.disabled = moneroNewBlock.disabled = towerLabels.disabled = computerStats.disabled = defaultCurrency.disabled = true;
     for (const input of Object.values(alertPreferences)) input.disabled = true;
     nodeDownAfterMinutes.disabled = lowDiskGiB.disabled = true;
     updateInputs();
@@ -758,6 +764,7 @@ if (typeof document !== "undefined") {
       healthchecks_enabled: healthchecksEnabled.checked,
       healthchecks_url: url.value,
       tower_labels: towerLabels.checked,
+      computer_stats: computerStats.checked,
       default_currency: defaultCurrency.value,
       ...Object.fromEntries(Object.entries(alertPreferences).map(([field, input]) => [field, input.checked])),
       node_down_after_minutes: Number(nodeDownAfterMinutes.value),

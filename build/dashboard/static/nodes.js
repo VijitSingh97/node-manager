@@ -227,6 +227,7 @@ if (typeof document !== "undefined") {
     live.dataset.nextBlock = view.nextBlock || "";
     updateTowerProgress(live, data);
     if (!view.details) return;
+    if (data.database_size_available) window.dispatchEvent(new CustomEvent("node-size", { detail: { id: "monero", bytes: Number(data.database_size_bytes) || 0 } }));
     document.getElementById("monero-version").textContent = view.version;
     document.getElementById("monero-uptime").textContent = view.uptime;
     document.getElementById("monero-connections").textContent = view.connections;

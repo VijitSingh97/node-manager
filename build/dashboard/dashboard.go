@@ -74,6 +74,7 @@ type pageData struct {
 	Pruned               bool
 	PruneTargetGB        float64
 	NodeGB               float64
+	NodeSizeBytes        int64
 	TotalGB              float64
 	FreeGB               float64
 	DiskWarn             bool
@@ -223,7 +224,7 @@ func (a *app) index(w http.ResponseWriter, r *http.Request) {
 		Version:              versionLabel(a.cfg.version), CoreVersion: network.Subversion, Uptime: uptimeLabel,
 		Blocks: chain.Blocks, Headers: chain.Headers, Progress: chain.VerificationProgress * 100,
 		TotalPeers: network.Connections, Inbound: inbound, Outbound: len(peers) - inbound,
-		Pruned: chain.Pruned, PruneTargetGB: gib(chain.PruneTargetSize), NodeGB: gib(chain.SizeOnDisk),
+		Pruned: chain.Pruned, PruneTargetGB: gib(chain.PruneTargetSize), NodeGB: gib(chain.SizeOnDisk), NodeSizeBytes: chain.SizeOnDisk,
 		TotalGB: gibU(disk.Total), FreeGB: gibU(disk.Free), DiskWarn: disk.Free < 50*1024*1024*1024,
 		NextBlock: chain.Blocks + 1, LastUpdate: time.Now().Format("15:04:05"),
 		FeeNext: "—", Fee30m: "—", FeeHour: "—",

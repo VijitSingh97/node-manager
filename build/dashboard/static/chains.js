@@ -139,6 +139,7 @@ if (typeof document !== "undefined") {
       const data=await response.json();
       if(!response.ok && !data?.enabled) throw new Error("unavailable");
       renderNode(id,data);
+      if(data.database_size_available) window.dispatchEvent(new CustomEvent("node-size",{detail:{id,bytes:Number(data.database_size_bytes)||0}}));
     } catch {renderNode(id,{enabled:true,available:false});}
   };
 
@@ -161,6 +162,7 @@ if (typeof document !== "undefined") {
       if(!response.ok) throw new Error("unavailable");
       const payload=await response.json();
       control=controlView(payload);
+      window.dispatchEvent(new CustomEvent("host-stats-data",{detail:payload.host||null}));
       for(const id of NODE_IDS) {
         const node=payload.nodes?.find(item=>item.id===id);
         if(!node) continue;
