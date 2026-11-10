@@ -68,7 +68,6 @@ type pageData struct {
 	Blocks               int64
 	Headers              int64
 	Progress             float64
-	TotalPeers           int64
 	Inbound              int
 	Outbound             int
 	Pruned               bool
@@ -223,7 +222,7 @@ func (a *app) index(w http.ResponseWriter, r *http.Request) {
 		InitialBlockDownload: chain.InitialBlockDownload,
 		Version:              versionLabel(a.cfg.version), CoreVersion: network.Subversion, Uptime: uptimeLabel,
 		Blocks: chain.Blocks, Headers: chain.Headers, Progress: chain.VerificationProgress * 100,
-		TotalPeers: network.Connections, Inbound: inbound, Outbound: len(peers) - inbound,
+		Inbound: inbound, Outbound: len(peers) - inbound,
 		Pruned: chain.Pruned, PruneTargetGB: gib(chain.PruneTargetSize), NodeGB: gib(chain.SizeOnDisk), NodeSizeBytes: chain.SizeOnDisk,
 		TotalGB: gibU(disk.Total), FreeGB: gibU(disk.Free), DiskWarn: disk.Free < 50*1024*1024*1024,
 		NextBlock: chain.Blocks + 1, LastUpdate: time.Now().Format("15:04:05"),
