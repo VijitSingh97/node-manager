@@ -316,7 +316,8 @@ write_host_stats() {
   node_dirs=$(for service in bitcoin monero tari litecoin dogecoin bitcoincash zcash; do
     upper=$(printf '%s' "$service" | tr '[:lower:]' '[:upper:]')
     dir=$(env_get "${upper}_DATA_DIR")
-    [ -n "$dir" ] && printf '%s %s\n' "$service" "$dir"
+    [ -n "$dir" ] || dir=$state_root/data/$service
+    printf '%s %s\n' "$service" "$dir"
   done
   printf 'stack %s\nstack %s\n' "$stack_root" "$state_root"
   docker_root=$("$docker_bin" info --format '{{.DockerRootDir}}' 2>/dev/null)
@@ -348,12 +349,12 @@ write_host_stats() {
       {updated: $now, cpus: $cpus, mem_total_bytes: $mem_total, nodes: .nodes, other: .other} |
       . + {disks: (
         def rows($s): $s | split("\n") | map(select(length > 0) | [splits("[[:space:]]+")]);
-        (rows($hostdisks) | map({name: .[0], mount: .[5], total: (.[1] | tonumber? // 0), free: (.[3] | tonumber? // 0)}) | unique_by(.name) | map(select(.total > 0))) as $parsed |
+        (rows($hostdisks) | map({name: .[0], mount: .[5], total: (.[1] | tonumber? // 0), free: (.[3] | tonumber? // 0)}) | map(select(.total > 0))) as $mounts |
         (rows($nodedirs) | map(. as $d |
-          ($parsed | map(select(($d[1] == .mount) or ($d[1] | startswith(.mount + "/")) or (.mount == "/"))) | sort_by(-(.mount | length)) | .[0]) as $best |
+          ($mounts | map(. as $disk | select(($d[1] == $disk.mount) or ($d[1] | startswith($disk.mount + "/")) or ($disk.mount == "/"))) | sort_by(-(.mount | length)) | .[0]) as $best |
           select($best != null) | {service: $d[0], device: $best.name})) as $owners |
-        $parsed | map({name: .name, disk_total_bytes: .total, disk_free_bytes: .free,
-          nodes: [.name as $device | $owners[] | select(.device == $device) | .service]})
+        $mounts | unique_by(.name) | map({name: .name, disk_total_bytes: .total, disk_free_bytes: .free,
+          nodes: [.name as $device | $owners[] | select(.device == $device) | .service] | unique})
       )}' --arg hostdisks "$host_disks" --arg nodedirs "$node_dirs") || return 0
   [ -n "$payload" ] || return 0
   printf '%s' "$payload" | "$docker_bin" exec -i -u 1000 "$dashboard" sh -c 'umask 077; cat > /state/host-stats.json.tmp && mv /state/host-stats.json.tmp /state/host-stats.json' 2>/dev/null || true
