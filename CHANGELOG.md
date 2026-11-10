@@ -6,6 +6,14 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.33.8] - 2026-11-10
+
+### Fixed
+
+- The resource-profile service can read node data directories under `/home`
+  (`ProtectHome=read-only`), so such nodes get disk figures in the usage
+  panel; `ProtectHome=true` hid them entirely.
+
 ## [1.33.7] - 2026-11-10
 
 ### Added
@@ -1049,7 +1057,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.7...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.8...HEAD
+[1.33.8]: https://github.com/VijitSingh97/node-manager/compare/v1.33.7...v1.33.8
 [1.33.7]: https://github.com/VijitSingh97/node-manager/compare/v1.33.6...v1.33.7
 [1.33.6]: https://github.com/VijitSingh97/node-manager/compare/v1.33.5...v1.33.6
 [1.33.5]: https://github.com/VijitSingh97/node-manager/compare/v1.33.4...v1.33.5
