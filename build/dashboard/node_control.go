@@ -155,7 +155,7 @@ func (a *app) apiNodes(w http.ResponseWriter, _ *http.Request) {
 		status = a.readNodeControlStatus()
 	}
 	disk := diskUsage(a.cfg.dataDir)
-	host := map[string]any{"disk_available": disk.Total > 0, "disk_total_bytes": disk.Total, "disk_free_bytes": disk.Free}
+	host := map[string]any{"disk_available": disk.Total > 0, "disk_total_bytes": disk.Total, "disk_free_bytes": disk.Free, "disks": a.hostDisks()}
 	if stats := a.hostStats(); stats != nil {
 		host["stats"] = stats
 	}
@@ -173,6 +173,53 @@ type hostStatsFile struct {
 	MemTotalBytes uint64                    `json:"mem_total_bytes"`
 	Nodes         map[string]hostStatsUsage `json:"nodes"`
 	Other         hostStatsUsage            `json:"other"`
+}
+
+type hostDisk struct {
+	TotalBytes uint64   `json:"disk_total_bytes"`
+	FreeBytes  uint64   `json:"disk_free_bytes"`
+	Nodes      []string `json:"nodes"`
+}
+
+func (a *app) hostDisks() []*hostDisk {
+	mounts := []struct {
+		path string
+		node string
+	}{{a.cfg.dataDir, "bitcoin"}, {a.cfg.moneroDataDir, "monero"}}
+	var disks []*hostDisk
+	for _, mount := range mounts {
+		if mount.path == "" {
+			continue
+		}
+		info := diskUsage(mount.path)
+		if info.Total == 0 {
+			continue
+		}
+		var found *hostDisk
+		for _, disk := range disks {
+			// shortcut: equal size and free space means the same filesystem; replace with fsid when a box disproves it
+			if disk.TotalBytes == info.Total && disk.FreeBytes == info.Free {
+				found = disk
+				break
+			}
+		}
+		if found == nil {
+			found = &hostDisk{TotalBytes: info.Total, FreeBytes: info.Free}
+			disks = append(disks, found)
+		}
+		found.Nodes = append(found.Nodes, mount.node)
+	}
+	if len(disks) > 0 {
+		for _, id := range nodeOrder {
+			if id == "bitcoin" || id == "monero" {
+				continue
+			}
+			if configured, supported := a.nodeConfigured(id); configured && supported {
+				disks[0].Nodes = append(disks[0].Nodes, id)
+			}
+		}
+	}
+	return disks
 }
 
 const hostStatsFreshFor = 3 * time.Minute

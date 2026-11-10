@@ -536,9 +536,9 @@ h2 {
   top: 12px;
   left: 14px;
   z-index: 5;
-  width: 185px;
-  padding: 11px 13px;
-  font-size: 0.72rem;
+  width: 240px;
+  padding: 13px 15px;
+  font-size: 0.78rem;
   color: var(--muted);
   background: var(--glass-bg);
   backdrop-filter: blur(16px) saturate(1.4);
@@ -554,18 +554,25 @@ body:not([data-computer-stats="1"]) .host-stats { display: none; }
 
 .host-stats-disk {
   display: flex;
-  height: 8px;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.host-stats-bar {
+  display: flex;
+  height: 10px;
   border-radius: 3px;
   overflow: hidden;
   background: var(--glass-track);
 }
 
-.host-stats-disk div:hover, .host-stats-pies path:hover { filter: brightness(1.25); cursor: default; }
+.host-stats-bar div:hover, .host-stats-pies path:hover { filter: brightness(1.25); }
 
-.host-stats-pies { display: flex; gap: 14px; margin-top: 8px; }
+.host-stats-pies { display: flex; gap: 18px; margin-top: 10px; cursor: pointer; }
 .host-stats-pies svg { transform: rotate(-90deg); }
-.host-stats-pies figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 3px; }
-.host-stats-pies figcaption { color: var(--muted); font-size: 0.64rem; }
+.host-stats-pies figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.host-stats-pies figcaption { color: var(--muted); font-size: 0.7rem; }
 
 .badge {
   background: var(--tag-bg);

@@ -120,7 +120,6 @@
         <div class="row"><span class="label">Blocks:</span> <span>{{.Blocks}} / {{.Headers}}</span></div>
         <div class="progress-bg"><div class="progress-fill" style="width: {{printf "%.4f" .Progress}}%"></div></div>
         <div class="row"><span class="label">Sync Progress:</span> <span>{{printf "%.4f" .Progress}}%</span></div>
-        <hr>
         <div class="row"><span class="label">Node Data Size:</span> <span>{{printf "%.2f" .NodeGB}} GiB</span></div>
         {{if .ShowMempool}}<hr>
         <div class="row"><span class="label">Mempool:</span> <span>{{.MempoolTxs}} tx · {{printf "%.1f" .MempoolMB}} MB</span></div>
@@ -165,7 +164,6 @@
         <div class="row"><span class="label">Blocks:</span> <span id="monero-blocks">—</span></div>
         <div class="progress-bg"><div id="monero-progress" class="progress-fill monero-progress" style="width: 0%"></div></div>
         <div class="row"><span class="label">Sync Progress:</span> <span id="monero-sync">—</span></div>
-        <hr>
         <div class="row"><span class="label">Node Data Size:</span> <span id="monero-size">—</span></div>
         <hr>
         <div class="row"><span class="label">Mempool:</span> <span id="monero-mempool">—</span></div>
@@ -212,7 +210,6 @@
         <div class="row"><span class="label">Blocks:</span><span id="tari-blocks">—</span></div>
         <div class="progress-bg"><div id="tari-progress" class="progress-fill" style="width:0%"></div></div>
         <div class="row"><span class="label">Sync Progress:</span><span id="tari-sync">—</span></div>
-        <hr>
         <div class="row"><span class="label">Node Data Size:</span><span id="tari-size">—</span></div>
         <hr>
         <div class="row"><span class="label">Mempool:</span><span id="tari-mempool">—</span></div>
@@ -246,7 +243,6 @@
         <div class="row"><span class="label">Blocks:</span><span id="litecoin-blocks">—</span></div>
         <div class="progress-bg"><div id="litecoin-progress" class="progress-fill" style="width:0%"></div></div>
         <div class="row"><span class="label">Sync Progress:</span><span id="litecoin-sync">—</span></div>
-        <hr>
         <div class="row"><span class="label">Node Data Size:</span><span id="litecoin-size">—</span></div>
         <hr>
         <div class="row"><span class="label">Mempool:</span><span id="litecoin-mempool">—</span></div>
@@ -280,7 +276,6 @@
         <div class="row"><span class="label">Blocks:</span><span id="dogecoin-blocks">—</span></div>
         <div class="progress-bg"><div id="dogecoin-progress" class="progress-fill" style="width:0%"></div></div>
         <div class="row"><span class="label">Sync Progress:</span><span id="dogecoin-sync">—</span></div>
-        <hr>
         <div class="row"><span class="label">Node Data Size:</span><span id="dogecoin-size">—</span></div>
         <hr>
         <div class="row"><span class="label">Mempool:</span><span id="dogecoin-mempool">—</span></div>
@@ -314,7 +309,6 @@
         <div class="row"><span class="label">Blocks:</span><span id="bitcoincash-blocks">—</span></div>
         <div class="progress-bg"><div id="bitcoincash-progress" class="progress-fill" style="width:0%"></div></div>
         <div class="row"><span class="label">Sync Progress:</span><span id="bitcoincash-sync">—</span></div>
-        <hr>
         <div class="row"><span class="label">Node Data Size:</span><span id="bitcoincash-size">—</span></div>
         <hr>
         <div class="row"><span class="label">Mempool:</span><span id="bitcoincash-mempool">—</span></div>
@@ -348,7 +342,6 @@
         <div class="row"><span class="label">Blocks:</span><span id="zcash-blocks">—</span></div>
         <div class="progress-bg"><div id="zcash-progress" class="progress-fill" style="width:0%"></div></div>
         <div class="row"><span class="label">Sync Progress:</span><span id="zcash-sync">—</span></div>
-        <hr>
         <div class="row"><span class="label">Node Data Size:</span><span id="zcash-size">—</span></div>
         <hr>
         <div class="row"><span class="label">Mempool:</span><span id="zcash-mempool">—</span></div>
@@ -376,7 +369,7 @@
       <fieldset id="settings-appearance">
         <legend>Appearance</legend>
         <label class="settings-check"><input id="settings-tower-labels" type="checkbox"> Label towers</label>
-        <label class="settings-check"><input id="settings-computer-stats" type="checkbox"> Show computer stats</label>
+        <label class="settings-check"><input id="settings-computer-stats" type="checkbox"> Node manager usage</label>
         <label>Default currency<select id="settings-default-currency">
           <option>USD</option><option>EUR</option><option>GBP</option><option>INR</option><option>CAD</option>
           <option>AUD</option><option>JPY</option><option>RUB</option><option>CNY</option>
