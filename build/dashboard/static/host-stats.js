@@ -50,7 +50,7 @@ export function zoomSlices(sizes, nodeFilter, diskTotalBytes = 0) {
   const total = entries.reduce((sum, [, value]) => sum + value, 0);
   if (!(total > 0)) return null;
   return entries.map(([id, value]) => {
-    const slice = nodeSlice(id, value, (value / total) * 100, " of node data");
+    const slice = nodeSlice(id, value, (value / total) * 100, " of Node Manager data");
     if (diskTotalBytes > 0) {
       slice.title = `${NODE_LABELS[id] || id} — ${formatBytes(value)} (${Math.min(100, (value / diskTotalBytes) * 100).toFixed(2)}% of disk)`;
     }
@@ -81,7 +81,7 @@ export function diskViews(host, sizes, zoomedDisks = new Set()) {
       label: name,
       zoomed: zoom !== null,
       title: zoom
-        ? `${name} — node-manager data only, click to zoom out`
+        ? `${name} — Node Manager data only, click to zoom out`
         : `${name} — ${usedPct.toFixed(0)}% used · ${formatBytes(diskTotal - diskFree)} of ${formatBytes(diskTotal)}`,
       slices: zoom || overviewSlices(diskTotal, diskFree, sizes, nodeFilter),
     });
@@ -185,11 +185,13 @@ function renderPies(stats) {
   wrap.textContent = "";
   const cpuSlices = (cpuZoomed && rescaleToStack(view.cpu)) || view.cpu;
   const memSlices = (memZoomed && rescaleToStack(view.mem)) || view.mem;
-  wrap.appendChild(buildPie(cpuSlices, view.cpuLabel, view.cpuLabelTitle, cpuZoomed, () => {
+  const cpuLabel = cpuZoomed ? view.cpuLabel.replace("CPU", "Node Manager CPU") : view.cpuLabel;
+  const memLabel = memZoomed ? view.memLabel.replace("Mem", "Node Manager Mem") : view.memLabel;
+  wrap.appendChild(buildPie(cpuSlices, cpuLabel, view.cpuLabelTitle, cpuZoomed, () => {
     cpuZoomed = !cpuZoomed;
     render();
   }));
-  wrap.appendChild(buildPie(memSlices, view.memLabel, view.memLabelTitle, memZoomed, () => {
+  wrap.appendChild(buildPie(memSlices, memLabel, view.memLabelTitle, memZoomed, () => {
     memZoomed = !memZoomed;
     render();
   }));
@@ -218,7 +220,7 @@ function render() {
     if (view.bars.length > 1) {
       const label = document.createElement("div");
       label.className = "host-stats-bar-label";
-      label.textContent = `${bar.label}${bar.zoomed ? " · node data" : ""}`;
+      label.textContent = `${bar.label}${bar.zoomed ? " · Node Manager data" : ""}`;
       wrap.appendChild(label);
     }
     const row = document.createElement("div");

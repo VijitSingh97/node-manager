@@ -174,6 +174,7 @@ type hostStatsFile struct {
 	MemTotalBytes uint64                    `json:"mem_total_bytes"`
 	Nodes         map[string]hostStatsUsage `json:"nodes"`
 	Other         hostStatsUsage            `json:"other"`
+	Disks         []*hostDisk               `json:"disks,omitempty"`
 }
 
 type hostDisk struct {
@@ -205,6 +206,17 @@ func mountDevice(mounts, path string) string {
 }
 
 func (a *app) hostDisks() []*hostDisk {
+	if stats := a.hostStats(); stats != nil {
+		var disks []*hostDisk
+		for _, disk := range stats.Disks {
+			if disk != nil && disk.TotalBytes > 0 {
+				disks = append(disks, disk)
+			}
+		}
+		if len(disks) > 0 {
+			return disks
+		}
+	}
 	mounts := []struct {
 		path string
 		node string

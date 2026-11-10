@@ -47,7 +47,7 @@ test("diskViews rejects unusable host data and zero-size nodes", () => {
 test("zoomSlices rescales node slices to the filtered node-data total", () => {
   const slices = zoomSlices(new Map([["bitcoin", 10 * GiB], ["monero", 30 * GiB], ["tari", 0]]), null);
   assert.deepEqual(slices.map((s) => [s.id, Math.round(s.percent)]), [["bitcoin", 25], ["monero", 75]]);
-  assert.match(slices[1].title, /75\.00% of node data/);
+  assert.match(slices[1].title, /75\.00% of Node Manager data/);
   const onDisk = zoomSlices(new Map([["bitcoin", 10 * GiB]]), null, 1000 * GiB);
   assert.match(onDisk[0].title, /Bitcoin — 10\.00 GiB \(1\.00% of disk\)/);
   assert.deepEqual(zoomSlices(new Map([["bitcoin", 10 * GiB]]), ["monero"]), null);

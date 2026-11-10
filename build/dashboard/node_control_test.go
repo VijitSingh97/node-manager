@@ -180,7 +180,7 @@ func TestNodesHostStatsServedOnlyWhenFresh(t *testing.T) {
 	a := &app{cfg: config{bitcoinDisabled: true, dashboardPassword: "secret", stateDir: dir, dataDir: dir, nodes: map[string]nodeConfig{nodeLitecoin: node}}}
 	initializeTestDashboardAuth(t, a)
 	write := func(updated int64) {
-		stats := fmt.Sprintf(`{"updated":%d,"cpus":8,"mem_total_bytes":17179869184,"nodes":{"bitcoin":{"cpu_pct":12.5,"mem_bytes":1073741824}},"other":{"cpu_pct":1,"mem_bytes":2048}}`, updated)
+		stats := fmt.Sprintf(`{"updated":%d,"cpus":8,"mem_total_bytes":17179869184,"nodes":{"bitcoin":{"cpu_pct":12.5,"mem_bytes":1073741824}},"other":{"cpu_pct":1,"mem_bytes":2048},"disks":[{"name":"/dev/nvme0n1p2","disk_total_bytes":1000,"disk_free_bytes":400,"nodes":["bitcoin"]},{"name":"/dev/sda1","disk_total_bytes":500,"disk_free_bytes":450,"nodes":[]}]}`, updated)
 		if err := os.WriteFile(filepath.Join(dir, "host-stats.json"), []byte(stats), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -205,6 +205,10 @@ func TestNodesHostStatsServedOnlyWhenFresh(t *testing.T) {
 	stats := read()
 	if stats == nil || stats.CPUs != 8 || stats.Nodes["bitcoin"].CPUPct != 12.5 || stats.Other.MemBytes != 2048 {
 		t.Fatalf("fresh stats = %#v", stats)
+	}
+	disks := a.hostDisks()
+	if len(disks) != 2 || disks[0].Name != "/dev/nvme0n1p2" || disks[0].Nodes[0] != "bitcoin" || disks[1].Name != "/dev/sda1" || len(disks[1].Nodes) != 0 {
+		t.Fatalf("collector disks = %#v", disks)
 	}
 	write(time.Now().Add(-10 * time.Minute).Unix())
 	if read() != nil {
