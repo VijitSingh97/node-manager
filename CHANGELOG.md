@@ -6,6 +6,35 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.33.6] - 2026-11-10
+
+### Added
+
+- A "Node manager usage" panel in tower view (enabled in Settings →
+  Appearance): a liquid-glass corner card with one stacked bar per disk that
+  holds node or stack data (labelled with its device name when there are
+  several), and CPU and memory pies for the stack's containers. Bars and pies
+  zoom independently into node-manager-only usage on click, and every slice,
+  caption, and bar reports exact sizes on hover. Per-container CPU/memory and
+  host disks are collected by the resource-profile timer's minute pass and
+  served to the dashboard only while fresh.
+
+### Changed
+
+- Node panels now share one wording: the bitcoin panel's connection rows
+  collapse to `Connections: x in · y out` like every other panel, monero's
+  `Database Size` label becomes `Node Data Size`, bitcoin's data size reads
+  GiB (which its value always was), and the per-panel disk rows move into
+  the usage panel.
+- build(deps): bump `zakuracore/zakura` from 1.8.3 to 1.8.4.
+
+### Fixed
+
+- The 1.33.4 rename migration now rewrites `STACK_ROOT` and
+  `STACK_ASSET_ROOT` in `.env` and `.approved.env`, so bitcoin containers on
+  migrated APT installs can start again after a stop; already-affected boxes
+  self-heal on this upgrade (#170).
+
 ## [1.33.5] - 2026-11-09
 
 ### Added
@@ -994,7 +1023,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.5...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.6...HEAD
+[1.33.6]: https://github.com/VijitSingh97/node-manager/compare/v1.33.5...v1.33.6
 [1.33.5]: https://github.com/VijitSingh97/node-manager/compare/v1.33.4...v1.33.5
 [1.33.4]: https://github.com/VijitSingh97/node-manager/compare/v1.33.3...v1.33.4
 [1.33.3]: https://github.com/VijitSingh97/node-manager/compare/v1.33.2...v1.33.3
