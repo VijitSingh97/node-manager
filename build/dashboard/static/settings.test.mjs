@@ -134,7 +134,7 @@ test("global alert preferences default on and accept only bounded thresholds", (
 test("a port-only save does not create an unnecessary notification override", () => {
   const saved = {
     telegram_enabled: false, telegram_chat_id: "", healthchecks_enabled: false,
-    alert_new_block: false, alert_new_block_bitcoin: false, alert_new_block_monero: false, alert_new_block_tari:false, alert_new_block_litecoin:false, alert_new_block_dogecoin:false, alert_new_block_bitcoincash:false, alert_new_block_zcash:false, tower_labels: false, computer_stats: false, default_currency: "USD",
+    alert_new_block: false, alert_new_block_bitcoin: false, alert_new_block_monero: false, alert_new_block_tari:false, alert_new_block_litecoin:false, alert_new_block_dogecoin:false, alert_new_block_bitcoincash:false, alert_new_block_zcash:false, tower_labels: false, computer_stats: false, thermal_throttle: false, default_currency: "USD",
   };
   assert.equal(notificationChanged(saved, notificationPayload({})), false);
   assert.equal(notificationChanged(saved, notificationPayload({ alert_new_block_monero: true })), true);
@@ -238,6 +238,7 @@ test("blank secret fields keep saved secrets without copying them into the reque
     alert_new_block_tari:false, alert_new_block_litecoin:false, alert_new_block_dogecoin:false, alert_new_block_bitcoincash:false, alert_new_block_zcash:false,
     tower_labels: false,
     computer_stats: false,
+    thermal_throttle: false,
     default_currency: "USD",
     ...alertDefaults,
   });
@@ -252,6 +253,7 @@ test("disabled services do not send stale secrets or chat IDs", () => {
     alert_new_block_tari:false, alert_new_block_litecoin:false, alert_new_block_dogecoin:false, alert_new_block_bitcoincash:false, alert_new_block_zcash:false,
     tower_labels: false,
     computer_stats: false,
+    thermal_throttle: false,
     default_currency: "USD",
     ...alertDefaults,
   });
