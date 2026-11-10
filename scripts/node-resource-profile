@@ -317,7 +317,10 @@ write_host_stats() {
     upper=$(printf '%s' "$service" | tr '[:lower:]' '[:upper:]')
     dir=$(env_get "${upper}_DATA_DIR")
     [ -n "$dir" ] && printf '%s %s\n' "$service" "$dir"
-  done)
+  done
+  printf 'stack %s\nstack %s\n' "$stack_root" "$state_root"
+  docker_root=$("$docker_bin" info --format '{{.DockerRootDir}}' 2>/dev/null)
+  [ -n "$docker_root" ] && printf 'stack %s\n' "$docker_root")
   payload=$(printf '%s\n' "$stats" | awk -F '\t' -v project="$project_name" -v cpus="$cpus" '
     index($1, project "-") == 1 {
       service = substr($1, length(project) + 2)

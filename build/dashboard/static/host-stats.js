@@ -62,6 +62,8 @@ export function diskViews(host, sizes, zoomedDisks = new Set()) {
   if (host?.disk_available !== true) return null;
   let disks = Array.isArray(host.disks) ? host.disks : [];
   disks = disks.filter((disk) => Number(disk?.disk_total_bytes) > 0);
+  const occupied = disks.filter((disk) => !Array.isArray(disk.nodes) || disk.nodes.length > 0);
+  if (occupied.length > 0) disks = occupied;
   if (disks.length === 0) disks = [{ disk_total_bytes: host.disk_total_bytes, disk_free_bytes: host.disk_free_bytes, nodes: null }];
   let total = 0;
   let free = 0;

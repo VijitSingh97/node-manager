@@ -35,6 +35,22 @@ test("diskViews renders one bar per disk with nodes attributed to their disk", (
   assert.equal(Math.round(view.bars[1].slices[0].percent), 6);
 });
 
+test("diskViews hides disks without node-manager data but keeps stack-only disks", () => {
+  const host = {
+    disk_available: true, disk_total_bytes: 1000 * GiB, disk_free_bytes: 400 * GiB,
+    disks: [
+      { name: "/dev/nvme0n1p2", disk_total_bytes: 1000 * GiB, disk_free_bytes: 400 * GiB, nodes: ["bitcoin", "stack"] },
+      { name: "/dev/sda1", disk_total_bytes: 500 * GiB, disk_free_bytes: 450 * GiB, nodes: [] },
+    ],
+  };
+  const view = diskViews(host, new Map([["bitcoin", 10 * GiB]]));
+  assert.equal(view.bars.length, 1);
+  assert.equal(view.bars[0].label, "/dev/nvme0n1p2");
+  const stackOnly = diskViews({ ...host, disks: [host.disks[1], { ...host.disks[1], name: "/dev/sdb1", nodes: ["stack"] }] }, new Map());
+  assert.equal(stackOnly.bars.length, 1);
+  assert.equal(stackOnly.bars[0].label, "/dev/sdb1");
+});
+
 test("diskViews rejects unusable host data and zero-size nodes", () => {
   assert.equal(diskViews(null, new Map()), null);
   assert.equal(diskViews({ disk_available: false, disk_total_bytes: GiB }, new Map()), null);
