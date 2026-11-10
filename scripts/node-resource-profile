@@ -303,6 +303,44 @@ apply_profile() {
   echo "resource-profile: capped synced $service at ${steady_cpus} CPU and ${memory_limit_mb} MiB memory"
 }
 
+write_host_stats() {
+  dashboard=$(container_id dashboard)
+  [ -n "$dashboard" ] || return 0
+  cpus=$("$docker_bin" info --format '{{.NCPU}}' 2>/dev/null)
+  mem_total=$("$docker_bin" info --format '{{.MemTotal}}' 2>/dev/null)
+  case "$cpus" in '' | 0 | *[!0-9]*) return 0 ;; esac
+  case "$mem_total" in '' | 0 | *[!0-9]*) return 0 ;; esac
+  stats=$("$docker_bin" stats --no-stream --format '{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}' 2>/dev/null)
+  [ -n "$stats" ] || return 0
+  payload=$(printf '%s\n' "$stats" | awk -F '\t' -v project="$project_name" -v cpus="$cpus" '
+    index($1, project "-") == 1 {
+      service = substr($1, length(project) + 2)
+      sub(/-[0-9]+$/, "", service)
+      cpu = $2
+      sub(/%$/, "", cpu)
+      split($3, mem, " ")
+      value = mem[1]
+      unit = value
+      sub(/^[0-9.]+/, "", unit)
+      sub(/[^0-9.].*$/, "", value)
+      if (unit == "B") factor = 1
+      else if (unit == "kB" || unit == "KB" || unit == "KiB") factor = 1024
+      else if (unit == "MB" || unit == "MiB") factor = 1024 * 1024
+      else if (unit == "GB" || unit == "GiB") factor = 1024 * 1024 * 1024
+      else next
+      printf "%s %.4f %.0f\n", service, cpu / cpus, value * factor
+    }' | jq -Rn --argjson cpus "$cpus" --argjson mem_total "$mem_total" --argjson now "$current_time" '
+      [inputs | select(length > 0) | split(" ") | {service: .[0], cpu: (.[1] | tonumber), mem: (.[2] | tonumber)}] |
+      reduce .[] as $row ({nodes: {}, other: {cpu_pct: 0, mem_bytes: 0}};
+        if ["bitcoin", "monero", "tari", "litecoin", "dogecoin", "bitcoincash", "zcash"] | index($row.service)
+        then .nodes[$row.service] = {cpu_pct: $row.cpu, mem_bytes: $row.mem}
+        else .other = {cpu_pct: (.other.cpu_pct + $row.cpu), mem_bytes: (.other.mem_bytes + $row.mem)}
+        end) |
+      {updated: $now, cpus: $cpus, mem_total_bytes: $mem_total, nodes: .nodes, other: .other}') || return 0
+  [ -n "$payload" ] || return 0
+  printf '%s' "$payload" | "$docker_bin" exec -i -u 1000 "$dashboard" sh -c 'umask 077; cat > /state/host-stats.json.tmp && mv /state/host-stats.json.tmp /state/host-stats.json' 2>/dev/null || true
+}
+
 current_time=${RESOURCE_NOW_EPOCH:-$(date +%s)}
 apply_profile bitcoin BITCOIN_RESOURCE_PROFILE bitcoin_synced BITCOIN_STEADY_CPUS BITCOIN_STEADY_MEM_LIMIT_MB
 apply_profile monero MONERO_RESOURCE_PROFILE monero_synced MONERO_STEADY_CPUS MONERO_STEADY_MEM_LIMIT_MB
@@ -311,3 +349,4 @@ apply_profile litecoin LITECOIN_RESOURCE_PROFILE litecoin_synced LITECOIN_STEADY
 apply_profile dogecoin DOGECOIN_RESOURCE_PROFILE dogecoin_synced DOGECOIN_STEADY_CPUS DOGECOIN_STEADY_MEM_LIMIT_MB
 apply_profile bitcoincash BITCOINCASH_RESOURCE_PROFILE bitcoincash_synced BITCOINCASH_STEADY_CPUS BITCOINCASH_STEADY_MEM_LIMIT_MB
 apply_profile zcash ZCASH_RESOURCE_PROFILE zcash_synced ZCASH_STEADY_CPUS ZCASH_STEADY_MEM_LIMIT_MB
+write_host_stats || true

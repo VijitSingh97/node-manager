@@ -155,8 +155,41 @@ func (a *app) apiNodes(w http.ResponseWriter, _ *http.Request) {
 		status = a.readNodeControlStatus()
 	}
 	disk := diskUsage(a.cfg.dataDir)
-	writeJSON(w, map[string]any{"nodes": nodes, "control_available": a.nodeControlAvailable(), "control_pending": pending, "status": status,
-		"host": map[string]any{"disk_available": disk.Total > 0, "disk_total_bytes": disk.Total, "disk_free_bytes": disk.Free}})
+	host := map[string]any{"disk_available": disk.Total > 0, "disk_total_bytes": disk.Total, "disk_free_bytes": disk.Free}
+	if stats := a.hostStats(); stats != nil {
+		host["stats"] = stats
+	}
+	writeJSON(w, map[string]any{"nodes": nodes, "control_available": a.nodeControlAvailable(), "control_pending": pending, "status": status, "host": host})
+}
+
+type hostStatsUsage struct {
+	CPUPct   float64 `json:"cpu_pct"`
+	MemBytes uint64  `json:"mem_bytes"`
+}
+
+type hostStatsFile struct {
+	Updated       int64                     `json:"updated"`
+	CPUs          int                       `json:"cpus"`
+	MemTotalBytes uint64                    `json:"mem_total_bytes"`
+	Nodes         map[string]hostStatsUsage `json:"nodes"`
+	Other         hostStatsUsage            `json:"other"`
+}
+
+const hostStatsFreshFor = 3 * time.Minute
+
+func (a *app) hostStats() *hostStatsFile {
+	b, err := os.ReadFile(filepath.Join(a.cfg.stateDir, "host-stats.json"))
+	if err != nil || len(b) > 1<<16 {
+		return nil
+	}
+	var stats hostStatsFile
+	if json.Unmarshal(b, &stats) != nil || stats.CPUs <= 0 || stats.MemTotalBytes == 0 {
+		return nil
+	}
+	if age := time.Since(time.Unix(stats.Updated, 0)); age < 0 || age > hostStatsFreshFor {
+		return nil
+	}
+	return &stats
 }
 
 func (a *app) nodeControlAvailable() bool {

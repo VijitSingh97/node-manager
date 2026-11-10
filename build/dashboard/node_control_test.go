@@ -2,12 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func nodeControlHTTP(a *app, method, path, body string, csrf bool) *httptest.ResponseRecorder {
@@ -169,5 +171,43 @@ func TestNodesReportsMalformedPrivateRequestAsPendingWithoutExposingIt(t *testin
 	}
 	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &view) != nil || !view.ControlPending || view.Status == nil || view.Status.State != "pending" || view.Status.ID != "" || view.Status.Node != "" || strings.Contains(response.Body.String(), "private") {
 		t.Fatalf("malformed pending view = %d %#v %s", response.Code, view, response.Body.String())
+	}
+}
+
+func TestNodesHostStatsServedOnlyWhenFresh(t *testing.T) {
+	dir := t.TempDir()
+	node := nodeConfig{ID: nodeLitecoin, Name: "Litecoin", Enabled: true, Supported: true}
+	a := &app{cfg: config{bitcoinDisabled: true, dashboardPassword: "secret", stateDir: dir, dataDir: dir, nodes: map[string]nodeConfig{nodeLitecoin: node}}}
+	initializeTestDashboardAuth(t, a)
+	write := func(updated int64) {
+		stats := fmt.Sprintf(`{"updated":%d,"cpus":8,"mem_total_bytes":17179869184,"nodes":{"bitcoin":{"cpu_pct":12.5,"mem_bytes":1073741824}},"other":{"cpu_pct":1,"mem_bytes":2048}}`, updated)
+		if err := os.WriteFile(filepath.Join(dir, "host-stats.json"), []byte(stats), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := func() *hostStatsFile {
+		t.Helper()
+		response := nodeControlHTTP(a, http.MethodGet, "/api/nodes", "", false)
+		var view struct {
+			Host struct {
+				Stats *hostStatsFile `json:"stats"`
+			} `json:"host"`
+		}
+		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &view) != nil {
+			t.Fatalf("nodes view = %d %s", response.Code, response.Body.String())
+		}
+		return view.Host.Stats
+	}
+	if read() != nil {
+		t.Fatal("stats served without a collector file")
+	}
+	write(time.Now().Unix())
+	stats := read()
+	if stats == nil || stats.CPUs != 8 || stats.Nodes["bitcoin"].CPUPct != 12.5 || stats.Other.MemBytes != 2048 {
+		t.Fatalf("fresh stats = %#v", stats)
+	}
+	write(time.Now().Add(-10 * time.Minute).Unix())
+	if read() != nil {
+		t.Fatal("stale stats were served")
 	}
 }

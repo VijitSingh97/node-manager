@@ -201,7 +201,7 @@ tick_profile() {
 
 new_case disabled
 run_profile
-[ ! -s "$log" ] || fail "disabled profiles invoked Docker"
+! grep -qE '(^|[[:space:]])(update|stop|start|restart)([[:space:]]|$)' "$log" || fail "disabled profiles mutated containers"
 
 new_case bitcoin-sync
 perl -pi -e 's/BITCOIN_RESOURCE_PROFILE=off/BITCOIN_RESOURCE_PROFILE=compact/' "$case_root/state/.env"
