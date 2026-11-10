@@ -6,6 +6,21 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.33.9] - 2026-11-10
+
+### Changed
+
+- The usage panel shows one bar per physical disk: volumes and partitions on
+  the same drive (LVM included) are merged, with capacities summed and node
+  attributions combined.
+- The stack's own CPU and memory pie slices are now the same teal
+  "Node Manager itself" as its disk slice, instead of grey "Stack other";
+  grey remains for data and usage that is not Node Manager's.
+- The "Node Manager itself" disk figure measures only what the package
+  exclusively owns — its install and state directories (node data excluded) —
+  and no longer includes host-wide Docker storage, which also counts images
+  and volumes that are not Node Manager's.
+
 ## [1.33.8] - 2026-11-10
 
 ### Fixed
@@ -1067,7 +1082,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.8...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.9...HEAD
+[1.33.9]: https://github.com/VijitSingh97/node-manager/compare/v1.33.8...v1.33.9
 [1.33.8]: https://github.com/VijitSingh97/node-manager/compare/v1.33.7...v1.33.8
 [1.33.7]: https://github.com/VijitSingh97/node-manager/compare/v1.33.6...v1.33.7
 [1.33.6]: https://github.com/VijitSingh97/node-manager/compare/v1.33.5...v1.33.6

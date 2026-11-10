@@ -156,9 +156,6 @@ case "$1" in
       esac
     fi
     ;;
-  system)
-    printf '2GB\n10MB\n0B\n'
-    ;;
   info)
     case "${3:-}" in
       '{{.NCPU}}') printf '4\n' ;;
@@ -422,7 +419,7 @@ export FAKE_HOST_STATS_OUT=$tmp/host-stats-payload.json
 run_profile
 unset FAKE_HOST_STATS_OUT
 [ -s "$tmp/host-stats-payload.json" ] || fail "collector wrote no host stats payload"
-jq -e '.cpus == 4 and .nodes.monero.cpu_pct > 40 and .nodes.bitcoin.disk_bytes > 0 and .nodes.bitcoin.cpu_pct == 0 and (.nodes | has("tari") | not) and .nodes.stack.disk_bytes > 2000000000' "$tmp/host-stats-payload.json" >/dev/null || fail "host stats payload lost disk bytes or kept an empty placeholder dir"
+jq -e '.cpus == 4 and .nodes.monero.cpu_pct > 40 and .nodes.bitcoin.disk_bytes > 0 and .nodes.bitcoin.cpu_pct == 0 and (.nodes | has("tari") | not) and .nodes.stack.disk_bytes > 0 and .nodes.stack.disk_bytes < 10000000' "$tmp/host-stats-payload.json" >/dev/null || fail "host stats payload lost disk bytes or kept an empty placeholder dir"
 
 new_case thermal
 cat >>"$case_root/state/.env" <<'ENVEOF'

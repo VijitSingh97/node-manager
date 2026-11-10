@@ -119,7 +119,7 @@ test("pieView builds node, other, and remainder slices for both pies", () => {
   assert.deepEqual(view.mem.map((s) => s.id), ["bitcoin", "monero", "other", "free"]);
   assert.equal(Math.round(view.mem[1].percent), 25);
   assert.match(view.mem[1].title, /Monero — 4\.00 GiB \(25\.0%\)/);
-  assert.match(view.cpu[2].title, /Stack other — 5\.0% CPU/);
+  assert.match(view.cpu[2].title, /Node Manager itself — 5\.0% CPU/);
   assert.equal(view.cpuLabel, "CPU 35%");
   assert.equal(view.cpuLabelTitle, "2.8 of 8 cores");
   assert.equal(view.memLabel, "Mem 44%");
@@ -167,6 +167,6 @@ test("other and free slices use distinct colors on bars and pies", () => {
   assert.equal(other.color, OTHER_COLOR);
   assert.notEqual(other.color, free.color);
   const view = pieView({ cpus: 4, mem_total_bytes: 8 * GiB, nodes: {}, other: { cpu_pct: 5, mem_bytes: GiB } });
-  assert.equal(view.cpu.find((s) => s.id === "other").color, OTHER_COLOR);
+  assert.equal(view.cpu.find((s) => s.id === "other").color, NODE_COLORS.stack);
   assert.notEqual(view.cpu.find((s) => s.id === "other").color, view.cpu.find((s) => s.id === "idle").color);
 });
