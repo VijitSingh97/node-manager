@@ -20,15 +20,22 @@ function nodeSlice(id, bytes, percent, suffix) {
   };
 }
 
-function barSlices(totalBytes, freeBytes, sizes, nodeFilter) {
-  const pct = (bytes) => (bytes / totalBytes) * 100;
-  const used = totalBytes - freeBytes;
-  const slices = [];
-  let accounted = 0;
+function nodeBytes(sizes, nodeFilter) {
+  const entries = [];
   for (const [id, bytes] of sizes) {
     if (nodeFilter && !nodeFilter.includes(id)) continue;
     const value = Math.floor(Number(bytes));
-    if (!(value > 0)) continue;
+    if (value > 0) entries.push([id, value]);
+  }
+  return entries;
+}
+
+function overviewSlices(totalBytes, freeBytes, sizes, nodeFilter) {
+  const pct = (bytes) => Math.min(100, (bytes / totalBytes) * 100);
+  const used = totalBytes - freeBytes;
+  const slices = [];
+  let accounted = 0;
+  for (const [id, value] of nodeBytes(sizes, nodeFilter)) {
     accounted += value;
     slices.push(nodeSlice(id, value, pct(value), ""));
   }
@@ -38,7 +45,14 @@ function barSlices(totalBytes, freeBytes, sizes, nodeFilter) {
   return slices;
 }
 
-export function diskViews(host, sizes) {
+export function zoomSlices(sizes, nodeFilter) {
+  const entries = nodeBytes(sizes, nodeFilter);
+  const total = entries.reduce((sum, [, value]) => sum + value, 0);
+  if (!(total > 0)) return null;
+  return entries.map(([id, value]) => nodeSlice(id, value, (value / total) * 100, " of node data"));
+}
+
+export function diskViews(host, sizes, zoomedDisks = new Set()) {
   if (host?.disk_available !== true) return null;
   let disks = Array.isArray(host.disks) ? host.disks : [];
   disks = disks.filter((disk) => Number(disk?.disk_total_bytes) > 0);
@@ -52,10 +66,16 @@ export function diskViews(host, sizes) {
     const diskFree = Math.min(Math.max(0, Number(disk.disk_free_bytes) || 0), diskTotal);
     total += diskTotal;
     free += diskFree;
+    const nodeFilter = Array.isArray(disk.nodes) ? disk.nodes : null;
     const usedPct = ((diskTotal - diskFree) / diskTotal) * 100;
+    const zoom = zoomedDisks.has(index) ? zoomSlices(sizes, nodeFilter) : null;
     bars.push({
-      title: `Disk ${index + 1} — ${usedPct.toFixed(0)}% used · ${formatBytes(diskTotal - diskFree)} of ${formatBytes(diskTotal)}`,
-      slices: barSlices(diskTotal, diskFree, sizes, Array.isArray(disk.nodes) ? disk.nodes : null),
+      index,
+      zoomed: zoom !== null,
+      title: zoom
+        ? `Disk ${index + 1} — node-manager data only, click to zoom out`
+        : `Disk ${index + 1} — ${usedPct.toFixed(0)}% used · ${formatBytes(diskTotal - diskFree)} of ${formatBytes(diskTotal)}`,
+      slices: zoom || overviewSlices(diskTotal, diskFree, sizes, nodeFilter),
     });
   }
   if (bars.length === 0 || !(total > 0)) return null;
@@ -67,21 +87,11 @@ export function diskViews(host, sizes) {
   };
 }
 
-export function diskZoomView(sizes) {
-  let total = 0;
-  for (const [, bytes] of sizes) total += Math.max(0, Math.floor(Number(bytes)) || 0);
+export function rescaleToStack(slices) {
+  const used = slices.filter((slice) => slice.id !== "idle" && slice.id !== "free");
+  const total = used.reduce((sum, slice) => sum + slice.percent, 0);
   if (!(total > 0)) return null;
-  const slices = [];
-  for (const [id, bytes] of sizes) {
-    const value = Math.floor(Number(bytes));
-    if (!(value > 0)) continue;
-    slices.push(nodeSlice(id, value, (value / total) * 100, " of node data"));
-  }
-  return {
-    line: `Node data ${formatBytes(total)}`,
-    lineTitle: `${formatBytes(total)} across ${slices.length} node${slices.length === 1 ? "" : "s"}`,
-    bars: [{ title: "Node-manager data only", slices }],
-  };
+  return used.map((slice) => ({ ...slice, percent: (slice.percent / total) * 100, title: `${slice.title} · ${((slice.percent / total) * 100).toFixed(1)}% of stack` }));
 }
 
 export function pieView(stats) {
@@ -124,21 +134,6 @@ export function pieView(stats) {
   };
 }
 
-export function pieZoomView(stats) {
-  const base = pieView(stats);
-  if (!base) return null;
-  const rescale = (slices) => {
-    const used = slices.filter((slice) => slice.id !== "idle" && slice.id !== "free");
-    const total = used.reduce((sum, slice) => sum + slice.percent, 0);
-    if (!(total > 0)) return null;
-    return used.map((slice) => ({ ...slice, percent: (slice.percent / total) * 100, title: `${slice.title} · ${((slice.percent / total) * 100).toFixed(1)}% of stack` }));
-  };
-  const cpu = rescale(base.cpu);
-  const mem = rescale(base.mem);
-  if (!cpu || !mem) return null;
-  return { cpu, mem, cpuLabel: base.cpuLabel, cpuLabelTitle: base.cpuLabelTitle, memLabel: base.memLabel, memLabelTitle: base.memLabelTitle };
-}
-
 export function arcPath(startFrac, endFrac) {
   if (endFrac - startFrac >= 0.9999) return "M 1 0 A 1 1 0 1 1 1 -0.0002 L 0 0 Z";
   const point = (f) => `${Math.cos(2 * Math.PI * f).toFixed(4)} ${Math.sin(2 * Math.PI * f).toFixed(4)}`;
@@ -148,57 +143,67 @@ export function arcPath(startFrac, endFrac) {
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
+function buildPie(slices, label, labelTitle, zoomedFlag, onToggle) {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", "-1.15 -1.15 2.3 2.3");
+  let at = 0;
+  for (const slice of slices) {
+    const frac = Math.max(0, Math.min(1 - at, slice.percent / 100));
+    if (frac <= 0) continue;
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", arcPath(at, at + frac));
+    path.style.fill = slice.color || "var(--glass-track)";
+    const title = document.createElementNS(SVG_NS, "title");
+    title.textContent = slice.title;
+    path.appendChild(title);
+    svg.appendChild(path);
+    at += frac;
+  }
+  const figure = document.createElement("figure");
+  figure.title = zoomedFlag ? "Node-manager usage only — click to zoom out" : "Click to zoom into node-manager usage";
+  const caption = document.createElement("figcaption");
+  caption.textContent = label;
+  if (labelTitle) caption.title = labelTitle;
+  figure.appendChild(svg);
+  figure.appendChild(caption);
+  figure.addEventListener("click", onToggle);
+  return figure;
+}
+
 function renderPies(stats) {
   const wrap = document.querySelector("#host-stats [data-host-pies]");
-  const view = (piesZoomed && pieZoomView(stats)) || pieView(stats);
+  const view = pieView(stats);
   if (!wrap || !view) return;
-  wrap.title = piesZoomed ? "Showing node-manager usage only — click to zoom out" : "Click to zoom into node-manager usage";
   wrap.textContent = "";
-  for (const [slices, label, labelTitle] of [[view.cpu, view.cpuLabel, view.cpuLabelTitle], [view.mem, view.memLabel, view.memLabelTitle]]) {
-    const svg = document.createElementNS(SVG_NS, "svg");
-    svg.setAttribute("width", "52");
-    svg.setAttribute("height", "52");
-    svg.setAttribute("viewBox", "-1.15 -1.15 2.3 2.3");
-    let at = 0;
-    for (const slice of slices) {
-      const frac = Math.max(0, Math.min(1 - at, slice.percent / 100));
-      if (frac <= 0) continue;
-      const path = document.createElementNS(SVG_NS, "path");
-      path.setAttribute("d", arcPath(at, at + frac));
-      path.style.fill = slice.color || "var(--glass-track)";
-      const title = document.createElementNS(SVG_NS, "title");
-      title.textContent = slice.title;
-      path.appendChild(title);
-      svg.appendChild(path);
-      at += frac;
-    }
-    const figure = document.createElement("figure");
-    const caption = document.createElement("figcaption");
-    caption.textContent = label;
-    if (labelTitle) caption.title = labelTitle;
-    figure.appendChild(svg);
-    figure.appendChild(caption);
-    wrap.appendChild(figure);
-  }
+  const cpuSlices = (cpuZoomed && rescaleToStack(view.cpu)) || view.cpu;
+  const memSlices = (memZoomed && rescaleToStack(view.mem)) || view.mem;
+  wrap.appendChild(buildPie(cpuSlices, view.cpuLabel, view.cpuLabelTitle, cpuZoomed, () => {
+    cpuZoomed = !cpuZoomed;
+    render();
+  }));
+  wrap.appendChild(buildPie(memSlices, view.memLabel, view.memLabelTitle, memZoomed, () => {
+    memZoomed = !memZoomed;
+    render();
+  }));
   wrap.hidden = false;
 }
 
 const sizes = new Map();
 let host = null;
-let zoomed = false;
-let piesZoomed = false;
+const zoomedDisks = new Set();
+let cpuZoomed = false;
+let memZoomed = false;
 
 function render() {
   const panel = document.getElementById("host-stats");
   if (!panel) return;
   const bitcoinBytes = Number(document.getElementById("live")?.dataset.nodeSize);
   if (bitcoinBytes > 0) sizes.set("bitcoin", bitcoinBytes);
-  const view = (zoomed && diskZoomView(sizes)) || diskViews(host, sizes);
+  const view = diskViews(host, sizes, zoomedDisks);
   if (!view) return;
   const line = panel.querySelector("[data-host-line]");
   line.textContent = view.line;
-  const hint = zoomed ? "click a bar to zoom out" : "click a bar to zoom into node-manager data";
-  line.title = view.lineTitle ? `${view.lineTitle} — ${hint}` : hint;
+  line.title = `${view.lineTitle} — click a bar or pie to zoom into node-manager usage`;
   const wrap = panel.querySelector("[data-host-disk]");
   wrap.textContent = "";
   for (const bar of view.bars) {
@@ -212,6 +217,11 @@ function render() {
       part.title = slice.title;
       row.appendChild(part);
     }
+    row.addEventListener("click", () => {
+      if (zoomedDisks.has(bar.index)) zoomedDisks.delete(bar.index);
+      else zoomedDisks.add(bar.index);
+      render();
+    });
     wrap.appendChild(row);
   }
   if (host?.stats) renderPies(host.stats);
@@ -226,14 +236,6 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
   window.addEventListener("node-size", (event) => {
     const { id, bytes } = event.detail || {};
     if (id) sizes.set(id, Number(bytes) || 0);
-    render();
-  });
-  document.querySelector("#host-stats [data-host-disk]")?.addEventListener("click", () => {
-    zoomed = !zoomed;
-    render();
-  });
-  document.querySelector("#host-stats [data-host-pies]")?.addEventListener("click", () => {
-    piesZoomed = !piesZoomed;
     render();
   });
 }

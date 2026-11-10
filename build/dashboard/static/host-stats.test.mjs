@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { diskViews, diskZoomView, pieView, pieZoomView, arcPath, NODE_COLORS } from "./host-stats.js";
+import { diskViews, zoomSlices, pieView, rescaleToStack, arcPath, NODE_COLORS } from "./host-stats.js";
 
 const GiB = 1024 ** 3;
 
@@ -44,12 +44,28 @@ test("diskViews rejects unusable host data and zero-size nodes", () => {
   assert.equal(view.bars[0].slices[1].percent, 100);
 });
 
-test("diskZoomView rescales node slices to the stack total", () => {
-  const view = diskZoomView(new Map([["bitcoin", 10 * GiB], ["monero", 30 * GiB], ["tari", 0]]));
-  assert.equal(view.line, "Node data 40.00 GiB");
-  assert.deepEqual(view.bars[0].slices.map((s) => [s.id, Math.round(s.percent)]), [["bitcoin", 25], ["monero", 75]]);
-  assert.match(view.bars[0].slices[1].title, /75\.00% of node data/);
-  assert.equal(diskZoomView(new Map()), null);
+test("zoomSlices rescales node slices to the filtered node-data total", () => {
+  const slices = zoomSlices(new Map([["bitcoin", 10 * GiB], ["monero", 30 * GiB], ["tari", 0]]), null);
+  assert.deepEqual(slices.map((s) => [s.id, Math.round(s.percent)]), [["bitcoin", 25], ["monero", 75]]);
+  assert.match(slices[1].title, /75\.00% of node data/);
+  assert.deepEqual(zoomSlices(new Map([["bitcoin", 10 * GiB]]), ["monero"]), null);
+  assert.equal(zoomSlices(new Map(), null), null);
+});
+
+test("diskViews zooms each bar independently", () => {
+  const host = {
+    disk_available: true, disk_total_bytes: 1000 * GiB, disk_free_bytes: 400 * GiB,
+    disks: [
+      { disk_total_bytes: 1000 * GiB, disk_free_bytes: 400 * GiB, nodes: ["bitcoin"] },
+      { disk_total_bytes: 500 * GiB, disk_free_bytes: 100 * GiB, nodes: ["monero"] },
+    ],
+  };
+  const sizes = new Map([["bitcoin", 10 * GiB], ["monero", 30 * GiB]]);
+  const view = diskViews(host, sizes, new Set([1]));
+  assert.equal(view.bars[0].zoomed, false);
+  assert.deepEqual(view.bars[0].slices.map((s) => s.id), ["bitcoin", "other", "free"]);
+  assert.equal(view.bars[1].zoomed, true);
+  assert.deepEqual(view.bars[1].slices.map((s) => [s.id, s.percent]), [["monero", 100]]);
 });
 
 test("pieView builds node, other, and remainder slices for both pies", () => {
@@ -79,15 +95,14 @@ test("pieView rejects unusable stats and clamps overflow", () => {
   assert.equal(view.mem[0].percent, 100);
 });
 
-test("pieZoomView rebases both pies to stack usage and keeps captions", () => {
+test("rescaleToStack rebases one pie to stack usage", () => {
   const stats = { cpus: 8, mem_total_bytes: 16 * GiB, nodes: { bitcoin: { cpu_pct: 10, mem_bytes: 2 * GiB }, monero: { cpu_pct: 20, mem_bytes: 4 * GiB } }, other: { cpu_pct: 5, mem_bytes: GiB } };
-  const view = pieZoomView(stats);
-  assert.deepEqual(view.cpu.map((s) => s.id), ["bitcoin", "monero", "other"]);
-  assert.equal(Math.round(view.cpu[1].percent * 10) / 10, 57.1);
-  assert.match(view.cpu[1].title, /57\.1% of stack/);
-  assert.equal(Math.round(view.mem.reduce((t, s) => t + s.percent, 0)), 100);
-  assert.equal(view.cpuLabel, "CPU 35%");
-  assert.equal(pieZoomView({ cpus: 4, mem_total_bytes: GiB, nodes: {}, other: {} }), null);
+  const cpu = rescaleToStack(pieView(stats).cpu);
+  assert.deepEqual(cpu.map((s) => s.id), ["bitcoin", "monero", "other"]);
+  assert.equal(Math.round(cpu[1].percent * 10) / 10, 57.1);
+  assert.match(cpu[1].title, /57\.1% of stack/);
+  assert.equal(Math.round(cpu.reduce((t, s) => t + s.percent, 0)), 100);
+  assert.equal(rescaleToStack(pieView({ cpus: 4, mem_total_bytes: GiB, nodes: {}, other: {} }).cpu), null);
 });
 
 test("arcPath produces unit-circle arcs with the right large-arc flag", () => {

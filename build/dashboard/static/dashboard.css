@@ -536,9 +536,10 @@ h2 {
   top: 12px;
   left: 14px;
   z-index: 5;
-  width: 240px;
-  padding: 13px 15px;
-  font-size: 0.78rem;
+  width: 480px;
+  max-width: calc(100vw - 28px);
+  padding: 20px 22px;
+  font-size: 0.95rem;
   color: var(--muted);
   background: var(--glass-bg);
   backdrop-filter: blur(16px) saturate(1.4);
@@ -550,29 +551,29 @@ h2 {
 
 body:not([data-computer-stats="1"]) .host-stats { display: none; }
 
-.host-stats-line { margin: 0 0 7px; }
+.host-stats-line { margin: 0 0 12px; }
 
 .host-stats-disk {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 9px;
   cursor: pointer;
 }
 
 .host-stats-bar {
   display: flex;
-  height: 10px;
-  border-radius: 3px;
+  height: 16px;
+  border-radius: 4px;
   overflow: hidden;
   background: var(--glass-track);
 }
 
 .host-stats-bar div:hover, .host-stats-pies path:hover { filter: brightness(1.25); }
 
-.host-stats-pies { display: flex; gap: 18px; margin-top: 10px; cursor: pointer; }
-.host-stats-pies svg { transform: rotate(-90deg); }
-.host-stats-pies figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.host-stats-pies figcaption { color: var(--muted); font-size: 0.7rem; }
+.host-stats-pies { display: flex; gap: 18px; margin-top: 14px; cursor: pointer; }
+.host-stats-pies svg { transform: rotate(-90deg); width: 100%; height: auto; }
+.host-stats-pies figure { margin: 0; flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.host-stats-pies figcaption { color: var(--muted); font-size: 0.85rem; }
 
 .badge {
   background: var(--tag-bg);
