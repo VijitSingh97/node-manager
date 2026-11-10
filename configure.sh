@@ -188,6 +188,9 @@ prune=$(jq -r '.bitcoin.prune_mb // empty' <<<"$config")
 }
 [ -n "$prune" ] || prune=10000
 mem_limit_mb=$(jq -r '.bitcoin.mem_limit_mb // 0' <<<"$config")
+bitcoin_cpus=$(jq -r '.bitcoin.cpus // 0' <<<"$config")
+monero_cpus=$(jq -r '.monero.cpus // 0' <<<"$config")
+monero_mem_limit_mb=$(jq -r '.monero.mem_limit_mb // 0' <<<"$config")
 inbound_onion=$(jq -r 'if ((.bitcoin // {}) | has("inbound_onion")) then if .bitcoin.inbound_onion == true then 1 else 0 end else empty end' <<<"$config")
 [ -n "$inbound_onion" ] || inbound_onion=$(sed -n 's/^BITCOIN_INBOUND_ONION=//p' "$env_file" 2>/dev/null || true)
 [ -n "$inbound_onion" ] || inbound_onion=0
@@ -673,6 +676,23 @@ else
   fi
 fi
 
+case "$monero_mem_limit_mb" in *[!0-9]*)
+  echo "monero.mem_limit_mb must be a whole number of MB (0 = unlimited)."
+  exit 1
+  ;;
+esac
+if [ "$monero_mem_limit_mb" = "0" ]; then
+  monero_mem_limit=0
+else
+  monero_mem_limit="${monero_mem_limit_mb}m"
+fi
+for cpus_pair in "bitcoin:$bitcoin_cpus" "monero:$monero_cpus"; do
+  if ! awk -v value="${cpus_pair#*:}" 'BEGIN { exit !(value ~ /^[0-9]+([.][0-9][0-9]?)?$/ && value <= 256) }'; then
+    echo "${cpus_pair%%:*}.cpus must be a number of CPUs (0 = unlimited)."
+    exit 1
+  fi
+done
+
 # blockfilterindex needs the full chain — bitcoind refuses to start with pruning
 if [ "$blockfilterindex" = "1" ] && [ "$prune" != "0" ]; then
   echo "blockfilterindex requires a full node (prune_mb: 0) — it can't run on a pruned node."
@@ -750,6 +770,7 @@ BITCOIN_PRUNE=$prune
 BITCOIN_INBOUND_ONION=$inbound_onion
 BITCOIN_BLOCKFILTERINDEX=$blockfilterindex
 BITCOIN_MEM_LIMIT=$bitcoin_mem_limit
+BITCOIN_CPUS=$bitcoin_cpus
 BITCOIN_RESOURCE_PROFILE=$bitcoin_resource_profile
 BITCOIN_STEADY_CPUS=$bitcoin_steady_cpus
 BITCOIN_STEADY_MEM_LIMIT_MB=$bitcoin_steady_mem_limit_mb
@@ -772,6 +793,8 @@ MONERO_ZMQ_PORT=$monero_zmq_port
 MONERO_RESOURCE_PROFILE=$monero_resource_profile
 MONERO_STEADY_CPUS=$monero_steady_cpus
 MONERO_STEADY_MEM_LIMIT_MB=$monero_steady_mem_limit_mb
+MONERO_CPUS=$monero_cpus
+MONERO_MEM_LIMIT=$monero_mem_limit
 TARI_ENABLED=$tari_enabled
 TARI_ACTIVE=$tari_active
 TARI_WALLET_ENABLED=$tari_enabled

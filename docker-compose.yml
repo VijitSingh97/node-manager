@@ -64,6 +64,7 @@ services:
     # optional memory cap (0 = unlimited; see bitcoin.mem_limit_mb in config).
     # Bounds a bitcoind memory blowup to a container restart, not a host OOM.
     mem_limit: ${BITCOIN_MEM_LIMIT:-0}
+    cpus: ${BITCOIN_CPUS:-0}
     # tor's group (gid 101 in the tor image) — lets bitcoind read the
     # control-auth cookie for the optional inbound onion service
     group_add:
@@ -131,8 +132,8 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    mem_limit: 0
-    cpus: 0
+    mem_limit: ${MONERO_MEM_LIMIT:-0}
+    cpus: ${MONERO_CPUS:-0}
     environment:
       MONERO_RPC_USER: ${MONERO_RPC_USER:?run ./configure.sh first}
       MONERO_RPC_PASSWORD: ${MONERO_RPC_PASSWORD:?run ./configure.sh first}

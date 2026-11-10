@@ -83,6 +83,7 @@ shows the overridable settings with their defaults:
         "inbound_onion": false,
         "blockfilterindex": false,
         "mem_limit_mb": 0,
+        "cpus": 0,
         "resource_profile": "off",
         "steady_cpus": 1,
         "steady_mem_limit_mb": 2048,
@@ -95,6 +96,8 @@ shows the overridable settings with their defaults:
         "active": true,
         "node_username": "admin",
         "data_dir": "./data/monero",
+        "mem_limit_mb": 0,
+        "cpus": 0,
         "resource_profile": "off",
         "steady_cpus": 1,
         "steady_mem_limit_mb": 2048,
@@ -208,6 +211,7 @@ shows the overridable settings with their defaults:
 | `bitcoin.inbound_onion` | `false` | `true` publishes a Tor onion service so your node accepts inbound connections and serves available blocks with no IP exposure. See [Inbound onion service](#inbound-onion-service). |
 | `bitcoin.blockfilterindex` | `false` | Advanced archival-node compatibility setting. It is incompatible with pruning and is not needed for the default pruned watch-only balance scan. |
 | `bitcoin.mem_limit_mb` | `0` (unlimited) | Optional memory cap on the bitcoin container, in MB. `0` = no limit (Docker's default). A cap turns a bitcoind memory blowup into a contained container restart instead of a whole-host OOM. **Size it above `dbcache_mb`** and leave additional room for Core's workload-dependent memory outside the cache. There is no universal fixed margin; monitor actual usage because a low cap can make bitcoind restart-loop. `configure.sh` warns if the cap is not above `dbcache_mb`. |
+| `bitcoin.cpus` | `0` (unlimited) | Optional hard CPU cap on the bitcoin container, applied from container start and kept across upgrades, unlike a manual `docker update`. Same number format as `steady_cpus`; `0` = no limit. Applies during initial sync too, so a thermally or otherwise constrained host is never left uncapped while catching up. The resource profiler leaves operator-set limits alone. |
 | `bitcoin.rpc_expose` | `false` | `true` exposes authenticated Bitcoin RPC to a trusted private LAN through the Tor container's TCP relay. See [LAN wallet RPC](#lan-wallet-rpc-opt-in). |
 | `bitcoin.rpc_bind_ip` | `""` | Private IPv4 address assigned to this host for the opt-in RPC listener. Required when `rpc_expose` is true. Public, wildcard, loopback, malformed, and IPv6 addresses are rejected. |
 | `bitcoin.rpc_port` | `8332` | Host port for the opt-in RPC listener (`1`–`65535`). The internal Core RPC port remains `8332`. |
@@ -221,6 +225,8 @@ shows the overridable settings with their defaults:
 | `monero.resource_profile` | `off`; `compact` for a node selected by APT/Homebrew setup or installed from the dashboard | The same experimental per-node limit as Bitcoin. Sustained Monero operation at 2 GiB remains unqualified. |
 | `monero.steady_cpus` | `1` | Monero's independent post-sync CPU ceiling; same format and range as Bitcoin. |
 | `monero.steady_mem_limit_mb` | `2048` | Monero's independent post-sync memory ceiling in MiB; same format and range as Bitcoin. The view-only wallet service is additional. |
+| `monero.cpus` | `0` (unlimited) | Monero's independent hard CPU cap; same semantics as `bitcoin.cpus`, including during catch-up sync. |
+| `monero.mem_limit_mb` | `0` (unlimited) | Optional memory cap on the monero container, in MB; same semantics as `bitcoin.mem_limit_mb` without the dbcache sizing concern. |
 | `monero.rpc_expose` | `false` | Publishes restricted Digest-auth RPC to one trusted private-LAN address. |
 | `monero.rpc_bind_ip` | `""` | Private IPv4 address assigned to this host. Required when Monero RPC exposure is enabled. |
 | `monero.rpc_port` | `18081` | Host port for the opt-in restricted RPC relay. |
