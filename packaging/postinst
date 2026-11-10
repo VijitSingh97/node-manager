@@ -38,13 +38,21 @@ if [ "$migrated" = 1 ]; then
   systemctl daemon-reload >/dev/null 2>&1 || true
 fi
 
+state=/var/lib/node-manager
+for envfile in "$state/.env" "$state/.approved.env"; do
+  [ -f "$envfile" ] || continue
+  sed -i \
+    -e 's|^STACK_ROOT=/usr/lib/bitcoin-starter-stack$|STACK_ROOT=/usr/lib/node-manager|' \
+    -e 's|^STACK_ASSET_ROOT=/usr/lib/bitcoin-starter-stack$|STACK_ASSET_ROOT=/usr/lib/node-manager|' \
+    "$envfile"
+done
+
 if [ -n "$old_version" ]; then
   /usr/bin/dpkg --compare-versions "$new_version" gt "$old_version" || exit 0
 else
   [ "$migrated" = 1 ] || exit 0
 fi
 
-state=/var/lib/node-manager
 [ -s "$state/.env" ] && [ -s "$state/.approved-config.json" ] && [ -s "$state/.approved.env" ] || exit 0
 
 if ! env -i \

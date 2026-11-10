@@ -170,6 +170,14 @@ touch "$tmp/postinst-fail"
 "$postinst_fixture" configure 1.0.0 || fail "postinst failure blocked package configuration"
 grep -q 'command=package-upgrade' "$postinst_log" || fail "postinst did not invoke activation on upgrade"
 
+printf 'STACK_ROOT=/usr/lib/bitcoin-starter-stack\nSTACK_ASSET_ROOT=/usr/lib/bitcoin-starter-stack\n' >"$postinst_state/.env"
+printf 'STACK_ROOT=/usr/lib/bitcoin-starter-stack\nREADY=1\n' >"$postinst_state/.approved.env"
+"$postinst_fixture" configure 1.0.0
+grep -q '^STACK_ROOT=/usr/lib/node-manager$' "$postinst_state/.env" || fail "postinst did not migrate STACK_ROOT in .env"
+grep -q '^STACK_ASSET_ROOT=/usr/lib/node-manager$' "$postinst_state/.env" || fail "postinst did not migrate STACK_ASSET_ROOT in .env"
+grep -q '^STACK_ROOT=/usr/lib/node-manager$' "$postinst_state/.approved.env" || fail "postinst did not migrate STACK_ROOT in .approved.env"
+grep -q '^READY=1$' "$postinst_state/.approved.env" || fail "postinst env migration dropped unrelated lines"
+
 root=$tmp/root
 dpkg-deb -x "$deb" "$root"
 [ "$(cat "$root/usr/lib/node-manager/VERSION")" = "$PACKAGE_VERSION" ] || fail "payload VERSION does not match package metadata"
