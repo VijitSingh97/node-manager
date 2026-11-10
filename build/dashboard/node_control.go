@@ -180,6 +180,7 @@ type hostStatsFile struct {
 
 type hostDisk struct {
 	Name       string   `json:"name,omitempty"`
+	Label      string   `json:"label,omitempty"`
 	TotalBytes uint64   `json:"disk_total_bytes"`
 	FreeBytes  uint64   `json:"disk_free_bytes"`
 	Nodes      []string `json:"nodes"`

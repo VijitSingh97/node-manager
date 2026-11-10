@@ -156,6 +156,9 @@ case "$1" in
       esac
     fi
     ;;
+  system)
+    printf '2GB\n10MB\n0B\n'
+    ;;
   info)
     case "${3:-}" in
       '{{.NCPU}}') printf '4\n' ;;
@@ -413,13 +416,13 @@ grep -q '^RestrictAddressFamilies=AF_UNIX$' packaging/systemd/node-manager-resou
 grep -q '^Persistent=true$' packaging/systemd/node-manager-resource-profile.timer || fail "systemd timer does not catch up after reboot"
 
 new_case host-stats
-mkdir -p "$case_root/state/data/bitcoin"
-printf 'x%.0s' $(seq 1 4096) >"$case_root/state/data/bitcoin/blk00000.dat"
+mkdir -p "$case_root/state/data/bitcoin" "$case_root/state/data/tari"
+head -c 2097152 /dev/zero >"$case_root/state/data/bitcoin/blk00000.dat"
 export FAKE_HOST_STATS_OUT=$tmp/host-stats-payload.json
 run_profile
 unset FAKE_HOST_STATS_OUT
 [ -s "$tmp/host-stats-payload.json" ] || fail "collector wrote no host stats payload"
-jq -e '.cpus == 4 and .nodes.monero.cpu_pct > 40 and .nodes.bitcoin.disk_bytes > 0 and .nodes.bitcoin.cpu_pct == 0' "$tmp/host-stats-payload.json" >/dev/null || fail "host stats payload lost the stopped node's disk bytes"
+jq -e '.cpus == 4 and .nodes.monero.cpu_pct > 40 and .nodes.bitcoin.disk_bytes > 0 and .nodes.bitcoin.cpu_pct == 0 and (.nodes | has("tari") | not) and .nodes.stack.disk_bytes > 2000000000' "$tmp/host-stats-payload.json" >/dev/null || fail "host stats payload lost disk bytes or kept an empty placeholder dir"
 
 new_case thermal
 cat >>"$case_root/state/.env" <<'ENVEOF'

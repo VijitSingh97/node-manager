@@ -393,6 +393,22 @@ write_host_stats() {
   stats=$("$docker_bin" stats --no-stream --format '{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}' 2>/dev/null)
   [ -n "$stats" ] || return 0
   host_disks=$(df -P -B1 2>/dev/null | awk 'NR > 1 && $1 ~ /^\/dev\//')
+  disk_labels=$(printf '%s\n' "$host_disks" | awk '{print $1}' | sort -u | while read -r dev; do
+    [ -b "$dev" ] || continue
+    row=$(lsblk -lno NAME,TYPE,ROTA,MODEL -s "$dev" 2>/dev/null | awk '$2 == "disk" { print; exit }')
+    [ -n "$row" ] || continue
+    pname=$(printf '%s' "$row" | awk '{print $1}')
+    rota=$(printf '%s' "$row" | awk '{print $3}')
+    model=$(printf '%s' "$row" | awk '{for (i = 4; i <= NF; i++) printf "%s%s", $i, (i < NF ? " " : "")}')
+    case "$pname" in (nvme*) kind=NVMe ;; (*) if [ "$rota" = 1 ]; then kind=HDD; else kind=SSD; fi ;; esac
+    if [ -z "$model" ]; then
+      printf '%s\t%s %s\n' "$dev" "$kind" "$pname"
+    elif printf '%s' "$model" | grep -qi "$kind"; then
+      printf '%s\t%s\n' "$dev" "$model"
+    else
+      printf '%s\t%s %s\n' "$dev" "$model" "$kind"
+    fi
+  done)
   node_dirs=$(for service in bitcoin monero tari litecoin dogecoin bitcoincash zcash; do
     upper=$(printf '%s' "$service" | tr '[:lower:]' '[:upper:]')
     dir=$(env_get "${upper}_DATA_DIR")
@@ -402,15 +418,48 @@ write_host_stats() {
   printf 'stack %s\nstack %s\n' "$stack_root" "$state_root"
   docker_root=$("$docker_bin" info --format '{{.DockerRootDir}}' 2>/dev/null)
   [ -n "$docker_root" ] && printf 'stack %s\n' "$docker_root")
-  node_sizes=$(for service in bitcoin monero tari litecoin dogecoin bitcoincash zcash; do
+  node_sizes=
+  stack_sub_kb=0
+  for service in bitcoin monero tari litecoin dogecoin bitcoincash zcash; do
     upper=$(printf '%s' "$service" | tr '[:lower:]' '[:upper:]')
     dir=$(env_get "${upper}_DATA_DIR")
     [ -n "$dir" ] || dir=$state_root/data/$service
     [ -d "$dir" ] || continue
     kb=$(du -sk "$dir" 2>/dev/null | awk '{print $1}')
     case "$kb" in ('' | *[!0-9]*) continue ;; esac
-    printf '%s %s\n' "$service" "$((kb * 1024))"
-  done)
+    [ "$kb" -ge 1024 ] || continue
+    node_sizes="$node_sizes$service $((kb * 1024))
+"
+    case "$dir" in ("$state_root"/* | "$stack_root"/*) stack_sub_kb=$((stack_sub_kb + kb)) ;; esac
+  done
+  stack_kb=0
+  for dir in "$stack_root" "$state_root"; do
+    [ -d "$dir" ] || continue
+    kb=$(du -sk "$dir" 2>/dev/null | awk '{print $1}')
+    case "$kb" in ('' | *[!0-9]*) continue ;; esac
+    stack_kb=$((stack_kb + kb))
+  done
+  stack_kb=$((stack_kb - stack_sub_kb))
+  [ "$stack_kb" -ge 0 ] || stack_kb=0
+  docker_bytes=$("$docker_bin" system df --format '{{.Size}}' 2>/dev/null | awk '
+    {
+      value = $1
+      unit = value
+      sub(/^[0-9.]+/, "", unit)
+      sub(/[^0-9.].*$/, "", value)
+      if (unit == "B") factor = 1
+      else if (unit == "kB" || unit == "KB") factor = 1000
+      else if (unit == "MB") factor = 1000000
+      else if (unit == "GB") factor = 1000000000
+      else if (unit == "TB") factor = 1000000000000
+      else next
+      total += value * factor
+    }
+    END { printf "%.0f", total }')
+  case "$docker_bytes" in ('' | *[!0-9]*) docker_bytes=0 ;; esac
+  stack_bytes=$((stack_kb * 1024 + docker_bytes))
+  [ "$stack_bytes" -le 0 ] || node_sizes="${node_sizes}stack $stack_bytes
+"
   payload=$(printf '%s\n' "$stats" | awk -F '\t' -v project="$project_name" -v cpus="$cpus" '
     index($1, project "-") == 1 {
       service = substr($1, length(project) + 2)
@@ -444,9 +493,11 @@ write_host_stats() {
         (rows($nodedirs) | map(. as $d |
           ($mounts | map(. as $disk | select(($d[1] == $disk.mount) or ($d[1] | startswith($disk.mount + "/")) or ($disk.mount == "/"))) | sort_by(-(.mount | length)) | .[0]) as $best |
           select($best != null) | {service: $d[0], device: $best.name})) as $owners |
-        $mounts | unique_by(.name) | map({name: .name, disk_total_bytes: .total, disk_free_bytes: .free,
-          nodes: [.name as $device | $owners[] | select(.device == $device) | .service] | unique})
-      )}' --arg hostdisks "$host_disks" --arg nodedirs "$node_dirs" --arg nodesizes "$node_sizes") || return 0
+        ($disklabels | split("\n") | map(select(length > 0) | split("\t") | select(length == 2))) as $labels |
+        $mounts | unique_by(.name) | map(. as $disk | {name: $disk.name, disk_total_bytes: $disk.total, disk_free_bytes: $disk.free,
+          nodes: [$disk.name as $device | $owners[] | select(.device == $device) | .service] | unique}
+          + (([$labels[] | select(.[0] == $disk.name) | .[1]] | .[0]) as $label | if $label then {label: $label} else {} end))
+      )}' --arg hostdisks "$host_disks" --arg nodedirs "$node_dirs" --arg nodesizes "$node_sizes" --arg disklabels "$disk_labels") || return 0
   [ -n "$payload" ] || return 0
   printf '%s' "$payload" | "$docker_bin" exec -i -u 1000 "$dashboard" sh -c 'umask 077; cat > /state/host-stats.json.tmp && mv /state/host-stats.json.tmp /state/host-stats.json' 2>/dev/null || true
 }

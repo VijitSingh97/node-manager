@@ -35,20 +35,41 @@ test("diskViews renders one bar per disk with nodes attributed to their disk", (
   assert.equal(Math.round(view.bars[1].slices[0].percent), 6);
 });
 
-test("diskViews hides disks without node-manager data but keeps stack-only disks", () => {
+test("diskViews shows only disks whose attributed nodes hold actual bytes", () => {
   const host = {
     disk_available: true, disk_total_bytes: 1000 * GiB, disk_free_bytes: 400 * GiB,
     disks: [
       { name: "/dev/nvme0n1p2", disk_total_bytes: 1000 * GiB, disk_free_bytes: 400 * GiB, nodes: ["bitcoin", "stack"] },
-      { name: "/dev/sda1", disk_total_bytes: 500 * GiB, disk_free_bytes: 450 * GiB, nodes: [] },
+      { name: "/dev/sda1", disk_total_bytes: 500 * GiB, disk_free_bytes: 450 * GiB, nodes: ["tari"] },
+      { name: "/dev/sdc1", disk_total_bytes: 500 * GiB, disk_free_bytes: 450 * GiB, nodes: [] },
     ],
   };
   const view = diskViews(host, new Map([["bitcoin", 10 * GiB]]));
   assert.equal(view.bars.length, 1);
   assert.equal(view.bars[0].label, "/dev/nvme0n1p2");
-  const stackOnly = diskViews({ ...host, disks: [host.disks[1], { ...host.disks[1], name: "/dev/sdb1", nodes: ["stack"] }] }, new Map());
+  const stackOnly = diskViews({ ...host, disks: [host.disks[2], { ...host.disks[2], name: "/dev/sdb1", nodes: ["stack"] }] }, new Map([["stack", 30 * GiB]]));
   assert.equal(stackOnly.bars.length, 1);
   assert.equal(stackOnly.bars[0].label, "/dev/sdb1");
+  assert.equal(diskViews(host, new Map()).bars.length, 3);
+});
+
+test("stack slice is labelled Node Manager itself and disks prefer model labels", () => {
+  const host = {
+    disk_available: true, disk_total_bytes: 1000 * GiB, disk_free_bytes: 400 * GiB,
+    disks: [
+      { name: "/dev/mapper/vg-lv0", label: "Samsung SSD 990 PRO NVMe", disk_total_bytes: 1000 * GiB, disk_free_bytes: 400 * GiB, nodes: ["bitcoin", "stack"] },
+      { name: "/dev/sdb2", disk_total_bytes: 500 * GiB, disk_free_bytes: 100 * GiB, nodes: ["monero"] },
+    ],
+  };
+  const sizes = withCollectorSizes({ nodes: { stack: { disk_bytes: 30 * GiB }, bitcoin: { disk_bytes: 10 * GiB }, monero: { disk_bytes: 100 * GiB } } }, new Map());
+  const view = diskViews(host, sizes);
+  assert.equal(view.bars[0].label, "Samsung SSD 990 PRO NVMe");
+  assert.equal(view.bars[1].label, "/dev/sdb2");
+  const stackSlice = view.bars[0].slices.find((s) => s.id === "stack");
+  assert.equal(stackSlice.color, NODE_COLORS.stack);
+  assert.match(stackSlice.title, /Node Manager itself — 30\.00 GiB/);
+  const zoom = zoomSlices(sizes, ["bitcoin", "stack"], 1000 * GiB);
+  assert.match(zoom.find((s) => s.id === "stack").title, /Node Manager itself/);
 });
 
 test("diskViews rejects unusable host data and zero-size nodes", () => {

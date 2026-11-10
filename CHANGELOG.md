@@ -6,6 +6,24 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.33.8] - 2026-11-10
+
+### Fixed
+
+- The resource-profile service can read node data directories under `/home`
+  (`ProtectHome=read-only`), so such nodes get disk figures in the usage
+  panel; `ProtectHome=true` hid them entirely.
+- The usage panel's zoomed disk view no longer lists nodes whose data
+  directory is empty scaffolding: the collector skips node dirs under 1 MiB,
+  so only installed nodes with real data appear.
+- The usage panel now shows Node Manager's own footprint (install and state
+  directories plus Docker images, containers, and volumes) as a teal
+  "Node Manager itself" slice on the disk bars and in the zoomed view.
+- Disk bars are labelled with the physical disk's model and kind
+  (for example "Samsung SSD 990 PRO NVMe") instead of device-mapper paths,
+  when the host can resolve them, and disks holding no node-manager data are
+  no longer shown.
+
 ## [1.33.7] - 2026-11-10
 
 ### Added
@@ -1049,7 +1067,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.7...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.8...HEAD
+[1.33.8]: https://github.com/VijitSingh97/node-manager/compare/v1.33.7...v1.33.8
 [1.33.7]: https://github.com/VijitSingh97/node-manager/compare/v1.33.6...v1.33.7
 [1.33.6]: https://github.com/VijitSingh97/node-manager/compare/v1.33.5...v1.33.6
 [1.33.5]: https://github.com/VijitSingh97/node-manager/compare/v1.33.4...v1.33.5
