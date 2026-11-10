@@ -408,6 +408,7 @@ grep -q ' start monero$' "$log" || fail "Monero was not restarted after a dirty 
 grep -q '|blocked|' "$case_root/state/resource-profile/monero" || fail "dirty Monero stop was not marked blocked"
 
 grep -q '^ProtectSystem=strict$' packaging/systemd/node-manager-resource-profile.service || fail "systemd service is not filesystem-hardened"
+grep -q '^ProtectHome=read-only$' packaging/systemd/node-manager-resource-profile.service || fail "service cannot read node data dirs under /home"
 grep -q '^RestrictAddressFamilies=AF_UNIX$' packaging/systemd/node-manager-resource-profile.service || fail "systemd service can use public network sockets"
 grep -q '^Persistent=true$' packaging/systemd/node-manager-resource-profile.timer || fail "systemd timer does not catch up after reboot"
 
