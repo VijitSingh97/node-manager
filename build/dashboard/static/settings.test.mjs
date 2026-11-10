@@ -134,7 +134,7 @@ test("global alert preferences default on and accept only bounded thresholds", (
 test("a port-only save does not create an unnecessary notification override", () => {
   const saved = {
     telegram_enabled: false, telegram_chat_id: "", healthchecks_enabled: false,
-    alert_new_block: false, alert_new_block_bitcoin: false, alert_new_block_monero: false, alert_new_block_tari:false, alert_new_block_litecoin:false, alert_new_block_dogecoin:false, alert_new_block_bitcoincash:false, alert_new_block_zcash:false, tower_labels: false, default_currency: "USD",
+    alert_new_block: false, alert_new_block_bitcoin: false, alert_new_block_monero: false, alert_new_block_tari:false, alert_new_block_litecoin:false, alert_new_block_dogecoin:false, alert_new_block_bitcoincash:false, alert_new_block_zcash:false, tower_labels: false, computer_stats: false, default_currency: "USD",
   };
   assert.equal(notificationChanged(saved, notificationPayload({})), false);
   assert.equal(notificationChanged(saved, notificationPayload({ alert_new_block_monero: true })), true);
@@ -237,6 +237,7 @@ test("blank secret fields keep saved secrets without copying them into the reque
     alert_new_block_monero: true,
     alert_new_block_tari:false, alert_new_block_litecoin:false, alert_new_block_dogecoin:false, alert_new_block_bitcoincash:false, alert_new_block_zcash:false,
     tower_labels: false,
+    computer_stats: false,
     default_currency: "USD",
     ...alertDefaults,
   });
@@ -250,6 +251,7 @@ test("disabled services do not send stale secrets or chat IDs", () => {
     alert_new_block_monero: false,
     alert_new_block_tari:false, alert_new_block_litecoin:false, alert_new_block_dogecoin:false, alert_new_block_bitcoincash:false, alert_new_block_zcash:false,
     tower_labels: false,
+    computer_stats: false,
     default_currency: "USD",
     ...alertDefaults,
   });
@@ -259,12 +261,14 @@ test("appearance defaults are applied and broadcast together", () => {
   const root = { dataset: {} };
   const events = [];
   const target = { dispatchEvent: (event) => events.push(event) };
-  assert.deepEqual(applyAppearance({}, root, target), { tower_labels: false, default_currency: "USD" });
+  assert.deepEqual(applyAppearance({}, root, target), { tower_labels: false, computer_stats: false, default_currency: "USD" });
   assert.equal(root.dataset.towerLabels, "0");
-  assert.deepEqual(applyAppearance({ tower_labels: true, default_currency: "cny" }, root, target), { tower_labels: true, default_currency: "CNY" });
+  assert.equal(root.dataset.computerStats, "0");
+  assert.deepEqual(applyAppearance({ tower_labels: true, computer_stats: true, default_currency: "cny" }, root, target), { tower_labels: true, computer_stats: true, default_currency: "CNY" });
   assert.equal(root.dataset.towerLabels, "1");
+  assert.equal(root.dataset.computerStats, "1");
   assert.equal(events.at(-1).type, "appearance-updated");
-  assert.deepEqual(events.at(-1).detail, { tower_labels: true, default_currency: "CNY" });
+  assert.deepEqual(events.at(-1).detail, { tower_labels: true, computer_stats: true, default_currency: "CNY" });
   assert.equal(normalizeDefaultCurrency("btc"), "USD");
 });
 

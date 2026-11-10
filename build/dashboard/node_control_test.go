@@ -2,12 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func nodeControlHTTP(a *app, method, path, body string, csrf bool) *httptest.ResponseRecorder {
@@ -25,7 +27,7 @@ func nodeControlHTTP(a *app, method, path, body string, csrf bool) *httptest.Res
 func TestNodeControlRequiresExactConfirmationAndQueuesPrivateRequest(t *testing.T) {
 	dir := t.TempDir()
 	node := nodeConfig{ID: nodeLitecoin, Name: "Litecoin", Enabled: true, Supported: true}
-	a := &app{cfg: config{bitcoinDisabled: true, dashboardPassword: "secret", stateDir: dir, nodes: map[string]nodeConfig{nodeLitecoin: node}}}
+	a := &app{cfg: config{bitcoinDisabled: true, dashboardPassword: "secret", stateDir: dir, dataDir: dir, nodes: map[string]nodeConfig{nodeLitecoin: node}}}
 	initializeTestDashboardAuth(t, a)
 	if err := os.WriteFile(a.nodeControlPath("capability"), []byte("ready\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -57,8 +59,14 @@ func TestNodeControlRequiresExactConfirmationAndQueuesPrivateRequest(t *testing.
 	var nodesView struct {
 		ControlPending bool               `json:"control_pending"`
 		Status         *nodeControlStatus `json:"status"`
+		Host           struct {
+			DiskAvailable  bool   `json:"disk_available"`
+			DiskTotalBytes uint64 `json:"disk_total_bytes"`
+			DiskFreeBytes  uint64 `json:"disk_free_bytes"`
+		} `json:"host"`
 	}
-	if nodesResponse.Code != http.StatusOK || json.Unmarshal(nodesResponse.Body.Bytes(), &nodesView) != nil || !nodesView.ControlPending || nodesView.Status == nil || nodesView.Status.ID != queued.ID || nodesView.Status.Node != nodeLitecoin || nodesView.Status.Active || nodesView.Status.State != "pending" {
+	if nodesResponse.Code != http.StatusOK || json.Unmarshal(nodesResponse.Body.Bytes(), &nodesView) != nil || !nodesView.ControlPending || nodesView.Status == nil || nodesView.Status.ID != queued.ID || nodesView.Status.Node != nodeLitecoin || nodesView.Status.Active || nodesView.Status.State != "pending" ||
+		!nodesView.Host.DiskAvailable || nodesView.Host.DiskTotalBytes == 0 || nodesView.Host.DiskFreeBytes > nodesView.Host.DiskTotalBytes {
 		t.Fatalf("pending nodes view = %d %#v", nodesResponse.Code, nodesView)
 	}
 }
@@ -110,7 +118,7 @@ func TestNodeRuntimeFallsBackToConfiguredActiveFlagsWhenStateIsMissing(t *testin
 func TestNodeControlActivationAndAvailabilityAreIndependent(t *testing.T) {
 	dir := t.TempDir()
 	node := nodeConfig{ID: nodeLitecoin, Name: "Litecoin", Enabled: true, Supported: true}
-	a := &app{cfg: config{bitcoinDisabled: true, dashboardPassword: "secret", stateDir: dir, nodes: map[string]nodeConfig{nodeLitecoin: node}}}
+	a := &app{cfg: config{bitcoinDisabled: true, dashboardPassword: "secret", stateDir: dir, dataDir: dir, nodes: map[string]nodeConfig{nodeLitecoin: node}}}
 	initializeTestDashboardAuth(t, a)
 	if err := os.WriteFile(filepath.Join(dir, "node-runtime.json"), []byte(`{"litecoin":false}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -163,5 +171,60 @@ func TestNodesReportsMalformedPrivateRequestAsPendingWithoutExposingIt(t *testin
 	}
 	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &view) != nil || !view.ControlPending || view.Status == nil || view.Status.State != "pending" || view.Status.ID != "" || view.Status.Node != "" || strings.Contains(response.Body.String(), "private") {
 		t.Fatalf("malformed pending view = %d %#v %s", response.Code, view, response.Body.String())
+	}
+}
+
+func TestNodesHostStatsServedOnlyWhenFresh(t *testing.T) {
+	dir := t.TempDir()
+	node := nodeConfig{ID: nodeLitecoin, Name: "Litecoin", Enabled: true, Supported: true}
+	a := &app{cfg: config{bitcoinDisabled: true, dashboardPassword: "secret", stateDir: dir, dataDir: dir, nodes: map[string]nodeConfig{nodeLitecoin: node}}}
+	initializeTestDashboardAuth(t, a)
+	write := func(updated int64) {
+		stats := fmt.Sprintf(`{"updated":%d,"cpus":8,"mem_total_bytes":17179869184,"nodes":{"bitcoin":{"cpu_pct":12.5,"mem_bytes":1073741824}},"other":{"cpu_pct":1,"mem_bytes":2048},"disks":[{"name":"/dev/nvme0n1p2","disk_total_bytes":1000,"disk_free_bytes":400,"nodes":["bitcoin"]},{"name":"/dev/sda1","disk_total_bytes":500,"disk_free_bytes":450,"nodes":[]}]}`, updated)
+		if err := os.WriteFile(filepath.Join(dir, "host-stats.json"), []byte(stats), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := func() *hostStatsFile {
+		t.Helper()
+		response := nodeControlHTTP(a, http.MethodGet, "/api/nodes", "", false)
+		var view struct {
+			Host struct {
+				Stats *hostStatsFile `json:"stats"`
+			} `json:"host"`
+		}
+		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &view) != nil {
+			t.Fatalf("nodes view = %d %s", response.Code, response.Body.String())
+		}
+		return view.Host.Stats
+	}
+	if read() != nil {
+		t.Fatal("stats served without a collector file")
+	}
+	write(time.Now().Unix())
+	stats := read()
+	if stats == nil || stats.CPUs != 8 || stats.Nodes["bitcoin"].CPUPct != 12.5 || stats.Other.MemBytes != 2048 {
+		t.Fatalf("fresh stats = %#v", stats)
+	}
+	disks := a.hostDisks()
+	if len(disks) != 2 || disks[0].Name != "/dev/nvme0n1p2" || disks[0].Nodes[0] != "bitcoin" || disks[1].Name != "/dev/sda1" || len(disks[1].Nodes) != 0 {
+		t.Fatalf("collector disks = %#v", disks)
+	}
+	write(time.Now().Add(-10 * time.Minute).Unix())
+	if read() != nil {
+		t.Fatal("stale stats were served")
+	}
+}
+
+func TestMountDevicePicksLongestMountpointPrefix(t *testing.T) {
+	mounts := "/dev/nvme0n1p2 / ext4 rw 0 0\n/dev/sdb2 /home ext4 rw 0 0\ntmpfs /run tmpfs rw 0 0\n/dev/sdb2 /home/nodes ext4 rw 0 0\n"
+	if got := mountDevice(mounts, "/home/nodes/bitcoin"); got != "/dev/sdb2" {
+		t.Fatalf("device = %q", got)
+	}
+	if got := mountDevice(mounts, "/var/lib/data"); got != "/dev/nvme0n1p2" {
+		t.Fatalf("root fallback = %q", got)
+	}
+	if got := mountDevice("", "/anything"); got != "" {
+		t.Fatalf("empty mounts = %q", got)
 	}
 }

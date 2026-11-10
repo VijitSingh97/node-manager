@@ -134,10 +134,6 @@ test("available Monero metrics are clamped and formatted for the status card", (
   assert.equal(view.uptime, "1d 1h 1m");
   assert.equal(view.connections, "2 in · 8 out");
   assert.equal(view.size, "10.00 GiB");
-  assert.equal(view.diskCapacity, "20.00 GiB");
-  assert.equal(view.diskUsage, "60.00%");
-  assert.equal(view.diskFree, "8.00 GiB");
-  assert.equal(view.diskLow, true);
   assert.equal(view.mempool, "3 tx · 1.5 KiB");
   assert.equal(view.difficulty, "1,234,567");
   assert.equal(view.hashrate, "1.23 MH/s");

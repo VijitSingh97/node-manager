@@ -95,13 +95,6 @@ function renderNode(id, data) {
   if (progress) progress.style.width = `${view.progress}%`;
   setText(`${id}-sync`, `${view.progress.toFixed(4)}%`);
   setText(`${id}-size`, view.size);
-  setText(`${id}-disk-capacity`, view.diskCapacity);
-  setText(`${id}-disk-usage`, view.diskUsage);
-  const diskFree = byId(`${id}-disk-free`);
-  if (diskFree) {
-    diskFree.textContent = `${view.diskFree}${view.diskLow ? " ⚠ LOW" : ""}`;
-    diskFree.classList.toggle("warn", view.diskLow);
-  }
   setText(`${id}-mempool`, view.mempool);
   setText(`${id}-last-block`, view.lastBlock);
   setText(`${id}-rpc-exposure`, view.rpcExposure);
@@ -139,6 +132,7 @@ if (typeof document !== "undefined") {
       const data=await response.json();
       if(!response.ok && !data?.enabled) throw new Error("unavailable");
       renderNode(id,data);
+      if(data.database_size_available) window.dispatchEvent(new CustomEvent("node-size",{detail:{id,bytes:Number(data.database_size_bytes)||0}}));
     } catch {renderNode(id,{enabled:true,available:false});}
   };
 
@@ -161,6 +155,7 @@ if (typeof document !== "undefined") {
       if(!response.ok) throw new Error("unavailable");
       const payload=await response.json();
       control=controlView(payload);
+      window.dispatchEvent(new CustomEvent("host-stats-data",{detail:payload.host||null}));
       for(const id of NODE_IDS) {
         const node=payload.nodes?.find(item=>item.id===id);
         if(!node) continue;

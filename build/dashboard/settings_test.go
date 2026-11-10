@@ -111,14 +111,14 @@ func TestSettingsAppearanceScopeOmitsNotificationCredentials(t *testing.T) {
 		t.Fatalf("appearance response leaked notification settings: %s", w.Body.String())
 	}
 	var view map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil || len(view) != 2 || view["tower_labels"] != false || view["default_currency"] != "USD" {
+	if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil || len(view) != 3 || view["tower_labels"] != false || view["computer_stats"] != false || view["default_currency"] != "USD" {
 		t.Fatalf("appearance response = %#v, %v", view, err)
 	}
 }
 
 func TestSettingsAuthenticatedLANWriteRequiresCSRFAndPersistsAcrossRestart(t *testing.T) {
 	a, handler := testApp(t, &rpcFixture{}, "")
-	body := `{"telegram_enabled":true,"telegram_bot_token":"123:test-secret","telegram_chat_id":"-10042","healthchecks_enabled":false,"alert_new_block":true,"tower_labels":true,"default_currency":"CNY"}`
+	body := `{"telegram_enabled":true,"telegram_bot_token":"123:test-secret","telegram_chat_id":"-10042","healthchecks_enabled":false,"alert_new_block":true,"tower_labels":true,"computer_stats":true,"default_currency":"CNY"}`
 	if got := settingsRequest(handler, http.MethodPost, "dashboard-secret", body, false); got.Code != http.StatusForbidden {
 		t.Fatalf("LAN POST without CSRF header = %d, want 403", got.Code)
 	}
@@ -143,7 +143,7 @@ func TestSettingsAuthenticatedLANWriteRequiresCSRFAndPersistsAcrossRestart(t *te
 	if get.Code != http.StatusOK || json.Unmarshal(get.Body.Bytes(), &view) != nil {
 		t.Fatalf("restarted LAN GET = %d %#v", get.Code, view)
 	}
-	if view["can_configure"] != true || view["overridden"] != true || view["telegram_bot_token"] != "123:test-secret" || view["alert_new_block"] != true || view["tower_labels"] != true || view["default_currency"] != "CNY" {
+	if view["can_configure"] != true || view["overridden"] != true || view["telegram_bot_token"] != "123:test-secret" || view["alert_new_block"] != true || view["tower_labels"] != true || view["computer_stats"] != true || view["default_currency"] != "CNY" {
 		t.Fatalf("restarted LAN settings view = %#v", view)
 	}
 }

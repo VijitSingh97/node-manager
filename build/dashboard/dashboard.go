@@ -68,16 +68,12 @@ type pageData struct {
 	Blocks               int64
 	Headers              int64
 	Progress             float64
-	TotalPeers           int64
 	Inbound              int
 	Outbound             int
 	Pruned               bool
 	PruneTargetGB        float64
 	NodeGB               float64
-	TotalGB              float64
-	FreeGB               float64
-	DiskWarn             bool
-	DiskPercent          float64
+	NodeSizeBytes        int64
 	ShowMempool          bool
 	MempoolTxs           int64
 	MempoolMB            float64
@@ -216,21 +212,16 @@ func (a *app) index(w http.ResponseWriter, r *http.Request) {
 			inbound++
 		}
 	}
-	disk := diskUsage(a.cfg.dataDir)
 	data := pageData{
 		BitcoinEnabled:       true,
 		InitialBlockDownload: chain.InitialBlockDownload,
 		Version:              versionLabel(a.cfg.version), CoreVersion: network.Subversion, Uptime: uptimeLabel,
 		Blocks: chain.Blocks, Headers: chain.Headers, Progress: chain.VerificationProgress * 100,
-		TotalPeers: network.Connections, Inbound: inbound, Outbound: len(peers) - inbound,
-		Pruned: chain.Pruned, PruneTargetGB: gib(chain.PruneTargetSize), NodeGB: gib(chain.SizeOnDisk),
-		TotalGB: gibU(disk.Total), FreeGB: gibU(disk.Free), DiskWarn: disk.Free < 50*1024*1024*1024,
+		Inbound: inbound, Outbound: len(peers) - inbound,
+		Pruned: chain.Pruned, PruneTargetGB: gib(chain.PruneTargetSize), NodeGB: gib(chain.SizeOnDisk), NodeSizeBytes: chain.SizeOnDisk,
 		NextBlock: chain.Blocks + 1, LastUpdate: time.Now().Format("15:04:05"),
 		FeeNext: "—", Fee30m: "—", FeeHour: "—",
 		BitcoinRPCEndpoint: a.cfg.bitcoinRPCEndpoint,
-	}
-	if disk.Total > 0 {
-		data.DiskPercent = float64(chain.SizeOnDisk) / float64(disk.Total) * 100
 	}
 	if !chain.InitialBlockDownload {
 		var mempool mempoolInfo

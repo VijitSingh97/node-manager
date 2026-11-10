@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -154,7 +155,124 @@ func (a *app) apiNodes(w http.ResponseWriter, _ *http.Request) {
 	if !pending {
 		status = a.readNodeControlStatus()
 	}
-	writeJSON(w, map[string]any{"nodes": nodes, "control_available": a.nodeControlAvailable(), "control_pending": pending, "status": status})
+	disk := diskUsage(a.cfg.dataDir)
+	host := map[string]any{"disk_available": disk.Total > 0, "disk_total_bytes": disk.Total, "disk_free_bytes": disk.Free, "disks": a.hostDisks()}
+	if stats := a.hostStats(); stats != nil {
+		host["stats"] = stats
+	}
+	writeJSON(w, map[string]any{"nodes": nodes, "control_available": a.nodeControlAvailable(), "control_pending": pending, "status": status, "host": host})
+}
+
+type hostStatsUsage struct {
+	CPUPct   float64 `json:"cpu_pct"`
+	MemBytes uint64  `json:"mem_bytes"`
+}
+
+type hostStatsFile struct {
+	Updated       int64                     `json:"updated"`
+	CPUs          int                       `json:"cpus"`
+	MemTotalBytes uint64                    `json:"mem_total_bytes"`
+	Nodes         map[string]hostStatsUsage `json:"nodes"`
+	Other         hostStatsUsage            `json:"other"`
+	Disks         []*hostDisk               `json:"disks,omitempty"`
+}
+
+type hostDisk struct {
+	Name       string   `json:"name,omitempty"`
+	TotalBytes uint64   `json:"disk_total_bytes"`
+	FreeBytes  uint64   `json:"disk_free_bytes"`
+	Nodes      []string `json:"nodes"`
+}
+
+func mountDevice(mounts, path string) string {
+	device, longest := "", -1
+	for _, line := range strings.Split(mounts, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		point := fields[1]
+		if point != "/" {
+			point = strings.TrimRight(point, "/")
+		}
+		if path != point && !strings.HasPrefix(path, point+"/") && point != "/" {
+			continue
+		}
+		if len(point) > longest {
+			device, longest = fields[0], len(point)
+		}
+	}
+	return device
+}
+
+func (a *app) hostDisks() []*hostDisk {
+	if stats := a.hostStats(); stats != nil {
+		var disks []*hostDisk
+		for _, disk := range stats.Disks {
+			if disk != nil && disk.TotalBytes > 0 {
+				disks = append(disks, disk)
+			}
+		}
+		if len(disks) > 0 {
+			return disks
+		}
+	}
+	mounts := []struct {
+		path string
+		node string
+	}{{a.cfg.dataDir, "bitcoin"}, {a.cfg.moneroDataDir, "monero"}}
+	var disks []*hostDisk
+	for _, mount := range mounts {
+		if mount.path == "" {
+			continue
+		}
+		info := diskUsage(mount.path)
+		if info.Total == 0 {
+			continue
+		}
+		name := diskDevice(mount.path)
+		var found *hostDisk
+		for _, disk := range disks {
+			// shortcut: without device names, equal size and free space means the same filesystem
+			if (name != "" && disk.Name == name) || (name == "" && disk.Name == "" && disk.TotalBytes == info.Total && disk.FreeBytes == info.Free) {
+				found = disk
+				break
+			}
+		}
+		if found == nil {
+			found = &hostDisk{Name: name, TotalBytes: info.Total, FreeBytes: info.Free}
+			disks = append(disks, found)
+		}
+		found.Nodes = append(found.Nodes, mount.node)
+	}
+	if len(disks) > 0 {
+		for _, id := range nodeOrder {
+			if id == "bitcoin" || id == "monero" {
+				continue
+			}
+			if configured, supported := a.nodeConfigured(id); configured && supported {
+				disks[0].Nodes = append(disks[0].Nodes, id)
+			}
+		}
+	}
+	return disks
+}
+
+const hostStatsFreshFor = 3 * time.Minute
+
+func (a *app) hostStats() *hostStatsFile {
+	b, err := os.ReadFile(filepath.Join(a.cfg.stateDir, "host-stats.json"))
+	if err != nil || len(b) > 1<<16 {
+		return nil
+	}
+	var stats hostStatsFile
+	if json.Unmarshal(b, &stats) != nil || stats.CPUs <= 0 || stats.MemTotalBytes == 0 {
+		return nil
+	}
+	if age := time.Since(time.Unix(stats.Updated, 0)); age < 0 || age > hostStatsFreshFor {
+		return nil
+	}
+	return &stats
 }
 
 func (a *app) nodeControlAvailable() bool {
