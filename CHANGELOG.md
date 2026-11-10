@@ -6,6 +6,32 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.33.7] - 2026-11-10
+
+### Added
+
+- Hard per-node resource caps in configuration: `<node>.cpus` for all seven
+  nodes and `monero.mem_limit_mb` render into `.env` and docker-compose, so
+  caps apply from container creation and survive upgrades, unlike manual
+  `docker update` limits, which container recreation silently wipes. The
+  resource profiler defers to these operator caps.
+- A host thermal throttle (#177), switched by a "Thermal throttle" checkbox
+  in the dashboard settings panel (off by default). While the host runs at or
+  above `host.thermal_limit_c` (default 85°C), the resource-profile pass
+  halves running node containers' CPU caps toward a 0.25-CPU floor instead of
+  anything stopping them, and restores the original caps exactly once it
+  cools to `host.thermal_resume_c` (default limit − 10), when the sensor
+  disappears, or when the checkbox is turned off. Actions land in
+  `./stack events` and are forwarded to Telegram when configured.
+
+### Fixed
+
+- The usage panel keeps per-node disk slices while a node is down: the host
+  collector now measures each node's data directory, with live RPC sizes
+  refining the figures when the node answers.
+- "Other data" on the usage panel's bars and pies uses a darker grey that is
+  distinct from free space.
+
 ## [1.33.6] - 2026-11-10
 
 ### Added
@@ -1023,7 +1049,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.6...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.7...HEAD
+[1.33.7]: https://github.com/VijitSingh97/node-manager/compare/v1.33.6...v1.33.7
 [1.33.6]: https://github.com/VijitSingh97/node-manager/compare/v1.33.5...v1.33.6
 [1.33.5]: https://github.com/VijitSingh97/node-manager/compare/v1.33.4...v1.33.5
 [1.33.4]: https://github.com/VijitSingh97/node-manager/compare/v1.33.3...v1.33.4
