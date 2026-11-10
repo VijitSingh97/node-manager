@@ -116,7 +116,11 @@ case "$1" in
     esac
     ;;
   stats)
-    id=$5
+    id=${5:-}
+    if [ -z "$id" ]; then
+      printf 'bitcoin-starter-stack-apt-monero-1\t170.00%%\t3.2GiB / 8GiB\nbitcoin-starter-stack-apt-dashboard-1\t8.00%%\t50MiB / 8GiB\n'
+      exit 0
+    fi
     case "$id" in
       btc-*) printf '%s\n' "${FAKE_BITCOIN_MEMORY:-700MiB} / 8GiB" ;;
       xmr-*) printf '%s\n' "${FAKE_MONERO_MEMORY:-600MiB} / 8GiB" ;;
@@ -134,7 +138,18 @@ case "$1" in
     fi
     ;;
   exec)
-    [ "${FAKE_TARI_SYNCED:-0}" = 1 ]
+    if [ "${2:-}" = -i ]; then
+      cat >"${FAKE_HOST_STATS_OUT:-/dev/null}"
+    else
+      [ "${FAKE_TARI_SYNCED:-0}" = 1 ]
+    fi
+    ;;
+  info)
+    case "${3:-}" in
+      '{{.NCPU}}') printf '4\n' ;;
+      '{{.MemTotal}}') printf '8197607424\n' ;;
+      '{{.DockerRootDir}}') printf '/var/lib/docker\n' ;;
+    esac
     ;;
 esac
 EOF
@@ -383,5 +398,14 @@ grep -q '|blocked|' "$case_root/state/resource-profile/monero" || fail "dirty Mo
 grep -q '^ProtectSystem=strict$' packaging/systemd/node-manager-resource-profile.service || fail "systemd service is not filesystem-hardened"
 grep -q '^RestrictAddressFamilies=AF_UNIX$' packaging/systemd/node-manager-resource-profile.service || fail "systemd service can use public network sockets"
 grep -q '^Persistent=true$' packaging/systemd/node-manager-resource-profile.timer || fail "systemd timer does not catch up after reboot"
+
+new_case host-stats
+mkdir -p "$case_root/state/data/bitcoin"
+printf 'x%.0s' $(seq 1 4096) >"$case_root/state/data/bitcoin/blk00000.dat"
+export FAKE_HOST_STATS_OUT=$tmp/host-stats-payload.json
+run_profile
+unset FAKE_HOST_STATS_OUT
+[ -s "$tmp/host-stats-payload.json" ] || fail "collector wrote no host stats payload"
+jq -e '.cpus == 4 and .nodes.monero.cpu_pct > 40 and .nodes.bitcoin.disk_bytes > 0 and .nodes.bitcoin.cpu_pct == 0' "$tmp/host-stats-payload.json" >/dev/null || fail "host stats payload lost the stopped node's disk bytes"
 
 echo "PASS: test_resource_profile.sh"
