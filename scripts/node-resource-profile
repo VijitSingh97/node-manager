@@ -316,6 +316,7 @@ thermal_check() {
   case "$limit" in ('' | 0 | *[!0-9]*) return 0 ;; esac
   resume=$(env_get THERMAL_RESUME_C)
   case "$resume" in ('' | 0 | *[!0-9]*) resume=$((limit - 10)) ;; esac
+  # shellcheck disable=SC2086
   temp=$(cat ${RESOURCE_THERMAL_GLOB:-/sys/class/thermal/thermal_zone*/temp} 2>/dev/null | sort -n | tail -n 1)
   case "$temp" in ('' | *[!0-9]*) return 0 ;; esac
   temp=$((temp / 1000))
