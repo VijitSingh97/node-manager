@@ -8,6 +8,16 @@ All notable changes to this project are documented here. Format follows
 
 ## [1.33.9] - 2026-11-10
 
+### Added
+
+- Node Manager cleans up after itself (#184): a successful `package-upgrade`
+  removes this project's superseded image tags (keeping the current and
+  previous versions; other projects' images are never touched) and prunes the
+  project's stranded anonymous volumes, and `stack doctor` warns about
+  orphaned directories under the state dir's `data/` that no node's
+  configured data dir points at, with their sizes — reporting only, never
+  deleting chain data.
+
 ### Changed
 
 - The usage panel shows one bar per physical disk: volumes and partitions on
