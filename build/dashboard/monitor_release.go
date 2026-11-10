@@ -42,6 +42,7 @@ func (m *Monitor) loadState() {
 	var state persistedMonitorState
 	if json.Unmarshal(b, &state) == nil && (state.NotifiedStack == "" || releaseVersion.MatchString(state.NotifiedStack)) {
 		m.state.notifiedStack = state.NotifiedStack
+		m.hostEventsOffset = state.HostEventsOffset
 		applyPersistedNodeState(&m.state, state.Bitcoin)
 		applyPersistedNodeState(&m.moneroState, state.Monero)
 		for id, saved := range state.Nodes {
@@ -69,10 +70,11 @@ func (m *Monitor) persistedState() persistedMonitorState {
 		nodes[id] = persistedNodeFromState(*state)
 	}
 	return persistedMonitorState{
-		NotifiedStack: m.state.notifiedStack,
-		Bitcoin:       persistedNodeFromState(m.state),
-		Monero:        persistedNodeFromState(m.moneroState),
-		Nodes:         nodes,
+		NotifiedStack:    m.state.notifiedStack,
+		Bitcoin:          persistedNodeFromState(m.state),
+		Monero:           persistedNodeFromState(m.moneroState),
+		Nodes:            nodes,
+		HostEventsOffset: m.hostEventsOffset,
 	}
 }
 

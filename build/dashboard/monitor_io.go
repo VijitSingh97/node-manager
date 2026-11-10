@@ -121,6 +121,43 @@ func (m *Monitor) pingHealthchecks(ctx context.Context, healthy bool) bool {
 	m.logEvent("healthchecks ping failed: " + reason)
 	return false
 }
+func (m *Monitor) forwardHostEvents(ctx context.Context) {
+	m.logMu.Lock()
+	start := m.hostEventsOffset
+	var chunk []byte
+	size := int64(0)
+	if stat, err := os.Stat(m.eventsLog); err == nil {
+		size = stat.Size()
+	}
+	if size < m.hostEventsOffset {
+		m.hostEventsOffset = size
+	}
+	if size > m.hostEventsOffset {
+		if f, err := os.Open(m.eventsLog); err == nil {
+			data := make([]byte, size-m.hostEventsOffset)
+			if _, err := f.ReadAt(data, m.hostEventsOffset); err == nil {
+				if end := bytes.LastIndexByte(data, '\n'); end >= 0 {
+					chunk = data[:end+1]
+					m.hostEventsOffset += int64(end + 1)
+				}
+			}
+			f.Close()
+		}
+	}
+	moved := m.hostEventsOffset != start
+	m.logMu.Unlock()
+	for _, line := range strings.Split(strings.TrimRight(string(chunk), "\n"), "\n") {
+		_, text, found := strings.Cut(line, " ")
+		if !found || !strings.HasPrefix(text, "Host: ") {
+			continue
+		}
+		m.sendTelegram(ctx, "🌡 "+strings.TrimPrefix(text, "Host: "))
+	}
+	if moved {
+		m.saveState()
+	}
+}
+
 func (m *Monitor) logEvent(text string) {
 	m.logMu.Lock()
 	defer m.logMu.Unlock()

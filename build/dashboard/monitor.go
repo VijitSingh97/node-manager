@@ -46,10 +46,11 @@ type monitorState struct {
 }
 
 type persistedMonitorState struct {
-	NotifiedStack string                        `json:"notified_stack"`
-	Bitcoin       persistedNodeState            `json:"bitcoin"`
-	Monero        persistedNodeState            `json:"monero"`
-	Nodes         map[string]persistedNodeState `json:"nodes,omitempty"`
+	NotifiedStack    string                        `json:"notified_stack"`
+	Bitcoin          persistedNodeState            `json:"bitcoin"`
+	Monero           persistedNodeState            `json:"monero"`
+	Nodes            map[string]persistedNodeState `json:"nodes,omitempty"`
+	HostEventsOffset int64                         `json:"host_events_offset,omitempty"`
 }
 
 type persistedNodeState struct {
@@ -97,9 +98,10 @@ type Monitor struct {
 	healthTicks    int
 	healthPingDue  int
 
-	mu         sync.RWMutex
-	updateNote string
-	logMu      sync.Mutex
+	mu               sync.RWMutex
+	updateNote       string
+	logMu            sync.Mutex
+	hostEventsOffset int64
 }
 
 func NewMonitor(version, dataDir, stateDir string) *Monitor {
@@ -140,6 +142,11 @@ func NewMonitor(version, dataDir, stateDir string) *Monitor {
 		extraEnabled:       make(map[string]bool),
 	}
 	monitor.loadState()
+	if monitor.hostEventsOffset == 0 {
+		if stat, err := os.Stat(eventsLog); err == nil {
+			monitor.hostEventsOffset = stat.Size()
+		}
+	}
 	return monitor
 }
 
@@ -245,6 +252,7 @@ func (m *Monitor) RunNodes(ctx context.Context, bitcoin, monero func() map[strin
 			moneroOnlinePending = m.announceOnline(ctx, "Monero", &m.moneroState, moneroInfo, moneroOnlinePending)
 		}
 		m.tickNodes(ctx, bitcoinInfo, moneroInfo)
+		m.forwardHostEvents(ctx)
 		select {
 		case <-ctx.Done():
 			return
