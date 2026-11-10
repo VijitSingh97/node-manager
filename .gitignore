@@ -25,3 +25,4 @@ graphify-out/
 dist/
 public/
 .claude/
+build/dashboard/dashboard
