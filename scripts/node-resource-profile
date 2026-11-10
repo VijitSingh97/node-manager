@@ -313,12 +313,15 @@ thermal_event() {
 
 thermal_check() {
   throttle_dir=$state_root/thermal-throttle
-  limit=$(env_get THERMAL_LIMIT_C)
-  case "$limit" in ('' | 0 | *[!0-9]*)
+  dashboard=$(container_id dashboard)
+  [ -n "$dashboard" ] || return 0
+  settings=$("$docker_bin" exec "$dashboard" cat /state/notification_settings.json 2>/dev/null) || return 0
+  if ! printf '%s' "$settings" | jq -e '.thermal_throttle == true' >/dev/null 2>&1; then
     [ -d "$throttle_dir" ] && thermal_restore "throttle disabled"
     return 0
-    ;;
-  esac
+  fi
+  limit=$(env_get THERMAL_LIMIT_C)
+  case "$limit" in ('' | 0 | *[!0-9]*) limit=85 ;; esac
   resume=$(env_get THERMAL_RESUME_C)
   case "$resume" in ('' | 0 | *[!0-9]*) resume=$((limit - 10)) ;; esac
   # shellcheck disable=SC2086

@@ -476,3 +476,27 @@ func TestSettingsBodyLimit(t *testing.T) {
 func boolPointer(value bool) *bool       { return &value }
 func stringPointer(value string) *string { return &value }
 func intPointer(value int) *int          { return &value }
+
+func TestThermalThrottleSettingRoundTrips(t *testing.T) {
+	m := NewMonitor("dev", t.TempDir(), t.TempDir())
+	if m.notificationSettings().ThermalThrottle {
+		t.Fatal("thermal throttle should default off")
+	}
+	if err := m.updateSettingsScope(settingsUpdate{
+		ThermalThrottle: boolPointer(true),
+		present:         map[string]bool{"thermal_throttle": true},
+	}, "global"); err != nil {
+		t.Fatal(err)
+	}
+	if !m.notificationSettings().ThermalThrottle {
+		t.Fatal("thermal throttle did not persist")
+	}
+	view, err := m.settingsView(true)
+	if err != nil || view["thermal_throttle"] != true {
+		t.Fatalf("view thermal_throttle = %#v (%v)", view["thermal_throttle"], err)
+	}
+	saved, err := os.ReadFile(m.settingsPath)
+	if err != nil || !strings.Contains(string(saved), `"thermal_throttle":true`) {
+		t.Fatalf("settings file missing thermal_throttle: %v %s", err, saved)
+	}
+}

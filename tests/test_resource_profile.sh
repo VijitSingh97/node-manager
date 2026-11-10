@@ -150,7 +150,10 @@ case "$1" in
         *) cat >"${FAKE_HOST_STATS_OUT:-/dev/null}" ;;
       esac
     else
-      [ "${FAKE_TARI_SYNCED:-0}" = 1 ]
+      case "$*" in
+        *notification_settings.json*) printf '%s' "${FAKE_SETTINGS_JSON:-}" ;;
+        *) [ "${FAKE_TARI_SYNCED:-0}" = 1 ] ;;
+      esac
     fi
     ;;
   info)
@@ -425,6 +428,7 @@ ENVEOF
 mkdir -p "$case_root/thermal"
 printf '90000\n' >"$case_root/thermal/temp"
 export RESOURCE_THERMAL_GLOB="$case_root/thermal/temp" FAKE_EVENTS_OUT=$tmp/thermal-events.log
+export FAKE_SETTINGS_JSON='{"thermal_throttle":true}'
 run_profile
 grep -q '^2000000000 ' "$caps/xmr-id" || fail "hot pass did not halve monero from unlimited"
 [ "$(cat "$case_root/state/thermal-throttle/monero")" = "xmr-id 0" ] || fail "original cap missing its container id"
@@ -440,11 +444,11 @@ grep -q 'thermal throttle released (cooled to 70C)' "$tmp/thermal-events.log" ||
 printf '90000\n' >"$case_root/thermal/temp"
 run_profile
 grep -q '^2000000000 ' "$caps/xmr-id" || fail "re-throttle did not halve monero"
-sed -i.bak 's/^THERMAL_LIMIT_C=85$/THERMAL_LIMIT_C=0/' "$case_root/state/.env"
+export FAKE_SETTINGS_JSON='{"thermal_throttle":false}'
 run_profile
-grep -q '^0 ' "$caps/xmr-id" || fail "disabling the throttle did not restore monero"
+grep -q '^0 ' "$caps/xmr-id" || fail "disabling the throttle in settings did not restore monero"
 grep -q 'thermal throttle released (throttle disabled)' "$tmp/thermal-events.log" || fail "disable release event missing"
-sed -i.bak 's/^THERMAL_LIMIT_C=0$/THERMAL_LIMIT_C=85/' "$case_root/state/.env"
+export FAKE_SETTINGS_JSON='{"thermal_throttle":true}'
 run_profile
 grep -q '^2000000000 ' "$caps/xmr-id" || fail "throttle did not re-engage for recreate case"
 export FAKE_MONERO_ID=xmr-id-2
@@ -453,6 +457,6 @@ run_profile
 [ ! -f "$case_root/state/thermal-throttle/monero" ] || fail "recreated container kept stale throttle state"
 [ ! -f "$caps/xmr-id-2" ] || fail "stale original restored onto recreated container"
 export FAKE_MONERO_ID=xmr-id
-unset RESOURCE_THERMAL_GLOB FAKE_EVENTS_OUT
+unset RESOURCE_THERMAL_GLOB FAKE_EVENTS_OUT FAKE_SETTINGS_JSON
 
 echo "PASS: test_resource_profile.sh"

@@ -58,6 +58,7 @@ type notificationSettings struct {
 	LowDiskGiB               int    `json:"low_disk_gib"`
 	TowerLabels              bool   `json:"tower_labels"`
 	ComputerStats            bool   `json:"computer_stats"`
+	ThermalThrottle          bool   `json:"thermal_throttle"`
 	DefaultCurrency          string `json:"default_currency"`
 }
 
@@ -85,6 +86,7 @@ type settingsUpdate struct {
 	LowDiskGiB               *int    `json:"low_disk_gib,omitempty"`
 	TowerLabels              *bool   `json:"tower_labels,omitempty"`
 	ComputerStats            *bool   `json:"computer_stats,omitempty"`
+	ThermalThrottle          *bool   `json:"thermal_throttle,omitempty"`
 	DefaultCurrency          *string `json:"default_currency,omitempty"`
 	present                  map[string]bool
 }
@@ -309,6 +311,9 @@ func (update settingsUpdate) apply(current notificationSettings) (notificationSe
 	if update.ComputerStats != nil {
 		next.ComputerStats = *update.ComputerStats
 	}
+	if update.ThermalThrottle != nil {
+		next.ThermalThrottle = *update.ThermalThrottle
+	}
 	if update.DefaultCurrency != nil {
 		next.DefaultCurrency = *update.DefaultCurrency
 	}
@@ -377,6 +382,7 @@ func (m *Monitor) settingsView(canConfigure bool) (map[string]any, error) {
 		"zcash_enabled":               m.extraEnabled[nodeZcash],
 		"tower_labels":                m.settings.TowerLabels,
 		"computer_stats":              m.settings.ComputerStats,
+		"thermal_throttle":            m.settings.ThermalThrottle,
 		"default_currency":            m.settings.DefaultCurrency,
 		"overridden":                  m.settingsOverridden,
 		"can_configure":               canConfigure,

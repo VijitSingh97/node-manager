@@ -46,6 +46,7 @@ export function notificationPayload(values) {
     alert_new_block_monero: !!values.alert_new_block_monero,
     tower_labels: !!values.tower_labels,
     computer_stats: !!values.computer_stats,
+    thermal_throttle: !!values.thermal_throttle,
     default_currency: normalizeDefaultCurrency(values.default_currency),
     ...alertPreferenceModel(values),
   };
@@ -329,6 +330,7 @@ if (typeof document !== "undefined") {
   const extraNewBlock = Object.fromEntries(extraNodes.map(node => [node, byId(`${node}-new-block`)]));
   const towerLabels = byId("tower-labels");
   const computerStats = byId("computer-stats");
+  const thermalThrottle = byId("thermal-throttle");
   const defaultCurrency = byId("default-currency");
   const save = byId("save");
   const reset = byId("reset");
@@ -647,6 +649,7 @@ if (typeof document !== "undefined") {
     if (scope === "global") {
       towerLabels.checked = !!data.tower_labels;
       computerStats.checked = !!data.computer_stats;
+      thermalThrottle.checked = !!data.thermal_throttle;
       defaultCurrency.value = normalizeDefaultCurrency(data.default_currency);
       applyAppearance(data);
       if (Object.hasOwn(data, "telegram_chat_id")) chat.value = data.telegram_chat_id || "";
@@ -658,7 +661,7 @@ if (typeof document !== "undefined") {
     token.placeholder = "Paste your bot token";
     url.placeholder = "https://hc-ping.com/…";
     reset.disabled = !allowed || !data.overridden;
-    telegramEnabled.disabled = healthchecksEnabled.disabled = bitcoinNewBlock.disabled = moneroNewBlock.disabled = towerLabels.disabled = computerStats.disabled = defaultCurrency.disabled = !allowed;
+    telegramEnabled.disabled = healthchecksEnabled.disabled = bitcoinNewBlock.disabled = moneroNewBlock.disabled = towerLabels.disabled = computerStats.disabled = thermalThrottle.disabled = defaultCurrency.disabled = !allowed;
     updateInputs();
     updatePortPlan();
   };
@@ -709,7 +712,7 @@ if (typeof document !== "undefined") {
   async function load(scope = "global") {
     allowed = false;
     save.disabled = reset.disabled = true;
-    telegramEnabled.disabled = healthchecksEnabled.disabled = bitcoinNewBlock.disabled = moneroNewBlock.disabled = towerLabels.disabled = computerStats.disabled = defaultCurrency.disabled = true;
+    telegramEnabled.disabled = healthchecksEnabled.disabled = bitcoinNewBlock.disabled = moneroNewBlock.disabled = towerLabels.disabled = computerStats.disabled = thermalThrottle.disabled = defaultCurrency.disabled = true;
     for (const input of Object.values(alertPreferences)) input.disabled = true;
     nodeDownAfterMinutes.disabled = lowDiskGiB.disabled = true;
     updateInputs();
@@ -765,6 +768,7 @@ if (typeof document !== "undefined") {
       healthchecks_url: url.value,
       tower_labels: towerLabels.checked,
       computer_stats: computerStats.checked,
+      thermal_throttle: thermalThrottle.checked,
       default_currency: defaultCurrency.value,
       ...Object.fromEntries(Object.entries(alertPreferences).map(([field, input]) => [field, input.checked])),
       node_down_after_minutes: Number(nodeDownAfterMinutes.value),
