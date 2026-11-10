@@ -211,3 +211,16 @@ func TestNodesHostStatsServedOnlyWhenFresh(t *testing.T) {
 		t.Fatal("stale stats were served")
 	}
 }
+
+func TestMountDevicePicksLongestMountpointPrefix(t *testing.T) {
+	mounts := "/dev/nvme0n1p2 / ext4 rw 0 0\n/dev/sdb2 /home ext4 rw 0 0\ntmpfs /run tmpfs rw 0 0\n/dev/sdb2 /home/nodes ext4 rw 0 0\n"
+	if got := mountDevice(mounts, "/home/nodes/bitcoin"); got != "/dev/sdb2" {
+		t.Fatalf("device = %q", got)
+	}
+	if got := mountDevice(mounts, "/var/lib/data"); got != "/dev/nvme0n1p2" {
+		t.Fatalf("root fallback = %q", got)
+	}
+	if got := mountDevice("", "/anything"); got != "" {
+		t.Fatalf("empty mounts = %q", got)
+	}
+}

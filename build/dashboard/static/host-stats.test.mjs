@@ -48,6 +48,8 @@ test("zoomSlices rescales node slices to the filtered node-data total", () => {
   const slices = zoomSlices(new Map([["bitcoin", 10 * GiB], ["monero", 30 * GiB], ["tari", 0]]), null);
   assert.deepEqual(slices.map((s) => [s.id, Math.round(s.percent)]), [["bitcoin", 25], ["monero", 75]]);
   assert.match(slices[1].title, /75\.00% of node data/);
+  const onDisk = zoomSlices(new Map([["bitcoin", 10 * GiB]]), null, 1000 * GiB);
+  assert.match(onDisk[0].title, /Bitcoin — 10\.00 GiB \(1\.00% of disk\)/);
   assert.deepEqual(zoomSlices(new Map([["bitcoin", 10 * GiB]]), ["monero"]), null);
   assert.equal(zoomSlices(new Map(), null), null);
 });
@@ -66,6 +68,7 @@ test("diskViews zooms each bar independently", () => {
   assert.deepEqual(view.bars[0].slices.map((s) => s.id), ["bitcoin", "other", "free"]);
   assert.equal(view.bars[1].zoomed, true);
   assert.deepEqual(view.bars[1].slices.map((s) => [s.id, s.percent]), [["monero", 100]]);
+  assert.match(view.bars[1].slices[0].title, /Monero — 30\.00 GiB \(6\.00% of disk\)/);
 });
 
 test("pieView builds node, other, and remainder slices for both pies", () => {

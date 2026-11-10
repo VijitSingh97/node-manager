@@ -45,11 +45,17 @@ function overviewSlices(totalBytes, freeBytes, sizes, nodeFilter) {
   return slices;
 }
 
-export function zoomSlices(sizes, nodeFilter) {
+export function zoomSlices(sizes, nodeFilter, diskTotalBytes = 0) {
   const entries = nodeBytes(sizes, nodeFilter);
   const total = entries.reduce((sum, [, value]) => sum + value, 0);
   if (!(total > 0)) return null;
-  return entries.map(([id, value]) => nodeSlice(id, value, (value / total) * 100, " of node data"));
+  return entries.map(([id, value]) => {
+    const slice = nodeSlice(id, value, (value / total) * 100, " of node data");
+    if (diskTotalBytes > 0) {
+      slice.title = `${NODE_LABELS[id] || id} — ${formatBytes(value)} (${Math.min(100, (value / diskTotalBytes) * 100).toFixed(2)}% of disk)`;
+    }
+    return slice;
+  });
 }
 
 export function diskViews(host, sizes, zoomedDisks = new Set()) {
@@ -68,13 +74,15 @@ export function diskViews(host, sizes, zoomedDisks = new Set()) {
     free += diskFree;
     const nodeFilter = Array.isArray(disk.nodes) ? disk.nodes : null;
     const usedPct = ((diskTotal - diskFree) / diskTotal) * 100;
-    const zoom = zoomedDisks.has(index) ? zoomSlices(sizes, nodeFilter) : null;
+    const zoom = zoomedDisks.has(index) ? zoomSlices(sizes, nodeFilter, diskTotal) : null;
+    const name = typeof disk.name === "string" && disk.name !== "" ? disk.name : `Disk ${index + 1}`;
     bars.push({
       index,
+      label: name,
       zoomed: zoom !== null,
       title: zoom
-        ? `Disk ${index + 1} — node-manager data only, click to zoom out`
-        : `Disk ${index + 1} — ${usedPct.toFixed(0)}% used · ${formatBytes(diskTotal - diskFree)} of ${formatBytes(diskTotal)}`,
+        ? `${name} — node-manager data only, click to zoom out`
+        : `${name} — ${usedPct.toFixed(0)}% used · ${formatBytes(diskTotal - diskFree)} of ${formatBytes(diskTotal)}`,
       slices: zoom || overviewSlices(diskTotal, diskFree, sizes, nodeFilter),
     });
   }
@@ -207,6 +215,12 @@ function render() {
   const wrap = panel.querySelector("[data-host-disk]");
   wrap.textContent = "";
   for (const bar of view.bars) {
+    if (view.bars.length > 1) {
+      const label = document.createElement("div");
+      label.className = "host-stats-bar-label";
+      label.textContent = `${bar.label}${bar.zoomed ? " · node data" : ""}`;
+      wrap.appendChild(label);
+    }
     const row = document.createElement("div");
     row.className = "host-stats-bar";
     row.title = bar.title;

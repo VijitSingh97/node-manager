@@ -568,6 +568,13 @@ body:not([data-computer-stats="1"]) .host-stats { display: none; }
   background: var(--glass-track);
 }
 
+.host-stats-bar-label {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-family: ui-monospace, Menlo, monospace;
+  margin-bottom: -4px;
+}
+
 .host-stats-bar div:hover, .host-stats-pies path:hover { filter: brightness(1.25); }
 
 .host-stats-pies { display: flex; gap: 18px; margin-top: 14px; cursor: pointer; }

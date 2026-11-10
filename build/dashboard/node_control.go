@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -176,9 +177,31 @@ type hostStatsFile struct {
 }
 
 type hostDisk struct {
+	Name       string   `json:"name,omitempty"`
 	TotalBytes uint64   `json:"disk_total_bytes"`
 	FreeBytes  uint64   `json:"disk_free_bytes"`
 	Nodes      []string `json:"nodes"`
+}
+
+func mountDevice(mounts, path string) string {
+	device, longest := "", -1
+	for _, line := range strings.Split(mounts, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		point := fields[1]
+		if point != "/" {
+			point = strings.TrimRight(point, "/")
+		}
+		if path != point && !strings.HasPrefix(path, point+"/") && point != "/" {
+			continue
+		}
+		if len(point) > longest {
+			device, longest = fields[0], len(point)
+		}
+	}
+	return device
 }
 
 func (a *app) hostDisks() []*hostDisk {
@@ -195,16 +218,17 @@ func (a *app) hostDisks() []*hostDisk {
 		if info.Total == 0 {
 			continue
 		}
+		name := diskDevice(mount.path)
 		var found *hostDisk
 		for _, disk := range disks {
-			// shortcut: equal size and free space means the same filesystem; replace with fsid when a box disproves it
-			if disk.TotalBytes == info.Total && disk.FreeBytes == info.Free {
+			// shortcut: without device names, equal size and free space means the same filesystem
+			if (name != "" && disk.Name == name) || (name == "" && disk.Name == "" && disk.TotalBytes == info.Total && disk.FreeBytes == info.Free) {
 				found = disk
 				break
 			}
 		}
 		if found == nil {
-			found = &hostDisk{TotalBytes: info.Total, FreeBytes: info.Free}
+			found = &hostDisk{Name: name, TotalBytes: info.Total, FreeBytes: info.Free}
 			disks = append(disks, found)
 		}
 		found.Nodes = append(found.Nodes, mount.node)
