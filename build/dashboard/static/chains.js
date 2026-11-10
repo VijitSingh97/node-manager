@@ -95,13 +95,6 @@ function renderNode(id, data) {
   if (progress) progress.style.width = `${view.progress}%`;
   setText(`${id}-sync`, `${view.progress.toFixed(4)}%`);
   setText(`${id}-size`, view.size);
-  setText(`${id}-disk-capacity`, view.diskCapacity);
-  setText(`${id}-disk-usage`, view.diskUsage);
-  const diskFree = byId(`${id}-disk-free`);
-  if (diskFree) {
-    diskFree.textContent = `${view.diskFree}${view.diskLow ? " ⚠ LOW" : ""}`;
-    diskFree.classList.toggle("warn", view.diskLow);
-  }
   setText(`${id}-mempool`, view.mempool);
   setText(`${id}-last-block`, view.lastBlock);
   setText(`${id}-rpc-exposure`, view.rpcExposure);

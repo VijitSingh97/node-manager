@@ -59,7 +59,12 @@ export function pieView(stats) {
   const free = Math.max(0, 100 - memSum);
   cpu.push({ id: "idle", color: "", percent: idle, title: `Idle — ${idle.toFixed(1)}%` });
   mem.push({ id: "free", color: "", percent: free, title: `Free — ${formatBytes((memTotal * free) / 100)} (${free.toFixed(1)}%)` });
-  return { cpu, mem };
+  return {
+    cpu,
+    mem,
+    cpuLabel: `CPU ${Math.min(100, cpuSum).toFixed(0)}%`,
+    memLabel: `Mem ${((memTotal * Math.min(100, memSum)) / 100 / 1024 ** 3).toFixed(1)} / ${(memTotal / 1024 ** 3).toFixed(1)} GiB`,
+  };
 }
 
 export function arcPath(startFrac, endFrac) {
@@ -76,7 +81,7 @@ function renderPies(stats) {
   const view = pieView(stats);
   if (!wrap || !view) return;
   wrap.textContent = "";
-  for (const slices of [view.cpu, view.mem]) {
+  for (const [slices, label] of [[view.cpu, view.cpuLabel], [view.mem, view.memLabel]]) {
     const svg = document.createElementNS(SVG_NS, "svg");
     svg.setAttribute("width", "40");
     svg.setAttribute("height", "40");
@@ -94,11 +99,13 @@ function renderPies(stats) {
       svg.appendChild(path);
       at += frac;
     }
-    wrap.appendChild(svg);
+    const figure = document.createElement("figure");
+    const caption = document.createElement("figcaption");
+    caption.textContent = label;
+    figure.appendChild(svg);
+    figure.appendChild(caption);
+    wrap.appendChild(figure);
   }
-  const caption = document.createElement("span");
-  caption.textContent = "CPU · Mem";
-  wrap.appendChild(caption);
   wrap.hidden = false;
 }
 

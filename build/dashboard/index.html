@@ -122,9 +122,6 @@
         <div class="row"><span class="label">Sync Progress:</span> <span>{{printf "%.4f" .Progress}}%</span></div>
         <hr>
         <div class="row"><span class="label">Node Data Size:</span> <span>{{printf "%.2f" .NodeGB}} GiB</span></div>
-        <div class="row"><span class="label">Disk Capacity:</span> <span>{{printf "%.2f" .TotalGB}} GB</span></div>
-        <div class="row"><span class="label">Disk Usage:</span> <span>{{printf "%.2f" .DiskPercent}}%</span></div>
-        <div class="row"><span class="label">Disk Free:</span> <span {{if .DiskWarn}}class="warn"{{end}}>{{printf "%.2f" .FreeGB}} GB{{if .DiskWarn}} ⚠ LOW{{end}}</span></div>
         {{if .ShowMempool}}<hr>
         <div class="row"><span class="label">Mempool:</span> <span>{{.MempoolTxs}} tx · {{printf "%.1f" .MempoolMB}} MB</span></div>
         <div class="row"><span class="label">Fee sat/vB (next/30m/1h):</span> <span>{{.FeeNext}} / {{.Fee30m}} / {{.FeeHour}}</span></div>
@@ -170,9 +167,6 @@
         <div class="row"><span class="label">Sync Progress:</span> <span id="monero-sync">—</span></div>
         <hr>
         <div class="row"><span class="label">Node Data Size:</span> <span id="monero-size">—</span></div>
-        <div class="row"><span class="label">Disk Capacity:</span> <span id="monero-disk-capacity">—</span></div>
-        <div class="row"><span class="label">Disk Usage:</span> <span id="monero-disk-usage">—</span></div>
-        <div class="row"><span class="label">Disk Free:</span> <span id="monero-disk-free">—</span></div>
         <hr>
         <div class="row"><span class="label">Mempool:</span> <span id="monero-mempool">—</span></div>
         <div class="row"><span class="label">Difficulty:</span> <span id="monero-difficulty">—</span></div>
@@ -220,9 +214,6 @@
         <div class="row"><span class="label">Sync Progress:</span><span id="tari-sync">—</span></div>
         <hr>
         <div class="row"><span class="label">Node Data Size:</span><span id="tari-size">—</span></div>
-        <div class="row"><span class="label">Disk Capacity:</span><span id="tari-disk-capacity">—</span></div>
-        <div class="row"><span class="label">Disk Usage:</span><span id="tari-disk-usage">—</span></div>
-        <div class="row"><span class="label">Disk Free:</span><span id="tari-disk-free">—</span></div>
         <hr>
         <div class="row"><span class="label">Mempool:</span><span id="tari-mempool">—</span></div>
         <div class="row"><span class="label">Latest Block:</span><span id="tari-last-block">—</span></div>
@@ -257,9 +248,6 @@
         <div class="row"><span class="label">Sync Progress:</span><span id="litecoin-sync">—</span></div>
         <hr>
         <div class="row"><span class="label">Node Data Size:</span><span id="litecoin-size">—</span></div>
-        <div class="row"><span class="label">Disk Capacity:</span><span id="litecoin-disk-capacity">—</span></div>
-        <div class="row"><span class="label">Disk Usage:</span><span id="litecoin-disk-usage">—</span></div>
-        <div class="row"><span class="label">Disk Free:</span><span id="litecoin-disk-free">—</span></div>
         <hr>
         <div class="row"><span class="label">Mempool:</span><span id="litecoin-mempool">—</span></div>
         <div class="row"><span class="label">Latest Block:</span><span id="litecoin-last-block">—</span></div>
@@ -294,9 +282,6 @@
         <div class="row"><span class="label">Sync Progress:</span><span id="dogecoin-sync">—</span></div>
         <hr>
         <div class="row"><span class="label">Node Data Size:</span><span id="dogecoin-size">—</span></div>
-        <div class="row"><span class="label">Disk Capacity:</span><span id="dogecoin-disk-capacity">—</span></div>
-        <div class="row"><span class="label">Disk Usage:</span><span id="dogecoin-disk-usage">—</span></div>
-        <div class="row"><span class="label">Disk Free:</span><span id="dogecoin-disk-free">—</span></div>
         <hr>
         <div class="row"><span class="label">Mempool:</span><span id="dogecoin-mempool">—</span></div>
         <div class="row"><span class="label">Latest Block:</span><span id="dogecoin-last-block">—</span></div>
@@ -331,9 +316,6 @@
         <div class="row"><span class="label">Sync Progress:</span><span id="bitcoincash-sync">—</span></div>
         <hr>
         <div class="row"><span class="label">Node Data Size:</span><span id="bitcoincash-size">—</span></div>
-        <div class="row"><span class="label">Disk Capacity:</span><span id="bitcoincash-disk-capacity">—</span></div>
-        <div class="row"><span class="label">Disk Usage:</span><span id="bitcoincash-disk-usage">—</span></div>
-        <div class="row"><span class="label">Disk Free:</span><span id="bitcoincash-disk-free">—</span></div>
         <hr>
         <div class="row"><span class="label">Mempool:</span><span id="bitcoincash-mempool">—</span></div>
         <div class="row"><span class="label">Latest Block:</span><span id="bitcoincash-last-block">—</span></div>
@@ -368,9 +350,6 @@
         <div class="row"><span class="label">Sync Progress:</span><span id="zcash-sync">—</span></div>
         <hr>
         <div class="row"><span class="label">Node Data Size:</span><span id="zcash-size">—</span></div>
-        <div class="row"><span class="label">Disk Capacity:</span><span id="zcash-disk-capacity">—</span></div>
-        <div class="row"><span class="label">Disk Usage:</span><span id="zcash-disk-usage">—</span></div>
-        <div class="row"><span class="label">Disk Free:</span><span id="zcash-disk-free">—</span></div>
         <hr>
         <div class="row"><span class="label">Mempool:</span><span id="zcash-mempool">—</span></div>
         <div class="row"><span class="label">Latest Block:</span><span id="zcash-last-block">—</span></div>

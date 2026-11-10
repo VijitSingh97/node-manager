@@ -75,9 +75,6 @@ export function moneroView(data) {
   const height = heightAvailable ? Math.floor(data.height) : 0;
   const target = Math.max(height, Math.floor(Number(data.target_height) || 0));
   const progress = Math.max(0, Math.min(100, Number(data.sync_percent) || 0));
-  const diskTotal = Number(data.disk_total_bytes);
-  const diskFree = Number(data.disk_free_bytes);
-  const diskAvailable = data.disk_available === true && Number.isFinite(diskTotal) && diskTotal > 0 && Number.isFinite(diskFree) && diskFree >= 0;
   return {
     state: data.synced ? "Synced" : "Synchronizing the Monero blockchain...",
     badge: data.pruned ? "Pruned" : "Full",
@@ -88,10 +85,6 @@ export function moneroView(data) {
     blocks: `${height} / ${target}`,
     progress,
     size: data.database_size_available ? formatBytes(data.database_size_bytes) : "—",
-    diskCapacity: diskAvailable ? formatBytes(diskTotal) : "—",
-    diskUsage: diskAvailable ? `${Math.max(0, Math.min(100, (diskTotal - diskFree) / diskTotal * 100)).toFixed(2)}%` : "—",
-    diskFree: diskAvailable ? formatBytes(diskFree) : "—",
-    diskLow: diskAvailable && diskFree < 50 * 1024 ** 3,
     mempool: data.mempool_txs_available ? `${Math.max(0, Math.floor(Number(data.mempool_txs) || 0))} tx${data.mempool_bytes_available ? ` · ${formatCompactBytes(data.mempool_bytes)}` : ""}` : "—",
     difficulty: data.difficulty_available && Number.isFinite(Number(data.difficulty)) ? Math.max(0, Math.floor(Number(data.difficulty))).toLocaleString("en-US") : "—",
     hashrate: data.hashrate_available ? formatHashrate(data.network_hashrate) : "—",
@@ -111,9 +104,6 @@ export function genericNodeView(data, label = "Node") {
   const height = heightAvailable ? Math.floor(data.height) : 0;
   const target = Math.max(height, Math.floor(Number(data.target_height) || 0));
   const progress = Math.max(0, Math.min(100, Number(data.sync_percent) || 0));
-  const diskTotal = Number(data.disk_total_bytes);
-  const diskFree = Number(data.disk_free_bytes);
-  const diskAvailable = data.disk_available === true && Number.isFinite(diskTotal) && diskTotal > 0 && Number.isFinite(diskFree) && diskFree >= 0;
   const incoming = Math.max(0, Math.floor(Number(data.incoming_connections) || 0));
   const outgoing = Math.max(0, Math.floor(Number(data.outgoing_connections) || 0));
   const connections = Math.max(0, Math.floor(Number(data.connections) || incoming + outgoing));
@@ -127,10 +117,6 @@ export function genericNodeView(data, label = "Node") {
     blocks: `${height} / ${target}`,
     progress,
     size: data.database_size_available ? formatBytes(data.database_size_bytes) : "—",
-    diskCapacity: diskAvailable ? formatBytes(diskTotal) : "—",
-    diskUsage: diskAvailable ? `${Math.max(0, Math.min(100, (diskTotal - diskFree) / diskTotal * 100)).toFixed(2)}%` : "—",
-    diskFree: diskAvailable ? formatBytes(diskFree) : "—",
-    diskLow: diskAvailable && diskFree < 50 * 1024 ** 3,
     mempool: data.mempool_txs_available ? `${Math.max(0, Math.floor(Number(data.mempool_txs) || 0))} tx${data.mempool_bytes_available ? ` · ${formatCompactBytes(data.mempool_bytes)}` : ""}` : "—",
     lastBlock: data.latest_block_available ? `${Number(data.latest_block_age_seconds) < 60 ? "<1m" : formatUptime(data.latest_block_age_seconds)} ago` : "—",
     rpcExposure: data.rpc_exposure_enabled ? `${String(data.rpc_endpoint || "—")} · LAN` : "Disabled",
@@ -235,11 +221,6 @@ if (typeof document !== "undefined") {
     document.getElementById("monero-progress").style.width = `${view.progress}%`;
     document.getElementById("monero-sync").textContent = `${view.progress.toFixed(4)}%`;
     document.getElementById("monero-size").textContent = view.size;
-    document.getElementById("monero-disk-capacity").textContent = view.diskCapacity;
-    document.getElementById("monero-disk-usage").textContent = view.diskUsage;
-    const diskFree = document.getElementById("monero-disk-free");
-    diskFree.textContent = `${view.diskFree}${view.diskLow ? " ⚠ LOW" : ""}`;
-    diskFree.classList.toggle("warn", view.diskLow);
     document.getElementById("monero-mempool").textContent = view.mempool;
     document.getElementById("monero-difficulty").textContent = view.difficulty;
     document.getElementById("monero-hashrate").textContent = view.hashrate;
