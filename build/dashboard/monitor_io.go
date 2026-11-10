@@ -121,6 +121,59 @@ func (m *Monitor) pingHealthchecks(ctx context.Context, healthy bool) bool {
 	m.logEvent("healthchecks ping failed: " + reason)
 	return false
 }
+func (m *Monitor) forwardHostEvents(ctx context.Context) {
+	m.logMu.Lock()
+	start := m.hostEventsOffset
+	var chunk []byte
+	size := int64(0)
+	if stat, err := os.Stat(m.eventsLog); err == nil {
+		size = stat.Size()
+	}
+	if size < m.hostEventsOffset {
+		m.hostEventsOffset = size
+	}
+	if size > m.hostEventsOffset {
+		if f, err := os.Open(m.eventsLog); err == nil {
+			data := make([]byte, size-m.hostEventsOffset)
+			if _, err := f.ReadAt(data, m.hostEventsOffset); err == nil {
+				if end := bytes.LastIndexByte(data, '\n'); end >= 0 {
+					chunk = data[:end+1]
+					m.hostEventsOffset += int64(end + 1)
+				}
+			}
+			f.Close()
+		}
+	}
+	m.logMu.Unlock()
+	settings := m.notificationSettings()
+	telegramOn := settings.TelegramEnabled && settings.TelegramBotToken != "" && settings.TelegramChatID != ""
+	consumed := 0
+	failed := false
+	for rest := string(chunk); rest != ""; {
+		line, more, _ := strings.Cut(rest, "\n")
+		rest = more
+		if _, text, found := strings.Cut(line, " "); found && strings.HasPrefix(text, "Host: ") && telegramOn {
+			if !m.sendTelegram(ctx, "🌡 "+strings.TrimPrefix(text, "Host: ")) {
+				failed = true
+				break
+			}
+		}
+		consumed += len(line) + 1
+	}
+	m.logMu.Lock()
+	if failed {
+		m.hostEventsOffset -= int64(len(chunk) - consumed)
+		if m.hostEventsOffset < 0 {
+			m.hostEventsOffset = 0
+		}
+	}
+	moved := m.hostEventsOffset != start
+	m.logMu.Unlock()
+	if moved {
+		m.saveState()
+	}
+}
+
 func (m *Monitor) logEvent(text string) {
 	m.logMu.Lock()
 	defer m.logMu.Unlock()
@@ -129,6 +182,15 @@ func (m *Monitor) logEvent(text string) {
 		if err := rotateEventLog(m.eventsLog); err != nil {
 			m.writeOutput("Event log write failed")
 			return
+		}
+		if rotated, err := os.Stat(m.eventsLog); err == nil {
+			if removed := stat.Size() - rotated.Size(); removed > 0 {
+				if m.hostEventsOffset > removed {
+					m.hostEventsOffset -= removed
+				} else {
+					m.hostEventsOffset = 0
+				}
+			}
 		}
 	}
 	f, err := os.OpenFile(m.eventsLog, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)

@@ -1450,3 +1450,115 @@ func handleSOCKSConn(conn net.Conn, backend string, reject bool, domains chan<- 
 	go io.Copy(upstream, r)
 	_, _ = io.Copy(conn, upstream)
 }
+
+func TestForwardHostEventsTelegramsNewHostLinesOnce(t *testing.T) {
+	var messages []string
+	m := configuredMonitor(t, func(r *http.Request) (*http.Response, error) {
+		var payload struct {
+			Text string `json:"text"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		messages = append(messages, payload.Text)
+		return response(http.StatusOK, `{"ok":true}`), nil
+	})
+
+	m.forwardHostEvents(t.Context())
+	append2 := func(line string) {
+		f, err := os.OpenFile(m.eventsLog, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		if _, err := f.WriteString(line); err != nil {
+			t.Fatal(err)
+		}
+	}
+	append2("2026-11-10T20:00:00Z Bitcoin: 🔴 node down — RPC unreachable for 3 minutes\n")
+	append2("2026-11-10T20:01:00Z Host: thermal throttle at 91C — capped monero at 2.00 CPUs\n")
+	append2("2026-11-10T20:02:00Z Host: thermal throttle released at 75C — restored monero\n")
+	m.forwardHostEvents(t.Context())
+	m.forwardHostEvents(t.Context())
+
+	want := []string{
+		"[alice] 🌡 thermal throttle at 91C — capped monero at 2.00 CPUs",
+		"[alice] 🌡 thermal throttle released at 75C — restored monero",
+	}
+	if strings.Join(messages, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("messages:\n%s\nwant:\n%s", strings.Join(messages, "\n"), strings.Join(want, "\n"))
+	}
+
+	saved, err := os.ReadFile(m.statePath)
+	if err != nil || !strings.Contains(string(saved), `"host_events_offset"`) {
+		t.Fatalf("offset not persisted: %v %s", err, saved)
+	}
+
+	append2("2026-11-10T20:03:00Z Host: thermal throttle at 92C — capped bitcoin at 0.25 CPUs")
+	m.forwardHostEvents(t.Context())
+	if len(messages) != 2 {
+		t.Fatalf("partial line without newline was forwarded: %v", messages)
+	}
+	append2("\n")
+	m.forwardHostEvents(t.Context())
+	if len(messages) != 3 || !strings.Contains(messages[2], "capped bitcoin at 0.25 CPUs") {
+		t.Fatalf("completed line was not forwarded: %v", messages)
+	}
+}
+
+func TestForwardHostEventsRetriesFailedSends(t *testing.T) {
+	var messages []string
+	failing := true
+	m := configuredMonitor(t, func(r *http.Request) (*http.Response, error) {
+		if failing {
+			return response(http.StatusInternalServerError, `{}`), nil
+		}
+		var payload struct {
+			Text string `json:"text"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		messages = append(messages, payload.Text)
+		return response(http.StatusOK, `{"ok":true}`), nil
+	})
+	m.forwardHostEvents(t.Context())
+	if err := os.WriteFile(m.eventsLog, []byte("2026-11-10T21:00:00Z Host: thermal throttle at 95C — capped monero at 1.00 CPUs\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m.forwardHostEvents(t.Context())
+	if len(messages) != 0 {
+		t.Fatalf("failed send delivered anyway: %v", messages)
+	}
+	failing = false
+	m.forwardHostEvents(t.Context())
+	m.forwardHostEvents(t.Context())
+	if len(messages) != 1 || !strings.Contains(messages[0], "capped monero at 1.00 CPUs") {
+		t.Fatalf("failed send was not retried exactly once: %v", messages)
+	}
+}
+
+func TestForwardHostEventsSurvivesLogRotation(t *testing.T) {
+	var messages []string
+	m := configuredMonitor(t, func(r *http.Request) (*http.Response, error) {
+		var payload struct {
+			Text string `json:"text"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		messages = append(messages, payload.Text)
+		return response(http.StatusOK, `{"ok":true}`), nil
+	})
+	filler := strings.Repeat("2026-11-10T20:00:00Z filler line\n", 120000)
+	hostLine := "2026-11-10T21:00:00Z Host: thermal throttle at 93C — capped bitcoin at 0.50 CPUs\n"
+	if err := os.WriteFile(m.eventsLog, []byte(filler+hostLine), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m.hostEventsOffset = int64(len(filler))
+	m.logEvent("trigger rotation")
+	m.forwardHostEvents(t.Context())
+	if len(messages) != 1 || !strings.Contains(messages[0], "capped bitcoin at 0.50 CPUs") {
+		t.Fatalf("host line lost or duplicated across rotation: %v", messages)
+	}
+}

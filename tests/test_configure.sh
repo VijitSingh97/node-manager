@@ -414,6 +414,37 @@ echo '{"bitcoin": {"mem_limit_mb": "lots"}}' >"$tmp/config.json"
 (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "non-numeric mem_limit_mb was accepted"
 rm -f "$tmp/config.json"
 
+# hard caps: defaults render 0 (unlimited); set values render; non-numeric cpus rejected
+(cd "$tmp" && ./configure.sh) >/dev/null
+grep -q '^BITCOIN_CPUS=0$' "$tmp/.env" || fail "bitcoin cpus default should render 0"
+grep -q '^MONERO_CPUS=0$' "$tmp/.env" || fail "monero cpus default should render 0"
+grep -q '^MONERO_MEM_LIMIT=0$' "$tmp/.env" || fail "monero mem default should render 0"
+echo '{"bitcoin": {"cpus": 0.5}, "monero": {"cpus": 1, "mem_limit_mb": 2048}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null
+grep -q '^BITCOIN_CPUS=0.5$' "$tmp/.env" || fail "bitcoin cpus 0.5 should render"
+grep -q '^MONERO_CPUS=1$' "$tmp/.env" || fail "monero cpus 1 should render"
+grep -q '^MONERO_MEM_LIMIT=2048m$' "$tmp/.env" || fail "monero mem_limit_mb 2048 should render 2048m"
+echo '{"bitcoin": {"cpus": "fast"}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "non-numeric cpus was accepted"
+rm -f "$tmp/config.json"
+
+# family hard caps and host thermal knobs
+echo '{"tari": {"cpus": 0.5}, "host": {"thermal_limit_c": 85}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null
+grep -q '^TARI_CPUS=0.5$' "$tmp/.env" || fail "tari cpus 0.5 should render"
+grep -q '^LITECOIN_CPUS=0$' "$tmp/.env" || fail "litecoin cpus default should render 0"
+grep -q '^THERMAL_LIMIT_C=85$' "$tmp/.env" || fail "thermal limit should render"
+grep -q '^THERMAL_RESUME_C=75$' "$tmp/.env" || fail "thermal resume should default to limit-10"
+echo '{"host": {"thermal_limit_c": 85, "thermal_resume_c": 90}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "thermal resume above limit was accepted"
+echo '{"host": {"thermal_limit_c": 300}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "thermal limit 300 was accepted"
+echo '{"host": {"thermal_limit_c": 50, "thermal_resume_c": 1}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "thermal resume 1 was accepted"
+echo '{"monero": {"mem_limit_mb": 5}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "monero mem_limit_mb 5 was accepted"
+rm -f "$tmp/config.json"
+
 # 12. Passwordless and mixed protected ingress dashboards are rejected.
 warn="$tmp/warn"
 mkdir "$warn"

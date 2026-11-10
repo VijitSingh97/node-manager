@@ -1,6 +1,8 @@
 import { formatBytes } from "./nodes.js";
 import { NODE_LABELS } from "./chains.js";
 
+export const OTHER_COLOR = "#6e6e6e";
+
 export const NODE_COLORS = {
   bitcoin: "#f2a900",
   monero: "#ff6600",
@@ -40,7 +42,7 @@ function overviewSlices(totalBytes, freeBytes, sizes, nodeFilter) {
     slices.push(nodeSlice(id, value, pct(value), ""));
   }
   const other = Math.max(0, used - accounted);
-  slices.push({ id: "other", color: "#9a9a9a", percent: pct(other), title: `Other data — ${formatBytes(other)} (${pct(other).toFixed(2)}%)` });
+  slices.push({ id: "other", color: OTHER_COLOR, percent: pct(other), title: `Other data — ${formatBytes(other)} (${pct(other).toFixed(2)}%)` });
   slices.push({ id: "free", color: "transparent", percent: pct(freeBytes), title: `Free — ${formatBytes(freeBytes)} (${pct(freeBytes).toFixed(2)}%)` });
   return slices;
 }
@@ -56,6 +58,18 @@ export function zoomSlices(sizes, nodeFilter, diskTotalBytes = 0) {
     }
     return slice;
   });
+}
+
+export function withCollectorSizes(stats, sizes) {
+  const merged = new Map();
+  for (const [id, usage] of Object.entries(stats?.nodes || {})) {
+    const bytes = Number(usage?.disk_bytes);
+    if (bytes > 0) merged.set(id, bytes);
+  }
+  for (const [id, bytes] of sizes) {
+    if (Number(bytes) > 0) merged.set(id, Number(bytes));
+  }
+  return merged;
 }
 
 export function diskViews(host, sizes, zoomedDisks = new Set()) {
@@ -115,7 +129,7 @@ export function pieView(stats) {
   const entries = Object.entries(stats.nodes || {});
   if (Number(stats.other?.cpu_pct) > 0 || Number(stats.other?.mem_bytes) > 0) entries.push(["other", stats.other]);
   for (const [id, usage] of entries) {
-    const color = id === "other" ? "#9a9a9a" : NODE_COLORS[id] || "#9a9a9a";
+    const color = id === "other" ? OTHER_COLOR : NODE_COLORS[id] || "#9a9a9a";
     const label = id === "other" ? "Stack other" : NODE_LABELS[id] || id;
     const cpuPct = Math.max(0, Math.min(100, Number(usage?.cpu_pct) || 0));
     const memPct = Math.max(0, Math.min(100, ((Number(usage?.mem_bytes) || 0) / memTotal) * 100));
@@ -211,7 +225,7 @@ function render() {
   if (!panel) return;
   const bitcoinBytes = Number(document.getElementById("live")?.dataset.nodeSize);
   if (bitcoinBytes > 0) sizes.set("bitcoin", bitcoinBytes);
-  const view = diskViews(host, sizes, zoomedDisks);
+  const view = diskViews(host, withCollectorSizes(host?.stats, sizes), zoomedDisks);
   if (!view) return;
   const line = panel.querySelector("[data-host-line]");
   line.textContent = view.line;
