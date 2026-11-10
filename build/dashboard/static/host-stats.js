@@ -4,6 +4,7 @@ import { NODE_LABELS } from "./chains.js";
 export const OTHER_COLOR = "#6e6e6e";
 
 export const NODE_COLORS = {
+  stack: "#2a9d8f",
   bitcoin: "#f2a900",
   monero: "#ff6600",
   tari: "#8f5cff",
@@ -13,12 +14,17 @@ export const NODE_COLORS = {
   zcash: "#d69c35",
 };
 
+function sliceLabel(id) {
+  if (id === "stack") return "Node Manager itself";
+  return NODE_LABELS[id] || id;
+}
+
 function nodeSlice(id, bytes, percent, suffix) {
   return {
     id,
     color: NODE_COLORS[id] || "#9a9a9a",
     percent,
-    title: `${NODE_LABELS[id] || id} — ${formatBytes(bytes)} (${percent.toFixed(2)}%${suffix})`,
+    title: `${sliceLabel(id)} — ${formatBytes(bytes)} (${percent.toFixed(2)}%${suffix})`,
   };
 }
 
@@ -54,7 +60,7 @@ export function zoomSlices(sizes, nodeFilter, diskTotalBytes = 0) {
   return entries.map(([id, value]) => {
     const slice = nodeSlice(id, value, (value / total) * 100, " of Node Manager data");
     if (diskTotalBytes > 0) {
-      slice.title = `${NODE_LABELS[id] || id} — ${formatBytes(value)} (${Math.min(100, (value / diskTotalBytes) * 100).toFixed(2)}% of disk)`;
+      slice.title = `${sliceLabel(id)} — ${formatBytes(value)} (${Math.min(100, (value / diskTotalBytes) * 100).toFixed(2)}% of disk)`;
     }
     return slice;
   });
@@ -76,7 +82,7 @@ export function diskViews(host, sizes, zoomedDisks = new Set()) {
   if (host?.disk_available !== true) return null;
   let disks = Array.isArray(host.disks) ? host.disks : [];
   disks = disks.filter((disk) => Number(disk?.disk_total_bytes) > 0);
-  const occupied = disks.filter((disk) => !Array.isArray(disk.nodes) || disk.nodes.length > 0);
+  const occupied = disks.filter((disk) => !Array.isArray(disk.nodes) || disk.nodes.some((id) => Number(sizes.get(id)) > 0));
   if (occupied.length > 0) disks = occupied;
   if (disks.length === 0) disks = [{ disk_total_bytes: host.disk_total_bytes, disk_free_bytes: host.disk_free_bytes, nodes: null }];
   let total = 0;
@@ -91,7 +97,8 @@ export function diskViews(host, sizes, zoomedDisks = new Set()) {
     const nodeFilter = Array.isArray(disk.nodes) ? disk.nodes : null;
     const usedPct = ((diskTotal - diskFree) / diskTotal) * 100;
     const zoom = zoomedDisks.has(index) ? zoomSlices(sizes, nodeFilter, diskTotal) : null;
-    const name = typeof disk.name === "string" && disk.name !== "" ? disk.name : `Disk ${index + 1}`;
+    const device = typeof disk.name === "string" && disk.name !== "" ? disk.name : `Disk ${index + 1}`;
+    const name = typeof disk.label === "string" && disk.label !== "" ? disk.label : device;
     bars.push({
       index,
       label: name,
