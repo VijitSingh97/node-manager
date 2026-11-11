@@ -744,19 +744,25 @@ package_upgrade() {
 }
 
 cleanup_superseded_runtime() {
-  local keep_current=$1 keep_previous=$2 image repo tag
-  docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | while IFS= read -r image; do
+  local keep_current=$1 keep_previous=$2 line image id repo tag
+  docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' 2>/dev/null | while IFS= read -r line; do
+    image=${line% *}
+    id=${line##* }
     repo=${image%:*}
     tag=${image##*:}
     case "$repo" in
       ghcr.io/vijitsingh97/node-manager-* | ghcr.io/vijitsingh97/bitcoin-starter-stack-* | bitcoin-starter-stack-*) ;;
       *) continue ;;
     esac
+    if [ "$tag" = "<none>" ]; then
+      docker rmi "$id" >/dev/null 2>&1 || true
+      continue
+    fi
     [ "$tag" != "$keep_current" ] || continue
     [ -z "$keep_previous" ] || [ "$tag" != "$keep_previous" ] || continue
     docker rmi "$image" >/dev/null 2>&1 || true
   done
-  docker volume prune -f --filter "label=com.docker.compose.project=$project_name" >/dev/null 2>&1 || true
+  docker volume prune -f >/dev/null 2>&1 || true
 }
 
 images_available() {
