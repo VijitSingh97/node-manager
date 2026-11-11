@@ -6,6 +6,13 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Healthchecks.io pings are a pure dead-man's switch again, as documented: the
+  monitor pings success on schedule whenever it is alive, and never signals
+  `/fail` because a node is down. Node health alerts stay on Telegram, so a
+  monero flap no longer marks the Healthchecks check down.
+
 ## [1.33.10] - 2026-11-11
 
 ### Fixed
