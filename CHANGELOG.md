@@ -6,6 +6,19 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.33.10] - 2026-11-11
+
+### Fixed
+
+- Upgrade cleanup also removes this project's dangling (untagged) image
+  leftovers by image id and prunes stranded anonymous volumes; the previous
+  compose-project label filter matched nothing because Compose never labels
+  anonymous volumes. Other projects' images, dangling included, are untouched.
+
+### Changed
+
+- build(deps): bump `zakuracore/zakura` from 1.8.4 to 1.8.5.
+
 ## [1.33.9] - 2026-11-10
 
 ### Added
@@ -1092,7 +1105,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.9...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.10...HEAD
+[1.33.10]: https://github.com/VijitSingh97/node-manager/compare/v1.33.9...v1.33.10
 [1.33.9]: https://github.com/VijitSingh97/node-manager/compare/v1.33.8...v1.33.9
 [1.33.8]: https://github.com/VijitSingh97/node-manager/compare/v1.33.7...v1.33.8
 [1.33.7]: https://github.com/VijitSingh97/node-manager/compare/v1.33.6...v1.33.7
