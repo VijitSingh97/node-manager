@@ -25,7 +25,7 @@ printf '%s\n' "$*" >>"$FAKE_DOCKER_LOG"
 case "${1:-}" in
   info) [ "${FAKE_DOCKER_DOWN:-0}" != 1 ] ;;
   images)
-    printf 'ghcr.io/vijitsingh97/node-manager-dashboard:ancient\nghcr.io/vijitsingh97/node-manager-tor:%s\nghcr.io/other/thing:1.0\n' "${FAKE_CURRENT_VERSION:-}"
+    printf 'ghcr.io/vijitsingh97/node-manager-dashboard:ancient img001\nghcr.io/vijitsingh97/node-manager-tor:%s img002\nghcr.io/other/thing:1.0 img003\nghcr.io/vijitsingh97/node-manager-monero:<none> img004\nghcr.io/other/thing:<none> img005\n' "${FAKE_CURRENT_VERSION:-}"
     ;;
   ps)
     service=
@@ -92,7 +92,9 @@ pending=$(cat "$tmp/etc/config.json")
 grep -q '^rmi ghcr.io/vijitsingh97/node-manager-dashboard:ancient$' "$log" || fail "superseded image was not pruned"
 grep -q "^rmi ghcr.io/vijitsingh97/node-manager-tor:$FAKE_CURRENT_VERSION\$" "$log" && fail "current image was pruned"
 grep -q '^rmi ghcr.io/other/thing:1.0$' "$log" && fail "a foreign image was pruned"
-grep -q "^volume prune -f --filter label=com.docker.compose.project=" "$log" || fail "stranded project volumes were not pruned"
+grep -q '^volume prune -f$' "$log" || fail "stranded anonymous volumes were not pruned"
+grep -q '^rmi img004$' "$log" || fail "our dangling image was not pruned by id"
+grep -q '^rmi img005$' "$log" && fail "a foreign dangling image was pruned"
 [ "$(cat "$tmp/etc/config.json")" = "$pending" ] || fail "package upgrade applied pending configuration"
 [ ! -e "$tmp/custom-do-not-create" ] || fail "package upgrade ran first-boot data setup"
 grep -q '^null$' "$tmp/state/.approved-config.json" || fail "package upgrade replaced a legacy approved-config sentinel"
