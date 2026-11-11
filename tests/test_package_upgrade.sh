@@ -13,6 +13,8 @@ trap 'rm -rf "$tmp"' EXIT
 fake=$tmp/bin
 mkdir -p "$fake" "$tmp/etc" "$tmp/state" "$tmp/data"
 log=$tmp/docker.log
+FAKE_CURRENT_VERSION=$(cat VERSION)
+export FAKE_CURRENT_VERSION
 systemctl_log=$tmp/systemctl.log
 running=$tmp/running
 printf '%s\n' tor bitcoin dashboard >"$running"
@@ -22,6 +24,9 @@ cat >"$fake/docker" <<'EOF'
 printf '%s\n' "$*" >>"$FAKE_DOCKER_LOG"
 case "${1:-}" in
   info) [ "${FAKE_DOCKER_DOWN:-0}" != 1 ] ;;
+  images)
+    printf 'ghcr.io/vijitsingh97/node-manager-dashboard:ancient\nghcr.io/vijitsingh97/node-manager-tor:%s\nghcr.io/other/thing:1.0\n' "${FAKE_CURRENT_VERSION:-}"
+    ;;
   ps)
     service=
     for arg in "$@"; do case "$arg" in label=com.docker.compose.service=*) service=${arg##*=} ;; esac; done
@@ -84,6 +89,10 @@ printf '%s\n' '{"bitcoin":{"enabled":false},"monero":{"enabled":true}}' >"$tmp/e
 pending=$(cat "$tmp/etc/config.json")
 : >"$log"
 ./stack package-upgrade >/dev/null
+grep -q '^rmi ghcr.io/vijitsingh97/node-manager-dashboard:ancient$' "$log" || fail "superseded image was not pruned"
+grep -q "^rmi ghcr.io/vijitsingh97/node-manager-tor:$FAKE_CURRENT_VERSION\$" "$log" && fail "current image was pruned"
+grep -q '^rmi ghcr.io/other/thing:1.0$' "$log" && fail "a foreign image was pruned"
+grep -q "^volume prune -f --filter label=com.docker.compose.project=" "$log" || fail "stranded project volumes were not pruned"
 [ "$(cat "$tmp/etc/config.json")" = "$pending" ] || fail "package upgrade applied pending configuration"
 [ ! -e "$tmp/custom-do-not-create" ] || fail "package upgrade ran first-boot data setup"
 grep -q '^null$' "$tmp/state/.approved-config.json" || fail "package upgrade replaced a legacy approved-config sentinel"
@@ -167,5 +176,10 @@ printf '%s\n' tor dashboard >"$running"
 FAKE_DOCKER_DOWN=1 ./stack package-upgrade >/dev/null 2>&1 && fail "package upgrade ignored unavailable Docker"
 grep -q ' pull ' "$log" && fail "Docker-down path attempted a pull"
 [ -f "$tmp/state/.package-upgrade-pending" ] || fail "Docker-down path did not leave a retry marker"
+
+mkdir -p "$tmp/state/data/bitcoin-old"
+head -c 2097152 /dev/zero >"$tmp/state/data/bitcoin-old/blk00000.dat"
+./stack doctor >"$tmp/doctor.out" 2>&1 || true
+grep -q 'WARN  orphaned data directory .*bitcoin-old (2 MiB)' "$tmp/doctor.out" || fail "doctor missed the orphaned data directory"
 
 echo "PASS: test_package_upgrade.sh"

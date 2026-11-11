@@ -732,12 +732,31 @@ package_upgrade() {
     return 1
   fi
   sync_node_runtime || echo "WARN  containers were updated, but dashboard node state will synchronize on its next refresh." >&2
+  previous_version=$(sed -n 's/^STACK_VERSION=//p' "$previous_approved_env" 2>/dev/null | tail -n 1)
+  current_version=$(sed -n 's/^STACK_VERSION=//p' "$approved_env_file" 2>/dev/null | tail -n 1)
+  cleanup_superseded_runtime "$current_version" "$previous_version" || true
   rm -f "$previous_env" "$previous_approved_config" "$previous_approved_env" "$state_dir/.package-upgrade-pending"
   unlock_config
   ensure_resource_profile_timer
   ensure_port_control_timer
   ensure_node_control_timer
   echo "Updated the running Node Manager services."
+}
+
+cleanup_superseded_runtime() {
+  local keep_current=$1 keep_previous=$2 image repo tag
+  docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | while IFS= read -r image; do
+    repo=${image%:*}
+    tag=${image##*:}
+    case "$repo" in
+      ghcr.io/vijitsingh97/node-manager-* | ghcr.io/vijitsingh97/bitcoin-starter-stack-* | bitcoin-starter-stack-*) ;;
+      *) continue ;;
+    esac
+    [ "$tag" != "$keep_current" ] || continue
+    [ -z "$keep_previous" ] || [ "$tag" != "$keep_previous" ] || continue
+    docker rmi "$image" >/dev/null 2>&1 || true
+  done
+  docker volume prune -f --filter "label=com.docker.compose.project=$project_name" >/dev/null 2>&1 || true
 }
 
 images_available() {
@@ -792,6 +811,27 @@ doctor() {
   else
     echo "OK    config.json rendered into .env"
   fi
+
+  echo "== Leftovers"
+  found_orphan=0
+  for dir in "$state_dir/data"/*/; do
+    [ -d "$dir" ] || continue
+    dir=${dir%/}
+    configured=0
+    for node in BITCOIN MONERO TARI LITECOIN DOGECOIN BITCOINCASH ZCASH; do
+      if [ "$(env_get "${node}_DATA_DIR")" = "$dir" ]; then
+        configured=1
+        break
+      fi
+    done
+    [ "$configured" = 0 ] || continue
+    kb=$(du -sk "$dir" 2>/dev/null | awk '{print $1}')
+    [ -n "$kb" ] && [ "$kb" -ge 1024 ] || continue
+    echo "WARN  orphaned data directory $dir ($((kb / 1024)) MiB) is not any node's configured data dir; remove it if its node's data moved"
+    found_orphan=1
+  done
+  [ "$found_orphan" = 1 ] || echo "OK    no orphaned data directories"
+
   echo "== Disk"
   if [ "$(env_get BITCOIN_ENABLED)" != "0" ] && [ "$(env_get BITCOIN_ACTIVE)" != "0" ]; then
     data_dir=$(env_get BITCOIN_DATA_DIR)

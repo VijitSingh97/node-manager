@@ -136,8 +136,8 @@ export function pieView(stats) {
   const entries = Object.entries(stats.nodes || {});
   if (Number(stats.other?.cpu_pct) > 0 || Number(stats.other?.mem_bytes) > 0) entries.push(["other", stats.other]);
   for (const [id, usage] of entries) {
-    const color = id === "other" ? OTHER_COLOR : NODE_COLORS[id] || "#9a9a9a";
-    const label = id === "other" ? "Stack other" : NODE_LABELS[id] || id;
+    const color = id === "other" ? NODE_COLORS.stack : NODE_COLORS[id] || "#9a9a9a";
+    const label = id === "other" ? "Node Manager itself" : NODE_LABELS[id] || id;
     const cpuPct = Math.max(0, Math.min(100, Number(usage?.cpu_pct) || 0));
     const memPct = Math.max(0, Math.min(100, ((Number(usage?.mem_bytes) || 0) / memTotal) * 100));
     if (cpuPct > 0) {
