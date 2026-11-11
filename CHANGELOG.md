@@ -12,6 +12,12 @@ All notable changes to this project are documented here. Format follows
   monitor pings success on schedule whenever it is alive, and never signals
   `/fail` because a node is down. Node health alerts stay on Telegram, so a
   monero flap no longer marks the Healthchecks check down.
+- The dashboard's Monero RPC client re-handshakes when monerod serves a stale
+  Digest nonce instead of failing the request. Concurrent dashboard pollers
+  churn monerod's bounded nonce table, so single-handshake probes failed in
+  bursts for minutes — the source of day-long false "Monero node down /
+  recovered" Telegram flaps while monerod answered every outside probe in
+  milliseconds.
 
 ## [1.33.10] - 2026-11-11
 

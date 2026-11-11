@@ -250,7 +250,8 @@ func (m moneroRPC) do(ctx context.Context, method, path string, body []byte) ([]
 	if err != nil {
 		return nil, err
 	}
-	if response.StatusCode == http.StatusUnauthorized {
+	// A second 401 means the nonce went stale between challenge and use; RFC 7616 says re-handshake.
+	for attempt := 0; attempt < 2 && response.StatusCode == http.StatusUnauthorized; attempt++ {
 		challenge := digestChallenge(response.Header.Values("WWW-Authenticate"))
 		response.Body.Close()
 		authorization, err := digestAuthorization(challenge, m.user, m.password, method, endpoint.RequestURI())
@@ -307,6 +308,21 @@ func (m moneroRPC) doDigest(ctx context.Context, method, path string, body, prob
 			response.Body.Close()
 		}
 		return nil, fmt.Errorf("%w: authenticated request failed", errMoneroRemoteUnknown)
+	}
+	if response.StatusCode == http.StatusUnauthorized {
+		challenge = digestChallenge(response.Header.Values("WWW-Authenticate"))
+		response.Body.Close()
+		authorization, err = digestAuthorization(challenge, m.user, m.password, method, endpoint.RequestURI())
+		if err != nil {
+			return nil, err
+		}
+		response, err = request(body, authorization)
+		if err != nil {
+			if response != nil && response.Body != nil {
+				response.Body.Close()
+			}
+			return nil, fmt.Errorf("%w: authenticated request failed", errMoneroRemoteUnknown)
+		}
 	}
 	responseBody, err := readMoneroRPCResponse(response)
 	if err != nil {
