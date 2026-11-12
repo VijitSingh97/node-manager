@@ -6,6 +6,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.33.15] - 2026-11-12
+
 ### Fixed
 
 - The "Move data…" buttons were always disabled: the host-control API response
@@ -1183,7 +1185,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.14...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.15...HEAD
+[1.33.15]: https://github.com/VijitSingh97/node-manager/compare/v1.33.14...v1.33.15
 [1.33.14]: https://github.com/VijitSingh97/node-manager/compare/v1.33.13...v1.33.14
 [1.33.13]: https://github.com/VijitSingh97/node-manager/compare/v1.33.12...v1.33.13
 [1.33.12]: https://github.com/VijitSingh97/node-manager/compare/v1.33.11...v1.33.12
