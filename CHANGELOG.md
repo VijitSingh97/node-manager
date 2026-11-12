@@ -6,6 +6,19 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.33.12] - 2026-11-11
+
+### Changed
+
+- The usage panel's CPU and memory pies show a grey "Other processes" slice
+  for host usage outside Node Manager, from new host-wide CPU and memory
+  figures the collector gathers on Linux; the light track remains truly idle
+  or free capacity.
+- Per-node disk slices prefer the collector's measured directory sizes over
+  the nodes' self-reported database sizes (bitcoind's size_on_disk covers only
+  the blocks directory), so ~9 GiB of chainstate and indexes no longer land
+  in grey "Other data".
+
 ## [1.33.11] - 2026-11-11
 
 ### Fixed
@@ -1130,7 +1143,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.11...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.12...HEAD
+[1.33.12]: https://github.com/VijitSingh97/node-manager/compare/v1.33.11...v1.33.12
 [1.33.11]: https://github.com/VijitSingh97/node-manager/compare/v1.33.10...v1.33.11
 [1.33.10]: https://github.com/VijitSingh97/node-manager/compare/v1.33.9...v1.33.10
 [1.33.9]: https://github.com/VijitSingh97/node-manager/compare/v1.33.8...v1.33.9

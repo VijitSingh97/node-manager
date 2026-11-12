@@ -173,6 +173,8 @@ type hostStatsFile struct {
 	Updated       int64                     `json:"updated"`
 	CPUs          int                       `json:"cpus"`
 	MemTotalBytes uint64                    `json:"mem_total_bytes"`
+	HostCPUPct    float64                   `json:"host_cpu_pct,omitempty"`
+	HostMemBytes  uint64                    `json:"host_mem_bytes,omitempty"`
 	Nodes         map[string]hostStatsUsage `json:"nodes"`
 	Other         hostStatsUsage            `json:"other"`
 	Disks         []*hostDisk               `json:"disks,omitempty"`

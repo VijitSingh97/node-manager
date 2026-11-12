@@ -180,7 +180,7 @@ func TestNodesHostStatsServedOnlyWhenFresh(t *testing.T) {
 	a := &app{cfg: config{bitcoinDisabled: true, dashboardPassword: "secret", stateDir: dir, dataDir: dir, nodes: map[string]nodeConfig{nodeLitecoin: node}}}
 	initializeTestDashboardAuth(t, a)
 	write := func(updated int64) {
-		stats := fmt.Sprintf(`{"updated":%d,"cpus":8,"mem_total_bytes":17179869184,"nodes":{"bitcoin":{"cpu_pct":12.5,"mem_bytes":1073741824,"disk_bytes":650000000000}},"other":{"cpu_pct":1,"mem_bytes":2048},"disks":[{"name":"/dev/nvme0n1p2","label":"Samsung SSD 990 PRO NVMe","disk_total_bytes":1000,"disk_free_bytes":400,"nodes":["bitcoin"]},{"name":"/dev/sda1","disk_total_bytes":500,"disk_free_bytes":450,"nodes":[]}]}`, updated)
+		stats := fmt.Sprintf(`{"updated":%d,"cpus":8,"mem_total_bytes":17179869184,"host_cpu_pct":37.5,"host_mem_bytes":8589934592,"nodes":{"bitcoin":{"cpu_pct":12.5,"mem_bytes":1073741824,"disk_bytes":650000000000}},"other":{"cpu_pct":1,"mem_bytes":2048},"disks":[{"name":"/dev/nvme0n1p2","label":"Samsung SSD 990 PRO NVMe","disk_total_bytes":1000,"disk_free_bytes":400,"nodes":["bitcoin"]},{"name":"/dev/sda1","disk_total_bytes":500,"disk_free_bytes":450,"nodes":[]}]}`, updated)
 		if err := os.WriteFile(filepath.Join(dir, "host-stats.json"), []byte(stats), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -203,7 +203,7 @@ func TestNodesHostStatsServedOnlyWhenFresh(t *testing.T) {
 	}
 	write(time.Now().Unix())
 	stats := read()
-	if stats == nil || stats.CPUs != 8 || stats.Nodes["bitcoin"].CPUPct != 12.5 || stats.Nodes["bitcoin"].DiskBytes != 650000000000 || stats.Other.MemBytes != 2048 {
+	if stats == nil || stats.CPUs != 8 || stats.HostCPUPct != 37.5 || stats.HostMemBytes != 8589934592 || stats.Nodes["bitcoin"].CPUPct != 12.5 || stats.Nodes["bitcoin"].DiskBytes != 650000000000 || stats.Other.MemBytes != 2048 {
 		t.Fatalf("fresh stats = %#v", stats)
 	}
 	disks := a.hostDisks()

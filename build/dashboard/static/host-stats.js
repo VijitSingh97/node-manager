@@ -68,12 +68,12 @@ export function zoomSlices(sizes, nodeFilter, diskTotalBytes = 0) {
 
 export function withCollectorSizes(stats, sizes) {
   const merged = new Map();
+  for (const [id, bytes] of sizes) {
+    if (Number(bytes) > 0) merged.set(id, Number(bytes));
+  }
   for (const [id, usage] of Object.entries(stats?.nodes || {})) {
     const bytes = Number(usage?.disk_bytes);
     if (bytes > 0) merged.set(id, bytes);
-  }
-  for (const [id, bytes] of sizes) {
-    if (Number(bytes) > 0) merged.set(id, Number(bytes));
   }
   return merged;
 }
@@ -119,7 +119,7 @@ export function diskViews(host, sizes, zoomedDisks = new Set()) {
 }
 
 export function rescaleToStack(slices) {
-  const used = slices.filter((slice) => slice.id !== "idle" && slice.id !== "free");
+  const used = slices.filter((slice) => slice.id !== "idle" && slice.id !== "free" && slice.id !== "host");
   const total = used.reduce((sum, slice) => sum + slice.percent, 0);
   if (!(total > 0)) return null;
   return used.map((slice) => ({ ...slice, percent: (slice.percent / total) * 100, title: `${slice.title} · ${((slice.percent / total) * 100).toFixed(1)}% of stack` }));
@@ -149,8 +149,14 @@ export function pieView(stats) {
       memSum += memPct;
     }
   }
-  const idle = Math.max(0, 100 - cpuSum);
-  const free = Math.max(0, 100 - memSum);
+  const hostCPU = Math.max(0, Math.min(100, Number(stats.host_cpu_pct) || 0));
+  const hostMemPct = Math.max(0, Math.min(100, ((Number(stats.host_mem_bytes) || 0) / memTotal) * 100));
+  const otherCPU = Math.max(0, hostCPU - cpuSum);
+  const otherMem = Math.max(0, hostMemPct - memSum);
+  if (otherCPU > 0) cpu.push({ id: "host", color: OTHER_COLOR, percent: otherCPU, title: `Other processes — ${otherCPU.toFixed(1)}% CPU` });
+  if (otherMem > 0) mem.push({ id: "host", color: OTHER_COLOR, percent: otherMem, title: `Other processes — ${formatBytes((memTotal * otherMem) / 100)} (${otherMem.toFixed(1)}%)` });
+  const idle = Math.max(0, 100 - Math.max(hostCPU, cpuSum));
+  const free = Math.max(0, 100 - Math.max(hostMemPct, memSum));
   cpu.push({ id: "idle", color: "", percent: idle, title: `Idle — ${idle.toFixed(1)}%` });
   mem.push({ id: "free", color: "", percent: free, title: `Free — ${formatBytes((memTotal * free) / 100)} (${free.toFixed(1)}%)` });
   const cpuUsed = Math.min(100, cpuSum);
