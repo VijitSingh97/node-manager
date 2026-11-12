@@ -67,6 +67,17 @@ restore_transaction_file() {
     rm -f "$destination"
   fi
 }
+write_migrate_progress() {
+  [ -n "$dashboard_id" ] || return 0
+  jq -nc --arg id "$host_id" --arg node "$host_node" --argjson percent "$1" --argjson copied_kb "$2" --argjson total_kb "$3" --argjson updated_at "$(date +%s)" \
+    '{id:$id,node:$node,percent:$percent,copied_kb:$copied_kb,total_kb:$total_kb,updated_at:$updated_at}' |
+    $docker_bin exec -i -u 1000 "$dashboard_id" sh -c 'umask 077; cat > /state/.node-control.progress.tmp; mv /state/.node-control.progress.tmp /state/node-control.progress' >/dev/null 2>&1 || true
+}
+
+clear_migrate_progress() {
+  dashboard_exec rm -f /state/node-control.progress >/dev/null 2>&1 || true
+}
+
 migrate_device_of() {
   if [ "$host_os" = Linux ]; then
     stat -c %d "$1" 2>/dev/null
@@ -339,6 +350,7 @@ host_remember_seen() {
   mv "$host_seen_tmp" "$host_seen_file"
 }
 host_finish() {
+  clear_migrate_progress
   publish_host_capability
   write_host_status "$host_id" "$host_action" "$1" "$2" "${3:-}" "${4:-}" "${5:-}" "${6:-}"
   host_remember_seen
@@ -588,12 +600,24 @@ if [ "$host_request" = true ]; then
         host_finish failed "Data move failed; the node was restarted in place." "$host_node" "" move_failed
       fi
     else
-      if ! cp -a "$migrate_source/." "$migrate_target/"; then
+      write_migrate_progress 0 0 "$migrate_needed"
+      cp -a "$migrate_source/." "$migrate_target/" &
+      migrate_copy_pid=$!
+      while kill -0 "$migrate_copy_pid" 2>/dev/null; do
+        migrate_copied=$(du -sk "$migrate_target" 2>/dev/null | awk '{print $1}')
+        case "$migrate_copied" in ('' | *[!0-9]*) migrate_copied=0 ;; esac
+        migrate_percent=$((migrate_copied * 100 / (migrate_needed + 1)))
+        [ "$migrate_percent" -le 99 ] || migrate_percent=99
+        write_migrate_progress "$migrate_percent" "$migrate_copied" "$migrate_needed"
+        sleep 5
+      done
+      if ! wait "$migrate_copy_pid"; then
         rm -rf "$migrate_target" "$install_transaction"
         rm -f "$candidate"
         restore_services
         host_finish failed "Data copy failed; the node was restarted in place." "$host_node" "" move_failed
       fi
+      write_migrate_progress 100 "$migrate_needed" "$migrate_needed"
       migrate_source_entries=$(find "$migrate_source" 2>/dev/null | wc -l | tr -d ' ')
       migrate_target_entries=$(find "$migrate_target" 2>/dev/null | wc -l | tr -d ' ')
       migrate_source_kb=$(du -sk "$migrate_source" 2>/dev/null | awk '{print $1}')

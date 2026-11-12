@@ -392,4 +392,12 @@ FAKE_STACK_FAIL_APPLY_ONCE=1 FAKE_STACK_FAIL_MARKER=$tmp/.migrate-fail-marker NO
 [ -f "$newdisk/blocks.dat" ] || fail "failed migrate lost the source data"
 [ ! -e "$seconddisk" ] || fail "failed migrate left a partial copy behind"
 
+thirddisk=$resolved_tmp/thirddisk/bitcoincash
+request "{\"action\":\"migrate\",\"data_dir\":\"$thirddisk\",\"id\":\"84848484848484848484848484848484\",\"node\":\"bitcoincash\",\"requested_at\":1000}"
+NODE_CONTROL_FORCE_MIGRATE_MODE=copy BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Darwin "$root/scripts/node-control"
+[ "$(status .state)" = applied ] || fail "copy migrate was not applied: $(status .message)"
+[ -f "$thirddisk/blocks.dat" ] || fail "copy migrate did not copy the data"
+[ ! -e "$newdisk" ] || fail "copy migrate did not remove the old copy"
+[ ! -e "$dashboard_state/node-control.progress" ] || fail "finished migrate left the progress file behind"
+
 echo "PASS: test_node_control.sh"

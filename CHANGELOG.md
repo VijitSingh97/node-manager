@@ -8,6 +8,9 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
+- Cross-disk data migrations report live progress: the host helper samples the
+  copy every few seconds and the dashboard's status line shows percent and
+  GiB copied until the node restarts from its new folder.
 - Each installed node's data folder is shown in Settings next to a
   "Move data…" control that migrates it to another path or disk from the
   dashboard: the host helper stops the node, renames within a disk or

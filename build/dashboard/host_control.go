@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -170,6 +171,32 @@ func (a *app) hostControlCapability() (hostControlCapability, bool) {
 	return decodeHostControlCapability(b)
 }
 
+type migrateProgress struct {
+	ID        string `json:"id"`
+	Node      string `json:"node"`
+	Percent   int64  `json:"percent"`
+	CopiedKB  int64  `json:"copied_kb"`
+	TotalKB   int64  `json:"total_kb"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
+func (a *app) migrateProgressFor(id string) (migrateProgress, bool) {
+	var progress migrateProgress
+	b, err := readSmallFile(a.nodeControlPath("progress"), 4096)
+	if err != nil {
+		return progress, false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(b))
+	decoder.DisallowUnknownFields()
+	now := time.Now().Unix()
+	if decoder.Decode(&progress) != nil || ensureJSONEnd(decoder) != nil || progress.ID != id ||
+		progress.Percent < 0 || progress.Percent > 100 || progress.CopiedKB < 0 || progress.TotalKB <= 0 ||
+		progress.UpdatedAt > now+30 || now-progress.UpdatedAt > 180 {
+		return progress, false
+	}
+	return progress, true
+}
+
 func hostControlPendingMessage(action string) string {
 	if action == "migrate" {
 		return "Migrating node data… this can take a while."
@@ -242,6 +269,16 @@ func canonicalHostStatusMessage(status hostControlStatus) string {
 	return "Host change could not be applied."
 }
 
+func (a *app) hostControlProcessingMessage(request hostControlRequest) string {
+	message := hostControlPendingMessage(request.Action)
+	if request.Action == "migrate" {
+		if progress, ok := a.migrateProgressFor(request.ID); ok {
+			message = fmt.Sprintf("Migrating node data… %d%% — %.1f of %.1f GiB", progress.Percent, float64(progress.CopiedKB)/(1024*1024), float64(progress.TotalKB)/(1024*1024))
+		}
+	}
+	return message
+}
+
 func (a *app) hostControlStatus() (*hostControlStatus, bool) {
 	for _, name := range []string{"request", "processing"} {
 		b, err := readSmallFile(a.nodeControlPath(name), 4096)
@@ -250,7 +287,7 @@ func (a *app) hostControlStatus() (*hostControlStatus, bool) {
 			decoder := json.NewDecoder(bytes.NewReader(b))
 			decoder.DisallowUnknownFields()
 			if decoder.Decode(&request) == nil && ensureJSONEnd(decoder) == nil && validPortControlID(request.ID) && validHostControlShape(request.Action, request.Node, request.Enabled, request.DataDir, request.Interfaces) {
-				return &hostControlStatus{ID: request.ID, Action: request.Action, Node: normalizeNodeID(request.Node), Enabled: request.Enabled, State: "pending", Message: hostControlPendingMessage(request.Action)}, true
+				return &hostControlStatus{ID: request.ID, Action: request.Action, Node: normalizeNodeID(request.Node), Enabled: request.Enabled, State: "pending", Message: a.hostControlProcessingMessage(request)}, true
 			}
 			return nil, true
 		}
