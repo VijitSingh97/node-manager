@@ -79,6 +79,7 @@ type hostControlStatus struct {
 type hostControlView struct {
 	Available        bool               `json:"available"`
 	InstallSupported bool               `json:"install_supported"`
+	MigrateSupported bool               `json:"migrate_supported"`
 	BootSupported    bool               `json:"boot_supported"`
 	BootEnabled      bool               `json:"boot_enabled"`
 	BootKind         string             `json:"boot_kind"`
@@ -320,7 +321,7 @@ func (a *app) hostControlView() hostControlView {
 		interfaces := append([]hostInstallInterface(nil), catalog.Interfaces...)
 		nodes = append(nodes, hostControlNode{ID: id, Name: nodeDisplayName(id), Installed: configured, DataDir: capability.DataPaths[id], DiskEstimate: catalog.DiskEstimate, DiskNote: catalog.DiskNote, Interfaces: interfaces})
 	}
-	return hostControlView{Available: available, InstallSupported: available && capability.InstallSupported, BootSupported: available && capability.BootSupported, BootEnabled: capability.BootEnabled, BootKind: capability.BootKind, ConfigPending: capability.ConfigPending, ConfigRevision: capability.ConfigRevision, ConfigPath: capability.ConfigPath, Nodes: nodes, Status: status}
+	return hostControlView{Available: available, InstallSupported: available && capability.InstallSupported, MigrateSupported: available && capability.MigrateSupported, BootSupported: available && capability.BootSupported, BootEnabled: capability.BootEnabled, BootKind: capability.BootKind, ConfigPending: capability.ConfigPending, ConfigRevision: capability.ConfigRevision, ConfigPath: capability.ConfigPath, Nodes: nodes, Status: status}
 }
 
 func (a *app) apiHostControlGet(w http.ResponseWriter, r *http.Request) {

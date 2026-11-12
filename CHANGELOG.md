@@ -6,6 +6,12 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The "Move data…" buttons were always disabled: the host-control API response
+  left out `migrate_supported`, so the settings page never saw the capability
+  the host published.
+
 ## [1.33.14] - 2026-11-12
 
 ### Added
