@@ -116,11 +116,11 @@ case "$1" in
     esac
     ;;
   stats)
-    id=${5:-}
-    if [ -z "$id" ]; then
-      printf 'bitcoin-starter-stack-apt-monero-1\t170.00%%\t3.2GiB / 8GiB\nbitcoin-starter-stack-apt-dashboard-1\t8.00%%\t50MiB / 8GiB\n'
+    if [ "${3:-}" = --no-trunc ]; then
+      printf 'cid-monero\tbitcoin-starter-stack-apt-monero-1\t170.00%%\t3.2GiB / 8GiB\ncid-dash\tbitcoin-starter-stack-apt-dashboard-1\t8.00%%\t50MiB / 8GiB\n'
       exit 0
     fi
+    id=${5:-}
     case "$id" in
       btc-*) printf '%s\n' "${FAKE_BITCOIN_MEMORY:-700MiB} / 8GiB" ;;
       xmr-*) printf '%s\n' "${FAKE_MONERO_MEMORY:-600MiB} / 8GiB" ;;
@@ -420,6 +420,13 @@ run_profile
 unset FAKE_HOST_STATS_OUT
 [ -s "$tmp/host-stats-payload.json" ] || fail "collector wrote no host stats payload"
 jq -e '.cpus == 4 and .nodes.monero.cpu_pct > 40 and .nodes.bitcoin.disk_bytes > 0 and .nodes.bitcoin.cpu_pct == 0 and (.nodes | has("tari") | not) and .nodes.stack.disk_bytes > 0 and .nodes.stack.disk_bytes < 10000000 and (.host_cpu_pct // 0) >= 0 and (.host_mem_bytes // 0) >= 0' "$tmp/host-stats-payload.json" >/dev/null || fail "host stats payload lost disk bytes or kept an empty placeholder dir"
+jq -e '.nodes.monero.mem_bytes > 3000000000' "$tmp/host-stats-payload.json" >/dev/null || fail "docker-stats memory fallback was lost"
+mkdir -p "$case_root/cgroup/system.slice/docker-cid-monero.scope"
+printf 'anon 1234567890\nfile 99\n' >"$case_root/cgroup/system.slice/docker-cid-monero.scope/memory.stat"
+export RESOURCE_CGROUP_ROOT=$case_root/cgroup FAKE_HOST_STATS_OUT=$tmp/host-stats-payload.json
+run_profile
+unset RESOURCE_CGROUP_ROOT FAKE_HOST_STATS_OUT
+jq -e '.nodes.monero.mem_bytes == 1234567890' "$tmp/host-stats-payload.json" >/dev/null || fail "cgroup anon memory did not override docker stats"
 
 new_case thermal
 cat >>"$case_root/state/.env" <<'ENVEOF'
