@@ -71,7 +71,7 @@ func (m *Monitor) sendOperationalAlert(ctx context.Context, enabled bool, text s
 	return m.sendOperationalTelegram(ctx, text)
 }
 
-func (m *Monitor) pingHealthchecks(ctx context.Context, healthy bool) bool {
+func (m *Monitor) pingHealthchecks(ctx context.Context) bool {
 	settings := m.notificationSettings()
 	if !settings.HealthchecksEnabled || settings.HealthchecksURL == "" {
 		return true
@@ -80,9 +80,6 @@ func (m *Monitor) pingHealthchecks(ctx context.Context, healthy bool) bool {
 	if err != nil || endpoint.Scheme != "https" || endpoint.Hostname() == "" || endpoint.User != nil {
 		m.logEvent("healthchecks ping failed: HTTPS URL required")
 		return false
-	}
-	if !healthy {
-		endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/fail"
 	}
 	reason := "request failed"
 	for attempt := 0; attempt < 3; attempt++ {

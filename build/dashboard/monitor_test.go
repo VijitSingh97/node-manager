@@ -122,7 +122,7 @@ func TestMultiNodeAlertsKeepIndependentState(t *testing.T) {
 	}
 }
 
-func TestMultiNodeHealthchecksReflectEveryEnabledNode(t *testing.T) {
+func TestHealthchecksStayLivenessOnlyWhileANodeIsDown(t *testing.T) {
 	var pings []string
 	m := configuredMonitor(t, func(r *http.Request) (*http.Response, error) {
 		pings = append(pings, r.URL.Path)
@@ -141,7 +141,7 @@ func TestMultiNodeHealthchecksReflectEveryEnabledNode(t *testing.T) {
 		m.tickNodes(t.Context(), synced, nil)
 	}
 
-	want := []string{"/shared-check", "/shared-check/fail"}
+	want := []string{"/shared-check", "/shared-check", "/shared-check", "/shared-check"}
 	if strings.Join(pings, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("Healthchecks pings = %#v, want %#v", pings, want)
 	}
@@ -332,11 +332,11 @@ func TestRunNodesRestartRequiresFreshChainStateBeforeDownAlert(t *testing.T) {
 
 	select {
 	case got := <-healthchecks:
-		if got != "/shared/fail" {
+		if got != "/shared" {
 			t.Fatalf("Healthchecks path = %q", got)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("aggregate Healthchecks failure was not sent")
+		t.Fatal("liveness Healthchecks ping was not sent")
 	}
 	cancel()
 	select {
@@ -751,7 +751,7 @@ func TestDisabledTelegramDoesNotRetryOperationalAlerts(t *testing.T) {
 	}
 }
 
-func TestHealthchecksRetriesThenThrottlesAndUsesFailEndpoint(t *testing.T) {
+func TestHealthchecksRetryThrottleAndLivenessWhileNodeDown(t *testing.T) {
 	t.Setenv("TELEGRAM_BOT_TOKEN", "")
 	t.Setenv("HEALTHCHECKS_URL", "https://hc-ping.com/private-uuid/?source=node")
 	m := NewMonitor("dev", t.TempDir(), t.TempDir())
@@ -770,21 +770,26 @@ func TestHealthchecksRetriesThenThrottlesAndUsesFailEndpoint(t *testing.T) {
 		return response(http.StatusOK, ""), nil
 	})}
 
-	m.tick(t.Context(), nil, nil)
-	m.tick(t.Context(), nil, nil)
-	if len(paths) != 0 {
-		t.Fatalf("transient failures pinged Healthchecks: %v", paths)
+	for range 3 {
+		m.tick(t.Context(), nil, nil)
+	}
+	if got, want := strings.Join(paths, ","), "/private-uuid/?source=node,/private-uuid/?source=node,/private-uuid/?source=node"; got != want {
+		t.Fatalf("retried due pings = %q, want %q", got, want)
+	}
+	for range 4 {
+		m.tick(t.Context(), nil, nil)
+	}
+	if len(paths) != 3 {
+		t.Fatalf("throttled window pinged Healthchecks: %v", paths)
 	}
 	m.tick(t.Context(), nil, nil)
-	m.tick(t.Context(), nil, nil)
-	m.tick(t.Context(), nil, nil)
-	if got, want := strings.Join(paths, ","), "/private-uuid/fail?source=node,/private-uuid/fail?source=node,/private-uuid/fail?source=node"; got != want {
-		t.Fatalf("sustained failure paths = %q, want %q", got, want)
+	if len(paths) != 4 || paths[3] != "/private-uuid/?source=node" {
+		t.Fatalf("down node changed the liveness ping: %v", paths)
 	}
 	for range 5 {
 		m.tick(t.Context(), map[string]any{"initialblockdownload": false}, nil)
 	}
-	if len(paths) != 4 || paths[3] != "/private-uuid/?source=node" {
+	if len(paths) != 5 || paths[4] != "/private-uuid/?source=node" {
 		t.Fatalf("paths after cadence = %v", paths)
 	}
 }
@@ -1055,7 +1060,7 @@ func TestMonitorRequestsHonorParentCancellation(t *testing.T) {
 				m.settings.HealthchecksEnabled = true
 				m.settings.HealthchecksURL = "https://healthchecks.io/test"
 			},
-			call: func(ctx context.Context, m *Monitor) bool { return m.pingHealthchecks(ctx, true) },
+			call: func(ctx context.Context, m *Monitor) bool { return m.pingHealthchecks(ctx) },
 		},
 	}
 	for _, test := range tests {
@@ -1200,7 +1205,7 @@ func TestHealthchecksRejectsUnencryptedOrCredentialedURLs(t *testing.T) {
 			})
 			m.settings.HealthchecksEnabled = true
 			m.settings.HealthchecksURL = endpoint
-			if m.pingHealthchecks(t.Context(), true) {
+			if m.pingHealthchecks(t.Context()) {
 				t.Fatal("invalid Healthchecks URL was accepted")
 			}
 		})
@@ -1223,7 +1228,7 @@ func TestHealthchecksPingRetriesOnFreshCircuits(t *testing.T) {
 			return nil, errors.New("circuit failed")
 		})}
 	}
-	if !m.pingHealthchecks(t.Context(), true) {
+	if !m.pingHealthchecks(t.Context()) {
 		t.Fatal("ping failed despite a successful fresh-circuit retry")
 	}
 	if primary.Load() != 1 || fresh.Load() != 2 {
@@ -1362,7 +1367,7 @@ func TestTransportErrorsRedactSecrets(t *testing.T) {
 	})}
 	m.freshTorClient = testFreshTorClient
 	m.sendTelegram(t.Context(), "hello")
-	m.pingHealthchecks(t.Context(), true)
+	m.pingHealthchecks(t.Context())
 	got := output.String()
 	if strings.Contains(got, "top-secret") || strings.Contains(got, "private-uuid") {
 		t.Fatalf("secret leaked in output: %q", got)

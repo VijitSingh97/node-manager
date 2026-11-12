@@ -318,3 +318,38 @@ func validDigestRequest(r *http.Request, algorithm, username, password string) b
 	expected := digest(strings.Join([]string{ha1, "server-nonce", parameters["nc"], parameters["cnonce"], "auth", ha2}, ":"))
 	return parameters["response"] == expected
 }
+
+func TestMoneroRPCRetriesStaleDigestNonce(t *testing.T) {
+	var requests []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		requests = append(requests, auth)
+		switch {
+		case auth == "":
+			w.Header().Set("WWW-Authenticate", `Digest qop="auth", algorithm=MD5, realm="monero-rpc", nonce="first"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+		case strings.Contains(auth, `nonce="first"`):
+			w.Header().Set("WWW-Authenticate", `Digest qop="auth", algorithm=MD5, realm="monero-rpc", nonce="second", stale=true`)
+			http.Error(w, "stale", http.StatusUnauthorized)
+		case strings.Contains(auth, `nonce="second"`):
+			w.Header().Set("Content-Type", "application/json")
+			if _, err := w.Write([]byte(`{"result":{"status":"OK"}}`)); err != nil {
+				t.Error(err)
+			}
+		default:
+			t.Errorf("unexpected authorization %q", auth)
+		}
+	}))
+	defer server.Close()
+
+	rpc := moneroRPC{url: server.URL, user: "alice", password: "secret", client: server.Client()}
+	var out struct {
+		Status string `json:"status"`
+	}
+	if err := rpc.call(t.Context(), "get_info", &out); err != nil {
+		t.Fatalf("stale nonce was not retried: %v", err)
+	}
+	if out.Status != "OK" || len(requests) != 3 {
+		t.Fatalf("status=%q requests=%d", out.Status, len(requests))
+	}
+}

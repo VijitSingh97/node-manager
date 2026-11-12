@@ -283,7 +283,7 @@ func (m *Monitor) UpdateNote() string {
 func (m *Monitor) tick(ctx context.Context, info, network map[string]any) {
 	ticks := m.state.ticks
 	healthy, hasIBD, ibd := m.tickNode(ctx, &m.state, "", m.dataDir, m.notificationSettings().AlertNewBlock, info)
-	if ticks >= m.state.pingDue && (healthy || m.state.fails >= downAfterTicks) && m.pingHealthchecks(ctx, healthy) {
+	if ticks >= m.state.pingDue && m.pingHealthchecks(ctx) {
 		m.state.pingDue = ticks + pingEveryTicks
 	}
 	if healthy && network != nil && ticks%updateCheckEveryTick == 0 {
@@ -295,25 +295,21 @@ func (m *Monitor) tick(ctx context.Context, info, network map[string]any) {
 func (m *Monitor) tickNodes(ctx context.Context, bitcoinInfo, moneroInfo map[string]any) {
 	before := m.persistedState()
 	settings := m.notificationSettings()
-	allHealthy, healthReady, anySynced := true, true, false
+	anySynced := false
 	if m.bitcoinEnabled {
 		healthy, hasIBD, ibd := m.tickNode(ctx, &m.state, "Bitcoin", m.dataDir, settings.AlertNewBlock, bitcoinInfo)
-		allHealthy = allHealthy && healthy
-		healthReady = healthReady && (healthy || m.state.fails >= downAfterTicks)
 		anySynced = anySynced || (healthy && hasIBD && !ibd)
 		m.state.ticks++
 	}
 	if m.moneroEnabled {
 		healthy, hasIBD, ibd := m.tickNode(ctx, &m.moneroState, "Monero", m.moneroDataDir, settings.AlertNewBlockMonero, moneroInfo)
-		allHealthy = allHealthy && healthy
-		healthReady = healthReady && (healthy || m.moneroState.fails >= downAfterTicks)
 		anySynced = anySynced || (healthy && hasIBD && !ibd)
 		m.moneroState.ticks++
 	}
 	if !m.bitcoinEnabled && !m.moneroEnabled {
 		return
 	}
-	if m.healthTicks >= m.healthPingDue && healthReady && m.pingHealthchecks(ctx, allHealthy) {
+	if m.healthTicks >= m.healthPingDue && m.pingHealthchecks(ctx) {
 		m.healthPingDue = m.healthTicks + pingEveryTicks
 	}
 	if m.healthTicks%updateCheckEveryTick == 0 {
@@ -447,7 +443,7 @@ func alertNewBlockFor(settings notificationSettings, id string) bool {
 func (m *Monitor) tickConfiguredNodes(ctx context.Context, infos map[string]map[string]any) {
 	before := m.persistedState()
 	settings := m.notificationSettings()
-	allHealthy, healthReady, anySynced, activeCount := true, true, false, 0
+	anySynced, activeCount := false, 0
 	for id, info := range infos {
 		if m.transitioning != nil && m.transitioning(id) {
 			continue
@@ -461,15 +457,13 @@ func (m *Monitor) tickConfiguredNodes(ctx context.Context, infos map[string]map[
 		}
 		activeCount++
 		healthy, hasIBD, ibd := m.tickNode(ctx, state, nodeDisplayName(id), m.nodeDataDir(id), alertNewBlockFor(settings, id), info)
-		allHealthy = allHealthy && healthy
-		healthReady = healthReady && (healthy || state.fails >= downAfterTicks)
 		anySynced = anySynced || (healthy && hasIBD && !ibd)
 		state.ticks++
 	}
 	if activeCount == 0 {
 		return
 	}
-	if m.healthTicks >= m.healthPingDue && healthReady && m.pingHealthchecks(ctx, allHealthy) {
+	if m.healthTicks >= m.healthPingDue && m.pingHealthchecks(ctx) {
 		m.healthPingDue = m.healthTicks + pingEveryTicks
 	}
 	if m.healthTicks%updateCheckEveryTick == 0 {

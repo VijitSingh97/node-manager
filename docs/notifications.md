@@ -117,6 +117,10 @@ pings a unique URL on a schedule, and **their** servers alert you when the
 pings *stop*. The check runs off-box, so it survives the very outage you want
 to catch. Silence is the alarm.
 
+Node health never changes the ping: a down node is Telegram's story, while
+Healthchecks only answers "is the stack's monitor alive and able to reach the
+internet over Tor". The two channels stay independent on purpose.
+
 ### 1. Create a check
 
 Sign up (the free tier is plenty for one node) and create a check. Set its
