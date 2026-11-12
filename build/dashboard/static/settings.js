@@ -81,13 +81,14 @@ export function hostControlModel(data = {}) {
       interfaces,
     };
   }
-  const action = ["install", "launch_at_boot", "apply_config"].includes(data?.status?.action) ? data.status.action : "";
+  const action = ["install", "migrate", "launch_at_boot", "apply_config"].includes(data?.status?.action) ? data.status.action : "";
   const state = ["pending", "applied", "rejected", "failed"].includes(data?.status?.state) ? data.status.state : "";
   const bootKind = ["boot", "login", "unsupported"].includes(data.boot_kind) ? data.boot_kind : "unsupported";
   const revision = data.config_pending === true && /^[0-9a-f]{64}$/.test(String(data.config_revision || "")) ? data.config_revision : "";
   return {
     available: data.available === true,
     install_supported: data.install_supported === true,
+    migrate_supported: data.migrate_supported === true,
     boot_supported: data.boot_supported === true && bootKind !== "unsupported",
     boot_enabled: data.boot_enabled === true,
     boot_kind: bootKind,
@@ -135,6 +136,11 @@ export function hostActionPayload(action, value, options) {
     if (!dataDir.startsWith("/") || dataDir.includes("\n") || dataDir.includes("\r") || interfaces.some((item) =>
       !nodePortIDs[value].includes(item?.id) || typeof item.enabled !== "boolean" || !Number.isInteger(item.host_port) || item.host_port < 1 || item.host_port > 65535)) return undefined;
     return { action, node: value, data_dir: dataDir, interfaces };
+  }
+  if (action === "migrate" && allNodes.includes(value)) {
+    const dataDir = String(options?.data_dir || "");
+    if (!dataDir.startsWith("/") || dataDir.length < 2 || dataDir.includes("\n") || dataDir.includes("\r")) return undefined;
+    return { action, node: value, data_dir: dataDir };
   }
   if (action === "launch_at_boot" && typeof value === "boolean") return { action, enabled: value };
   if (action === "apply_config" && /^[0-9a-f]{64}$/.test(String(value || ""))) return { action, config_revision: value };
@@ -349,6 +355,7 @@ if (typeof document !== "undefined") {
   const installInterfaces = byId("install-interfaces");
   const installError = byId("install-error");
   const installSubmit = byId("install-submit");
+  let installAction = "install";
   const nodeViews = {};
   for (const node of allNodes) {
     const details = byId(`${node}-alerts`);
@@ -528,12 +535,25 @@ if (typeof document !== "undefined") {
       row.className = "settings-host-node";
       const name = document.createElement("span");
       name.textContent = node.name;
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = node.installed ? "Installed" : "Install";
-      button.disabled = node.installed || !node.data_dir || !hostView.available || !hostView.install_supported || hostView.config_pending || busy;
-      button.addEventListener("click", () => openInstall(node.id));
-      row.append(name, button);
+      if (node.installed) {
+        const path = document.createElement("code");
+        path.className = "settings-host-path";
+        path.textContent = node.data_dir || "";
+        path.title = "Current data folder";
+        const move = document.createElement("button");
+        move.type = "button";
+        move.textContent = "Move data…";
+        move.disabled = !node.data_dir || !hostView.available || !hostView.migrate_supported || hostView.config_pending || busy;
+        move.addEventListener("click", () => openMigrate(node.id));
+        row.append(name, path, move);
+      } else {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = "Install";
+        button.disabled = !node.data_dir || !hostView.available || !hostView.install_supported || hostView.config_pending || busy;
+        button.addEventListener("click", () => openInstall(node.id));
+        row.append(name, button);
+      }
       hostNodes.append(row);
     }
     launchAtStart.checked = hostView.boot_enabled;
@@ -549,10 +569,24 @@ if (typeof document !== "undefined") {
     if (installed.length) window.dispatchEvent(new CustomEvent("node-catalog-updated", { detail: { installed } }));
   };
 
+  const openMigrate = (nodeID) => {
+    const node = hostView.nodes[nodeID];
+    if (!node || !node.installed || !node.data_dir) return;
+    installNode = nodeID;
+    installAction = "migrate";
+    installTitle.textContent = `Move ${node.name} data`;
+    installDisk.textContent = `Currently at ${node.data_dir}. The node stops while its data moves, then restarts from the new folder; moving to another disk copies everything first and can take a long time.`;
+    installDataDir.value = node.data_dir;
+    installInterfaces.replaceChildren();
+    installError.textContent = "";
+    installDialog.showModal();
+  };
+
   const openInstall = (nodeID) => {
     const node = hostView.nodes[nodeID];
     if (!node || node.installed || !node.data_dir) return;
     installNode = nodeID;
+    installAction = "install";
     installTitle.textContent = `Install ${node.name}`;
     installDisk.textContent = `Estimated disk after sync: ${node.disk_estimate}. ${node.disk_note}`;
     installDataDir.value = node.data_dir;
@@ -730,12 +764,22 @@ if (typeof document !== "undefined") {
   byId("install-cancel").addEventListener("click", () => installDialog.close());
   installForm.addEventListener("submit", (event) => {
     event.preventDefault();
-    const interfaces = Array.from(installInterfaces.children).map((row) => ({
-      id: row.dataset.interface,
-      enabled: row.querySelector("[data-interface-enabled]").checked,
-      host_port: Number(row.querySelector("[data-interface-port]").value),
-    }));
-    const payload = hostActionPayload("install", installNode, { data_dir: installDataDir.value.trim(), interfaces });
+    let payload;
+    if (installAction === "migrate") {
+      const target = installDataDir.value.trim();
+      if (target === hostView.nodes[installNode]?.data_dir) {
+        installError.textContent = "Choose a different folder than the current one.";
+        return;
+      }
+      payload = hostActionPayload("migrate", installNode, { data_dir: target });
+    } else {
+      const interfaces = Array.from(installInterfaces.children).map((row) => ({
+        id: row.dataset.interface,
+        enabled: row.querySelector("[data-interface-enabled]").checked,
+        host_port: Number(row.querySelector("[data-interface-port]").value),
+      }));
+      payload = hostActionPayload("install", installNode, { data_dir: installDataDir.value.trim(), interfaces });
+    }
     if (!payload) {
       installError.textContent = "Choose an absolute host folder and valid ports from 1 to 65535.";
       return;

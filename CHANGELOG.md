@@ -6,6 +6,16 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- Each installed node's data folder is shown in Settings next to a
+  "Move data…" control that migrates it to another path or disk from the
+  dashboard: the host helper stops the node, renames within a disk or
+  copies-and-verifies across disks, updates and applies the configuration,
+  restarts the node, and rolls everything back (data included) on any
+  failure or interruption. Destinations are validated like install
+  folders, including a free-space check.
+
 ## [1.33.13] - 2026-11-12
 
 ### Fixed

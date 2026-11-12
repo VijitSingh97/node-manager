@@ -18,6 +18,7 @@ type hostControlCapability struct {
 	Platform         string            `json:"platform"`
 	BootKind         string            `json:"boot_kind"`
 	InstallSupported bool              `json:"install_supported"`
+	MigrateSupported bool              `json:"migrate_supported,omitempty"`
 	BootSupported    bool              `json:"boot_supported"`
 	BootEnabled      bool              `json:"boot_enabled"`
 	ConfigPending    bool              `json:"config_pending"`
@@ -169,12 +170,20 @@ func (a *app) hostControlCapability() (hostControlCapability, bool) {
 	return decodeHostControlCapability(b)
 }
 
+func hostControlPendingMessage(action string) string {
+	if action == "migrate" {
+		return "Migrating node data… this can take a while."
+	}
+	return "Applying host change…"
+}
+
 func validHostAction(action string) bool {
-	return action == "install" || action == "launch_at_boot" || action == "apply_config"
+	return action == "install" || action == "migrate" || action == "launch_at_boot" || action == "apply_config"
 }
 
 func validHostControlShape(action, node string, enabled *bool, dataDir string, interfaces []hostInstallInterface) bool {
 	return action == "install" && normalizeNodeID(node) != "" && enabled == nil && (dataDir == "" && interfaces == nil || validInstallOptions(node, dataDir, interfaces)) ||
+		action == "migrate" && normalizeNodeID(node) != "" && enabled == nil && safeHostPath(dataDir) && interfaces == nil ||
 		action == "launch_at_boot" && node == "" && enabled != nil && dataDir == "" && interfaces == nil ||
 		action == "apply_config" && node == "" && enabled == nil && dataDir == "" && interfaces == nil
 }
@@ -195,6 +204,11 @@ func canonicalHostStatusMessage(status hostControlStatus) string {
 				return "Automatic launch enabled."
 			}
 			return "Automatic launch disabled."
+		case "migrate":
+			if normalizeNodeID(status.Node) == "" {
+				return "Node data migrated."
+			}
+			return nodeDisplayName(status.Node) + " data migrated."
 		case "apply_config":
 			return "New configuration applied."
 		}
@@ -210,6 +224,11 @@ func canonicalHostStatusMessage(status hostControlStatus) string {
 		"unsupported":        "That host action is not supported by this installation.",
 		"ownership_conflict": "The node data directory is managed by another installation.",
 		"unchanged":          "The host already has that setting.",
+		"not_installed":      "That node is not installed.",
+		"data_path_invalid":  "The data folder must be a new or empty writable folder outside the app and config roots, without symbolic links.",
+		"insufficient_space": "The destination disk does not have enough free space.",
+		"move_failed":        "The data move failed; the node was restarted in place.",
+		"verify_failed":      "The copied data failed verification; the node was restarted in place.",
 	}
 	if status.ErrorCode == "port_in_use" && portControlLabel(status.Port) != "" {
 		return "Selected port for " + portControlLabel(status.Port) + " is already in use."
@@ -231,7 +250,7 @@ func (a *app) hostControlStatus() (*hostControlStatus, bool) {
 			decoder := json.NewDecoder(bytes.NewReader(b))
 			decoder.DisallowUnknownFields()
 			if decoder.Decode(&request) == nil && ensureJSONEnd(decoder) == nil && validPortControlID(request.ID) && validHostControlShape(request.Action, request.Node, request.Enabled, request.DataDir, request.Interfaces) {
-				return &hostControlStatus{ID: request.ID, Action: request.Action, Node: normalizeNodeID(request.Node), Enabled: request.Enabled, State: "pending", Message: "Applying host change…"}, true
+				return &hostControlStatus{ID: request.ID, Action: request.Action, Node: normalizeNodeID(request.Node), Enabled: request.Enabled, State: "pending", Message: hostControlPendingMessage(request.Action)}, true
 			}
 			return nil, true
 		}
@@ -286,7 +305,8 @@ func decodeHostControlInput(w http.ResponseWriter, r *http.Request) (hostControl
 	validRevision := len(input.Revision) == 64 && len(bytes.Trim([]byte(input.Revision), "0123456789abcdef")) == 0
 	legacyInstall := input.Action == "install" && input.DataDir == "" && input.Interfaces == nil
 	configuredInstall := input.Action == "install" && validInstallOptions(normalizeNodeID(input.Node), input.DataDir, input.Interfaces)
-	valid := (legacyInstall || configuredInstall) && normalizeNodeID(input.Node) != "" && input.Enabled == nil && input.Revision == "" || input.Action == "launch_at_boot" && input.Node == "" && input.Enabled != nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil || input.Action == "apply_config" && input.Node == "" && input.Enabled == nil && validRevision && input.DataDir == "" && input.Interfaces == nil
+	valid := (legacyInstall || configuredInstall) && normalizeNodeID(input.Node) != "" && input.Enabled == nil && input.Revision == "" ||
+		input.Action == "migrate" && normalizeNodeID(input.Node) != "" && input.Enabled == nil && input.Revision == "" && safeHostPath(input.DataDir) && input.Interfaces == nil || input.Action == "launch_at_boot" && input.Node == "" && input.Enabled != nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil || input.Action == "apply_config" && input.Node == "" && input.Enabled == nil && validRevision && input.DataDir == "" && input.Interfaces == nil
 	if !valid {
 		return input, errors.New("invalid host control request")
 	}
@@ -305,7 +325,7 @@ func (a *app) apiHostControlPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	capability, available := a.hostControlCapability()
-	if !available || input.Action == "install" && !capability.InstallSupported || input.Action == "launch_at_boot" && !capability.BootSupported || input.Action == "apply_config" && (!capability.ConfigPending || input.Revision != capability.ConfigRevision) {
+	if !available || input.Action == "install" && !capability.InstallSupported || input.Action == "migrate" && !capability.MigrateSupported || input.Action == "launch_at_boot" && !capability.BootSupported || input.Action == "apply_config" && (!capability.ConfigPending || input.Revision != capability.ConfigRevision) {
 		http.Error(w, "host control is unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -317,6 +337,13 @@ func (a *app) apiHostControlPost(w http.ResponseWriter, r *http.Request) {
 		configured, _ := a.nodeConfigured(input.Node)
 		if configured {
 			http.Error(w, "node is already installed", http.StatusConflict)
+			return
+		}
+	}
+	if input.Action == "migrate" {
+		configured, _ := a.nodeConfigured(input.Node)
+		if !configured {
+			http.Error(w, "node is not installed", http.StatusConflict)
 			return
 		}
 	}
@@ -336,7 +363,15 @@ func (a *app) apiHostControlPost(w http.ResponseWriter, r *http.Request) {
 	}
 	request := hostControlRequest{ID: hex.EncodeToString(id), Action: input.Action, Node: input.Node, Enabled: input.Enabled, Revision: input.Revision, DataDir: input.DataDir, Interfaces: input.Interfaces, RequestedAt: time.Now().Unix()}
 	var b []byte
-	if request.Action == "install" && request.DataDir != "" {
+	if request.Action == "migrate" {
+		b, _ = json.Marshal(struct {
+			ID          string `json:"id"`
+			Action      string `json:"action"`
+			Node        string `json:"node"`
+			DataDir     string `json:"data_dir"`
+			RequestedAt int64  `json:"requested_at"`
+		}{request.ID, request.Action, request.Node, request.DataDir, request.RequestedAt})
+	} else if request.Action == "install" && request.DataDir != "" {
 		b, _ = json.Marshal(struct {
 			ID          string                 `json:"id"`
 			Action      string                 `json:"action"`
@@ -353,5 +388,5 @@ func (a *app) apiHostControlPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
-	writeJSON(w, hostControlStatus{ID: request.ID, Action: request.Action, Node: request.Node, Enabled: request.Enabled, State: "pending", Message: "Applying host change…"})
+	writeJSON(w, hostControlStatus{ID: request.ID, Action: request.Action, Node: request.Node, Enabled: request.Enabled, State: "pending", Message: hostControlPendingMessage(request.Action)})
 }
