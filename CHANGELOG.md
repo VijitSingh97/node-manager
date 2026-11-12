@@ -6,6 +6,14 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Watch-only Monero wallets that are far behind the chain scan in the wallet
+  RPC's background auto-refresh and show live progress, instead of a blocking
+  refresh that outlived its 30-minute budget, poisoned the wallet service
+  until the next restart, and left the card on a permanent error. Scan
+  progress is also stored every cycle, so restarts no longer discard it.
+
 ## [1.33.15] - 2026-11-12
 
 ### Fixed

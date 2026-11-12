@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -343,10 +344,18 @@ func TestMoneroWatchStaysPendingUntilWalletReachesDaemonHeight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	fixture.mu.Lock()
+	fixture.methods = nil
+	fixture.mu.Unlock()
 	a.moneroWatch.refresh(context.Background(), wallet)
 	status := a.moneroWatch.List()[0]
 	if status.State != "pending" || status.ScanHeight != 300 || status.TargetHeight != 310 || status.BalanceAtomic != "" || len(status.History) != 0 {
 		t.Fatalf("incomplete scan claimed readiness: %#v", status)
+	}
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if slices.Contains(fixture.methods, "refresh") || !slices.Contains(fixture.methods, "auto_refresh") {
+		t.Fatalf("behind wallet must scan via auto_refresh, not a blocking refresh: %v", fixture.methods)
 	}
 }
 
