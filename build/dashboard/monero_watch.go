@@ -432,12 +432,13 @@ func (s *MoneroWatchStore) refresh(parent context.Context, wallet MoneroWatchWal
 		if err := s.openWallet(ctx, wallet); err != nil {
 			return err
 		}
-		if err := s.walletCall(ctx, "refresh", map[string]any{}, nil); err != nil {
-			return err
-		}
 		var current moneroWalletAddress
 		if err := s.walletCall(ctx, "get_address", map[string]any{}, &current); err != nil || current.Address != wallet.Address {
 			return errors.New("wallet identity check failed")
+		}
+		// A far-behind wallet scans in the RPC's background auto-refresh; a blocking refresh would outlive moneroRefreshTimeout and poison the service.
+		if err := s.walletCall(ctx, "auto_refresh", map[string]any{"enable": true}, nil); err != nil {
+			return err
 		}
 		var walletHeight moneroWalletHeight
 		if err := s.walletCall(ctx, "get_height", map[string]any{}, &walletHeight); err != nil {
@@ -446,6 +447,9 @@ func (s *MoneroWatchStore) refresh(parent context.Context, wallet MoneroWatchWal
 		snapshot.walletHeight, snapshot.daemonHeight = walletHeight.Height, targetHeight
 		if walletHeight.Height < targetHeight {
 			return errMoneroScanPending
+		}
+		if err := s.walletCall(ctx, "refresh", map[string]any{}, nil); err != nil {
+			return err
 		}
 		var balance moneroWalletBalance
 		if err := s.walletCall(ctx, "get_balance", map[string]any{"all_accounts": true, "strict": true}, &balance); err != nil {
@@ -663,7 +667,7 @@ func (s *MoneroWatchStore) walletCall(ctx context.Context, method string, params
 		}
 	}()
 	switch method {
-	case "close_wallet", "open_wallet", "generate_from_keys", "get_address", "get_height", "get_accounts", "get_balance", "incoming_transfers", "import_key_images", "query_key", "refresh", "store":
+	case "close_wallet", "open_wallet", "generate_from_keys", "get_address", "get_height", "get_accounts", "get_balance", "incoming_transfers", "import_key_images", "query_key", "refresh", "auto_refresh", "store":
 	default:
 		return errors.New("unsupported Monero wallet RPC method")
 	}
