@@ -285,7 +285,9 @@ func diskUsage(path string) diskInfo {
 		return diskInfo{}
 	}
 	blockSize := statfsBlockSize(&stat)
-	return diskInfo{Total: uint64(stat.Blocks) * blockSize, Free: uint64(stat.Bavail) * blockSize}
+	// used + avail, like df's percent: filesystem-reserved blocks are not data.
+	used := (uint64(stat.Blocks) - uint64(stat.Bfree)) * blockSize
+	return diskInfo{Total: used + uint64(stat.Bavail)*blockSize, Free: uint64(stat.Bavail) * blockSize}
 }
 
 func gib(v int64) float64   { return float64(v) / (1024 * 1024 * 1024) }

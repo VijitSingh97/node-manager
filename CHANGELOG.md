@@ -6,6 +6,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.33.11] - 2026-11-11
+
 ### Fixed
 
 - Healthchecks.io pings are a pure dead-man's switch again, as documented: the
@@ -18,6 +20,16 @@ All notable changes to this project are documented here. Format follows
   bursts for minutes — the source of day-long false "Monero node down /
   recovered" Telegram flaps while monerod answered every outside probe in
   milliseconds.
+
+- Disk usage figures exclude the filesystem's reserved blocks (ext4 reserves
+  5% for root), matching df's percentages. The reservation previously counted
+  as used space and inflated the usage panel's grey "Other data" by ~90 GiB
+  on a 2 TB disk.
+
+### Changed
+
+- The dashboard and tari wallet sidecar build with Go 1.27.4, picking up the
+  net/http fix for GO-2026-6859.
 
 ## [1.33.10] - 2026-11-11
 
@@ -1118,7 +1130,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.10...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.11...HEAD
+[1.33.11]: https://github.com/VijitSingh97/node-manager/compare/v1.33.10...v1.33.11
 [1.33.10]: https://github.com/VijitSingh97/node-manager/compare/v1.33.9...v1.33.10
 [1.33.9]: https://github.com/VijitSingh97/node-manager/compare/v1.33.8...v1.33.9
 [1.33.8]: https://github.com/VijitSingh97/node-manager/compare/v1.33.7...v1.33.8
