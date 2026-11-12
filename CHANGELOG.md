@@ -21,6 +21,11 @@ All notable changes to this project are documented here. Format follows
   recovered" Telegram flaps while monerod answered every outside probe in
   milliseconds.
 
+- Disk usage figures exclude the filesystem's reserved blocks (ext4 reserves
+  5% for root), matching df's percentages. The reservation previously counted
+  as used space and inflated the usage panel's grey "Other data" by ~90 GiB
+  on a 2 TB disk.
+
 ### Changed
 
 - The dashboard and tari wallet sidecar build with Go 1.27.4, picking up the

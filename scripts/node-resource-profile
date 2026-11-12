@@ -473,7 +473,7 @@ write_host_stats() {
       reduce (rows($nodesizes)[]) as $row (.;
         .nodes[$row[0]] = ((.nodes[$row[0]] // {cpu_pct: 0, mem_bytes: 0}) + {disk_bytes: ($row[1] | tonumber? // 0)})) |
       . + {disks: (
-        (rows($hostdisks) | map({name: .[0], mount: .[5], total: (.[1] | tonumber? // 0), free: (.[3] | tonumber? // 0)}) | map(select(.total > 0))) as $mounts |
+        (rows($hostdisks) | map({name: .[0], mount: .[5], total: (((.[2] | tonumber? // 0) + (.[3] | tonumber? // 0))), free: (.[3] | tonumber? // 0)}) | map(select(.total > 0))) as $mounts |
         (rows($nodedirs) | map(. as $d |
           ($mounts | map(. as $disk | select(($d[1] == $disk.mount) or ($d[1] | startswith($disk.mount + "/")) or ($disk.mount == "/"))) | sort_by(-(.mount | length)) | .[0]) as $best |
           select($best != null) | {service: $d[0], device: $best.name})) as $owners |
