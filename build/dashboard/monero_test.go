@@ -298,7 +298,7 @@ func validDigestRequest(r *http.Request, algorithm, username, password string) b
 		return false
 	}
 	parameters := parseDigestParameters(strings.TrimPrefix(authorization, "Digest "))
-	if parameters["username"] != username || parameters["realm"] != "monero-rpc" || parameters["nonce"] != "server-nonce" || parameters["uri"] != r.URL.RequestURI() || parameters["qop"] != "auth" || parameters["nc"] != "00000001" || parameters["opaque"] != "opaque-value" {
+	if parameters["username"] != username || parameters["realm"] != "monero-rpc" || parameters["nonce"] != "server-nonce" || parameters["uri"] != r.URL.RequestURI() || parameters["qop"] != "auth" || len(parameters["nc"]) != 8 || parameters["nc"] == "00000000" || parameters["opaque"] != "opaque-value" {
 		return false
 	}
 	var digest func(string) string
@@ -351,5 +351,36 @@ func TestMoneroRPCRetriesStaleDigestNonce(t *testing.T) {
 	}
 	if out.Status != "OK" || len(requests) != 3 {
 		t.Fatalf("status=%q requests=%d", out.Status, len(requests))
+	}
+}
+
+func TestMoneroRPCIncrementsNonceCountOnReusedServerNonce(t *testing.T) {
+	var authed []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if auth == "" {
+			w.Header().Set("WWW-Authenticate", `Digest qop="auth", algorithm=MD5, realm="monero-rpc", nonce="sticky"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		authed = append(authed, auth)
+		w.Header().Set("Content-Type", "application/json")
+		if _, err := w.Write([]byte(`{"result":{"status":"OK"}}`)); err != nil {
+			t.Error(err)
+		}
+	}))
+	defer server.Close()
+
+	rpc := moneroRPC{url: server.URL, user: "alice", password: "secret", client: server.Client()}
+	var out struct {
+		Status string `json:"status"`
+	}
+	for i := 0; i < 2; i++ {
+		if err := rpc.call(t.Context(), "get_info", &out); err != nil {
+			t.Fatalf("call %d: %v", i, err)
+		}
+	}
+	if len(authed) != 2 || !strings.Contains(authed[0], "nc=00000001") || !strings.Contains(authed[1], "nc=00000002") {
+		t.Fatalf("nonce counts did not increment on a reused nonce: %v", authed)
 	}
 }
