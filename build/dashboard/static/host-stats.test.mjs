@@ -151,12 +151,31 @@ test("arcPath produces unit-circle arcs with the right large-arc flag", () => {
   assert.match(arcPath(0, 1), /A 1 1 0 1 1 1 -0\.0002/);
 });
 
-test("withCollectorSizes seeds from collector disk bytes and lets live RPC sizes win", () => {
-  const stats = { nodes: { bitcoin: { cpu_pct: 0, mem_bytes: 0, disk_bytes: 9 * GiB }, monero: { cpu_pct: 3, mem_bytes: GiB, disk_bytes: 28 * GiB } } };
-  const merged = withCollectorSizes(stats, new Map([["monero", 30 * GiB], ["bitcoin", 0]]));
-  assert.equal(merged.get("bitcoin"), 9 * GiB);
-  assert.equal(merged.get("monero"), 30 * GiB);
+test("withCollectorSizes prefers measured collector bytes and falls back to live RPC sizes", () => {
+  const stats = { nodes: { bitcoin: { cpu_pct: 0, mem_bytes: 0, disk_bytes: 20 * GiB }, monero: { cpu_pct: 3, mem_bytes: GiB, disk_bytes: 107 * GiB } } };
+  const merged = withCollectorSizes(stats, new Map([["monero", 100 * GiB], ["bitcoin", 10 * GiB], ["tari", 5 * GiB]]));
+  assert.equal(merged.get("bitcoin"), 20 * GiB);
+  assert.equal(merged.get("monero"), 107 * GiB);
+  assert.equal(merged.get("tari"), 5 * GiB);
   assert.equal(withCollectorSizes(null, new Map()).size, 0);
+});
+
+test("pies show a grey other-processes slice from host-wide usage", () => {
+  const view = pieView({
+    cpus: 4, mem_total_bytes: 8 * GiB, host_cpu_pct: 40, host_mem_bytes: 4 * GiB,
+    nodes: { bitcoin: { cpu_pct: 10, mem_bytes: GiB } }, other: { cpu_pct: 5, mem_bytes: GiB },
+  });
+  const cpuHost = view.cpu.find((s) => s.id === "host");
+  assert.equal(cpuHost.color, OTHER_COLOR);
+  assert.equal(Math.round(cpuHost.percent), 25);
+  assert.match(cpuHost.title, /Other processes — 25\.0% CPU/);
+  assert.equal(Math.round(view.cpu.find((s) => s.id === "idle").percent), 60);
+  const memHost = view.mem.find((s) => s.id === "host");
+  assert.equal(Math.round(memHost.percent), 25);
+  assert.match(memHost.title, /Other processes — 2\.00 GiB \(25\.0%\)/);
+  assert.equal(rescaleToStack(view.cpu).find((s) => s.id === "host"), undefined);
+  const without = pieView({ cpus: 4, mem_total_bytes: 8 * GiB, nodes: {}, other: { cpu_pct: 5, mem_bytes: GiB } });
+  assert.equal(without.cpu.find((s) => s.id === "host"), undefined);
 });
 
 test("other and free slices use distinct colors on bars and pies", () => {

@@ -97,7 +97,7 @@ check out the published release:
 ```bash
 sudo apt update
 sudo apt install ca-certificates curl git iproute2 jq openssl util-linux
-git clone --branch v1.33.11 --depth 1 https://github.com/VijitSingh97/node-manager.git
+git clone --branch v1.33.12 --depth 1 https://github.com/VijitSingh97/node-manager.git
 cd node-manager
 ./stack init
 ```
