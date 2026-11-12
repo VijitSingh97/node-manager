@@ -166,3 +166,29 @@ func TestHostControlQueuesMigrateForInstalledNodesOnly(t *testing.T) {
 		t.Fatalf("space message = %q", space)
 	}
 }
+
+func TestHostControlShowsMigrateProgressWhileProcessing(t *testing.T) {
+	a, _ := testApp(t, &rpcFixture{}, "")
+	writeHostCapability(t, a, false)
+	id := strings.Repeat("ab", 16)
+	request, _ := json.Marshal(map[string]any{"id": id, "action": "migrate", "node": "bitcoin", "data_dir": "/mnt/big/bitcoin", "requested_at": time.Now().Unix()})
+	if err := os.WriteFile(a.nodeControlPath("processing"), request, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	progress, _ := json.Marshal(migrateProgress{ID: id, Node: "bitcoin", Percent: 42, CopiedKB: 44 * 1024 * 1024, TotalKB: 104 * 1024 * 1024, UpdatedAt: time.Now().Unix()})
+	if err := os.WriteFile(a.nodeControlPath("progress"), progress, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	status, pending := a.hostControlStatus()
+	if !pending || status == nil || status.State != "pending" || !strings.Contains(status.Message, "42%") || !strings.Contains(status.Message, "44.0 of 104.0 GiB") {
+		t.Fatalf("status = %#v pending=%v", status, pending)
+	}
+	stale, _ := json.Marshal(migrateProgress{ID: id, Node: "bitcoin", Percent: 50, CopiedKB: 1, TotalKB: 2, UpdatedAt: time.Now().Unix() - 600})
+	if err := os.WriteFile(a.nodeControlPath("progress"), stale, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	status, _ = a.hostControlStatus()
+	if status == nil || !strings.Contains(status.Message, "can take a while") {
+		t.Fatalf("stale progress was trusted: %#v", status)
+	}
+}
