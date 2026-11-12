@@ -3,9 +3,41 @@ package main
 import (
 	"encoding/json"
 	"math"
+	"sort"
 	"strings"
 	"time"
 )
+
+// Cumulative confirmed unspent funds sampled at evenly spaced heights from the
+// first arrival to the scan tip; nil when any outpoint predates height caching.
+func chainHistorySeries(outpoints []scanOutpoint, tip int64) []float64 {
+	first := int64(0)
+	for _, output := range outpoints {
+		if output.Height <= 0 || output.Height > tip {
+			return nil
+		}
+		if first == 0 || output.Height < first {
+			first = output.Height
+		}
+	}
+	if first == 0 {
+		return nil
+	}
+	sorted := append([]scanOutpoint(nil), outpoints...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Height < sorted[j].Height })
+	const samples = 60
+	series := make([]float64, 0, samples)
+	index, sats := 0, int64(0)
+	for i := int64(0); i < samples; i++ {
+		height := first + (tip-first)*i/(samples-1)
+		for index < len(sorted) && sorted[index].Height <= height {
+			sats += sorted[index].Sats
+			index++
+		}
+		series = append(series, float64(sats)/1e8)
+	}
+	return series
+}
 
 func (s *WatchStore) List(walletRPC WalletRPCFunc, initialBlockDownload bool) map[string]any {
 	return s.ListWithChain(walletRPC, blockchainInfo{InitialBlockDownload: initialBlockDownload})
@@ -129,6 +161,9 @@ func (s *WatchStore) walletBalances(walletRPC WalletRPCFunc, entries []WatchEntr
 				row["btc"] = formatBTC(cache.BTC)
 				row["scan_height"] = cache.Height
 				row["scan_time"] = cache.ScannedAt.Format(time.RFC3339)
+				if series := chainHistorySeries(cache.Outpoints, cache.Height); series != nil {
+					row["chain_history"] = series
+				}
 				if !scanUnavailable && chain.Pruned && !chain.InitialBlockDownload && chain.BestBlockHash != "" && cache.BestBlock == chain.BestBlockHash {
 					row["state"] = "ok"
 					if !example {

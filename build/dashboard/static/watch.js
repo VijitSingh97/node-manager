@@ -8,16 +8,24 @@
 import { towerLayout, WIDE_MIN } from "./tower.js";
 import { points } from "./sparkline.js";
 import { dashboardFetch as fetch } from "./session.js";
+import { PRICE_URL, formatPrice, normalizeCurrency } from "./prices.js";
 
 const CSRF = { "X-Requested-With": "fetch" }; // blocks cross-site form posts
 const POLL_MS = 15000;
 const GENESIS_ADDRESS = "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa";
 
+// comma-group the integer digits; the fraction keeps the server's exact string
+export function formatBTCAmount(btc) {
+  const [whole, fraction] = String(btc).split(".");
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return fraction ? `${grouped}.${fraction}` : grouped;
+}
+
 export function balanceLabel(w) {
   if (w.state === "pending" || w.state === "scanning") {
     return w.balance_kind === "confirmed" ? "Pending balance…" : "Pending history…";
   }
-  if (w.state === "ok" || w.state === "stale") return `${w.btc} BTC`;
+  if (w.state === "ok" || w.state === "stale") return `${formatBTCAmount(w.btc)} BTC`;
   return "—"; // error / not ready
 }
 
@@ -27,7 +35,14 @@ export function totalLabel(view) {
       ? "Pending balance…" : "Pending history…";
   }
   if (view.total_state === "unavailable") return "—";
-  return `${view.total} BTC`;
+  return `${formatBTCAmount(view.total)} BTC`;
+}
+
+export function fiatLabel(btc, price, currency) {
+  const amount = typeof btc === "number" ? btc : parseFloat(btc);
+  const rate = Number(price?.prices?.[normalizeCurrency(currency).toLowerCase()]);
+  if (price?.available !== true || !Number.isFinite(amount) || !Number.isFinite(rate) || rate <= 0) return "";
+  return `≈ ${formatPrice(amount * rate, currency)}${price.stale ? " · stale" : ""}`;
 }
 
 export function scanNote(w) {
@@ -217,13 +232,17 @@ if (typeof document !== "undefined") {
         walletName.setAttribute("aria-label", `${identity.label}. ${note}`);
       }
       row.append(walletName);
-      if (w.history && w.history.length >= 2) {
+      const chainSeries = Array.isArray(w.chain_history) && w.chain_history.length >= 2;
+      const series = chainSeries ? w.chain_history : w.history;
+      if (series && series.length >= 2) {
         const spark = document.createElement("canvas");
         spark.className = "ws-spark";
-        spark.title = "Saved balance snapshots; not transaction history";
-        spark.setAttribute("aria-label", `${identity.label}: saved balance snapshots`);
+        spark.title = chainSeries
+          ? "Confirmed unspent funds by arrival block, first seen to the scan tip"
+          : "Saved balance snapshots; not transaction history";
+        spark.setAttribute("aria-label", `${identity.label}: ${chainSeries ? "unspent funds by arrival block" : "saved balance snapshots"}`);
         row.append(spark);
-        drawSpark(spark, w.history);
+        drawSpark(spark, series);
       }
       const bal = el("span", "ws-bal", balanceLabel(w));
       bal.setAttribute("aria-label", `${identity.label}: ${balanceLabel(w)}`);
@@ -232,6 +251,10 @@ if (typeof document !== "undefined") {
         bal.title = "Last known balance; waiting for a fresh result";
       }
       row.append(bal);
+      if (w.state === "ok" || w.state === "stale") {
+        const fiat = fiatLabel(w.btc, latestPrice, fiatCurrency);
+        if (fiat) row.append(el("span", "ws-fiat", fiat));
+      }
       const scan = scanNote(w);
       if (scan) row.append(el("span", "ws-note", scan));
       stats.append(row);
@@ -242,6 +265,10 @@ if (typeof document !== "undefined") {
       const totalBalance = el("span", "ws-bal", total);
       totalBalance.setAttribute("aria-label", `Total: ${total}`);
       t.append(el("span", "ws-name", "Total"), totalBalance);
+      if (view.total_state === "ok") {
+        const fiat = fiatLabel(view.total, latestPrice, fiatCurrency);
+        if (fiat) t.append(el("span", "ws-fiat", fiat));
+      }
       if (view.total_reason) {
         const reason = view.total_reason === "mixed_sources"
           ? "Wallet sources may overlap; a combined total is unavailable."
@@ -292,7 +319,24 @@ if (typeof document !== "undefined") {
   }
   let last = { wallets: [] };
   let loadFailed = false;
+  let latestPrice = { available: false };
+  let fiatCurrency = "USD";
   const render = (view) => { last = view; renderManager(view); renderStats(view); };
+
+  async function refreshPrice() {
+    try {
+      const res = await fetch(PRICE_URL, { headers: { Accept: "application/json" }, credentials: "same-origin" });
+      if (!res.ok) throw new Error("price request failed");
+      latestPrice = await res.json();
+    } catch { latestPrice = { available: false }; }
+    renderStats(last);
+  }
+  document.addEventListener("appearance-updated", (event) => {
+    fiatCurrency = normalizeCurrency(event.detail?.default_currency);
+    renderStats(last);
+  });
+  refreshPrice();
+  setInterval(refreshPrice, 60000);
   // re-render on resize so the block re-centres and the sparklines redraw at the
   // width for the new breakpoint
   window.addEventListener("resize", () => renderStats(last));

@@ -141,7 +141,7 @@ func (m *prunedRPCMock) setScanResult(bestBlock string, result scanTxOutSetResul
 func validPrunedScan(bestBlock string) scanTxOutSetResult {
 	return scanTxOutSetResult{
 		Success: true, TxOuts: 200_000_000, Height: 900000, BestBlock: bestBlock, TotalAmount: 1.25,
-		Unspents: []scanTxOutSetUnspent{{TxID: strings.Repeat("a", 64), Vout: 0, ScriptPubKey: "0014abcd", Desc: "addr(test)#scan", Amount: 1.25}},
+		Unspents: []scanTxOutSetUnspent{{TxID: strings.Repeat("a", 64), Vout: 0, ScriptPubKey: "0014abcd", Desc: "addr(test)#scan", Amount: 1.25, Height: 800000}},
 	}
 }
 
@@ -150,6 +150,27 @@ func cachedPrunedScan(entry WatchEntry, btc float64, height int64, bestBlock str
 	return prunedScanCache{
 		DescriptorID: descriptorSetID(entry), BTC: btc, Height: height, BestBlock: bestBlock, ScannedAt: scannedAt,
 		Outpoints: []scanOutpoint{{TxID: strings.Repeat("f", 64), Vout: 0, Sats: sats}},
+	}
+}
+
+func TestChainHistorySeriesCumulativeByArrivalHeight(t *testing.T) {
+	outpoints := []scanOutpoint{
+		{TxID: strings.Repeat("a", 64), Vout: 0, Sats: 100_000_000, Height: 100},
+		{TxID: strings.Repeat("b", 64), Vout: 0, Sats: 50_000_000, Height: 300},
+	}
+	series := chainHistorySeries(outpoints, 300)
+	if len(series) != 60 || series[0] != 1 || series[30] != 1 || series[59] != 1.5 {
+		t.Fatalf("cumulative series = %v", series)
+	}
+	if chainHistorySeries([]scanOutpoint{{Sats: 1, Height: 0}}, 300) != nil {
+		t.Fatal("outpoint without a cached height produced a series")
+	}
+	if chainHistorySeries([]scanOutpoint{{Sats: 1, Height: 400}}, 300) != nil {
+		t.Fatal("outpoint above the tip produced a series")
+	}
+	flat := chainHistorySeries([]scanOutpoint{{Sats: 200_000_000, Height: 300}}, 300)
+	if len(flat) != 60 || flat[0] != 2 || flat[59] != 2 {
+		t.Fatalf("single arrival series = %v", flat)
 	}
 }
 
@@ -181,7 +202,7 @@ func TestPrunedBatchDerivesRepeatedOutputDescriptorOnce(t *testing.T) {
 	bestBlock := strings.Repeat("0", 64)
 	result := validPrunedScan(bestBlock)
 	result.Unspents = append(result.Unspents, scanTxOutSetUnspent{
-		TxID: strings.Repeat("b", 64), Vout: 1, ScriptPubKey: "0014dcba", Desc: result.Unspents[0].Desc, Amount: 0.75,
+		TxID: strings.Repeat("b", 64), Vout: 1, ScriptPubKey: "0014dcba", Desc: result.Unspents[0].Desc, Amount: 0.75, Height: 850000,
 	})
 	result.TotalAmount = 2
 	mock := &prunedRPCMock{bestBlock: bestBlock, result: result}
@@ -193,6 +214,10 @@ func TestPrunedBatchDerivesRepeatedOutputDescriptorOnce(t *testing.T) {
 	waitPrunedScannerIdle(t, a.scanner)
 	if row["btc"] != "2" {
 		t.Fatalf("repeated descriptor balance row = %#v", row)
+	}
+	series, ok := row["chain_history"].([]any)
+	if !ok || len(series) != 60 || series[0] != 1.25 || series[59] != 2.0 {
+		t.Fatalf("chain history series = %#v", row["chain_history"])
 	}
 	mock.mu.Lock()
 	defer mock.mu.Unlock()

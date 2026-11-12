@@ -12,9 +12,10 @@ import (
 )
 
 type scanOutpoint struct {
-	TxID string `json:"txid"`
-	Vout int64  `json:"vout"`
-	Sats int64  `json:"sats"`
+	TxID   string `json:"txid"`
+	Vout   int64  `json:"vout"`
+	Sats   int64  `json:"sats"`
+	Height int64  `json:"height,omitempty"`
 }
 
 type prunedScanCache struct {
@@ -94,7 +95,7 @@ func validPrunedScanCache(cache prunedScanCache) bool {
 	var sats int64
 	const maxSatoshis = int64(21_000_000 * 1e8)
 	for _, output := range cache.Outpoints {
-		if len(output.TxID) != 64 || output.Vout < 0 || output.Sats < 0 {
+		if len(output.TxID) != 64 || output.Vout < 0 || output.Sats < 0 || output.Height < 0 || output.Height > cache.Height {
 			return false
 		}
 		if _, err := hex.DecodeString(output.TxID); err != nil {
