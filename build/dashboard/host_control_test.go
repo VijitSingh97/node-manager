@@ -41,7 +41,7 @@ func TestHostControlQueuesInstallAndReportsBootState(t *testing.T) {
 	writeHostCapability(t, a, false)
 	response := hostControlHTTP(a, http.MethodGet, "", false, "192.168.1.20:4321")
 	var view hostControlView
-	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &view) != nil || !view.Available || !view.InstallSupported || !view.BootSupported || view.BootEnabled || view.ConfigPath != "/etc/node-manager/config.json" || view.Nodes[1].DataDir != "/var/lib/node-manager/data/monero" {
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &view) != nil || !view.Available || !view.InstallSupported || !view.MigrateSupported || !view.BootSupported || view.BootEnabled || view.ConfigPath != "/etc/node-manager/config.json" || view.Nodes[1].DataDir != "/var/lib/node-manager/data/monero" {
 		t.Fatalf("host view = %d %#v", response.Code, view)
 	}
 	response = hostControlHTTP(a, http.MethodPost, `{"action":"install","node":"monero"}`, true, "192.168.1.20:4321")
