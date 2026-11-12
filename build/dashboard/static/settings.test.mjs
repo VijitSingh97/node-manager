@@ -371,3 +371,19 @@ test("every node shows its approximate maximum alert volume and coalescing behav
   }
   assert.equal(html.match(/Several blocks found together share one alert\./g)?.length, 7);
 });
+
+test("migrate payloads and model gate on migrate support", () => {
+  assert.deepEqual(hostActionPayload("migrate", "monero", { data_dir: "/mnt/big/monero" }), { action: "migrate", node: "monero", data_dir: "/mnt/big/monero" });
+  assert.equal(hostActionPayload("migrate", "monero", { data_dir: "relative/path" }), undefined);
+  assert.equal(hostActionPayload("migrate", "monero", { data_dir: "/" }), undefined);
+  assert.equal(hostActionPayload("migrate", "unknown", { data_dir: "/mnt/big" }), undefined);
+  const view = hostControlModel({
+    available: true, install_supported: true, migrate_supported: true,
+    nodes: [{ id: "monero", name: "Monero", installed: true, data_dir: "/home/nodes/monero", interfaces: [] }],
+    status: { action: "migrate", state: "pending", message: "Migrating node data…" },
+  });
+  assert.equal(view.migrate_supported, true);
+  assert.equal(view.status.action, "migrate");
+  assert.equal(shouldPollHost(view), true);
+  assert.equal(hostControlModel({}).migrate_supported, false);
+});
