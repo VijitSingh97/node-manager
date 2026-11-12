@@ -6,6 +6,17 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.33.13] - 2026-11-12
+
+### Fixed
+
+- The Monero RPC client sends an incrementing nonce count when monerod reuses
+  a Digest nonce across challenges, instead of a hardcoded nc=00000001 that
+  the server rejects as a replay once any concurrent caller has used it. This
+  was the remaining source of false "Monero node down / recovered" flaps
+  after v1.33.11's stale-nonce retry, which re-handshook into the same nonce
+  and replayed again.
+
 ## [1.33.12] - 2026-11-11
 
 ### Changed
@@ -1143,7 +1154,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.12...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.13...HEAD
+[1.33.13]: https://github.com/VijitSingh97/node-manager/compare/v1.33.12...v1.33.13
 [1.33.12]: https://github.com/VijitSingh97/node-manager/compare/v1.33.11...v1.33.12
 [1.33.11]: https://github.com/VijitSingh97/node-manager/compare/v1.33.10...v1.33.11
 [1.33.10]: https://github.com/VijitSingh97/node-manager/compare/v1.33.9...v1.33.10

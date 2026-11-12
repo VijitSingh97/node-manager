@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -251,10 +252,10 @@ func (m moneroRPC) do(ctx context.Context, method, path string, body []byte) ([]
 		return nil, err
 	}
 	// A second 401 means the nonce went stale between challenge and use; RFC 7616 says re-handshake.
-	for attempt := 0; attempt < 2 && response.StatusCode == http.StatusUnauthorized; attempt++ {
+	for attempt := 0; attempt < 3 && response.StatusCode == http.StatusUnauthorized; attempt++ {
 		challenge := digestChallenge(response.Header.Values("WWW-Authenticate"))
 		response.Body.Close()
-		authorization, err := digestAuthorization(challenge, m.user, m.password, method, endpoint.RequestURI())
+		authorization, err := digestAuthorization(challenge, m.user, m.password, method, endpoint.RequestURI(), digestNonceCount(m.url+"|"+m.user, challenge["nonce"]))
 		if err != nil {
 			return nil, err
 		}
@@ -298,7 +299,7 @@ func (m moneroRPC) doDigest(ctx context.Context, method, path string, body, prob
 	}
 	challenge := digestChallenge(probe.Header.Values("WWW-Authenticate"))
 	probe.Body.Close()
-	authorization, err := digestAuthorization(challenge, m.user, m.password, method, endpoint.RequestURI())
+	authorization, err := digestAuthorization(challenge, m.user, m.password, method, endpoint.RequestURI(), digestNonceCount(m.url+"|"+m.user, challenge["nonce"]))
 	if err != nil {
 		return nil, err
 	}
@@ -312,7 +313,7 @@ func (m moneroRPC) doDigest(ctx context.Context, method, path string, body, prob
 	if response.StatusCode == http.StatusUnauthorized {
 		challenge = digestChallenge(response.Header.Values("WWW-Authenticate"))
 		response.Body.Close()
-		authorization, err = digestAuthorization(challenge, m.user, m.password, method, endpoint.RequestURI())
+		authorization, err = digestAuthorization(challenge, m.user, m.password, method, endpoint.RequestURI(), digestNonceCount(m.url+"|"+m.user, challenge["nonce"]))
 		if err != nil {
 			return nil, err
 		}
@@ -405,7 +406,30 @@ func parseDigestParameters(value string) map[string]string {
 	return parameters
 }
 
-func digestAuthorization(challenge map[string]string, username, password, method, uri string) (string, error) {
+var digestNonceCounts sync.Map
+
+// Digest replay protection: a server nonce's nc must increase across every
+// request that uses it, including from concurrent callers.
+func digestNonceCount(key, nonce string) string {
+	entry, _ := digestNonceCounts.LoadOrStore(key, &digestCounter{})
+	counter := entry.(*digestCounter)
+	counter.mu.Lock()
+	defer counter.mu.Unlock()
+	if counter.nonce != nonce {
+		counter.nonce = nonce
+		counter.count = 0
+	}
+	counter.count++
+	return fmt.Sprintf("%08x", counter.count)
+}
+
+type digestCounter struct {
+	mu    sync.Mutex
+	nonce string
+	count uint32
+}
+
+func digestAuthorization(challenge map[string]string, username, password, method, uri, nonceCount string) (string, error) {
 	realm, nonce := challenge["realm"], challenge["nonce"]
 	if realm == "" || nonce == "" || username == "" {
 		return "", errors.New("invalid Monero RPC digest challenge")
@@ -447,7 +471,6 @@ func digestAuthorization(challenge map[string]string, username, password, method
 			break
 		}
 	}
-	nonceCount := "00000001"
 	var response string
 	if challenge["qop"] != "" {
 		if qop == "" {
