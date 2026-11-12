@@ -6,6 +6,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.33.14] - 2026-11-12
+
 ### Added
 
 - Cross-disk data migrations report live progress: the host helper samples the
@@ -1175,7 +1177,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.13...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.14...HEAD
+[1.33.14]: https://github.com/VijitSingh97/node-manager/compare/v1.33.13...v1.33.14
 [1.33.13]: https://github.com/VijitSingh97/node-manager/compare/v1.33.12...v1.33.13
 [1.33.12]: https://github.com/VijitSingh97/node-manager/compare/v1.33.11...v1.33.12
 [1.33.11]: https://github.com/VijitSingh97/node-manager/compare/v1.33.10...v1.33.11
