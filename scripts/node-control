@@ -67,19 +67,53 @@ restore_transaction_file() {
     rm -f "$destination"
   fi
 }
+migrate_device_of() {
+  if [ "$host_os" = Linux ]; then
+    stat -c %d "$1" 2>/dev/null
+  else
+    stat -f %d "$1" 2>/dev/null
+  fi
+}
+
+migrate_rollback_from_meta() {
+  rollback_meta=$1
+  rollback_source=$(jq -r '.source // ""' "$rollback_meta")
+  rollback_target=$(jq -r '.target // ""' "$rollback_meta")
+  rollback_mode=$(jq -r '.mode // ""' "$rollback_meta")
+  case "$rollback_source" in (/*) ;; (*) return 1 ;; esac
+  case "$rollback_target" in (/*) ;; (*) return 1 ;; esac
+  if [ "$rollback_mode" = rename ]; then
+    if [ ! -d "$rollback_source" ] && [ -d "$rollback_target" ]; then
+      mv "$rollback_target" "$rollback_source" || return 1
+    fi
+  elif [ "$rollback_mode" = copy ]; then
+    [ ! -d "$rollback_target" ] || rm -rf "$rollback_target" || return 1
+  fi
+  return 0
+}
+
 restore_install_transaction() {
   [ -d "$install_transaction" ] || return 0
   transaction_meta=$install_transaction/meta.json
   jq -e '
     type=="object" and (.id|type=="string") and
     (.node=="bitcoin" or .node=="monero" or .node=="tari" or .node=="litecoin" or .node=="dogecoin" or .node=="bitcoincash" or .node=="zcash") and
-    (.phase=="applying" or .phase=="applied") and
+    (.phase=="applying" or .phase=="applied" or .phase=="moving") and
+    ((.action // "install")=="install" or .action=="migrate") and
     (.had_config|type=="boolean") and (.had_env|type=="boolean") and
     (.had_approved_config|type=="boolean") and (.had_approved_env|type=="boolean")
   ' "$transaction_meta" >/dev/null 2>&1 || return 1
+  transaction_action=$(jq -r '.action // "install"' "$transaction_meta")
   transaction_phase=$(jq -r .phase "$transaction_meta")
   transaction_id=$(jq -r .id "$transaction_meta")
   transaction_node=$(jq -r .node "$transaction_meta")
+  if [ "$transaction_action" = migrate ] && [ "$transaction_phase" != applied ]; then
+    migrate_rollback_from_meta "$transaction_meta" || return 1
+  fi
+  if [ "$transaction_phase" = moving ]; then
+    rm -rf "$install_transaction"
+    return 0
+  fi
   if [ "$transaction_phase" = applied ]; then
     BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root" \
       BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" up >/dev/null 2>&1 || return 1
@@ -112,8 +146,9 @@ if [ -d "$install_transaction" ]; then
     recovery_id=$(jq -r '.id // ""' "$install_transaction/meta.json" 2>/dev/null || true)
     recovery_node=$(jq -r '.node // ""' "$install_transaction/meta.json" 2>/dev/null || true)
     recovery_status_tmp=$(mktemp "$state_root/node-control/.recovery-status.XXXXXX")
-    jq -nc --arg id "$recovery_id" --arg node "$recovery_node" \
-      '{id:$id,action:"install",state:"failed",message:"Interrupted installation could not be restored.",node:$node,error_code:"rollback_failed"}' >"$recovery_status_tmp"
+    recovery_action=$(jq -r '.action // "install"' "$install_transaction/meta.json" 2>/dev/null || printf install)
+    jq -nc --arg id "$recovery_id" --arg node "$recovery_node" --arg action "$recovery_action" \
+      '{id:$id,action:$action,state:"failed",message:"The interrupted host change could not be restored.",node:$node,error_code:"rollback_failed"}' >"$recovery_status_tmp"
     chmod 600 "$recovery_status_tmp"
     mv "$recovery_status_tmp" "$install_recovery_status"
     install_recovery_failed=true
@@ -279,7 +314,7 @@ publish_host_capability() {
   jq -nc --argjson timestamp "$now" --arg platform "$host_platform" --arg boot_kind "$boot_kind" \
     --argjson boot_supported "$boot_supported" --argjson boot_enabled "$boot_enabled" --argjson config_pending "$pending" \
     --arg config_revision "$revision" --arg config_path "$config_path" --argjson data_paths "$data_paths" \
-    '{timestamp:$timestamp,install_supported:true,boot_supported:$boot_supported,boot_enabled:$boot_enabled,config_pending:$config_pending,config_revision:$config_revision,platform:$platform,boot_kind:$boot_kind,config_path:$config_path,data_paths:$data_paths}' |
+    '{timestamp:$timestamp,install_supported:true,migrate_supported:true,boot_supported:$boot_supported,boot_enabled:$boot_enabled,config_pending:$config_pending,config_revision:$config_revision,platform:$platform,boot_kind:$boot_kind,config_path:$config_path,data_paths:$data_paths}' |
     $docker_bin exec -i -u 1000 "$dashboard_id" sh -c 'umask 077; cat > /state/.node-control.capability.tmp; mv /state/.node-control.capability.tmp /state/node-control.capability' >/dev/null
 }
 publish_host_capability
@@ -335,6 +370,16 @@ if printf '%s' "$request" | jq -e --argjson now "$now" '
         (.enabled|type=="boolean") and
         (.host_port|type=="number" and floor==. and .>=1 and .<=65535))))) and
   .action=="install" and
+  (.id|type=="string" and test("^[0-9a-f]{32}$")) and
+  (.node=="bitcoin" or .node=="monero" or .node=="tari" or .node=="litecoin" or .node=="dogecoin" or .node=="bitcoincash" or .node=="zcash") and
+  (.requested_at|type=="number" and floor==. and . >= $now-300 and . <= $now+30)
+' >/dev/null 2>&1; then
+  host_request=true
+elif printf '%s' "$request" | jq -e --argjson now "$now" '
+  type=="object" and keys==["action","data_dir","id","node","requested_at"] and .action=="migrate" and
+  (.data_dir|type=="string" and length>1 and length<=1024 and startswith("/") and
+    (explode|all(. != 0 and . != 10 and . != 13)) and
+    (contains("//")|not) and (split("/")|all(. != "." and . != ".."))) and
   (.id|type=="string" and test("^[0-9a-f]{32}$")) and
   (.node=="bitcoin" or .node=="monero" or .node=="tari" or .node=="litecoin" or .node=="dogecoin" or .node=="bitcoincash" or .node=="zcash") and
   (.requested_at|type=="number" and floor==. and . >= $now-300 and . <= $now+30)
@@ -471,6 +516,114 @@ if [ "$host_request" = true ]; then
     restore_install_transaction ||
       host_finish failed "Node installation failed and prior configuration could not be fully restored." "$host_node" "" rollback_failed
     host_finish failed "Node installation failed; prior configuration restored." "$host_node" "" apply_failed
+  fi
+  if [ "$host_action" = migrate ]; then
+    host_node=$(printf '%s' "$request" | jq -r .node)
+    host_target_input=$(printf '%s' "$request" | jq -r .data_dir)
+    current='{}'
+    [ -f "$config_file" ] && current=$(cat "$config_file")
+    configured=$(printf '%s' "$current" | jq -r --arg node "$host_node" 'if $node=="bitcoin" then ((.bitcoin//{}|has("enabled")|not) or .bitcoin.enabled==true) else .[$node].enabled==true end')
+    [ "$configured" = true ] || host_finish rejected "Node is not installed." "$host_node" "" not_installed
+    migrate_variable=$(printf '%s_DATA_DIR' "$(printf '%s' "$host_node" | tr '[:lower:]' '[:upper:]')")
+    migrate_source=$(env_get "$migrate_variable")
+    [ -n "$migrate_source" ] || migrate_source=$(jq -r --arg node "$host_node" '.[$node].data_dir // ""' "$approved_config" 2>/dev/null || true)
+    [ -n "$migrate_source" ] || migrate_source=./data/$host_node
+    migrate_source=$(host_absolute_path "$migrate_source")
+    [ -d "$migrate_source" ] || host_finish rejected "Current data folder was not found." "$host_node" "" data_path_invalid
+    migrate_source=$(cd "$migrate_source" && pwd -P) || host_finish rejected "Current data folder was not found." "$host_node" "" data_path_invalid
+    if ! migrate_target=$(prepare_install_data_dir "$host_node" "$host_target_input") || [ -z "$migrate_target" ]; then
+      host_finish rejected "Destination must be a new or empty writable folder outside app and config roots, without symbolic links." "$host_node" "" data_path_invalid
+    fi
+    migrate_needed=$(du -sk "$migrate_source" 2>/dev/null | awk '{print $1}')
+    case "$migrate_needed" in ('' | *[!0-9]*) host_finish failed "Current data folder could not be measured." "$host_node" "" validation_failed ;; esac
+    migrate_available=$(df -Pk "$migrate_target" 2>/dev/null | awk 'NR == 2 { print $4 }')
+    case "$migrate_available" in ('' | *[!0-9]*) migrate_available=0 ;; esac
+    if [ "$migrate_available" -lt $((migrate_needed + migrate_needed / 20 + 1024)) ]; then
+      rmdir "$migrate_target" 2>/dev/null || true
+      host_finish rejected "Destination disk does not have enough free space." "$host_node" "" insufficient_space
+    fi
+    candidate=$(mktemp "$config_root/.config.migrate.XXXXXX")
+    printf '%s' "$current" | jq --arg node "$host_node" --arg data_dir "$migrate_target" '.[$node].data_dir=$data_dir' >"$candidate"
+    validate=$(mktemp -d "$state_root/node-control/.validate.XXXXXX")
+    cp "$candidate" "$validate/config.json"
+    if ! BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$validate"       BITCOIN_STACK_VALIDATE_ONLY=1 BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/configure.sh" >/dev/null 2>&1; then
+      rm -rf "$candidate" "$validate"
+      rmdir "$migrate_target" 2>/dev/null || true
+      host_finish rejected "Migration destination is invalid." "$host_node" "" validation_failed
+    fi
+    rm -rf "$validate"
+    migrate_mode=copy
+    if [ "$(migrate_device_of "$migrate_source")" = "$(migrate_device_of "$migrate_target")" ] && [ -n "$(migrate_device_of "$migrate_source")" ]; then
+      migrate_mode=rename
+    fi
+    [ -z "${NODE_CONTROL_FORCE_MIGRATE_MODE:-}" ] || migrate_mode=$NODE_CONTROL_FORCE_MIGRATE_MODE
+    transaction_tmp=$(mktemp -d "$state_root/node-control/.install-transaction.XXXXXX")
+    had_config=false
+    had_env=false
+    had_approved_config=false
+    had_approved_env=false
+    if [ -f "$config_file" ]; then cp "$config_file" "$transaction_tmp/config.before"; had_config=true; fi
+    if [ -f "$env_file" ]; then cp "$env_file" "$transaction_tmp/env.before"; had_env=true; fi
+    if [ -f "$approved_config" ]; then cp "$approved_config" "$transaction_tmp/approved-config.before"; had_approved_config=true; fi
+    if [ -f "$state_root/.approved.env" ]; then cp "$state_root/.approved.env" "$transaction_tmp/approved-env.before"; had_approved_env=true; fi
+    jq -nc --arg id "$host_id" --arg node "$host_node" --arg phase moving --arg source "$migrate_source" --arg target "$migrate_target" --arg mode "$migrate_mode"       --argjson had_config "$had_config" --argjson had_env "$had_env"       --argjson had_approved_config "$had_approved_config" --argjson had_approved_env "$had_approved_env"       '{id:$id,action:"migrate",node:$node,phase:$phase,source:$source,target:$target,mode:$mode,had_config:$had_config,had_env:$had_env,had_approved_config:$had_approved_config,had_approved_env:$had_approved_env}' >"$transaction_tmp/meta.json"
+    chmod 600 "$candidate" "$transaction_tmp"/*
+    mv "$transaction_tmp" "$install_transaction"
+    node=$host_node
+    old_active=false
+    [ -z "$(container_id "$host_node")" ] || old_active=true
+    if [ "$host_node" = monero ]; then
+      "$stack_root/stack" stop monero-wallet monero >/dev/null 2>&1 || true
+    elif [ "$host_node" = tari ]; then
+      "$stack_root/stack" stop tari-wallet tari >/dev/null 2>&1 || true
+    else
+      "$stack_root/stack" stop "$host_node" >/dev/null 2>&1 || true
+    fi
+    if [ "$migrate_mode" = rename ]; then
+      if ! rmdir "$migrate_target" || ! mv "$migrate_source" "$migrate_target"; then
+        mkdir -p "$migrate_target" 2>/dev/null || true
+        rm -rf "$install_transaction"
+        rm -f "$candidate"
+        restore_services
+        host_finish failed "Data move failed; the node was restarted in place." "$host_node" "" move_failed
+      fi
+    else
+      if ! cp -a "$migrate_source/." "$migrate_target/"; then
+        rm -rf "$migrate_target" "$install_transaction"
+        rm -f "$candidate"
+        restore_services
+        host_finish failed "Data copy failed; the node was restarted in place." "$host_node" "" move_failed
+      fi
+      migrate_source_entries=$(find "$migrate_source" 2>/dev/null | wc -l | tr -d ' ')
+      migrate_target_entries=$(find "$migrate_target" 2>/dev/null | wc -l | tr -d ' ')
+      migrate_source_kb=$(du -sk "$migrate_source" 2>/dev/null | awk '{print $1}')
+      migrate_target_kb=$(du -sk "$migrate_target" 2>/dev/null | awk '{print $1}')
+      if [ "$migrate_source_entries" != "$migrate_target_entries" ] || [ "$migrate_target_kb" -lt $((migrate_source_kb * 99 / 100)) ]; then
+        rm -rf "$migrate_target" "$install_transaction"
+        rm -f "$candidate"
+        restore_services
+        host_finish failed "Copied data failed verification; the node was restarted in place." "$host_node" "" verify_failed
+      fi
+    fi
+    transaction_meta_tmp=$(mktemp "$install_transaction/.meta.XXXXXX")
+    jq '.phase="applying"' "$install_transaction/meta.json" >"$transaction_meta_tmp"
+    chmod 600 "$transaction_meta_tmp"
+    mv "$transaction_meta_tmp" "$install_transaction/meta.json"
+    mv "$candidate" "$config_file"
+    if BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root"       BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" apply >/dev/null 2>&1; then
+      [ "$migrate_mode" != copy ] || rm -rf "$migrate_source"
+      host_cleanup_transaction=$install_transaction
+      host_finish applied "Node data migrated." "$host_node"
+    fi
+    migrate_failed_meta=$install_transaction/meta.json
+    restore_transaction_file "$install_transaction/config.before" "$config_file" "$(jq -r .had_config "$migrate_failed_meta")" || host_finish failed "Migration failed and the prior configuration could not be fully restored." "$host_node" "" rollback_failed
+    restore_transaction_file "$install_transaction/env.before" "$env_file" "$(jq -r .had_env "$migrate_failed_meta")" || host_finish failed "Migration failed and the prior configuration could not be fully restored." "$host_node" "" rollback_failed
+    restore_transaction_file "$install_transaction/approved-config.before" "$approved_config" "$(jq -r .had_approved_config "$migrate_failed_meta")" || host_finish failed "Migration failed and the prior configuration could not be fully restored." "$host_node" "" rollback_failed
+    restore_transaction_file "$install_transaction/approved-env.before" "$state_root/.approved.env" "$(jq -r .had_approved_env "$migrate_failed_meta")" || host_finish failed "Migration failed and the prior configuration could not be fully restored." "$host_node" "" rollback_failed
+    migrate_rollback_from_meta "$migrate_failed_meta" || host_finish failed "Migration failed and the data could not be moved back." "$host_node" "" rollback_failed
+    rm -rf "$install_transaction"
+    BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root"       BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" apply >/dev/null 2>&1 || true
+    host_finish failed "Migration failed; the node was restored in place." "$host_node" "" apply_failed
   fi
   if [ "$host_action" = launch_at_boot ]; then
     [ "$boot_supported" = true ] || host_finish rejected "Launch at boot is not managed for source installs." "" "$(printf '%s' "$request" | jq -r .enabled)" unsupported

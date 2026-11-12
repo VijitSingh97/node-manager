@@ -47,6 +47,12 @@ printf '%s\n' "$*" >>"$FAKE_STACK_LOG"
     exit 1
   fi
 }
+[ "${FAKE_STACK_FAIL_APPLY_ONCE:-0}" != 1 ] || {
+  if [ "${1:-}" = apply ] && [ ! -e "$FAKE_STACK_FAIL_MARKER" ]; then
+    : >"$FAKE_STACK_FAIL_MARKER"
+    exit 1
+  fi
+}
 [ "${FAKE_STACK_FAIL:-0}" != 1 ]
 if [ "${1:-}" = apply ] || [ "${1:-}" = approve-rendered-config ]; then
   jq -S . "$BITCOIN_STACK_CONFIG_DIR/config.json" >"$BITCOIN_STACK_STATE_DIR/.approved-config.tmp"
@@ -351,5 +357,39 @@ FAKE_PORT_CHECK_RESULT=port_in_use:litecoin_rpc BITCOIN_STACK_PACKAGE_MANAGED=1 
 [ "$(status .error_code)" = port_in_use ] || fail "install port conflict lacked typed status"
 [ "$(status .port)" = litecoin_rpc ] || fail "install port conflict lost its interface"
 [ "$(shasum -a 256 "$config/config.json")" = "$before_conflict" ] || fail "install port conflict changed configuration"
+
+# --- migrate ---
+jq '.bitcoincash.enabled=true | .bitcoincash.active=true' "$config/config.json" >"$config/.config.tmp"
+mv "$config/.config.tmp" "$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+mkdir -p "$root/data/bitcoincash"
+printf 'chain' >"$root/data/bitcoincash/blocks.dat"
+request '{"action":"migrate","data_dir":"/nonexistent-root-elsewhere","id":"80808080808080808080808080808080","node":"tari","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Darwin "$root/scripts/node-control"
+[ "$(status .error_code)" = not_installed ] || fail "migrate of an uninstalled node was accepted"
+
+request "{\"action\":\"migrate\",\"data_dir\":\"$root/data/bitcoincash\",\"id\":\"81818181818181818181818181818181\",\"node\":\"bitcoincash\",\"requested_at\":1000}"
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Darwin "$root/scripts/node-control"
+[ "$(status .error_code)" = data_path_invalid ] || fail "migrate into the current folder was accepted: $(status .state) $(status .error_code) $(status .message)"
+
+resolved_tmp=$(cd "$tmp" && pwd -P)
+newdisk=$resolved_tmp/newdisk/bitcoincash
+request "{\"action\":\"migrate\",\"data_dir\":\"$newdisk\",\"id\":\"82828282828282828282828282828282\",\"node\":\"bitcoincash\",\"requested_at\":1000}"
+NODE_CONTROL_FORCE_MIGRATE_MODE=rename BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Darwin "$root/scripts/node-control"
+[ "$(status .state)" = applied ] || fail "same-disk migrate was not applied: $(status .message)"
+[ "$(jq -r .bitcoincash.data_dir "$config/config.json")" = "$newdisk" ] || fail "migrate did not update the config data_dir"
+[ -f "$newdisk/blocks.dat" ] || fail "migrate did not move the data"
+[ ! -e "$root/data/bitcoincash" ] || fail "rename migrate left the source behind"
+grep -qx 'stop bitcoincash' "$tmp/stack.log" || fail "migrate did not stop the node"
+grep -qx 'apply' "$tmp/stack.log" || fail "migrate did not apply the new config"
+[ ! -e "$state/node-control/install-transaction" ] || fail "successful migrate left transaction state"
+
+seconddisk=$resolved_tmp/seconddisk/bitcoincash
+request "{\"action\":\"migrate\",\"data_dir\":\"$seconddisk\",\"id\":\"83838383838383838383838383838383\",\"node\":\"bitcoincash\",\"requested_at\":1000}"
+FAKE_STACK_FAIL_APPLY_ONCE=1 FAKE_STACK_FAIL_MARKER=$tmp/.migrate-fail-marker NODE_CONTROL_FORCE_MIGRATE_MODE=copy BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Darwin "$root/scripts/node-control"
+[ "$(status .state)" = failed ] || fail "failed migrate did not report failure: $(status .state) $(status .error_code) $(status .message)"
+[ "$(jq -r .bitcoincash.data_dir "$config/config.json")" = "$newdisk" ] || fail "failed migrate did not restore the config"
+[ -f "$newdisk/blocks.dat" ] || fail "failed migrate lost the source data"
+[ ! -e "$seconddisk" ] || fail "failed migrate left a partial copy behind"
 
 echo "PASS: test_node_control.sh"

@@ -16,7 +16,7 @@ func writeHostCapability(t *testing.T, a *app, pending bool) string {
 	if pending {
 		revision = strings.Repeat("a", 64)
 	}
-	b, _ := json.Marshal(hostControlCapability{Timestamp: time.Now().Unix(), Platform: "linux", BootKind: "boot", InstallSupported: true, BootSupported: true, BootEnabled: false, ConfigPending: pending, ConfigRevision: revision, ConfigPath: "/etc/node-manager/config.json", DataPaths: map[string]string{"bitcoin": "/var/lib/node-manager/data/bitcoin", "monero": "/var/lib/node-manager/data/monero"}})
+	b, _ := json.Marshal(hostControlCapability{Timestamp: time.Now().Unix(), Platform: "linux", BootKind: "boot", InstallSupported: true, MigrateSupported: true, BootSupported: true, BootEnabled: false, ConfigPending: pending, ConfigRevision: revision, ConfigPath: "/etc/node-manager/config.json", DataPaths: map[string]string{"bitcoin": "/var/lib/node-manager/data/bitcoin", "monero": "/var/lib/node-manager/data/monero"}})
 	if err := os.WriteFile(a.nodeControlPath("capability"), b, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -128,5 +128,41 @@ func TestHostStatusCanonicalizesHelperErrors(t *testing.T) {
 	status.ErrorCode = "invented"
 	if got := canonicalHostStatusMessage(status); got != "Host change could not be applied." {
 		t.Fatalf("unknown failure = %q", got)
+	}
+}
+
+func TestHostControlQueuesMigrateForInstalledNodesOnly(t *testing.T) {
+	a, _ := testApp(t, &rpcFixture{}, "")
+	writeHostCapability(t, a, false)
+	response := hostControlHTTP(a, http.MethodPost, `{"action":"migrate","node":"bitcoin","data_dir":"/mnt/big/bitcoin"}`, true, "192.168.1.20:4321")
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("migrate = %d %s", response.Code, response.Body.String())
+	}
+	b, err := os.ReadFile(a.nodeControlPath("request"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if json.Unmarshal(b, &raw) != nil || len(raw) != 5 || raw["action"] != "migrate" || raw["node"] != "bitcoin" || raw["data_dir"] != "/mnt/big/bitcoin" {
+		t.Fatalf("request = %s", b)
+	}
+	if err := os.Remove(a.nodeControlPath("request")); err != nil {
+		t.Fatal(err)
+	}
+	response = hostControlHTTP(a, http.MethodPost, `{"action":"migrate","node":"monero","data_dir":"/mnt/big/monero"}`, true, "192.168.1.20:4321")
+	if response.Code != http.StatusConflict {
+		t.Fatalf("migrate of uninstalled node = %d", response.Code)
+	}
+	response = hostControlHTTP(a, http.MethodPost, `{"action":"migrate","node":"bitcoin","data_dir":"relative"}`, true, "192.168.1.20:4321")
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("migrate with relative path = %d", response.Code)
+	}
+	applied := canonicalHostStatusMessage(hostControlStatus{Action: "migrate", State: "applied", Node: "bitcoin"})
+	if applied != "Bitcoin data migrated." {
+		t.Fatalf("applied message = %q", applied)
+	}
+	space := canonicalHostStatusMessage(hostControlStatus{Action: "migrate", State: "rejected", ErrorCode: "insufficient_space"})
+	if space != "The destination disk does not have enough free space." {
+		t.Fatalf("space message = %q", space)
 	}
 }
