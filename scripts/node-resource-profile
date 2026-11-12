@@ -390,7 +390,20 @@ write_host_stats() {
   mem_total=$("$docker_bin" info --format '{{.MemTotal}}' 2>/dev/null)
   case "$cpus" in '' | 0 | *[!0-9]*) return 0 ;; esac
   case "$mem_total" in '' | 0 | *[!0-9]*) return 0 ;; esac
-  stats=$("$docker_bin" stats --no-stream --format '{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}' 2>/dev/null)
+  stats_raw=$("$docker_bin" stats --no-stream --no-trunc --format '{{.ID}}\t{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}' 2>/dev/null)
+  [ -n "$stats_raw" ] || return 0
+  cgroup_root=${RESOURCE_CGROUP_ROOT:-/sys/fs/cgroup}
+  stats=$(printf '%s\n' "$stats_raw" | while IFS="$(printf '\t')" read -r row_id row_name row_cpu row_mem; do
+    [ -n "$row_name" ] || continue
+    row_anon=
+    for cgroup_stat in "$cgroup_root/system.slice/docker-$row_id.scope/memory.stat" "$cgroup_root/docker/$row_id/memory.stat"; do
+      [ -r "$cgroup_stat" ] || continue
+      row_anon=$(awk '$1 == "anon" { print $2; exit }' "$cgroup_stat")
+      break
+    done
+    case "$row_anon" in ('' | *[!0-9]*) row_anon=- ;; esac
+    printf '%s\t%s\t%s\t%s\n' "$row_name" "$row_cpu" "$row_mem" "$row_anon"
+  done)
   [ -n "$stats" ] || return 0
   host_cpu_pct=0
   host_mem_bytes=0
@@ -464,6 +477,10 @@ write_host_stats() {
       sub(/-[0-9]+$/, "", service)
       cpu = $2
       sub(/%$/, "", cpu)
+      if ($4 ~ /^[0-9]+$/) {
+        printf "%s %.4f %s\n", service, cpu / cpus, $4
+        next
+      }
       split($3, mem, " ")
       value = mem[1]
       unit = value

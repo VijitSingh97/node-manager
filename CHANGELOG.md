@@ -16,6 +16,14 @@ All notable changes to this project are documented here. Format follows
   failure or interruption. Destinations are validated like install
   folders, including a free-space check.
 
+### Changed
+
+- Per-container memory on the usage pies is the container's anonymous memory
+  from its cgroup when available (Docker's working-set figure counts active
+  file cache), putting the node slices, the grey "Other processes" slice, and
+  the free remainder on one cache-free scale; hosts without cgroup v2 keep
+  the previous Docker figure.
+
 ## [1.33.13] - 2026-11-12
 
 ### Fixed
