@@ -6,6 +6,16 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- Watch-only Bitcoin balances group digits with commas and show the
+  equivalent amount in the configured currency next to each balance and
+  the total, from the dashboard's existing price feed.
+- On pruned nodes the watch-only sparkline now charts the wallet's
+  confirmed unspent funds by arrival block, from the first coin still held
+  to the scan tip, instead of hourly balance snapshots. Existing wallets
+  pick this up on their next scan.
+
 ### Fixed
 
 - Watch-only Monero wallets that are far behind the chain scan in the wallet

@@ -468,6 +468,7 @@ h2 {
 }
 .tower-stats .ws-spark { grid-column: 2; opacity: 0.85; }
 .tower-stats .ws-note { grid-column: 1 / -1; color: var(--muted); font-size: 0.65rem; line-height: 1.5; }
+.tower-stats .ws-fiat { grid-column: 3; justify-self: end; color: var(--muted); font-size: 0.72rem; white-space: nowrap; }
 .tower-stats .ws-bal.stale { opacity: 0.5; } /* last-known value while the node is unreachable */
 .tower-stats .ws-bal {   /* balance, column 3: right-aligned to a common edge */
   grid-column: 3;

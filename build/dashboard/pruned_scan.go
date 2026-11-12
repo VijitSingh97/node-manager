@@ -42,6 +42,7 @@ type scanTxOutSetUnspent struct {
 	ScriptPubKey string  `json:"scriptPubKey"`
 	Desc         string  `json:"desc"`
 	Amount       float64 `json:"amount"`
+	Height       int64   `json:"height"`
 }
 
 type validatedScanOutput struct {
@@ -354,7 +355,7 @@ func validatedScanOutputs(result scanTxOutSetResult) ([]validatedScanOutput, err
 	var total int64
 	const maxSatoshis = int64(21_000_000 * 1e8)
 	for _, output := range result.Unspents {
-		if len(output.TxID) != 64 || output.Vout < 0 || output.ScriptPubKey == "" || output.Desc == "" {
+		if len(output.TxID) != 64 || output.Vout < 0 || output.ScriptPubKey == "" || output.Desc == "" || output.Height < 0 || output.Height > result.Height {
 			return nil, errors.New("invalid scantxoutset output")
 		}
 		if _, err := hex.DecodeString(output.TxID); err != nil {
@@ -376,7 +377,7 @@ func validatedScanOutputs(result scanTxOutSetResult) ([]validatedScanOutput, err
 			return nil, errors.New("scantxoutset total exceeds bitcoin supply")
 		}
 		total += sats
-		outputs = append(outputs, validatedScanOutput{scanOutpoint: scanOutpoint{TxID: output.TxID, Vout: output.Vout, Sats: sats}, Desc: output.Desc})
+		outputs = append(outputs, validatedScanOutput{scanOutpoint: scanOutpoint{TxID: output.TxID, Vout: output.Vout, Sats: sats, Height: output.Height}, Desc: output.Desc})
 	}
 	expected, ok := btcSatoshis(result.TotalAmount)
 	if !ok || expected != total {
