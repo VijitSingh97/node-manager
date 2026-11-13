@@ -446,6 +446,10 @@ grep -q '^1000000000 ' "$caps/xmr-id" || fail "second hot pass did not halve aga
 printf '70000\n' >"$case_root/thermal/temp"
 tick_profile
 grep -q '^4000000000 ' "$caps/xmr-id" || fail "cool pass did not restore uncapped monero to every host CPU"
+printf 'MONERO_RESOURCE_PROFILE=compact\n' >>"$case_root/state/.env"
+tick_profile
+grep -q '^xmr-id|0|pending|' "$case_root/state/resource-profile/monero" || fail "profiler treated a restored uncapped monero as operator-limited"
+printf 'MONERO_RESOURCE_PROFILE=off\n' >>"$case_root/state/.env"
 [ ! -f "$case_root/state/thermal-throttle/monero" ] || fail "throttle state was not cleared"
 grep -q 'thermal throttle at 90C' "$tmp/thermal-events.log" || fail "throttle event line missing"
 grep -q 'thermal throttle released (cooled to 70C)' "$tmp/thermal-events.log" || fail "release event line missing"
