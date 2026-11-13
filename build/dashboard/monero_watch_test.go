@@ -31,6 +31,8 @@ type moneroWalletFixture struct {
 	secondAccount bool
 	scanPending   bool
 	daemonPending bool
+	closed        bool
+	openedFile    string
 }
 
 func (f *moneroWalletFixture) handler(w http.ResponseWriter, r *http.Request) {
@@ -58,6 +60,21 @@ func (f *moneroWalletFixture) handler(w http.ResponseWriter, r *http.Request) {
 	if request.Method == "import_key_images" {
 		f.imported = true
 	}
+	walletRPCError := ""
+	switch request.Method {
+	case "close_wallet":
+		f.closed = true
+	case "open_wallet":
+		if filename, _ := request.Params["filename"].(string); filename == "" {
+			walletRPCError = "file_not_found"
+		} else {
+			f.openedFile, f.closed = filename, false
+		}
+	case "get_address":
+		if f.closed {
+			walletRPCError = "No wallet file"
+		}
+	}
 	generatedAddress, generatedViewKey := testMoneroAddress, strings.Repeat("a", 64)
 	if address, ok := f.generated["address"].(string); ok {
 		generatedAddress = address
@@ -73,6 +90,10 @@ func (f *moneroWalletFixture) handler(w http.ResponseWriter, r *http.Request) {
 	}
 	if request.Method == "refresh" && refreshFails {
 		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": "dashboard", "error": map[string]any{"code": -1, "message": "refresh failed"}})
+		return
+	}
+	if walletRPCError != "" {
+		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": "dashboard", "error": map[string]any{"code": -1, "message": walletRPCError}})
 		return
 	}
 	result := any(map[string]any{})
@@ -356,6 +377,65 @@ func TestMoneroWatchStaysPendingUntilWalletReachesDaemonHeight(t *testing.T) {
 	defer fixture.mu.Unlock()
 	if slices.Contains(fixture.methods, "refresh") || !slices.Contains(fixture.methods, "auto_refresh") {
 		t.Fatalf("behind wallet must scan via auto_refresh, not a blocking refresh: %v", fixture.methods)
+	}
+}
+
+func TestMoneroWatchTickerRefreshOpensTheManagedWalletAndKeepsItOpen(t *testing.T) {
+	fixture := &moneroWalletFixture{}
+	a, _, _ := newMoneroWatchTestApp(t, fixture)
+	if _, err := a.moneroWatch.Add(context.Background(), "Cold", testMoneroAddress, strings.Repeat("a", 64), 0); err != nil {
+		t.Fatal(err)
+	}
+	fixture.mu.Lock()
+	fixture.closed, fixture.methods = true, nil
+	fixture.mu.Unlock()
+	listed := a.moneroWatch.List()[0]
+	if listed.WalletFile != "" {
+		t.Fatal("List exposed the wallet file")
+	}
+	a.moneroWatch.refresh(context.Background(), listed)
+	internal, _ := a.moneroWatch.walletByID(listed.ID)
+	fixture.mu.Lock()
+	opened, methods := fixture.openedFile, append([]string(nil), fixture.methods...)
+	fixture.methods = nil
+	fixture.mu.Unlock()
+	if status := a.moneroWatch.List()[0]; opened != internal.WalletFile || status.State != "ready" {
+		t.Fatalf("ticker refresh opened %q, want %q; state %#v; calls %v", opened, internal.WalletFile, status, methods)
+	}
+	a.moneroWatch.refresh(context.Background(), listed)
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if slices.Contains(fixture.methods, "close_wallet") || slices.Contains(fixture.methods, "open_wallet") || slices.Contains(fixture.methods, "store") {
+		t.Fatalf("refresh of an open, caught-up wallet reopened or stored it: %v", fixture.methods)
+	}
+}
+
+func TestMoneroWatchLostReadReplyDoesNotStopTheWalletService(t *testing.T) {
+	fixture := &moneroWalletFixture{}
+	a, _, _ := newMoneroWatchTestApp(t, fixture)
+	wallet, err := a.moneroWatch.Add(context.Background(), "Cold", testMoneroAddress, strings.Repeat("a", 64), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	healthy := a.moneroWatch.rpc.client
+	transport := healthy.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	a.moneroWatch.rpc.client = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Header.Get("Authorization") == "" {
+			return transport.RoundTrip(request)
+		}
+		return nil, io.ErrUnexpectedEOF
+	})}
+	a.moneroWatch.refresh(context.Background(), wallet)
+	if a.moneroWatch.isRPCPoisoned() {
+		t.Fatal("a lost reply to a read call stopped the wallet service")
+	}
+	a.moneroWatch.rpc.client = healthy
+	a.moneroWatch.refresh(context.Background(), wallet)
+	if status := a.moneroWatch.List()[0]; status.State != "ready" {
+		t.Fatalf("wallet did not recover on the next refresh: %#v", status)
 	}
 }
 

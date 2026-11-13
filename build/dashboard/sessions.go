@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"math"
 	"net"
 	"net/netip"
+	"os"
 	"sync"
 	"time"
 )
@@ -36,10 +40,84 @@ type dashboardSessions struct {
 	mu       sync.Mutex
 	sessions map[[32]byte]dashboardSession
 	next     uint64
+	path     string
+	binding  string
+}
+
+type savedDashboardSessions struct {
+	Version  int                     `json:"version"`
+	Binding  string                  `json:"binding"`
+	Sessions []savedDashboardSession `json:"sessions"`
+}
+
+type savedDashboardSession struct {
+	Key    string `json:"key"`
+	Issued int64  `json:"issued"`
 }
 
 func newDashboardSessions() *dashboardSessions {
 	return &dashboardSessions{sessions: make(map[[32]byte]dashboardSession)}
+}
+
+func (sessions *dashboardSessions) persist(path, binding string, now time.Time) {
+	sessions.mu.Lock()
+	defer sessions.mu.Unlock()
+	sessions.path, sessions.binding = path, binding
+	saved, ok := readSavedDashboardSessions(path)
+	if !ok || saved.Binding != binding {
+		return
+	}
+	for _, item := range saved.Sessions {
+		raw, _ := hex.DecodeString(item.Key)
+		issued := time.Unix(item.Issued, 0)
+		session := dashboardSession{issued: issued, lastSeen: issued, remember: true}
+		if issued.After(now) || sessionExpired(session, now) {
+			continue
+		}
+		sessions.next++
+		session.order = sessions.next
+		sessions.sessions[[32]byte(raw)] = session
+	}
+}
+
+func readSavedDashboardSessions(path string) (savedDashboardSessions, bool) {
+	var saved savedDashboardSessions
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 64<<10 || info.Mode().Perm()&0o077 != 0 {
+		return saved, false
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return saved, false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(b))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&saved) != nil || ensureJSONEnd(decoder) != nil || saved.Version != 1 || !lowerHex(saved.Binding, 64) || len(saved.Sessions) > dashboardSessionLimit {
+		return saved, false
+	}
+	for _, item := range saved.Sessions {
+		if !lowerHex(item.Key, 64) || item.Issued <= 0 {
+			return saved, false
+		}
+	}
+	return saved, true
+}
+
+// A failed save removes the file so a revoked session can never come back after a restart.
+func (sessions *dashboardSessions) saveLocked() {
+	if sessions.path == "" {
+		return
+	}
+	saved := savedDashboardSessions{Version: 1, Binding: sessions.binding, Sessions: []savedDashboardSession{}}
+	for key, session := range sessions.sessions {
+		if session.remember {
+			saved.Sessions = append(saved.Sessions, savedDashboardSession{Key: hex.EncodeToString(key[:]), Issued: session.issued.Unix()})
+		}
+	}
+	b, err := json.Marshal(saved)
+	if err != nil || writePrivateFileAtomic(sessions.path, append(b, '\n')) != nil {
+		_ = os.Remove(sessions.path)
+	}
 }
 
 func dashboardSessionKey(token string) ([32]byte, bool) {
@@ -93,6 +171,7 @@ func (sessions *dashboardSessions) issue(now time.Time, remember bool) (string, 
 	}
 	sessions.next++
 	sessions.sessions[key] = dashboardSession{issued: now, lastSeen: now, order: sessions.next, remember: remember}
+	sessions.saveLocked()
 	return token, nil
 }
 
@@ -133,14 +212,21 @@ func (sessions *dashboardSessions) revoke(token string) {
 		return
 	}
 	sessions.mu.Lock()
-	delete(sessions.sessions, key)
-	sessions.mu.Unlock()
+	defer sessions.mu.Unlock()
+	if session, ok := sessions.sessions[key]; ok {
+		delete(sessions.sessions, key)
+		if session.remember {
+			sessions.saveLocked()
+		}
+	}
 }
 
-func (sessions *dashboardSessions) revokeAll() {
+func (sessions *dashboardSessions) revokeAll(binding string) {
 	sessions.mu.Lock()
+	defer sessions.mu.Unlock()
 	clear(sessions.sessions)
-	sessions.mu.Unlock()
+	sessions.binding = binding
+	sessions.saveLocked()
 }
 
 type loginLimiter struct {

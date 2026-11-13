@@ -376,8 +376,16 @@ thermal_restore() {
       rm -f "$file"
       continue
     fi
+    if [ "$orig_nanos" = 0 ]; then
+      # docker update treats --cpus 0 as unchanged, so an uncapped container gets every host CPU back instead.
+      orig_nanos=$("$docker_bin" info --format '{{.NCPU}}' 2>/dev/null)
+      case "$orig_nanos" in ('' | 0 | *[!0-9]*) continue ;; esac
+      orig_nanos=$((orig_nanos * 1000000000))
+    fi
     cpus_value=$(awk -v n="$orig_nanos" 'BEGIN { printf "%.2f", n / 1000000000 }')
     "$docker_bin" update --cpus "$cpus_value" "$id" >/dev/null 2>&1 || continue
+    restored=$(current_limits "$id") || continue
+    [ "${restored%% *}" = "$orig_nanos" ] || continue
     rm -f "$file" "$profile_state/$service"
     thermal_event "thermal throttle released ($1) — restored $service"
   done

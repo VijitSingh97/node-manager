@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"os"
@@ -411,6 +412,10 @@ func (s *MoneroWatchStore) Queue(id string) {
 }
 
 func (s *MoneroWatchStore) refresh(parent context.Context, wallet MoneroWatchWallet) {
+	wallet, ok := s.walletByID(wallet.ID)
+	if !ok {
+		return
+	}
 	ctx, cancel := context.WithTimeout(parent, moneroRefreshTimeout)
 	defer cancel()
 	var snapshot moneroWalletSnapshot
@@ -477,7 +482,7 @@ func (s *MoneroWatchStore) refresh(parent context.Context, wallet MoneroWatchWal
 		}
 		var err error
 		snapshot, err = summarizeMoneroWallet(walletHeight.Height, targetHeight, balance, incoming)
-		if err != nil {
+		if err != nil || wallet.State == "ready" {
 			return err
 		}
 		return s.walletCall(ctx, "store", map[string]any{}, nil)
@@ -604,10 +609,13 @@ func summarizeMoneroWallet(walletHeight, daemonHeight uint64, balance moneroWall
 	return result, nil
 }
 
+// Reopening stores and reloads the whole wallet cache and stops its background scan, so an already-open wallet is kept.
 func (s *MoneroWatchStore) openWallet(ctx context.Context, wallet MoneroWatchWallet) error {
-	if err := s.walletCall(ctx, "close_wallet", map[string]any{}, nil); errors.Is(err, errMoneroRemoteUnknown) {
-		return err
+	var current moneroWalletAddress
+	if s.walletCall(ctx, "get_address", map[string]any{}, &current) == nil && current.Address == wallet.Address {
+		return nil
 	}
+	_ = s.walletCall(ctx, "close_wallet", map[string]any{}, nil)
 	if err := s.walletCall(ctx, "open_wallet", map[string]any{"filename": wallet.WalletFile, "password": s.password}, nil); err != nil {
 		return errors.New("Monero watch-only wallet could not be opened")
 	}
@@ -629,7 +637,7 @@ func (s *MoneroWatchStore) serialized(ctx context.Context, fn func(context.Conte
 	}
 	err := fn(ctx)
 	if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, errMoneroRemoteUnknown) {
-		s.poisonRPC()
+		s.poisonRPC(errors.Join(err, ctx.Err()))
 	}
 	if s.isRPCPoisoned() {
 		return fmt.Errorf("Monero wallet service requires a dashboard restart after an interrupted operation: %w", errors.Join(errMoneroRemoteUnknown, err))
@@ -637,12 +645,13 @@ func (s *MoneroWatchStore) serialized(ctx context.Context, fn func(context.Conte
 	return err
 }
 
-func (s *MoneroWatchStore) poisonRPC() {
+func (s *MoneroWatchStore) poisonRPC(cause error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.rpcPoisoned {
 		return
 	}
+	log.Printf("Monero wallet service stopped until the dashboard restarts: %v", cause)
 	s.rpcPoisoned = true
 	for i := range s.wallets {
 		wallet := &s.wallets[i]
@@ -660,11 +669,19 @@ func (s *MoneroWatchStore) isRPCPoisoned() bool {
 	return s.rpcPoisoned
 }
 
+// A lost reply to one of these leaves nothing ambiguous: the next refresh checks which wallet is open and re-reads.
+var moneroRetryableWalletMethods = map[string]bool{"close_wallet": true, "open_wallet": true, "get_address": true, "get_height": true, "get_balance": true, "get_accounts": true, "incoming_transfers": true, "auto_refresh": true}
+
 func (s *MoneroWatchStore) walletCall(ctx context.Context, method string, params any, out any) (callErr error) {
 	defer func() {
-		if errors.Is(callErr, errMoneroRemoteUnknown) {
-			s.poisonRPC()
+		if !errors.Is(callErr, errMoneroRemoteUnknown) {
+			return
 		}
+		if moneroRetryableWalletMethods[method] {
+			callErr = fmt.Errorf("Monero wallet RPC %s failed", method)
+			return
+		}
+		s.poisonRPC(fmt.Errorf("%s: %w", method, callErr))
 	}()
 	switch method {
 	case "close_wallet", "open_wallet", "generate_from_keys", "get_address", "get_height", "get_accounts", "get_balance", "incoming_transfers", "import_key_images", "query_key", "refresh", "auto_refresh", "store":

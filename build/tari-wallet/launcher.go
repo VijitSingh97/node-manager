@@ -138,7 +138,7 @@ func (s *supervisor) run() error {
 func (s *supervisor) renderConfig() error {
 	username := os.Getenv("TARI_WALLET_RPC_USER")
 	password := os.Getenv("TARI_WALLET_RPC_PASSWORD")
-	if !safeCredential(username) || !safeCredential(password) {
+	if !safeCredential(username, 1) || !safeCredential(password, 8) {
 		return errors.New("Tari wallet RPC credentials are invalid")
 	}
 	template, err := os.ReadFile(s.config)
@@ -159,8 +159,8 @@ func (s *supervisor) renderConfig() error {
 	return nil
 }
 
-func safeCredential(value string) bool {
-	if len(value) < 8 || len(value) > 128 {
+func safeCredential(value string, minLength int) bool {
+	if len(value) < minLength || len(value) > 128 {
 		return false
 	}
 	for _, c := range value {

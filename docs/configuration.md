@@ -415,7 +415,11 @@ the old password stops working immediately. Reload and sign in with the new
 password, and all browser sessions are signed out. RPC credential reveal and
 reset require a login from the last 15 minutes. Browser sessions expire after
 30 minutes without an authenticated request or 24 hours after sign-in,
-whichever comes first. Sessions are held in memory and are cleared on restart.
+whichever comes first. A "Remember me" login lasts 30 days and survives
+dashboard restarts and upgrades: it is saved as a token hash in
+`/state/sessions.json`, bound to the current password, so changing the password
+in the dashboard or in `config.json` signs it out. Other sessions are held in
+memory and are cleared on restart.
 Recovery is covered in
 [Operations](operations.md#dashboard-and-node-credentials).
 

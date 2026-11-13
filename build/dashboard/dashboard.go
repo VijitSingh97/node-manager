@@ -143,6 +143,9 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 	if !a.dashboardAuth.enabled {
 		return nil, errors.New("dashboard sign-in requires a password; set dashboard.password in config.json before starting")
 	}
+	if cfg.stateDir != "" {
+		a.sessions.persist(filepath.Join(cfg.stateDir, "sessions.json"), a.dashboardAuth.sessionBinding(), time.Now())
+	}
 	a.watch = NewWatchStore(cfg.stateDir)
 	if a.watch.ScanErr() != nil {
 		a.log.Print("watch balance cache unavailable; pruned balance scans disabled until the cache is repaired and the dashboard restarts")

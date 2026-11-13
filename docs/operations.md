@@ -69,8 +69,9 @@ Changing the dashboard password signs out every browser session. RPC credential
 reveal and reset require a dashboard login from the last 15 minutes; older
 sessions are sent back to the login page. Browser sessions expire after 30
 minutes without an authenticated request or 24 hours after sign-in, whichever
-comes first. Sessions are held in memory, so a dashboard restart logs out all
-browsers.
+comes first. A "Remember me" login lasts 30 days and survives dashboard restarts
+and upgrades until the password changes; other sessions are held in memory, so
+a dashboard restart logs them out.
 
 If the dashboard password is forgotten, set a new baseline
 `dashboard.password` in the installation's `config.json`, then stop the
