@@ -6,6 +6,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.33.17] - 2026-11-13
+
 ### Fixed
 
 - "Remember me" dashboard logins now last their full 30 days across
@@ -1231,7 +1233,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.16...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.17...HEAD
+[1.33.17]: https://github.com/VijitSingh97/node-manager/compare/v1.33.16...v1.33.17
 [1.33.16]: https://github.com/VijitSingh97/node-manager/compare/v1.33.15...v1.33.16
 [1.33.15]: https://github.com/VijitSingh97/node-manager/compare/v1.33.14...v1.33.15
 [1.33.14]: https://github.com/VijitSingh97/node-manager/compare/v1.33.13...v1.33.14
