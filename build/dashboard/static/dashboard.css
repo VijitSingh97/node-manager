@@ -727,11 +727,10 @@ hr {
 .node-inactive-state { display:none; }
 .node-panel[data-node-active="0"] .node-inactive-state { display:block; }
 .node-panel[data-node-active="0"] #live,
-.node-panel[data-node-active="0"] #tower-stats,
+.node-panel[data-node-active="0"] .tower-stats,
 .node-panel[data-node-active="0"] #watch,
 .node-panel[data-node-active="0"] #monero-live,
 .node-panel[data-node-active="0"] #monero-watch,
-.node-panel[data-node-active="0"] #monero-tower-stats,
 .node-panel[data-node-active="0"] .chain-card { display:none !important; }
 #node-power-submit { background:var(--accent); color:var(--bg); }
 #node-power-submit:disabled { opacity:0.4; cursor:default; }

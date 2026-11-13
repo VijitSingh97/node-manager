@@ -44,7 +44,7 @@ export function walletRequest(base, fallback = "Wallet service unavailable.") {
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
     if (!response.ok) {
-      const text = (await response.text()).trim().slice(0, 200).replace(/[0-9a-f]{64}/gi, "[redacted]");
+      const text = (await response.text()).trim().replace(/[0-9a-f]{64}/gi, "[redacted]").slice(0, 200);
       throw new Error(text || fallback);
     }
     return response.json();
