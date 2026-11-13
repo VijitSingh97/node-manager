@@ -36,6 +36,8 @@ type prunedRPCMock struct {
 	descriptorFailures int
 	startObserved      chan struct{}
 	release            <-chan struct{}
+	hashes             map[int64]string
+	blocks             map[string]any
 }
 
 func (m *prunedRPCMock) handler(w http.ResponseWriter, r *http.Request) {
@@ -91,6 +93,26 @@ func (m *prunedRPCMock) handler(w http.ResponseWriter, r *http.Request) {
 	case "listdescriptors":
 		if strings.TrimPrefix(r.URL.Path, "/wallet/") == wallet && wallet != "" {
 			result = listedDescriptors(m.walletEntry)
+		}
+	case "getblockhash":
+		height, _ := request.Params[0].(float64)
+		m.mu.Lock()
+		hash, ok := m.hashes[int64(height)]
+		m.mu.Unlock()
+		if ok {
+			result = hash
+		} else {
+			rpcError = map[string]any{"code": -8, "message": "Block height out of range"}
+		}
+	case "getblock":
+		hash, _ := request.Params[0].(string)
+		m.mu.Lock()
+		block, ok := m.blocks[hash]
+		m.mu.Unlock()
+		if ok {
+			result = block
+		} else {
+			rpcError = map[string]any{"code": -1, "message": "Block not available (pruned data)"}
 		}
 	case "scantxoutset":
 		action, _ := request.Params[0].(string)
@@ -171,6 +193,70 @@ func TestChainHistorySeriesCumulativeByArrivalHeight(t *testing.T) {
 	flat := chainHistorySeries([]scanOutpoint{{Sats: 200_000_000, Height: 300}}, 300)
 	if len(flat) != 60 || flat[0] != 2 || flat[59] != 2 {
 		t.Fatalf("single arrival series = %v", flat)
+	}
+}
+
+func TestPrunedWatchAppliesNewBlocksWithoutRescanning(t *testing.T) {
+	base, next, fork := strings.Repeat("0", 64), strings.Repeat("1", 64), strings.Repeat("2", 64)
+	txid := func(c string) string { return strings.Repeat(c, 64) }
+	out := func(value float64, n int, address string) map[string]any {
+		return map[string]any{"value": value, "n": n, "scriptPubKey": map[string]any{"address": address}}
+	}
+	spend := func(id string, vout int) map[string]any { return map[string]any{"txid": id, "vout": vout} }
+	mock := &prunedRPCMock{bestBlock: base, result: validPrunedScan(base)}
+	a, handler, _ := newPrunedTestApp(t, t.TempDir(), mock)
+	if response := addPrunedWatch(t, handler, "Cold", genesisAddress); response.Code != http.StatusOK {
+		t.Fatalf("add response = %d %q", response.Code, response.Body.String())
+	}
+	waitPrunedState(t, handler, "ok")
+	waitPrunedScannerIdle(t, a.scanner)
+	mock.mu.Lock()
+	mock.bestBlock, mock.result.Height = next, 900001
+	mock.hashes = map[int64]string{900001: next}
+	mock.blocks = map[string]any{next: map[string]any{"hash": next, "previousblockhash": base, "tx": []any{
+		map[string]any{"txid": txid("c"), "vin": []any{map[string]any{"coinbase": "03"}}, "vout": []any{out(3.125, 0, "miner")}},
+		map[string]any{"txid": txid("b"), "vin": []any{spend(txid("a"), 0)}, "vout": []any{out(0.5, 0, "mock-address"), out(0.7, 1, "other")}},
+		map[string]any{"txid": txid("d"), "vin": []any{spend(txid("9"), 3)}, "vout": []any{out(0.3, 0, "mock-address")}},
+		map[string]any{"txid": txid("e"), "vin": []any{spend(txid("d"), 0)}, "vout": []any{out(0.29, 0, "other")}},
+	}}}
+	mock.mu.Unlock()
+	entry := a.watch.Entries()[0]
+	a.scanner.refresh(a.watch.Entries(), blockchainInfo{Pruned: true, BestBlockHash: next, Blocks: 900001})
+	cache, _, ok := a.watch.scanSnapshot(entry)
+	want := scanOutpoint{TxID: txid("b"), Vout: 0, Sats: 50_000_000, Height: 900001}
+	if !ok || cache.BestBlock != next || cache.Height != 900001 || cache.BTC != 0.5 || len(cache.Outpoints) != 1 || cache.Outpoints[0] != want {
+		t.Fatalf("block update cache = %#v", cache)
+	}
+	if row := waitPrunedState(t, handler, "ok"); row["btc"] != "0.5" {
+		t.Fatalf("block update row = %#v", row)
+	}
+	mock.mu.Lock()
+	starts := mock.startCalls
+	mock.hashes[900002] = fork
+	mock.blocks[fork] = map[string]any{"hash": fork, "previousblockhash": txid("f"), "tx": []any{}}
+	mock.mu.Unlock()
+	if starts != 1 {
+		t.Fatalf("block update ran %d full scans, want only the first", starts)
+	}
+	reorged := blockchainInfo{Pruned: true, BestBlockHash: fork, Blocks: 900002}
+	a.scanner.refresh(a.watch.Entries(), reorged)
+	if current, _, _ := a.watch.scanSnapshot(entry); current.BestBlock != next {
+		t.Fatalf("block that does not extend the cached tip was applied: %#v", current)
+	}
+	a.scanner.now = func() time.Time { return time.Now().Add(prunedScanCooldown + time.Minute) }
+	a.scanner.refresh(a.watch.Entries(), reorged)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		mock.mu.Lock()
+		starts = mock.startCalls
+		mock.mu.Unlock()
+		if starts == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("reorg did not fall back to a full scan: %d scans", starts)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 

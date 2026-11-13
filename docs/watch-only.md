@@ -33,6 +33,13 @@ The public wallet list, confirmed scan cache, and balance snapshots persist acro
 restarts in the private `dashboard_state` volume. Existing Core watch-only wallets
 remain supported. No file editing is required.
 
+After the first scan, each new block updates the cached balance in place: spent
+coins drop out and new payments to the wallet's first 1,000 receive and change
+addresses are added, so a balance follows the chain within about 30 seconds of a
+block without another full scan. A full `scantxoutset` runs again only when an
+update cannot be applied safely: after a chain reorganization, when the cache is
+more than 144 blocks behind, or when a needed block is no longer available.
+
 The chart shows our saved balance observations, not historical transactions.
 Overlapping confirmed UTXOs are counted once in a combined total. When Core
 wallets and scan results are mixed, the dashboard withholds the combined total
