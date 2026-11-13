@@ -321,8 +321,8 @@ xpub.
   accurate cached balance and are fast to read.
 - Only public addresses, public descriptors, and extended public keys are accepted.
   Never paste a seed phrase or private key; the dashboard rejects them.
-- `blockfilterindex` and `prune_mb: 0` remain manual compatibility settings for
-  advanced archival setups. They are not required for the default UTXO-set scan.
+- `blockfilterindex` remains a manual compatibility setting (on a pruned node it
+  must be enabled before the first prune). They are not required for the default UTXO-set scan.
 
 ## Bitcoin public example and seeding from config.json
 

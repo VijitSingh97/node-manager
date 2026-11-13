@@ -322,7 +322,7 @@ cat >"$tmp/config.json" <<'EOF'
 EOF
 (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "HTTP healthchecks_url was accepted"
 
-# blockfilterindex: honored on an explicitly configured archival node, rejected on a pruned one
+# blockfilterindex: honored on archival and fresh pruned nodes, rejected when added to an already pruned node
 cat >"$tmp/config.json" <<'EOF'
 {"bitcoin": {"node_username": "u", "node_password": "p", "prune_mb": 0, "blockfilterindex": true}}
 EOF
@@ -331,7 +331,15 @@ grep -q '^BITCOIN_BLOCKFILTERINDEX=1$' "$tmp/.env" || fail "blockfilterindex=tru
 cat >"$tmp/config.json" <<'EOF'
 {"bitcoin": {"node_username": "u", "node_password": "p", "prune_mb": 550, "blockfilterindex": true}}
 EOF
-(cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "blockfilterindex was accepted on a pruned node"
+(cd "$tmp" && ./configure.sh) >/dev/null 2>&1 || fail "blockfilterindex was rejected when moving archival to pruned"
+cat >"$tmp/config.json" <<'EOF'
+{"bitcoin": {"node_username": "u", "node_password": "p", "prune_mb": 550, "blockfilterindex": false}}
+EOF
+(cd "$tmp" && ./configure.sh) >/dev/null
+cat >"$tmp/config.json" <<'EOF'
+{"bitcoin": {"node_username": "u", "node_password": "p", "prune_mb": 550, "blockfilterindex": true}}
+EOF
+(cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "blockfilterindex was accepted on an already pruned node"
 
 # Legacy false is harmless, but true is rejected before the existing .env changes.
 cat >"$tmp/config.json" <<'EOF'

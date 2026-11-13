@@ -218,7 +218,7 @@ shows the overridable settings with their defaults:
 | `bitcoin.dbcache_mb` | `128` | Bitcoin Core's UTXO cache size in MB. Size it to your RAM — see [Hardware](hardware.md#ram). Existing installs keep their rendered cache setting when this key is omitted; the Compose fallback remains 3000 for older `.env` files that predate this setting. |
 | `bitcoin.prune_mb` | `10000` | Keeps 10,000 MiB of recent block files after full validation. Existing explicit configuration and rendered state remain unchanged. `0` remains an advanced manual archival setting; any nonzero value must be ≥ `550`. See [Pruned node](#pruned-node). |
 | `bitcoin.inbound_onion` | `false` | `true` publishes a Tor onion service so your node accepts inbound connections and serves available blocks with no IP exposure. See [Inbound onion service](#inbound-onion-service). |
-| `bitcoin.blockfilterindex` | `false` | Advanced archival-node compatibility setting. It is incompatible with pruning and is not needed for the default pruned watch-only balance scan. |
+| `bitcoin.blockfilterindex` | `false` | Advanced archival-node compatibility setting. It works with pruning only if enabled before the first prune (Core refuses to add it to an already pruned datadir); it is not needed for the default pruned watch-only balance scan. |
 | `bitcoin.mem_limit_mb` | `0` (unlimited) | Optional memory cap on the bitcoin container, in MB. `0` = no limit (Docker's default). A cap turns a bitcoind memory blowup into a contained container restart instead of a whole-host OOM. **Size it above `dbcache_mb`** and leave additional room for Core's workload-dependent memory outside the cache. There is no universal fixed margin; monitor actual usage because a low cap can make bitcoind restart-loop. `configure.sh` warns if the cap is not above `dbcache_mb`. |
 | `bitcoin.cpus` | `0` (unlimited) | Optional hard CPU cap on the bitcoin container, applied from container start and kept across upgrades, unlike a manual `docker update`. Same number format as `steady_cpus`; `0` = no limit. Applies during initial sync too, so a thermally or otherwise constrained host is never left uncapped while catching up. The resource profiler leaves operator-set limits alone. |
 | | | Data folders of installed nodes can be moved from the dashboard: Settings → node set → "Move data…" migrates the data and updates this value in one guarded step. |
@@ -542,6 +542,7 @@ Know the trade-offs before enabling:
 - **Enabling is one-way-ish.** Turning pruning on for an existing full
   datadir prunes it down in place. Going back to `prune_mb: 0` later
   requires re-downloading the entire chain.
+- A block filter index (`bitcoin.blockfilterindex`) must be enabled before the first prune; adding it to an already pruned node makes bitcoind fail at startup and needs a fresh chain download.
 - A pruned node can't serve historical blocks to other software. Software that
   requires archival blocks or `txindex` needs a separately planned archival node.
 - The dashboard's "Node Data Size" will show the pruned footprint.

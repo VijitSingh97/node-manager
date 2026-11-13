@@ -6,6 +6,12 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `configure.sh` no longer claims `blockfilterindex` cannot run on a pruned node
+  (Core allows it). It now refuses only to add the index to an already pruned
+  node, which bitcoind cannot start with, and docs state the real rule (#218).
+
 ## [1.33.18] - 2026-11-13
 
 ### Added
