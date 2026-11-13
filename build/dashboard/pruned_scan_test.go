@@ -214,7 +214,7 @@ func TestPrunedWatchAppliesNewBlocksWithoutRescanning(t *testing.T) {
 	mock.bestBlock, mock.result.Height = next, 900001
 	mock.hashes = map[int64]string{900001: next}
 	mock.blocks = map[string]any{next: map[string]any{"hash": next, "previousblockhash": base, "tx": []any{
-		map[string]any{"txid": txid("c"), "vin": []any{map[string]any{"coinbase": "03"}}, "vout": []any{out(3.125, 0, "miner")}},
+		map[string]any{"txid": txid("c"), "hex": strings.Repeat("0", 5<<20), "vin": []any{map[string]any{"coinbase": "03"}}, "vout": []any{out(3.125, 0, "miner")}},
 		map[string]any{"txid": txid("b"), "vin": []any{spend(txid("a"), 0)}, "vout": []any{out(0.5, 0, "mock-address"), out(0.7, 1, "other")}},
 		map[string]any{"txid": txid("d"), "vin": []any{spend(txid("9"), 3)}, "vout": []any{out(0.3, 0, "mock-address")}},
 		map[string]any{"txid": txid("e"), "vin": []any{spend(txid("d"), 0)}, "vout": []any{out(0.29, 0, "other")}},

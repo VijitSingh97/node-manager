@@ -20,6 +20,7 @@ type rpcClient struct {
 	password   string
 	cookiePath string
 	client     *http.Client
+	maxBody    int64
 }
 
 type rpcResponse struct {
@@ -60,12 +61,16 @@ func (r *rpcClient) call(ctx context.Context, method string, params any, out any
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("RPC %s returned HTTP %d", method, resp.StatusCode)
 	}
-	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, maxRPCBody+1))
+	limit := r.maxBody
+	if limit <= 0 {
+		limit = maxRPCBody
+	}
+	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
 		return fmt.Errorf("read RPC %s: %w", method, err)
 	}
-	if len(responseBody) > maxRPCBody {
-		return fmt.Errorf("RPC %s response exceeds %d bytes", method, maxRPCBody)
+	if int64(len(responseBody)) > limit {
+		return fmt.Errorf("RPC %s response exceeds %d bytes", method, limit)
 	}
 	var envelope rpcResponse
 	if err := json.Unmarshal(responseBody, &envelope); err != nil {

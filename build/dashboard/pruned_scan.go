@@ -463,6 +463,8 @@ func (s *prunedScanner) rpcCall(ctx context.Context, method string, params []any
 	client := *s.app.rpc.client
 	client.Timeout = 0
 	rpc.client = &client
+	// getblock verbosity 2 of a full mainnet block is well over the default 4 MiB.
+	rpc.maxBody = 64 << 20
 	return rpc.call(ctx, method, params, out)
 }
 
