@@ -92,19 +92,27 @@ func (m *familyWatchManager) scanNode(parent context.Context, id string, store *
 			Height      int64           `json:"height"`
 			BestBlock   string          `json:"bestblock"`
 		}
+		started := time.Now()
 		err := store.rpc.call(ctx, "scantxoutset", []any{"start", []any{"addr(" + wallet.Address + ")"}}, &scan)
 		atomic, parseErr := parseFamilyWatchAmount(scan.TotalAmount, store.maxSupply)
 		if err != nil || parseErr != nil || !scan.Success || scan.Height < chain.Blocks || scan.BestBlock == "" {
 			store.markFailed(wallet.ID)
+			m.logScan(id, "failed", started)
 			continue
 		}
 		var mainChainBlock string
 		if store.rpc.call(ctx, "getblockhash", []any{scan.Height}, &mainChainBlock) != nil || mainChainBlock != scan.BestBlock {
 			store.markFailed(wallet.ID)
+			m.logScan(id, "off_chain", started)
 			continue
 		}
 		store.record(wallet.ID, atomic, scan.Height, scan.BestBlock)
+		m.logScan(id, "ok", started)
 	}
+}
+
+func (m *familyWatchManager) logScan(chain, outcome string, started time.Time) {
+	m.app.log.Printf("%s watch scan: outcome=%s scan=%.1fs", chain, outcome, time.Since(started).Seconds())
 }
 
 func familyWatchWarningsClear(raw json.RawMessage) bool {
