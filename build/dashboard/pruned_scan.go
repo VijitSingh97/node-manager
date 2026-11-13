@@ -28,6 +28,12 @@ type prunedScanner struct {
 	jobs     chan WatchEntry
 	now      func() time.Time
 	derived  map[string]derivedAddresses
+	waiting  map[string]scanWait
+}
+
+type scanWait struct {
+	since time.Time
+	added bool
 }
 
 type derivedAddresses struct {
@@ -87,7 +93,7 @@ type scanBatchPlan struct {
 func newPrunedScanner(a *app) *prunedScanner {
 	return &prunedScanner{
 		app: a, queued: map[string]bool{}, failures: map[string]int{}, lastTry: map[string]time.Time{},
-		jobs: make(chan WatchEntry, maxWatchWallets), now: time.Now, derived: map[string]derivedAddresses{},
+		jobs: make(chan WatchEntry, maxWatchWallets), now: time.Now, derived: map[string]derivedAddresses{}, waiting: map[string]scanWait{},
 	}
 }
 
@@ -100,6 +106,7 @@ func (s *prunedScanner) run(ctx context.Context) {
 			if !s.app.nodeWorkerRunnable(nodeBitcoin, true) {
 				s.mu.Lock()
 				delete(s.queued, watchKeyID(entry.Key))
+				delete(s.waiting, watchKeyID(entry.Key))
 				s.mu.Unlock()
 				continue
 			}
@@ -116,6 +123,7 @@ func (s *prunedScanner) run(ctx context.Context) {
 					s.mu.Lock()
 					for _, item := range triggered {
 						delete(s.queued, watchKeyID(item.Key))
+						delete(s.waiting, watchKeyID(item.Key))
 					}
 					s.running = false
 					s.mu.Unlock()
@@ -143,12 +151,14 @@ func (s *prunedScanner) enqueue(entry WatchEntry, force bool) bool {
 		return false
 	}
 	s.queued[identity] = true
+	s.waiting[identity] = scanWait{since: now, added: force}
 	s.app.watch.SetPending(entry.Key, true)
 	select {
 	case s.jobs <- entry:
 		return true
 	default:
 		delete(s.queued, identity)
+		delete(s.waiting, identity)
 		return false
 	}
 }
@@ -361,6 +371,8 @@ func (s *prunedScanner) scanBatch(parent context.Context) {
 	if len(plans) == 0 {
 		return
 	}
+	outcome, outpointCount, scanHeight, scanTime := "failed", 0, int64(0), time.Duration(0)
+	defer func() { s.logBatch(plans, outcome, outpointCount, scanHeight, scanTime) }()
 	objects := make([]any, 0, len(objectsByDescriptor))
 	descriptors := make([]string, 0, len(objectsByDescriptor))
 	for descriptor := range objectsByDescriptor {
@@ -372,6 +384,7 @@ func (s *prunedScanner) scanBatch(parent context.Context) {
 	}
 	var status map[string]any
 	if s.rpcCall(ctx, "scantxoutset", []any{"status"}, &status) == nil && len(status) > 0 {
+		outcome = "busy"
 		s.failPlans(plans)
 		return
 	}
@@ -383,18 +396,25 @@ func (s *prunedScanner) scanBatch(parent context.Context) {
 	}
 	plans = active
 	if len(plans) == 0 {
+		outcome = "skipped"
 		return
 	}
 	var result scanTxOutSetResult
-	if err := s.rpcCall(ctx, "scantxoutset", []any{"start", objects}, &result); err != nil {
+	scanStarted := time.Now()
+	err := s.rpcCall(ctx, "scantxoutset", []any{"start", objects}, &result)
+	scanTime, scanHeight = time.Since(scanStarted), result.Height
+	if err != nil {
+		outcome = "rpc_error"
 		s.failPlans(plans)
 		return
 	}
 	outputs, err := validatedScanOutputs(result)
 	if err != nil {
+		outcome = "invalid_result"
 		s.failPlans(plans)
 		return
 	}
+	outpointCount = len(outputs)
 	matched := make(map[string][]scanOutpoint, len(plans))
 	derivedOutputs := map[string][]string{}
 	for _, output := range outputs {
@@ -404,6 +424,7 @@ func (s *prunedScanner) scanBatch(parent context.Context) {
 			err := s.app.rpc.call(shortCtx, "deriveaddresses", []any{output.Desc}, &addresses)
 			shortCancel()
 			if err != nil || len(addresses) == 0 {
+				outcome = "derive_error"
 				s.failPlans(plans)
 				return
 			}
@@ -418,6 +439,7 @@ func (s *prunedScanner) scanBatch(parent context.Context) {
 			}
 		}
 		if len(owners) == 0 {
+			outcome = "unmatched_output"
 			s.failPlans(plans)
 			return
 		}
@@ -446,6 +468,7 @@ func (s *prunedScanner) scanBatch(parent context.Context) {
 		if s.app.watch.ScanErr() != nil {
 			s.app.log.Print("watch balance cache unavailable; pruned balance scans disabled until the cache is repaired and the dashboard restarts")
 		}
+		outcome = "store_error"
 		s.failPlans(plans)
 		return
 	}
@@ -453,6 +476,23 @@ func (s *prunedScanner) scanBatch(parent context.Context) {
 		s.app.watch.history.record(item.entry.Key, item.cache.BTC, item.cache.ScannedAt)
 		s.succeeded(watchKeyID(item.entry.Key))
 	}
+	outcome = "ok"
+}
+
+// Counts and durations only: wallet keys and addresses never reach the log.
+func (s *prunedScanner) logBatch(plans []scanBatchPlan, outcome string, outpoints int, height int64, scan time.Duration) {
+	trigger, waited, now := "refresh", time.Duration(0), s.now()
+	s.mu.Lock()
+	for _, plan := range plans {
+		if wait, ok := s.waiting[plan.identity]; ok {
+			waited = max(waited, now.Sub(wait.since))
+			if wait.added {
+				trigger = "add"
+			}
+		}
+	}
+	s.mu.Unlock()
+	s.app.log.Printf("watch scan: outcome=%s trigger=%s wallets=%d outpoints=%d height=%d scan=%.1fs waited=%.1fs", outcome, trigger, len(plans), outpoints, height, scan.Seconds(), waited.Seconds())
 }
 
 func (s *prunedScanner) rpcCall(ctx context.Context, method string, params []any, out any) error {

@@ -6,6 +6,12 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- Watch-only balance scans log their outcome, the `scantxoutset` duration and
+  how long the wallet waited for its result, with no address or key, giving a
+  real baseline for scan speed (#214).
+
 ### Changed
 
 - On pruned nodes, Bitcoin watch-only balances now follow each new block from

@@ -194,6 +194,8 @@ func TestFamilyWatchAcceptsAdvancedScanAndRejectsReorg(t *testing.T) {
 	verified := familyWatchEntry{ID: "wallet-verified", Address: "verified-address"}
 	unverified := familyWatchEntry{ID: "wallet-unverified", Address: "unverified-address"}
 	manager, store, fixture := newFamilyScanTest(t, now, verified)
+	logs := &lockedLog{}
+	manager.app.log.SetOutput(logs)
 	fixture.update(func(f *familyScanRPCFixture) {
 		f.scanHeight, f.scanHash = 101, familyScanHash101
 		f.canonicalHashes[101] = familyScanHash101
@@ -219,6 +221,10 @@ func TestFamilyWatchAcceptsAdvancedScanAndRejectsReorg(t *testing.T) {
 	}
 	if _, cached := store.balances[unverified.ID]; cached || store.states[unverified.ID] != "error" {
 		t.Fatalf("unverified scan cached: %#v, state %q", store.balances[unverified.ID], store.states[unverified.ID])
+	}
+	output := logs.String()
+	if !strings.Contains(output, "litecoin watch scan: outcome=ok scan=") || !strings.Contains(output, "litecoin watch scan: outcome=off_chain scan=") || strings.Contains(output, "-address") {
+		t.Fatalf("family scan timing lines = %q", output)
 	}
 }
 

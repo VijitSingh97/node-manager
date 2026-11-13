@@ -26,8 +26,16 @@ Click **Add**. On the default pruned node, the row stays pending while Bitcoin
 Core's `scantxoutset` checks the live UTXO set, then shows the confirmed balance
 and caches it with the scan height and time. A first scan commonly takes minutes,
 but its time depends on hardware and current workload. Later reads use the cache
-and are fast; the displayed height and time show how fresh the result is. Remove
+and are fast; the displayed scan time shows how fresh the result is. Remove
 a wallet with the **✕** next to it.
+
+Each scan logs its outcome and timing to the dashboard log, without any address
+or key, for example `watch scan: outcome=ok trigger=add wallets=1 outpoints=7 height=975700
+scan=84.2s waited=86.0s`. `scan` is the `scantxoutset` call itself and `waited`
+is the time from the wallet being queued (by **Add**, or by a new block) to the
+result. Litecoin and the other family chains log one `<chain> watch scan:` line
+per address scan. Read them with
+`docker logs bitcoin-starter-stack-apt-dashboard-1 2>&1 | grep 'watch scan'`.
 
 The public wallet list, confirmed scan cache, and balance snapshots persist across
 restarts in the private `dashboard_state` volume. Existing Core watch-only wallets

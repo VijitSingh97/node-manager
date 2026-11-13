@@ -11,11 +11,49 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+type lockedLog struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (l *lockedLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Write(p)
+}
+
+func (l *lockedLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
+}
+
+func TestPrunedScanLogsTimingWithoutWalletData(t *testing.T) {
+	bestBlock := strings.Repeat("0", 64)
+	mock := &prunedRPCMock{bestBlock: bestBlock, result: validPrunedScan(bestBlock)}
+	a, handler, _ := newPrunedTestApp(t, t.TempDir(), mock)
+	logs := &lockedLog{}
+	a.log.SetOutput(logs)
+	if response := addPrunedWatch(t, handler, "Cold", genesisAddress); response.Code != http.StatusOK {
+		t.Fatalf("add response = %d %q", response.Code, response.Body.String())
+	}
+	waitPrunedState(t, handler, "ok")
+	waitPrunedScannerIdle(t, a.scanner)
+	output := logs.String()
+	if !regexp.MustCompile(`watch scan: outcome=ok trigger=add wallets=1 outpoints=1 height=900000 scan=\d+\.\ds waited=\d+\.\ds`).MatchString(output) {
+		t.Fatalf("scan timing line = %q", output)
+	}
+	if strings.Contains(output, genesisAddress) || strings.Contains(output, "Cold") || strings.Contains(output, "addr(") {
+		t.Fatalf("scan log leaked wallet data: %q", output)
+	}
+}
 
 type prunedRPCMock struct {
 	mu                 sync.Mutex
