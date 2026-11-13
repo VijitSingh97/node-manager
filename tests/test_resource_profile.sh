@@ -132,6 +132,7 @@ case "$1" in
     if [ "$#" = 4 ]; then
       id=$4
       nanos=$(awk -v value="$cpus" 'BEGIN { printf "%.0f\n", value * 1000000000 }')
+      [ "$nanos" = 0 ] && exit 0
       printf '%s 0 0\n' "$nanos" >"$FAKE_CAPS/$id"
       exit 0
     fi
@@ -444,7 +445,11 @@ tick_profile
 grep -q '^1000000000 ' "$caps/xmr-id" || fail "second hot pass did not halve again"
 printf '70000\n' >"$case_root/thermal/temp"
 tick_profile
-grep -q '^0 ' "$caps/xmr-id" || fail "cool pass did not restore monero to unlimited"
+grep -q '^4000000000 ' "$caps/xmr-id" || fail "cool pass did not restore uncapped monero to every host CPU"
+printf 'MONERO_RESOURCE_PROFILE=compact\n' >>"$case_root/state/.env"
+tick_profile
+grep -q '^xmr-id|0|pending|' "$case_root/state/resource-profile/monero" || fail "profiler treated a restored uncapped monero as operator-limited"
+printf 'MONERO_RESOURCE_PROFILE=off\n' >>"$case_root/state/.env"
 [ ! -f "$case_root/state/thermal-throttle/monero" ] || fail "throttle state was not cleared"
 grep -q 'thermal throttle at 90C' "$tmp/thermal-events.log" || fail "throttle event line missing"
 grep -q 'thermal throttle released (cooled to 70C)' "$tmp/thermal-events.log" || fail "release event line missing"
@@ -454,7 +459,7 @@ run_profile
 grep -q '^2000000000 ' "$caps/xmr-id" || fail "re-throttle did not halve monero"
 export FAKE_SETTINGS_JSON='{"thermal_throttle":false}'
 run_profile
-grep -q '^0 ' "$caps/xmr-id" || fail "disabling the throttle in settings did not restore monero"
+grep -q '^4000000000 ' "$caps/xmr-id" || fail "disabling the throttle in settings did not restore monero"
 grep -q 'thermal throttle released (throttle disabled)' "$tmp/thermal-events.log" || fail "disable release event missing"
 export FAKE_SETTINGS_JSON='{"thermal_throttle":true}'
 run_profile

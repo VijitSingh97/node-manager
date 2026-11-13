@@ -62,15 +62,12 @@ test("pruned balances distinguish a pending UTXO scan from transaction history",
   assert.match(watchHint(false), /birthday/);
 });
 
-test("scan freshness and derived coverage stay visible for cached balances", () => {
+test("the scan note is only the scan timestamp", () => {
   const row = { balance_kind: "confirmed", state: "ok", range: { start: 0, end: 999 }, scan_height: 973634, scan_time: "2026-10-29T03:00:00Z" };
-  assert.match(scanNote(row), /Confirmed balance/);
-  assert.match(scanNote(row), /derived indexes 0–999/);
-  assert.match(scanNote(row), /block 973634/);
-  assert.match(scanNote(row), /scanned/);
-  assert.match(scanNote({ ...row, state: "stale" }), /Last confirmed scan · updating/);
+  assert.equal(scanNote(row), `Scanned ${new Date(row.scan_time).toLocaleString()}`);
+  assert.equal(scanNote({ ...row, state: "stale" }), scanNote(row));
   assert.equal(scanNote({ state: "ok", btc: "1" }), "");
-  assert.doesNotMatch(scanNote({ balance_kind: "confirmed", scan_time: "bad" }), /Invalid Date/);
+  assert.equal(scanNote({ balance_kind: "confirmed", scan_time: "bad" }), "");
 });
 
 test("balanceLabel keeps an accurate zero after rescan without history", () => {

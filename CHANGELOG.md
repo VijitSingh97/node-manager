@@ -6,6 +6,32 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- "Remember me" dashboard logins now last their full 30 days across
+  dashboard restarts and upgrades. Remembered sessions are saved as token
+  hashes in `/state/sessions.json`, bound to the current password, so
+  changing the password in the dashboard or `config.json` still signs every
+  browser out, and a logout is never undone by a restart.
+- The Monero watch-only wallet card no longer gets stuck on "needs a dashboard
+  restart". The minute refresh opened wallets with an empty file name, so a
+  wallet's scan never started; it now keeps the scanning wallet open instead of
+  reloading its whole cache every minute, stores it once a scan completes, and
+  a lost reply to a read-only wallet call is retried on the next refresh rather
+  than stopping the wallet service. The dashboard log now names the call
+  whenever the service does stop.
+- The Tari wallet no longer crash-loops on the default `admin` RPC user name:
+  only the RPC password needs at least 8 characters.
+- The thermal throttle now releases nodes that run without a CPU cap. Docker
+  ignores `--cpus 0`, so the release left them at 0.25 CPU; they now get every
+  host CPU back, and a release that does not take effect is retried.
+- The dashboard no longer reports a Tari node at height 0 as synced, which
+  sent a false "initial sync complete" alert after every failed sync attempt.
+
+### Changed
+
+- Bitcoin watch-only balance notes show only the scan time.
+
 ## [1.33.16] - 2026-11-12
 
 ### Added

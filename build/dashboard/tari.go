@@ -55,7 +55,7 @@ func (a *app) fetchTariStatus(ctx context.Context, node nodeConfig, status gener
 			status.TargetHeight = status.Height
 		}
 	}
-	status.Synced = tip.InitialSyncAchieved && tip.BaseNodeState == BaseNodeState_LISTENING
+	status.Synced = tip.InitialSyncAchieved && tip.BaseNodeState == BaseNodeState_LISTENING && status.Height > 0
 	if progressErr == nil {
 		status.Synced = status.Synced && progress.State == SyncState_DONE && progress.LocalHeight >= progress.TipHeight
 	}

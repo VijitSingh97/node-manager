@@ -192,6 +192,30 @@ func TestRemoveRollbackFailureKeepsArchiveRecoverable(t *testing.T) {
 	}
 }
 
+func TestRenderConfigAcceptsTheDefaultRPCUserAndRequiresAStrongPassword(t *testing.T) {
+	for _, test := range []struct {
+		user, password string
+		ok             bool
+	}{
+		{"admin", strings.Repeat("p", 48), true},
+		{"admin", "short", false},
+		{"", strings.Repeat("p", 48), false},
+		{"bad user", strings.Repeat("p", 48), false},
+	} {
+		root := t.TempDir()
+		config := filepath.Join(root, "config.toml")
+		if err := os.WriteFile(config, []byte(`grpc_authentication = { username = "__RPC_USER__", password = "__RPC_PASSWORD__" }`), 0600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("TARI_WALLET_RPC_USER", test.user)
+		t.Setenv("TARI_WALLET_RPC_PASSWORD", test.password)
+		s := &supervisor{root: root, config: config}
+		if err := s.renderConfig(); (err == nil) != test.ok {
+			t.Fatalf("user %q password length %d: renderConfig error %v, want ok=%v", test.user, len(test.password), err, test.ok)
+		}
+	}
+}
+
 func TestRunFailsClosedWhenIdentityIsIncomplete(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("TARI_WALLET_PASSWORD", "databasepassword")

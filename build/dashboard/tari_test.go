@@ -24,6 +24,16 @@ type tariSyncingFixture struct{ tariFixture }
 
 type tariUnprunedFixture struct{ tariFixture }
 
+type tariGenesisFixture struct{ tariFixture }
+
+func (f tariGenesisFixture) GetTipInfo(context.Context, *emptypb.Empty) (*TipInfoResponse, error) {
+	return &TipInfoResponse{Metadata: &MetaData{Timestamp: f.timestamp}, InitialSyncAchieved: true, BaseNodeState: BaseNodeState_LISTENING}, nil
+}
+
+func (tariGenesisFixture) GetSyncProgress(context.Context, *emptypb.Empty) (*SyncProgressResponse, error) {
+	return &SyncProgressResponse{State: SyncState_DONE}, nil
+}
+
 func (tariSyncingFixture) GetSyncProgress(context.Context, *emptypb.Empty) (*SyncProgressResponse, error) {
 	return &SyncProgressResponse{TipHeight: 200, LocalHeight: 123, State: SyncState_BLOCK}, nil
 }
@@ -165,6 +175,24 @@ func TestTariSyncProgressPreventsFalseSyncedStatus(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "tari.synced")); !os.IsNotExist(err) {
 		t.Fatalf("syncing Tari retained sync marker: %v", err)
+	}
+}
+
+func TestTariAtGenesisIsNeverReportedSynced(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := grpc.NewServer()
+	RegisterBaseNodeServer(server, tariGenesisFixture{tariFixture{timestamp: uint64(time.Now().Unix())}})
+	go server.Serve(listener)
+	defer server.Stop()
+	dir := t.TempDir()
+	node := nodeConfig{ID: nodeTari, Enabled: true, Supported: true, RPCURL: "http://" + listener.Addr().String(), DataDir: dir}
+	a := &app{cfg: config{stateDir: dir}}
+	status, err := a.fetchTariStatus(t.Context(), node, genericNodeStatus{Enabled: true, Active: true, Supported: true})
+	if err != nil || status.Synced || status.Height != 0 {
+		t.Fatalf("Tari at genesis reported synced: %#v, %v", status, err)
 	}
 }
 

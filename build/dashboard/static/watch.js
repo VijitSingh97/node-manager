@@ -46,16 +46,8 @@ export function fiatLabel(btc, price, currency) {
 }
 
 export function scanNote(w) {
-  if (w.balance_kind !== "confirmed") return "";
-  const parts = [w.state === "stale" ? "Last confirmed scan · updating" : "Confirmed balance"];
-  if (Number.isInteger(w.range?.start) && Number.isInteger(w.range?.end)) {
-    parts.push(`derived indexes ${w.range.start}–${w.range.end}`);
-  }
-  if (Number.isInteger(w.scan_height)) parts.push(`block ${w.scan_height}`);
-  if (w.scan_time && Number.isFinite(Date.parse(w.scan_time))) {
-    parts.push(`scanned ${new Date(w.scan_time).toLocaleString()}`);
-  }
-  return parts.join(" · ");
+  if (w.balance_kind !== "confirmed" || !w.scan_time || !Number.isFinite(Date.parse(w.scan_time))) return "";
+  return `Scanned ${new Date(w.scan_time).toLocaleString()}`;
 }
 
 export function watchHint(pruned) {

@@ -245,7 +245,9 @@ apply_profile() {
     return 0
   fi
   limits=$(current_limits "$id") || return 0
-  if [ "$limits" != "0 0 0" ]; then
+  host_cpus=$("$docker_bin" info --format '{{.NCPU}}' 2>/dev/null)
+  case "$host_cpus" in '' | *[!0-9]*) host_cpus=0 ;; esac
+  if [ "$limits" != "0 0 0" ] && [ "$limits" != "$((host_cpus * 1000000000)) 0 0" ]; then
     echo "resource-profile: $service already has operator-set limits; leaving them unchanged" >&2
     save_state "$service" "$id" 0 blocked "$current_time"
     return 0
@@ -376,8 +378,16 @@ thermal_restore() {
       rm -f "$file"
       continue
     fi
-    cpus_value=$(awk -v n="$orig_nanos" 'BEGIN { printf "%.2f", n / 1000000000 }')
+    if [ "$orig_nanos" = 0 ]; then
+      # docker update treats --cpus 0 as unchanged, so an uncapped container gets every host CPU back instead.
+      orig_nanos=$("$docker_bin" info --format '{{.NCPU}}' 2>/dev/null)
+      case "$orig_nanos" in ('' | 0 | *[!0-9]*) continue ;; esac
+      orig_nanos=$((orig_nanos * 1000000000))
+    fi
+    cpus_value=$(awk -v n="$orig_nanos" 'BEGIN { printf "%.9f", n / 1000000000 }')
     "$docker_bin" update --cpus "$cpus_value" "$id" >/dev/null 2>&1 || continue
+    restored=$(current_limits "$id") || continue
+    [ "${restored%% *}" = "$orig_nanos" ] || continue
     rm -f "$file" "$profile_state/$service"
     thermal_event "thermal throttle released ($1) — restored $service"
   done

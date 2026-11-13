@@ -98,6 +98,22 @@ func (auth *dashboardAuth) matches(password string) bool {
 	return auth.matchesLocked(password)
 }
 
+func (auth *dashboardAuth) sessionBinding() string {
+	auth.mu.RLock()
+	defer auth.mu.RUnlock()
+	return auth.sessionBindingLocked()
+}
+
+// Slow-hashed so the session file never holds a fast hash of the dashboard password.
+func (auth *dashboardAuth) sessionBindingLocked() string {
+	material := "baseline\x00" + hex.EncodeToString(auth.cached[:])
+	if auth.saved.Hash != "" {
+		material = "saved\x00" + auth.saved.Salt + auth.saved.Hash
+	}
+	binding, _ := pbkdf2.Key(sha256.New, material, []byte("node-manager-session-binding"), dashboardPasswordIterations, 32)
+	return hex.EncodeToString(binding)
+}
+
 func (a *app) hasDashboardPassword() bool {
 	if a.dashboardAuth == nil {
 		return a.cfg.dashboardPassword != ""
@@ -177,7 +193,7 @@ func (a *app) apiDashboardPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	auth.saved, auth.enabled, auth.cached, auth.hasCache = saved, true, sha256.Sum256([]byte(input.New)), true
-	a.sessions.revokeAll()
+	a.sessions.revokeAll(auth.sessionBindingLocked())
 	a.clearSessionCookie(w, r)
 	writeJSON(w, map[string]bool{"changed": true})
 }

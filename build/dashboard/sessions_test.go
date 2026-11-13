@@ -1,12 +1,74 @@
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+func TestRememberedSessionsSurviveRestartUnderTheSameCredential(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sessions.json")
+	bindingA, bindingB := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	now := time.Unix(1_800_000_000, 0)
+	reload := func(binding string, at time.Time) *dashboardSessions {
+		sessions := newDashboardSessions()
+		sessions.persist(path, binding, at)
+		return sessions
+	}
+	first := reload(bindingA, now)
+	remembered, err := first.issue(now, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shortLived, _ := first.issue(now, false)
+	if b, _ := os.ReadFile(path); bytes.Contains(b, []byte(remembered)) || bytes.Contains(b, []byte(shortLived)) {
+		t.Fatal("raw session token written to disk")
+	}
+	later := now.Add(time.Hour)
+	if restarted := reload(bindingA, later); !restarted.valid(remembered, later) || restarted.valid(shortLived, later) {
+		t.Fatal("restart did not keep exactly the remembered session")
+	}
+	if reload(bindingB, later).valid(remembered, later) {
+		t.Fatal("remembered session survived a credential change")
+	}
+	if expiry := now.Add(dashboardSessionRememberLifetime); reload(bindingA, expiry).valid(remembered, expiry) {
+		t.Fatal("expired session reloaded")
+	}
+	first.revoke(remembered)
+	if reload(bindingA, later).valid(remembered, later) {
+		t.Fatal("logout did not survive a restart")
+	}
+	again, _ := first.issue(now, true)
+	first.revokeAll(bindingB)
+	if reload(bindingA, later).valid(again, later) || reload(bindingB, later).valid(again, later) {
+		t.Fatal("password change did not revoke persisted sessions")
+	}
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	corrupt := reload(bindingB, later)
+	if token, err := corrupt.issue(later, true); err != nil || !reload(bindingB, later).valid(token, later) {
+		t.Fatal("corrupt session file blocked new remembered sessions")
+	}
+}
+
+func TestSessionBindingChangesWithTheCredential(t *testing.T) {
+	first, err := newDashboardAuth(t.TempDir(), "first-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, _ := newDashboardAuth(t.TempDir(), "second-password")
+	same, _ := newDashboardAuth(t.TempDir(), "first-password")
+	if binding := first.sessionBinding(); !lowerHex(binding, 64) || binding == second.sessionBinding() || binding != same.sessionBinding() {
+		t.Fatal("session binding does not track the configured password")
+	}
+}
 
 func TestDashboardSessionsLifecycleAndTokenStorage(t *testing.T) {
 	sessions := newDashboardSessions()
@@ -38,7 +100,7 @@ func TestDashboardSessionsLifecycleAndTokenStorage(t *testing.T) {
 	if sessions.valid(token, now.Add(29*time.Minute)) {
 		t.Fatal("revoked session remained valid")
 	}
-	sessions.revokeAll()
+	sessions.revokeAll("")
 	if len(sessions.sessions) != 0 {
 		t.Fatal("revokeAll retained sessions")
 	}
