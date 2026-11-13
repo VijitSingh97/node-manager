@@ -12,6 +12,14 @@ All notable changes to this project are documented here. Format follows
   how long the wallet waited for its result, with no address or key, giving a
   real baseline for scan speed (#214).
 
+### Changed
+
+- On pruned nodes, Bitcoin watch-only balances now follow each new block from
+  the cached coins instead of rescanning the whole UTXO set: spends and new
+  payments are applied within about 30 seconds of a block, and a full
+  `scantxoutset` runs only after a reorganization, a gap of more than 144
+  blocks, or a missing block (#215).
+
 ## [1.33.17] - 2026-11-13
 
 ### Fixed

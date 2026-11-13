@@ -14,6 +14,8 @@ import (
 const (
 	prunedScanTimeout  = 30 * time.Minute
 	prunedScanCooldown = 10 * time.Minute
+	prunedDeltaBlocks  = 144
+	prunedBlockTimeout = time.Minute
 )
 
 type prunedScanner struct {
@@ -25,12 +27,37 @@ type prunedScanner struct {
 	lastTry  map[string]time.Time
 	jobs     chan WatchEntry
 	now      func() time.Time
+	derived  map[string]derivedAddresses
 	waiting  map[string]scanWait
 }
 
 type scanWait struct {
 	since time.Time
 	added bool
+}
+
+type derivedAddresses struct {
+	descriptorID string
+	set          map[string]bool
+}
+
+type deltaBlock struct {
+	Hash              string `json:"hash"`
+	PreviousBlockHash string `json:"previousblockhash"`
+	Tx                []struct {
+		Txid string `json:"txid"`
+		Vin  []struct {
+			Txid string `json:"txid"`
+			Vout int64  `json:"vout"`
+		} `json:"vin"`
+		Vout []struct {
+			Value        float64 `json:"value"`
+			N            int64   `json:"n"`
+			ScriptPubKey struct {
+				Address string `json:"address"`
+			} `json:"scriptPubKey"`
+		} `json:"vout"`
+	} `json:"tx"`
 }
 
 type scanTxOutSetResult struct {
@@ -66,7 +93,7 @@ type scanBatchPlan struct {
 func newPrunedScanner(a *app) *prunedScanner {
 	return &prunedScanner{
 		app: a, queued: map[string]bool{}, failures: map[string]int{}, lastTry: map[string]time.Time{},
-		jobs: make(chan WatchEntry, maxWatchWallets), now: time.Now, waiting: map[string]scanWait{},
+		jobs: make(chan WatchEntry, maxWatchWallets), now: time.Now, derived: map[string]derivedAddresses{}, waiting: map[string]scanWait{},
 	}
 }
 
@@ -148,17 +175,165 @@ func (s *prunedScanner) refresh(entries []WatchEntry, chain blockchainInfo) {
 	if !s.app.nodeWorkerRunnable(nodeBitcoin, true) || !chain.Pruned || chain.InitialBlockDownload || chain.BestBlockHash == "" || s.app.watch.ScanErr() != nil {
 		return
 	}
+	behind := map[string][]WatchEntry{}
 	for _, entry := range entries {
 		if s.app.watch.hasResolvedWallet(s.app.walletRPC, entry) {
 			s.app.watch.ClearPendingIfCurrent(entry)
 			continue
 		}
 		cache, _, ok := s.app.watch.scanSnapshot(entry)
-		age := s.now().Sub(cache.ScannedAt)
-		if !ok || cache.BestBlock != chain.BestBlockHash && (age < 0 || age >= prunedScanCooldown) {
-			s.enqueue(entry, false)
+		if ok && cache.BestBlock != chain.BestBlockHash && chain.Blocks > cache.Height && chain.Blocks-cache.Height <= prunedDeltaBlocks {
+			behind[cache.BestBlock] = append(behind[cache.BestBlock], entry)
+			continue
+		}
+		s.rescanIfStale(entry, cache, ok, chain)
+	}
+	for base, group := range behind {
+		if !s.applyBlocks(group, base, chain) {
+			for _, entry := range group {
+				cache, _, ok := s.app.watch.scanSnapshot(entry)
+				s.rescanIfStale(entry, cache, ok, chain)
+			}
 		}
 	}
+}
+
+func (s *prunedScanner) rescanIfStale(entry WatchEntry, cache prunedScanCache, cached bool, chain blockchainInfo) {
+	age := s.now().Sub(cache.ScannedAt)
+	if !cached || cache.BestBlock != chain.BestBlockHash && (age < 0 || age >= prunedScanCooldown) {
+		s.enqueue(entry, false)
+	}
+}
+
+// Applies the blocks after a shared cached tip to each wallet's outpoints; false means a full scan is needed instead.
+func (s *prunedScanner) applyBlocks(entries []WatchEntry, base string, chain blockchainInfo) bool {
+	s.mu.Lock()
+	if s.running || len(s.queued) > 0 {
+		s.mu.Unlock()
+		return true
+	}
+	s.running = true
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.running = false
+		s.mu.Unlock()
+	}()
+	started := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), prunedScanTimeout)
+	defer cancel()
+	type wallet struct {
+		entry     WatchEntry
+		cache     prunedScanCache
+		addresses map[string]bool
+		outpoints map[string]scanOutpoint
+	}
+	wallets := make([]wallet, 0, len(entries))
+	height := int64(-1)
+	for _, entry := range entries {
+		cache, _, ok := s.app.watch.scanSnapshot(entry)
+		if !ok || cache.BestBlock != base || height >= 0 && cache.Height != height {
+			return false
+		}
+		height = cache.Height
+		addresses, err := s.walletAddresses(ctx, entry)
+		if err != nil {
+			return false
+		}
+		outpoints := make(map[string]scanOutpoint, len(cache.Outpoints))
+		for _, outpoint := range cache.Outpoints {
+			outpoints[fmt.Sprintf("%s:%d", outpoint.TxID, outpoint.Vout)] = outpoint
+		}
+		wallets = append(wallets, wallet{entry: entry, cache: cache, addresses: addresses, outpoints: outpoints})
+	}
+	previous := base
+	for next := height + 1; next <= chain.Blocks; next++ {
+		var hash string
+		var block deltaBlock
+		blockCtx, blockCancel := context.WithTimeout(ctx, prunedBlockTimeout)
+		err := s.rpcCall(blockCtx, "getblockhash", []any{next}, &hash)
+		if err == nil {
+			err = s.rpcCall(blockCtx, "getblock", []any{hash, 2}, &block)
+		}
+		blockCancel()
+		if err != nil || block.Hash != hash || block.PreviousBlockHash != previous {
+			return false
+		}
+		for _, tx := range block.Tx {
+			for _, input := range tx.Vin {
+				if input.Txid == "" {
+					continue
+				}
+				spent := fmt.Sprintf("%s:%d", input.Txid, input.Vout)
+				for i := range wallets {
+					delete(wallets[i].outpoints, spent)
+				}
+			}
+			for _, output := range tx.Vout {
+				if output.ScriptPubKey.Address == "" {
+					continue
+				}
+				for i := range wallets {
+					if !wallets[i].addresses[output.ScriptPubKey.Address] {
+						continue
+					}
+					sats, ok := btcSatoshis(output.Value)
+					if !ok {
+						return false
+					}
+					wallets[i].outpoints[fmt.Sprintf("%s:%d", tx.Txid, output.N)] = scanOutpoint{TxID: tx.Txid, Vout: output.N, Sats: sats, Height: next}
+				}
+			}
+		}
+		previous = hash
+	}
+	if previous != chain.BestBlockHash {
+		return false
+	}
+	now := s.now().UTC()
+	caches := make(map[string]entryScanCache, len(wallets))
+	for _, item := range wallets {
+		outpoints := make([]scanOutpoint, 0, len(item.outpoints))
+		var sats int64
+		for _, outpoint := range item.outpoints {
+			outpoints = append(outpoints, outpoint)
+			sats += outpoint.Sats
+		}
+		sort.Slice(outpoints, func(i, j int) bool {
+			return outpoints[i].TxID < outpoints[j].TxID || outpoints[i].TxID == outpoints[j].TxID && outpoints[i].Vout < outpoints[j].Vout
+		})
+		caches[watchKeyID(item.entry.Key)] = entryScanCache{entry: item.entry, cache: prunedScanCache{
+			DescriptorID: item.cache.DescriptorID, BTC: float64(sats) / 1e8, Height: chain.Blocks,
+			BestBlock: previous, ScannedAt: now, Outpoints: outpoints,
+		}}
+	}
+	stored := s.app.watch.StoreScanBatch(caches)
+	if len(stored) != len(caches) {
+		return false
+	}
+	for _, item := range stored {
+		s.app.watch.history.record(item.entry.Key, item.cache.BTC, item.cache.ScannedAt)
+	}
+	s.app.log.Printf("watch block update: wallets=%d blocks=%d height=%d took=%.1fs", len(stored), chain.Blocks-height, chain.Blocks, time.Since(started).Seconds())
+	return true
+}
+
+func (s *prunedScanner) walletAddresses(ctx context.Context, entry WatchEntry) (map[string]bool, error) {
+	identity, descriptorID := watchKeyID(entry.Key), descriptorSetID(entry)
+	s.mu.Lock()
+	cached, ok := s.derived[identity]
+	s.mu.Unlock()
+	if ok && cached.descriptorID == descriptorID {
+		return cached.set, nil
+	}
+	_, addresses, err := s.scanObjects(ctx, entry)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	s.derived[identity] = derivedAddresses{descriptorID: descriptorID, set: addresses}
+	s.mu.Unlock()
+	return addresses, nil
 }
 
 func (s *prunedScanner) scanBatch(parent context.Context) {
@@ -328,6 +503,8 @@ func (s *prunedScanner) rpcCall(ctx context.Context, method string, params []any
 	client := *s.app.rpc.client
 	client.Timeout = 0
 	rpc.client = &client
+	// getblock verbosity 2 of a full mainnet block is well over the default 4 MiB.
+	rpc.maxBody = 64 << 20
 	return rpc.call(ctx, method, params, out)
 }
 
