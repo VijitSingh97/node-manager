@@ -12,6 +12,15 @@ All notable changes to this project are documented here. Format follows
   how long the wallet waited for its result, with no address or key, giving a
   real baseline for scan speed (#214).
 
+### Fixed
+
+- The Monero watch-only example wallet ("Monero General Fund") can now finish
+  loading. Its incoming-transfers reply (about 8,500 outputs, 3.8 MB) exceeded
+  the 1 MiB Monero RPC reply limit, so every refresh after the scan reached the
+  tip failed; the wallet RPC client now accepts replies up to 64 MiB while the
+  daemon client keeps 1 MiB. The wallet container's memory limit rises from
+  512 MiB to 1 GiB, because scanning that wallet plateaus at about 500 MiB.
+
 ### Changed
 
 - On pruned nodes, Bitcoin watch-only balances now follow each new block from

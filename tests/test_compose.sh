@@ -171,7 +171,7 @@ echo "$wallet_rendered" | grep -q 'read_only: true' || fail "Monero wallet root 
 echo "$wallet_rendered" | grep -q 'source: monero_wallets' || fail "Monero wallet volume is not persistent"
 echo "$wallet_rendered" | grep -q 'published:' && fail "Monero wallet RPC is published to the host"
 echo "$wallet_rendered" | grep -q '127.0.0.1' || fail "Monero wallet DNS is not fail-closed"
-echo "$wallet_rendered" | grep -q 'mem_limit: "536870912"' || fail "Monero wallet memory guard changed"
+echo "$wallet_rendered" | grep -q 'mem_limit: "1073741824"' || fail "Monero wallet memory guard changed"
 echo "$wallet_rendered" | grep -q 'cpus: 0.5' || fail "Monero wallet CPU guard changed"
 echo "$monero_rendered" | sed -n '/^  monero:$/,/^  tor:$/p' | grep -q 'ipv4_address: 172.29.0.30' ||
   fail "Monero fixed internal address changed"

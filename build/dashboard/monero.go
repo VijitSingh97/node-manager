@@ -101,6 +101,7 @@ type moneroRPC struct {
 	user     string
 	password string
 	client   *http.Client
+	maxBody  int64
 }
 
 func (a *app) apiMonero(w http.ResponseWriter, r *http.Request) {
@@ -264,7 +265,7 @@ func (m moneroRPC) do(ctx context.Context, method, path string, body []byte) ([]
 			return nil, err
 		}
 	}
-	return readMoneroRPCResponse(response)
+	return readMoneroRPCResponse(response, m.maxBody)
 }
 
 func (m moneroRPC) doDigest(ctx context.Context, method, path string, body, probeBody []byte) ([]byte, error) {
@@ -325,23 +326,26 @@ func (m moneroRPC) doDigest(ctx context.Context, method, path string, body, prob
 			return nil, fmt.Errorf("%w: authenticated request failed", errMoneroRemoteUnknown)
 		}
 	}
-	responseBody, err := readMoneroRPCResponse(response)
+	responseBody, err := readMoneroRPCResponse(response, m.maxBody)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", errMoneroRemoteUnknown, err)
 	}
 	return responseBody, nil
 }
 
-func readMoneroRPCResponse(response *http.Response) ([]byte, error) {
+func readMoneroRPCResponse(response *http.Response, limit int64) ([]byte, error) {
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("Monero RPC returned HTTP %d", response.StatusCode)
 	}
-	responseBody, err := io.ReadAll(io.LimitReader(response.Body, maxMoneroRPCBody+1))
+	if limit <= 0 {
+		limit = maxMoneroRPCBody
+	}
+	responseBody, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	if err != nil {
 		return nil, errors.New("read Monero RPC response")
 	}
-	if len(responseBody) > maxMoneroRPCBody {
+	if int64(len(responseBody)) > limit {
 		return nil, errors.New("Monero RPC response too large")
 	}
 	return responseBody, nil
