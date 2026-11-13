@@ -33,6 +33,7 @@ type moneroWalletFixture struct {
 	daemonPending bool
 	closed        bool
 	openedFile    string
+	largeReply    bool
 }
 
 func (f *moneroWalletFixture) handler(w http.ResponseWriter, r *http.Request) {
@@ -135,6 +136,11 @@ func (f *moneroWalletFixture) handler(w http.ResponseWriter, r *http.Request) {
 			keyImage = strings.Repeat("c", 64)
 		}
 		transfers := []any{map[string]any{"amount": 1_000_000_000_000, "key_image": keyImage}}
+		f.mu.Lock()
+		if f.largeReply {
+			transfers[0].(map[string]any)["padding"] = strings.Repeat("x", 2<<20)
+		}
+		f.mu.Unlock()
 		if newOutput {
 			transfers = append(transfers, map[string]any{"amount": 500_000_000_000, "key_image": ""})
 		}
@@ -436,6 +442,19 @@ func TestMoneroWatchLostReadReplyDoesNotStopTheWalletService(t *testing.T) {
 	a.moneroWatch.refresh(context.Background(), wallet)
 	if status := a.moneroWatch.List()[0]; status.State != "ready" {
 		t.Fatalf("wallet did not recover on the next refresh: %#v", status)
+	}
+}
+
+func TestMoneroWatchReadsIncomingTransfersLargerThanTheDaemonCap(t *testing.T) {
+	fixture := &moneroWalletFixture{largeReply: true}
+	a, _, _ := newMoneroWatchTestApp(t, fixture)
+	wallet, err := a.moneroWatch.Add(context.Background(), "Cold", testMoneroAddress, strings.Repeat("a", 64), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.moneroWatch.refresh(context.Background(), wallet)
+	if status := a.moneroWatch.List()[0]; status.State != "ready" || status.ReceivedAtomic != "1000000000000" {
+		t.Fatalf("a wallet with a large incoming_transfers reply did not refresh: %#v", status)
 	}
 }
 

@@ -111,7 +111,8 @@ func NewMoneroWatchStore(cfg config) *MoneroWatchStore {
 	s := &MoneroWatchStore{
 		path: filepath.Join(cfg.stateDir, "monero_watch.json"), enabled: cfg.moneroWalletEnabled,
 		password: cfg.moneroWalletPassword, gate: make(chan struct{}, 1), queue: make(chan string, maxMoneroWatchWallets), now: time.Now,
-		rpc:    moneroRPC{url: cfg.moneroWalletRPCURL, user: cfg.moneroWalletRPCUser, password: cfg.moneroWalletRPCPassword, client: &http.Client{Timeout: moneroRefreshTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}},
+		// incoming_transfers lists every output (the example wallet's ~8,500 are 3.8 MB), up to the 100,000 refresh accepts.
+		rpc:    moneroRPC{url: cfg.moneroWalletRPCURL, user: cfg.moneroWalletRPCUser, password: cfg.moneroWalletRPCPassword, maxBody: 64 << 20, client: &http.Client{Timeout: moneroRefreshTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}},
 		daemon: moneroRPC{url: cfg.moneroRPCURL, user: cfg.moneroRPCUser, password: cfg.moneroRPCPassword, client: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}},
 	}
 	s.gate <- struct{}{}
