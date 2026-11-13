@@ -542,7 +542,9 @@ Know the trade-offs before enabling:
 - **Enabling is one-way-ish.** Turning pruning on for an existing full
   datadir prunes it down in place. Going back to `prune_mb: 0` later
   requires re-downloading the entire chain.
-- A block filter index (`bitcoin.blockfilterindex`) must be enabled before the first prune; adding it to an already pruned node makes bitcoind fail at startup and needs a fresh chain download.
+- A block filter index (`bitcoin.blockfilterindex`) must be enabled before
+  the first prune; adding it to an already pruned node makes bitcoind fail at
+  startup and needs a fresh chain download.
 - A pruned node can't serve historical blocks to other software. Software that
   requires archival blocks or `txindex` needs a separately planned archival node.
 - The dashboard's "Node Data Size" will show the pruned footprint.

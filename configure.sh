@@ -725,8 +725,9 @@ fi
 prev_prune=$(sed -n 's/^BITCOIN_PRUNE=//p' "$env_file" 2>/dev/null || true)
 prev_filter=$(sed -n 's/^BITCOIN_BLOCKFILTERINDEX=//p' "$env_file" 2>/dev/null || true)
 if [ "$blockfilterindex" = "1" ] && [ "$prune" != "0" ] && [ -n "$prev_prune" ] && [ "$prev_prune" != "0" ] && [ "$prev_filter" != "1" ]; then
-  echo "blockfilterindex cannot be added to a node that is already pruned: enable it before the first prune,"
-  echo "or re-download the chain (new data directory) with blockfilterindex set from the start."
+  echo "The previous configuration shows a pruned node without blockfilterindex, and Bitcoin Core cannot add"
+  echo "a block filter index to an already pruned node. Enable it before the first prune, or re-download the"
+  echo "chain into a new data directory with blockfilterindex set from the start."
   exit 1
 fi
 

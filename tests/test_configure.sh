@@ -332,6 +332,7 @@ cat >"$tmp/config.json" <<'EOF'
 {"bitcoin": {"node_username": "u", "node_password": "p", "prune_mb": 550, "blockfilterindex": true}}
 EOF
 (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 || fail "blockfilterindex was rejected when moving archival to pruned"
+(cd "$tmp" && ./configure.sh) >/dev/null 2>&1 || fail "a pruned node that already has blockfilterindex was rejected on re-run"
 cat >"$tmp/config.json" <<'EOF'
 {"bitcoin": {"node_username": "u", "node_password": "p", "prune_mb": 550, "blockfilterindex": false}}
 EOF
