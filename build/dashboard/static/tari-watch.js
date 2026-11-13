@@ -1,20 +1,12 @@
-import { points } from "./sparkline.js";
-import { dashboardFetch as fetch } from "./session.js";
+import { atomicToDecimal, bigSeries, formatAmount, joinNote, scanNote } from "./wallet-format.js";
+import { el, managerRow, renderWalletList, setMessage as showMessage, walletRequest } from "./wallet-ui.js";
 
-const API = "/api/tari/watch";
-const HEADERS = { "Content-Type": "application/json", "X-Requested-With": "fetch" };
 const HEX_KEY = /^[0-9a-fA-F]{64}$/;
 const BIRTHDAY_MIN = "2022-01-01";
 
 function todayISO() {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-export function formatTariAtomic(atomic) {
-  if (typeof atomic !== "string" || !/^\d+$/.test(atomic)) return "—";
-  const value = BigInt(atomic);
-  return `${value / 1000000n}.${String(value % 1000000n).padStart(6, "0")}`;
 }
 
 function validBirthday(value, today) {
@@ -56,73 +48,72 @@ export function tariAccessView(data) {
   return { canEdit: true, status: reason };
 }
 
-export function tariHistoryPoints(history) {
-  const values = (Array.isArray(history) ? history : []).slice(-96)
-    .map((sample) => sample?.balance_atomic)
-    .filter((amount) => typeof amount === "string" && /^\d+$/.test(amount) && amount.length <= 40)
-    .map(BigInt);
-  if (values.length < 2) return [];
-  const minimum = values.reduce((left, right) => left < right ? left : right);
-  return points(values.map((amount) => Number(amount - minimum)), 160, 28);
-}
+const xtm = (atomic) => atomicToDecimal(atomic, 6);
 
-export function tariWalletView(wallet) {
+export function tariRow(wallet) {
   const state = String(wallet?.state || "pending");
-  const amount = formatTariAtomic(wallet?.balance_atomic);
+  const decimal = xtm(wallet?.balance_atomic);
   const stale = state === "stale";
   const verified = state === "ok" || (stale && Number.isSafeInteger(wallet?.scan_time) && wallet.scan_time > 0);
-  let balance = "Pending scan…";
-  if (state === "waiting") balance = "Waiting for node sync…";
-  else if (state === "removing") balance = "Removing…";
-  else if (state === "error") balance = "Scan failed";
-  else if (verified) balance = amount === "—" ? "Balance unavailable" : `${amount} XTM`;
-  else if (stale) balance = "Balance unavailable";
+  const shown = verified && decimal !== null;
+  let stateText = "Pending scan…";
+  if (state === "waiting") stateText = "Waiting for node sync…";
+  else if (state === "removing") stateText = "Removing…";
+  else if (state === "error") stateText = "Scan failed";
+  else if (verified || stale) stateText = "Balance unavailable";
+  const status = [];
+  if (state === "pending" || state === "waiting") {
+    const scanned = Number(wallet?.scan_height);
+    const target = Number(wallet?.target_height);
+    if (Number.isSafeInteger(scanned) && Number.isSafeInteger(target) && scanned >= 0 && target > 0) {
+      status.push(`Scanning · ${Math.min(100, 100 * scanned / target).toFixed(1)}%`);
+    }
+  }
+  if (stale) status.push(verified ? "Saved confirmed balance; waiting for a fresh scan" : "Waiting for the first verified scan");
+  if (state === "error") status.push("The last scan failed before a current balance could be confirmed");
+  status.push(scanNote(wallet?.scan_time));
+  const history = (Array.isArray(wallet?.history) ? wallet.history : []).slice(-96).map((sample) => sample?.balance_atomic);
+  return {
+    label: String(wallet?.name || "Tari wallet"),
+    note: "",
+    value: shown ? decimal : "",
+    amount: shown ? formatAmount(decimal) : "",
+    unit: "XTM",
+    stateText,
+    stale,
+    fiatAsset: shown ? "tari" : null,
+    status: joinNote(status),
+    series: bigSeries(history),
+    seriesTitle: "Saved Tari balance snapshots",
+  };
+}
+
+export function tariDetails(wallet) {
   const details = [];
-  if (verified) {
+  if (tariRow(wallet).amount) {
     for (const [label, field] of [
       ["Available", "available_atomic"],
       ["Timelocked", "timelocked_atomic"],
       ["Pending incoming", "pending_incoming_atomic"],
       ["Pending outgoing", "pending_outgoing_atomic"],
     ]) {
-      const value = formatTariAtomic(wallet?.[field]);
-      if (value !== "—") details.push({ label, value: `${value} XTM` });
+      const value = xtm(wallet?.[field]);
+      if (value !== null) details.push({ label, value: `${formatAmount(value)} XTM` });
     }
   }
-  const notes = [];
-  if (state === "pending" || state === "waiting") {
-    const scanned = Number(wallet?.scan_height);
-    const target = Number(wallet?.target_height);
-    if (Number.isSafeInteger(scanned) && Number.isSafeInteger(target) && scanned >= 0 && target > 0) {
-      notes.push(`Scanning · ${Math.min(100, 100 * scanned / target).toFixed(1)}%`);
-    }
-  }
-  if (state === "ok") notes.push("Confirmed total: available plus timelocked funds");
-  if (stale && verified) notes.push("Saved confirmed balance; waiting for a fresh scan");
-  else if (stale) notes.push("Waiting for the first verified scan");
-  if (state === "error") notes.push("The last scan failed before a current balance could be confirmed");
-  if (wallet?.birthday) notes.push(`Birthday ${wallet.birthday}`);
-  if (Number.isSafeInteger(wallet?.scan_height) && wallet.scan_height > 0) notes.push(`Block ${wallet.scan_height}`);
-  if (Number.isSafeInteger(wallet?.scan_time) && wallet.scan_time > 0) {
-    const date = new Date(wallet.scan_time * 1000);
-    if (Number.isFinite(date.getTime())) notes.push(`Scanned ${date.toLocaleString()}`);
-  }
-  return { name: String(wallet?.name || "Tari wallet"), balance, details, note: notes.join(" · "), stale };
+  if (wallet?.birthday) details.push({ label: "Birthday", value: String(wallet.birthday) });
+  return details;
 }
 
 if (typeof document !== "undefined") {
   const card = document.getElementById("tari-watch");
-  if (card) {
-    const el = (tag, className, text) => {
-      const node = document.createElement(tag);
-      if (className) node.className = className;
-      if (text !== undefined) node.textContent = text;
-      return node;
-    };
-    const heading = el("h2", null, "View-only wallet");
+  const stats = document.querySelector('[data-wallet-tower="tari"]');
+  if (card && stats) {
+    const request = walletRequest("/api/tari/watch", "Tari wallet service unavailable.");
+    const heading = el("h2", null, "Watch-only wallet");
     const status = el("p", "node-state", "Loading wallet service…");
     status.setAttribute("role", "status");
-    const list = el("div", "tari-watch-list");
+    const list = el("div", "watch-list");
     const form = el("form", "watch-add tari-watch-form");
     const input = (label, type = "text", maxLength = 100) => {
       const node = el("input");
@@ -157,10 +148,7 @@ if (typeof document !== "undefined") {
     let last = { wallets: [] };
     let busy = false;
 
-    const setMessage = (text, error = false) => {
-      message.textContent = text;
-      message.classList.toggle("watch-msg-error", error);
-    };
+    const setMessage = (text, error = false) => showMessage(message, text, error);
     const setDraft = (draft) => {
       name.value = draft.name;
       publicSpendKey.value = draft.public_spend_key;
@@ -168,15 +156,6 @@ if (typeof document !== "undefined") {
       birthday.value = draft.birthday;
     };
     const currentDraft = () => ({ name: name.value, public_spend_key: publicSpendKey.value, view_key: viewKey.value, birthday: birthday.value });
-    const requestError = async (response, fallback) => {
-      const text = (await response.text()).trim().slice(0, 200).replace(/[0-9a-f]{64}/gi, "[redacted]");
-      return text || fallback;
-    };
-    async function request(path = "", method = "GET", body) {
-      const response = await fetch(API + path, { method, headers: HEADERS, ...(body ? { body: JSON.stringify(body) } : {}) });
-      if (!response.ok) throw new Error(await requestError(response, "Tari wallet service unavailable."));
-      return response.json();
-    }
     function render(data) {
       last = data;
       const access = tariAccessView(data);
@@ -187,58 +166,37 @@ if (typeof document !== "undefined") {
       status.textContent = access.status || (wallet ? "" : "No view-only wallet configured.");
       status.classList.remove("watch-msg-error");
       list.replaceChildren();
+      renderWalletList(stats, wallet ? [tariRow(wallet)] : []);
       if (!wallet) return;
-      const view = tariWalletView(wallet);
-      const row = el("div", "family-watch-row tari-wallet-entry");
-      const title = el("div", "family-watch-heading");
-      title.append(el("strong", null, view.name), el("span", `family-watch-balance${view.stale ? " stale" : ""}`, view.balance));
-      row.append(title, el("code", "family-watch-address", String(wallet.public_spend_key || "")));
-      const metrics = el("div", "tari-wallet-metrics");
-      for (const detail of view.details) {
+      const row = tariRow(wallet);
+      const details = el("div", "tari-wallet-metrics");
+      for (const detail of tariDetails(wallet)) {
         const metric = el("div", "row");
         metric.append(el("span", "label", `${detail.label}:`), el("span", null, detail.value));
-        metrics.append(metric);
+        details.append(metric);
       }
-      if (view.details.length) row.append(metrics);
-      if (view.note) row.append(el("p", "family-watch-note", view.note));
-      const history = tariHistoryPoints(wallet.history);
-      if (history.length) {
-        const chart = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-        const line = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
-        chart.classList.add("family-watch-history");
-        chart.setAttribute("viewBox", "0 0 160 28");
-        chart.setAttribute("preserveAspectRatio", "none");
-        chart.setAttribute("role", "img");
-        chart.setAttribute("aria-label", "Saved Tari balance snapshots");
-        line.setAttribute("points", history.map(({ x, y }) => `${x},${y}`).join(" "));
-        line.setAttribute("fill", "none");
-        line.setAttribute("stroke", "currentColor");
-        line.setAttribute("stroke-width", "1.5");
-        line.setAttribute("vector-effect", "non-scaling-stroke");
-        chart.append(line);
-        row.append(chart);
-      }
-      const remove = el("button", "family-watch-remove", queued ? "Removing…" : "Remove wallet");
-      remove.type = "button";
-      remove.disabled = busy || !access.canEdit || queued;
-      remove.addEventListener("click", async () => {
-        if (busy || !window.confirm(`Remove ${view.name}?`)) return;
-        busy = true;
-        render(last);
-        setMessage("Removing wallet…");
-        try {
-          await request(`/${encodeURIComponent(String(wallet.id || ""))}`, "DELETE");
-          setMessage("Wallet removal queued.");
-          await refresh(true);
-        } catch (error) {
-          setMessage(error.message || "Wallet could not be removed.", true);
-        } finally {
-          busy = false;
+      list.append(managerRow({
+        label: row.label,
+        keyText: String(wallet.public_spend_key || ""),
+        canRemove: !busy && access.canEdit && !queued,
+        onRemove: async () => {
+          if (busy) return;
+          busy = true;
           render(last);
-        }
-      });
-      row.append(remove);
-      list.append(row);
+          setMessage("Removing wallet…");
+          try {
+            await request(`/${encodeURIComponent(String(wallet.id || ""))}`, "DELETE");
+            setMessage("Wallet removal queued.");
+            await refresh(true);
+          } catch (error) {
+            setMessage(error.message || "Wallet could not be removed.", true);
+          } finally {
+            busy = false;
+            render(last);
+          }
+        },
+        extras: details.childElementCount ? [details] : [],
+      }));
     }
     async function refresh(force = false) {
       const panel = document.getElementById("tari-panel");

@@ -435,7 +435,7 @@ h2 {
 /* Watch-only balances, in gold above the tower (desktop) / at the top of the
    column (mobile). */
 .tower-stats {
-  color: var(--accent);
+  color: var(--node-accent, var(--accent));
   font-family: monospace;
   z-index: 0;
   /* A roomy fixed width — wider than the content, ~¾ of the tower's span so it
@@ -458,13 +458,14 @@ h2 {
   align-items: center;
   font-size: 1rem;
 }
-.tower-stats .ws-name {   /* label, column 1: fills the row, truncates if long */
+.tower-stats .ws-name {   /* label, column 1: fills the row, wraps if long */
   grid-column: 1;
   color: var(--muted);
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: break-word;
+}
+@media (max-width: 600px) {
+  .tower-stats .ws-name { grid-column: 1 / -1; }
 }
 .tower-stats .ws-spark { grid-column: 2; opacity: 0.85; }
 .tower-stats .ws-note { grid-column: 1 / -1; color: var(--muted); font-size: 0.65rem; line-height: 1.5; }
@@ -482,7 +483,7 @@ h2 {
   font-size: 1.3rem;
   font-weight: 600;
 }
-.tower-stats .ws-total-row .ws-name { color: var(--accent); }
+.tower-stats .ws-total-row .ws-name { color: var(--node-accent, var(--accent)); }
 .watch-hint { color: var(--muted); font-size: 0.72rem; margin-top: 8px; }
 
 @media (min-width: 1024px) {
@@ -709,9 +710,7 @@ hr {
 
 .monero-wallets { --accent: var(--monero); }
 #monero-fees { white-space: pre-line; text-align: right; }
-.monero-wallet-entry { padding-block: 12px; }
-.monero-wallet-entry + .monero-wallet-entry { border-top: 1px solid var(--border); }
-.monero-wallet-entry input[type="file"] { display: block; max-width: 100%; margin-block: 8px; color: var(--muted); }
+.watch-list input[type="file"] { display: block; max-width: 100%; margin-block: 8px; color: var(--muted); }
 .tari-wallet-metrics { margin-top:8px; }
 .tari-wallet-metrics .row { margin:6px 0; font-size:0.8rem; }
 .tari-watch-form[hidden] { display:none; }
@@ -749,17 +748,6 @@ hr {
 #node-overview-status {position:fixed;top:75px;inset-inline:24px;text-align:center;color:var(--muted);font:0.8rem monospace;pointer-events:none;}
 .chain-wallet-card h2 {color:var(--node-accent);}
 .node-panel[data-node-active="0"] .chain-wallet-card {display:none !important;}
-.family-watch-row {position:relative;padding:12px 0;}
-.family-watch-row + .family-watch-row {border-top:1px solid var(--border);}
-.family-watch-heading {display:flex;justify-content:space-between;gap:12px;align-items:baseline;font-family:monospace;}
-.family-watch-heading strong {overflow-wrap:anywhere;}
-.family-watch-balance {color:var(--node-accent);text-align:right;white-space:nowrap;}
-.family-watch-balance.stale {opacity:0.7;}
-.family-watch-address {display:block;margin-top:6px;color:var(--muted);font-size:0.72rem;overflow-wrap:anywhere;}
-.family-watch-note {margin:6px 0 0;color:var(--muted);font-size:0.75rem;line-height:1.45;}
-.family-watch-source {display:inline-block;margin-top:6px;color:var(--node-accent);font-size:0.75rem;}
-.family-watch-remove {display:block;margin-top:8px;padding:0;border:0;background:none;color:var(--muted);font:0.75rem monospace;cursor:pointer;}
-.family-watch-remove:hover,.family-watch-remove:focus-visible {color:#ff5252;}
 .family-watch-form {display:grid;grid-template-columns:1fr 1.5fr auto;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);}
 .family-watch-form[hidden] {display:none;}
 .family-watch-form input {min-width:0;padding:7px;border:1px solid var(--border);border-radius:4px;background:var(--tag-bg);color:var(--text);font:0.8rem monospace;}
@@ -769,8 +757,5 @@ hr {
 .family-watch-error {color:#ff5252 !important;}
 
 @media (max-width:700px) {
-  .family-watch-heading {align-items:flex-start;flex-direction:column;gap:4px;}
-  .family-watch-balance {text-align:left;}
   .family-watch-form {grid-template-columns:1fr;}
 }
-.family-watch-history { display: block; width: 100%; height: 32px; margin: 8px 0; color: var(--node-accent, var(--accent)); }

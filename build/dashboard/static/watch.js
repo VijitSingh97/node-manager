@@ -1,31 +1,16 @@
-// Watch-only wallets. The card (#watch) is the manager — each wallet's label +
-// a truncated key you can click to expand, a remove ✕, and the add form. The
-// balances themselves render in gold above the tower (#tower-stats): per-wallet,
-// plus a total once there's more than one. Talks to /api/watch.
-//
-// Lives outside #live so the 30s status refresh never clobbers the add form.
-// Every bit of user data (labels, keys) goes in via textContent — no XSS.
-import { towerLayout, WIDE_MIN } from "./tower.js";
-import { points } from "./sparkline.js";
 import { dashboardFetch as fetch } from "./session.js";
-import { PRICE_URL, formatPrice, normalizeCurrency } from "./prices.js";
+import { formatAmount, scanNote as scannedAt } from "./wallet-format.js";
+import { el, managerRow, renderWalletList } from "./wallet-ui.js";
 
 const CSRF = { "X-Requested-With": "fetch" }; // blocks cross-site form posts
 const POLL_MS = 15000;
 const GENESIS_ADDRESS = "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa";
 
-// comma-group the integer digits; the fraction keeps the server's exact string
-export function formatBTCAmount(btc) {
-  const [whole, fraction] = String(btc).split(".");
-  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  return fraction ? `${grouped}.${fraction}` : grouped;
-}
-
 export function balanceLabel(w) {
   if (w.state === "pending" || w.state === "scanning") {
     return w.balance_kind === "confirmed" ? "Pending balance…" : "Pending history…";
   }
-  if (w.state === "ok" || w.state === "stale") return `${formatBTCAmount(w.btc)} BTC`;
+  if (w.state === "ok" || w.state === "stale") return `${formatAmount(w.btc)} BTC`;
   return "—"; // error / not ready
 }
 
@@ -35,19 +20,42 @@ export function totalLabel(view) {
       ? "Pending balance…" : "Pending history…";
   }
   if (view.total_state === "unavailable") return "—";
-  return `${formatBTCAmount(view.total)} BTC`;
-}
-
-export function fiatLabel(btc, price, currency) {
-  const amount = typeof btc === "number" ? btc : parseFloat(btc);
-  const rate = Number(price?.prices?.[normalizeCurrency(currency).toLowerCase()]);
-  if (price?.available !== true || !Number.isFinite(amount) || !Number.isFinite(rate) || rate <= 0) return "";
-  return `≈ ${formatPrice(amount * rate, currency)}${price.stale ? " · stale" : ""}`;
+  return `${formatAmount(view.total)} BTC`;
 }
 
 export function scanNote(w) {
-  if (w.balance_kind !== "confirmed" || !w.scan_time || !Number.isFinite(Date.parse(w.scan_time))) return "";
-  return `Scanned ${new Date(w.scan_time).toLocaleString()}`;
+  return w.balance_kind === "confirmed" ? scannedAt(w.scan_time) : "";
+}
+
+export function btcRow(w) {
+  const ready = w.state === "ok" || w.state === "stale";
+  const chainSeries = Array.isArray(w.chain_history) && w.chain_history.length >= 2;
+  return {
+    label: walletView(w).label,
+    note: publicExampleNote(w) || genesisNote(w),
+    value: ready ? w.btc : "",
+    amount: ready ? formatAmount(w.btc) : "",
+    unit: "BTC",
+    stateText: balanceLabel(w),
+    stale: w.state === "stale",
+    fiatAsset: ready ? "bitcoin" : null,
+    status: scanNote(w),
+    series: chainSeries ? w.chain_history : w.history,
+    seriesTitle: chainSeries ? "Confirmed unspent funds by arrival block, first seen to the scan tip" : "Saved balance snapshots; not transaction history",
+  };
+}
+
+export function btcTotal(view) {
+  const reasons = {
+    mixed_sources: "Wallet sources may overlap; a combined total is unavailable.",
+    scan_cache_unavailable: "Saved balance cache unavailable; a current total cannot be verified.",
+  };
+  return {
+    text: totalLabel(view),
+    value: view.total_state === "ok" ? view.total : "",
+    fiatAsset: "bitcoin",
+    reason: view.total_reason ? reasons[view.total_reason] || "Wallet outputs could not be combined reliably; showing individual balances." : "",
+  };
 }
 
 export function watchHint(pruned) {
@@ -107,21 +115,10 @@ export function walletPost(name, key, scriptType, birthday, wallets = []) {
   return { name: walletName, key: walletKeyForPost(key, scriptType), birthday: String(birthday || "") };
 }
 
-// first 4 … last 4 of a key/address/descriptor; full string if it's short.
-export function shortKey(k) {
-  return k.length > 12 ? `${k.slice(0, 4)}…${k.slice(-4)}` : k;
-}
-
 if (typeof document !== "undefined") {
   const card = document.getElementById("watch");
   const stats = document.getElementById("tower-stats");
 
-  const el = (tag, cls, text) => {
-    const n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text != null) n.textContent = text;
-    return n;
-  };
 
   // --- manager card: heading, wallet list, add form, warning ---
   const list = el("div", "watch-list");
@@ -175,163 +172,27 @@ if (typeof document !== "undefined") {
     list.textContent = "";
     for (const w of view.wallets) {
       const identity = walletView(w);
-      const row = el("div", "row");
-      const left = el("div", "wk-cell");
-      const walletLabel = el("span", "label", identity.label);
-      const note = publicExampleNote(w);
-      if (note) {
-        walletLabel.title = note;
-        walletLabel.setAttribute("aria-label", `${identity.label}. ${note}`);
-      }
-      left.append(walletLabel);
-      // truncated key, click to expand/collapse
-      const k = el("span", "wk", shortKey(w.key));
-      k.title = "click to expand";
-      k.addEventListener("click", () => {
-        k.textContent = k.textContent === w.key ? shortKey(w.key) : w.key;
-      });
-      left.append(k);
-      row.append(left);
-      const x = el("button", "watch-x", "✕");
-      x.type = "button";
-      x.disabled = !editingEnabled;
-      x.title = `Remove ${identity.label}`;
-      x.setAttribute("aria-label", `Remove ${identity.label}`);
-      x.addEventListener("click", () => remove(identity.deleteName));
-      row.append(x);
-      list.append(row);
+      list.append(managerRow({
+        label: identity.label,
+        note: publicExampleNote(w),
+        keyText: w.key,
+        canRemove: editingEnabled,
+        onRemove: () => remove(identity.deleteName),
+      }));
     }
     warn.textContent = [access.warning, view.scan_cache_unavailable
       ? "Saved balance cache unavailable. Check storage permissions and restart the dashboard."
       : ""].filter(Boolean).join(" ");
   };
 
-  // --- gold balances above the tower ---
   const renderStats = (view) => {
-    stats.textContent = "";
-    if (!view.wallets.length) { stats.hidden = true; return; }
-    stats.hidden = false;
-    // three cells per row — label | sparkline | balance — placed into shared
-    // grid columns (CSS) so they line up across every row regardless of width.
-    for (const w of view.wallets) {
-      const row = el("div", "ws-row");
-      const identity = walletView(w);
-      const walletName = el("span", "ws-name", identity.label);
-      const note = publicExampleNote(w) || genesisNote(w);
-      if (note) {
-        walletName.textContent += " ⓘ";
-        walletName.title = note;
-        walletName.setAttribute("aria-label", `${identity.label}. ${note}`);
-      }
-      row.append(walletName);
-      const chainSeries = Array.isArray(w.chain_history) && w.chain_history.length >= 2;
-      const series = chainSeries ? w.chain_history : w.history;
-      if (series && series.length >= 2) {
-        const spark = document.createElement("canvas");
-        spark.className = "ws-spark";
-        spark.title = chainSeries
-          ? "Confirmed unspent funds by arrival block, first seen to the scan tip"
-          : "Saved balance snapshots; not transaction history";
-        spark.setAttribute("aria-label", `${identity.label}: ${chainSeries ? "unspent funds by arrival block" : "saved balance snapshots"}`);
-        row.append(spark);
-        drawSpark(spark, series);
-      }
-      const bal = el("span", "ws-bal", balanceLabel(w));
-      bal.setAttribute("aria-label", `${identity.label}: ${balanceLabel(w)}`);
-      if (w.state === "stale") {
-        bal.classList.add("stale");
-        bal.title = "Last known balance; waiting for a fresh result";
-      }
-      row.append(bal);
-      if (w.state === "ok" || w.state === "stale") {
-        const fiat = fiatLabel(w.btc, latestPrice, fiatCurrency);
-        if (fiat) row.append(el("span", "ws-fiat", fiat));
-      }
-      const scan = scanNote(w);
-      if (scan) row.append(el("span", "ws-note", scan));
-      stats.append(row);
-    }
-    if (view.show_total) {
-      const t = el("div", "ws-row ws-total-row");
-      const total = totalLabel(view);
-      const totalBalance = el("span", "ws-bal", total);
-      totalBalance.setAttribute("aria-label", `Total: ${total}`);
-      t.append(el("span", "ws-name", "Total"), totalBalance);
-      if (view.total_state === "ok") {
-        const fiat = fiatLabel(view.total, latestPrice, fiatCurrency);
-        if (fiat) t.append(el("span", "ws-fiat", fiat));
-      }
-      if (view.total_reason) {
-        const reason = view.total_reason === "mixed_sources"
-          ? "Wallet sources may overlap; a combined total is unavailable."
-          : view.total_reason === "scan_cache_unavailable"
-            ? "Saved balance cache unavailable; a current total cannot be verified."
-            : "Wallet outputs could not be combined reliably; showing individual balances.";
-        t.append(el("span", "ws-note", reason));
-      }
-      stats.append(t);
-    }
-    placeStats();
+    renderWalletList(stats, view.wallets.map(btcRow), { total: view.show_total ? btcTotal(view) : null });
   };
 
-  // a tiny gold sparkline of a wallet's persisted balance history
-  function drawSpark(canvas, values) {
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    // wider line on desktop; compact on phones so a long name + big balance
-    // still fit on the same row
-    const w = window.innerWidth >= 900 ? 100 : 48, h = 18;
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-    canvas.style.width = w + "px";
-    canvas.style.height = h + "px";
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const pts = points(values, w, h);
-    if (!pts.length) return;
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-    ctx.strokeStyle = getComputedStyle(document.documentElement)
-      .getPropertyValue("--accent").trim() || "#f2a900";
-    ctx.lineWidth = 1.5;
-    ctx.lineJoin = "round";
-    ctx.stroke();
-  }
-
-  // On desktop the balances float above the tower, centred on its axis; JS only
-  // sets the horizontal centre (the CSS pins the top). On mobile they sit in the
-  // normal flow at the top of the column.
-  function placeStats() {
-    if (window.innerWidth >= WIDE_MIN) {
-      stats.style.left = towerLayout(window.innerWidth).ox + "px";
-    } else {
-      stats.style.left = "";
-    }
-  }
   let last = { wallets: [] };
   let loadFailed = false;
-  let latestPrice = { available: false };
-  let fiatCurrency = "USD";
   const render = (view) => { last = view; renderManager(view); renderStats(view); };
 
-  async function refreshPrice() {
-    try {
-      const res = await fetch(PRICE_URL, { headers: { Accept: "application/json" }, credentials: "same-origin" });
-      if (!res.ok) throw new Error("price request failed");
-      latestPrice = await res.json();
-    } catch { latestPrice = { available: false }; }
-    renderStats(last);
-  }
-  document.addEventListener("appearance-updated", (event) => {
-    fiatCurrency = normalizeCurrency(event.detail?.default_currency);
-    renderStats(last);
-  });
-  refreshPrice();
-  setInterval(refreshPrice, 60000);
-  // re-render on resize so the block re-centres and the sparklines redraw at the
-  // width for the new breakpoint
-  window.addEventListener("resize", () => renderStats(last));
 
   async function refresh() {
     try {
