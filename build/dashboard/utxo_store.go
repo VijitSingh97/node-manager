@@ -668,7 +668,6 @@ func (s *utxoStore) IngestFiles(paths []string, height uint32, hash [32]byte) er
 	return nil
 }
 
-// BindChain records the chain identity on first use and rejects a different one later.
 func (s *utxoStore) BindChain(name, genesis string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -690,7 +689,7 @@ func (s *utxoStore) BindChain(name, genesis string) error {
 	return nil
 }
 
-// MarkInvalid persists the invalid state and releases the database; the in-memory state is set even when persisting fails.
+// The in-memory flag is set even when persisting fails, so the index stops serving either way.
 func (s *utxoStore) MarkInvalid(reason string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

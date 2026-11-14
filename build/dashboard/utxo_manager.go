@@ -161,7 +161,6 @@ func (m *utxoManager) Status() utxoIndexStatus {
 	return st
 }
 
-// SetSeed is the hook the seeding flow uses to pause following and report progress.
 func (m *utxoManager) SetSeed(active bool, progress float64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
