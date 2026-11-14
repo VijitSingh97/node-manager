@@ -491,7 +491,9 @@ case "$args" in
   *' inspect --format {{.State.Running}} '*) echo true ;;
   *' exec -T bitcoin bitcoin-cli -datadir=/data getrpcinfo '*)
     [ "${FAKE_RPC_FAIL:-0}" != 1 ] || exit 1
-    printf '%s\n' "${FAKE_RPCINFO:-$rpcinfo}"
+    rn=$(($(cat "$FAKE_UTXO/rpc_n" 2>/dev/null || echo 0) + 1))
+    echo "$rn" >"$FAKE_UTXO/rpc_n"
+    if [ "$rn" -gt 1 ] && [ -n "${FAKE_RPCINFO_LATE:-}" ]; then printf '%s\n' "$FAKE_RPCINFO_LATE"; else printf '%s\n' "${FAKE_RPCINFO:-$rpcinfo}"; fi
     ;;
   *'.utxo-seed.request.tmp'*) cat >"$FAKE_UTXO/request.json" ;;
   *' exec -T -u 1000 dashboard cat /state/utxo-seed.json '*)
@@ -516,6 +518,10 @@ case "$args" in
           printf '{"request_id":"%s","seed_state":"failed","last_seed":{"outcome":"failed","reason":"less than 2 GB free during the seed"}}\n' "$id"
         fi
         ;;
+      cancelled) printf '{"request_id":"%s","seed_state":"cancelled"}\n' "$id" ;;
+      lost)
+        if [ "$n" = 1 ]; then printf '{"request_id":"%s","seed_state":"seeding"}\n' "$id"; else printf '{"request_id":"other","seed_state":"seeding"}\n'; fi
+        ;;
       noack) printf '{"request_id":"someone-else","seed_state":"ok"}\n' ;;
     esac
     ;;
@@ -525,8 +531,8 @@ EOS
 chmod +x "$utxo_stub/docker"
 useed() { (cd "$utxo_dir" && HOME="$tmp" BITCOIN_STACK_UTXO_SEED_POLL_SECONDS=1 BITCOIN_STACK_UTXO_SEED_ACK_SECONDS=2 PATH="$utxo_stub:$stub:$PATH" ./stack "$@"); }
 reset_useed() {
-  rm -f "$FAKE_UTXO/request.json" "$FAKE_UTXO/n" "$FAKE_LOG"
-  unset FAKE_RPCINFO FAKE_RPC_FAIL FAKE_DASH_SEEDING FAKE_SEED_SCENARIO FAKE_BITCOIN_DOWN
+  rm -f "$FAKE_UTXO/request.json" "$FAKE_UTXO/n" "$FAKE_UTXO/rpc_n" "$FAKE_LOG"
+  unset FAKE_RPCINFO_LATE FAKE_RPCINFO FAKE_RPC_FAIL FAKE_DASH_SEEDING FAKE_SEED_SCENARIO FAKE_BITCOIN_DOWN
 }
 pipe_removals() { grep -c ' rm -f /data/utxo-seed.dat /data/utxo-seed.dat.incomplete' "$FAKE_LOG" || true; }
 
@@ -540,7 +546,7 @@ grep -q '27 GB' "$tmp/useed.out" || fail "utxo-seed did not print the disk warni
 grep -q 'alerts are held for up to 15 minutes' "$tmp/useed.out" || fail "utxo-seed did not print the alert warning"
 grep -q 'importing 40%' "$tmp/useed.out" || fail "utxo-seed did not follow the progress"
 grep -q 'Seed finished' "$tmp/useed.out" || fail "utxo-seed did not report success"
-awk '/getrpcinfo/ { r=NR } / rm -f \/data\/utxo-seed.dat/ && !f { f=NR } /mkfifo -m 600 \/data\/utxo-seed.dat.incomplete/ { m=NR } /utxo-seed.request.tmp/ { q=NR } END { exit !(r && f && m && q && r < f && f < m && m < q) }' "$FAKE_LOG" ||
+awk '/getrpcinfo/ && !r { r=NR } / rm -f \/data\/utxo-seed.dat/ && !f { f=NR } /mkfifo -m 600 \/data\/utxo-seed.dat.incomplete/ { m=NR } /utxo-seed.request.tmp/ { q=NR } END { exit !(r && f && m && q && r < f && f < m && m < q) }' "$FAKE_LOG" ||
   fail "utxo-seed did not check RPC, clear stale files, make the FIFO and write the request in order"
 [ "$(pipe_removals)" = 2 ] || fail "utxo-seed did not remove the FIFO names before and after"
 jq -e '(.id | test("^[0-9a-f]{32}$")) and (.requested_at | type == "number")' "$FAKE_UTXO/request.json" >/dev/null || fail "utxo-seed request is not {id, requested_at}"
@@ -586,6 +592,40 @@ grep -q ' dashboard rm -f /state/utxo-seed.request' "$FAKE_LOG" || fail "ack tim
 [ "$(pipe_removals)" = 2 ] || fail "ack timeout left the FIFO names"
 
 reset_useed
+export FAKE_SEED_SCENARIO=cancelled
+useed utxo-seed -y >"$tmp/useed.out" 2>&1 && fail "a cancelled seed exited 0"
+grep -q 'Seed cancelled' "$tmp/useed.out" || fail "utxo-seed did not report the cancel"
+[ "$(pipe_removals)" = 2 ] || fail "cancelled seed left the FIFO names"
+
+reset_useed
+export FAKE_SEED_SCENARIO=lost
+BITCOIN_STACK_UTXO_SEED_LOST_SECONDS=2 useed utxo-seed -y >"$tmp/useed.out" 2>&1 && fail "a vanished dashboard status exited 0"
+grep -q 'Lost track of the seed' "$tmp/useed.out" || fail "utxo-seed spun on a vanished dashboard status"
+
+reset_useed
+export FAKE_DASH_SEEDING=1
+useed utxo-seed -y >"$tmp/useed.out" 2>&1 && fail "utxo-seed ran while the dashboard was seeding"
+grep -q 'already seeding' "$tmp/useed.out" || fail "utxo-seed did not explain the busy dashboard"
+grep -q 'mkfifo\| rm -f /data/utxo-seed' "$FAKE_LOG" && fail "utxo-seed touched the FIFO while the dashboard was seeding"
+
+reset_useed
+export FAKE_SEED_SCENARIO=noack FAKE_RPCINFO_LATE='{"active_commands":[{"method":"getrpcinfo"},{"method":"dumptxoutset"}]}'
+useed utxo-seed -y >/dev/null 2>&1 && fail "an unacknowledged request exited 0 with a parked dump"
+grep -q 'getrpcinfo' "$FAKE_LOG" || fail "ack timeout did not check for a parked dump"
+awk '/timeout 5 cat \/data\/utxo-seed.dat.incomplete/ { u=NR } / rm -f \/data\/utxo-seed.dat / { r=NR } END { exit !(u && r && u < r) }' "$FAKE_LOG" ||
+  fail "ack timeout removed the FIFO without unparking a parked dump"
+
+reset_useed
+export FAKE_SEED_SCENARIO=noack
+(cd "$utxo_dir" && exec env HOME="$tmp" BITCOIN_STACK_UTXO_SEED_POLL_SECONDS=1 BITCOIN_STACK_UTXO_SEED_ACK_SECONDS=30 PATH="$utxo_stub:$stub:$PATH" ./stack utxo-seed -y) >/dev/null 2>&1 &
+useed_pid=$!
+for _ in $(seq 1 50); do grep -q 'utxo-seed.request.tmp' "$FAKE_LOG" 2>/dev/null && break; sleep 0.1; done
+kill -TERM "$useed_pid"
+wait "$useed_pid" 2>/dev/null || true
+grep -q ' dashboard rm -f /state/utxo-seed.request' "$FAKE_LOG" || fail "a signal during the ack wait left the request behind"
+[ "$(pipe_removals)" = 2 ] || fail "a signal during the ack wait left the FIFO names"
+
+reset_useed
 useed utxo-seed cancel >/dev/null || fail "utxo-seed cancel failed"
 grep -q ' -u 1000 dashboard sh -c umask 077; : > /state/utxo-seed.cancel' "$FAKE_LOG" || fail "cancel did not write the cancel file"
 useed utxo-seed bogus >/dev/null 2>&1 && fail "utxo-seed accepted an unknown argument"
@@ -621,6 +661,9 @@ for action in stop down restart; do
 done
 reset_useed
 export FAKE_RPCINFO='{"active_commands":[{"method":"dumptxoutset"}]}'
+useed stop -t 5 >/dev/null
+grep -q 'timeout 5 cat' "$FAKE_LOG" || fail "stop -t 5 did not unpark the dump"
+: >"$FAKE_LOG"
 useed stop dashboard >/dev/null
 grep -q 'timeout 5 cat' "$FAKE_LOG" && fail "stopping only the dashboard unparked the dump"
 useed stop bitcoin >/dev/null

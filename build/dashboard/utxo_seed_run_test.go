@@ -744,3 +744,67 @@ func TestSeedErrorClass(t *testing.T) {
 		t.Fatalf("unclassified error leaked detail: %q", got)
 	}
 }
+
+func seedUnparkWriter(t *testing.T, dir string) {
+	t.Helper()
+	fd, err := syscall.Open(filepath.Join(dir, seedIncompleteName), syscall.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err == nil {
+		time.Sleep(50 * time.Millisecond)
+		_ = syscall.Close(fd)
+	}
+}
+
+func TestSeedAbortsWhenNoFirstByteArrives(t *testing.T) {
+	core := newFakeCore(t)
+	gate := make(chan struct{})
+	core.onCall = func() { <-gate }
+	fx := newSeedFixture(t, core)
+	fx.m.firstByteWithin = 30 * time.Millisecond
+	fx.request(t, seedTestRequestID(20), time.Now())
+	fx.m.pollSeed(t.Context())
+	fx.assertEmptyStore(t)
+	if st := fx.m.Status(); st.LastSeed.Outcome != "failed" || st.LastSeed.Reason != errSeedNoData.Error() {
+		t.Fatalf("last seed %+v", st.LastSeed)
+	}
+	core.skip = true
+	close(gate)
+	<-core.done
+}
+
+func TestSeedAbortsWhenPipeIsReplacedBeforeFirstByte(t *testing.T) {
+	core := newFakeCore(t)
+	gate := make(chan struct{})
+	fx := newSeedFixture(t, core)
+	path := filepath.Join(fx.data, seedIncompleteName)
+	core.onCall = func() {
+		_ = os.Remove(path)
+		_ = syscall.Mkfifo(path, 0o600)
+		<-gate
+	}
+	fx.request(t, seedTestRequestID(21), time.Now())
+	fx.m.pollSeed(t.Context())
+	fx.assertEmptyStore(t)
+	if st := fx.m.Status(); st.LastSeed.Outcome != "failed" || st.LastSeed.Reason != errSeedPipeGone.Error() {
+		t.Fatalf("last seed %+v", st.LastSeed)
+	}
+	core.skip = true
+	close(gate)
+	<-core.done
+}
+
+func TestSeedCancelDuringChecksIsHonoured(t *testing.T) {
+	core := newFakeCore(t)
+	fx := newSeedFixture(t, core)
+	guards := fx.m.guards
+	fx.m.guards = func(ctx context.Context) seedGuardInput {
+		_ = os.WriteFile(filepath.Join(fx.state, seedCancelName), nil, 0o600)
+		return guards(ctx)
+	}
+	fx.request(t, seedTestRequestID(22), time.Now())
+	fx.m.pollSeed(t.Context())
+	fx.assertEmptyStore(t)
+	if st := fx.m.Status(); st.LastSeed == nil || st.LastSeed.Outcome != "cancelled" {
+		t.Fatalf("a cancel during the checks was discarded: %+v", st.LastSeed)
+	}
+	seedUnparkWriter(t, fx.data)
+}

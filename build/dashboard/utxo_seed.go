@@ -22,6 +22,7 @@ const (
 	seedPollEvery       = 2 * time.Second
 	seedCheckEvery      = time.Second
 	seedRequestMaxBytes = 4096
+	seedFirstByteWithin = 60 * time.Second
 
 	utxoSeedChecking = "checking"
 	utxoSeedRunning  = "seeding"
@@ -36,6 +37,8 @@ var (
 	errSeedMismatch    = errors.New("dump does not match the dumptxoutset result")
 	errSeedThermal     = errors.New("temperature rose above the start limit before the dump")
 	errSeedInterrupted = errors.New("dashboard restarted during the seed")
+	errSeedNoData      = errors.New("the dump produced no data in time")
+	errSeedPipeGone    = errors.New("the seed pipe was replaced during the seed")
 )
 
 type utxoSeedHost struct {
@@ -67,7 +70,7 @@ func (m *utxoManager) configureSeed(h utxoSeedHost) {
 }
 
 func seedErrorClass(err error) string {
-	for _, target := range []error{errSeedDump, errSeedLowDisk, errSeedMismatch, errSeedThermal, errSeedInterrupted} {
+	for _, target := range []error{errSeedDump, errSeedLowDisk, errSeedMismatch, errSeedThermal, errSeedInterrupted, errSeedNoData, errSeedPipeGone} {
 		if errors.Is(err, target) {
 			return target.Error()
 		}
@@ -114,7 +117,9 @@ func seedFIFOGuard(dir string) *seedRefusal {
 
 type seedFIFO struct {
 	r       *os.File
+	path    string
 	onFirst func()
+	started chan struct{}
 
 	mu     sync.Mutex
 	keeper *os.File
@@ -141,13 +146,14 @@ func openSeedFIFO(dir string, onFirst func()) (*seedFIFO, error) {
 		_ = r.Close()
 		return nil, errors.New("the seed pipe keeper cannot be opened")
 	}
-	return &seedFIFO{r: r, keeper: keeper, onFirst: onFirst}, nil
+	return &seedFIFO{r: r, path: path, keeper: keeper, onFirst: onFirst, started: make(chan struct{})}, nil
 }
 
 func (f *seedFIFO) Read(p []byte) (int, error) {
 	n, err := f.r.Read(p)
 	if n > 0 {
 		f.first.Do(func() {
+			close(f.started)
 			f.closeKeeper()
 			if f.onFirst != nil {
 				f.onFirst()
@@ -155,6 +161,15 @@ func (f *seedFIFO) Read(p []byte) (int, error) {
 		})
 	}
 	return n, err
+}
+
+func (f *seedFIFO) intact() bool {
+	a, err := f.r.Stat()
+	if err != nil {
+		return false
+	}
+	b, err := os.Lstat(f.path)
+	return err == nil && b.Mode()&os.ModeNamedPipe != 0 && os.SameFile(a, b)
 }
 
 func (f *seedFIFO) closeKeeper() {
@@ -231,6 +246,7 @@ func (m *utxoManager) pollSeed(ctx context.Context) {
 	if req.ID == m.lastSeedRequest() {
 		return
 	}
+	_ = os.Remove(filepath.Join(h.stateDir, seedCancelName))
 	m.markSeedRequest(req.ID, utxoSeedChecking, nil)
 	in := m.guards(ctx)
 	refusals := evaluateSeedGuards(in)
@@ -270,6 +286,32 @@ func (m *utxoManager) watchSeedCancel(ctx context.Context, cancel context.Cancel
 				_ = os.Remove(path)
 				m.setSeedPhase(utxoPhaseCancelling)
 				cancel(nil)
+				return
+			}
+		}
+	}
+}
+
+func (m *utxoManager) watchSeedFirstByte(ctx context.Context, cancel context.CancelCauseFunc, f *seedFIFO) {
+	t := time.NewTicker(m.checkEvery)
+	defer t.Stop()
+	deadline := time.Now().Add(m.firstByteWithin)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-f.started:
+			return
+		case <-t.C:
+			switch {
+			case !f.intact():
+				cancel(errSeedPipeGone)
+				return
+			case m.freeBytes() < utxoMinFreeBytes:
+				cancel(errSeedLowDisk)
+				return
+			case time.Now().After(deadline):
+				cancel(errSeedNoData)
 				return
 			}
 		}
@@ -332,7 +374,6 @@ func (m *utxoManager) seedFromDump(parent context.Context, network [4]byte) erro
 	ctx, cancel := context.WithCancelCause(parent)
 	defer cancel(nil)
 	m.suppressAlerts(m.now().Add(utxoAlertCap))
-	_ = os.Remove(filepath.Join(h.stateDir, seedCancelName))
 	go m.watchSeedCancel(ctx, cancel)
 
 	fifo, err := openSeedFIFO(h.dataDir, func() { m.setSeedPhase(utxoPhaseImporting) })
@@ -341,6 +382,7 @@ func (m *utxoManager) seedFromDump(parent context.Context, network [4]byte) erro
 	}
 	defer fifo.Close()
 	defer context.AfterFunc(ctx, func() { _ = fifo.Close() })()
+	go m.watchSeedFirstByte(ctx, cancel, fifo)
 	if c, err := m.temp(); thermalStartGuard(c, err) != nil {
 		return errSeedThermal
 	}

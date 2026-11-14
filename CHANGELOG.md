@@ -64,7 +64,7 @@ All notable changes to this project are documented here. Format follows
 - The UTXO index manager can now run a seed inside its own goroutine, reset a
   not-seeded or invalid store, hold the pruned scanner off, check the seed
   safety guards, and report seed phase, refusals and the last seed result on
-  `/api/utxo-index`; nothing starts a seed yet.
+  `/api/utxo-index`.
 - `./stack utxo-seed [-y]` and `./stack utxo-seed cancel` seed the Bitcoin
   balance index: the stack script creates a FIFO in the bitcoin container, the
   dashboard reads `dumptxoutset` from it under the thermal, disk and CPU

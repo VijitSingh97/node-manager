@@ -261,9 +261,10 @@ What happens:
   removes the request and the FIFO and exits non-zero. The dashboard reads
   `dumptxoutset` straight from the FIFO, so no 9 GB dump file lands on disk.
   The command prints the phase (`waiting`, `importing`, `merging`, `paused`,
-  `cancelling`) and progress until the seed ends, then removes the FIFO names.
+  `cancelling`) and progress until the seed ends, then removes the FIFO names
+  (opening a still-parked dump once first so bitcoind is never left blocked).
   Ctrl-C only detaches; the seed keeps running and the FIFO names stay until
-  the next run or a stop.
+  the next `./stack utxo-seed`.
 - **Heat and disk.** The dashboard pauses reading at 85 C and resumes at 72 C,
   and aborts below 2 GB free. Pausing stalls only the dump write.
 - **Result.** On success the index sits at the dump's base block and follows
