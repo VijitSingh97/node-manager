@@ -269,46 +269,208 @@ func TestFollowerStopsOnNonContiguousBlock(t *testing.T) {
 	}
 }
 
-func TestFollowerReorgDetected(t *testing.T) {
-	c := newFakeUtxoChain()
-	genesis(c)
-	c.add("a", nil, nil)
-	s := openFollowStore(t)
-	f := newUtxoFollower(s, c)
+func (c *fakeUtxoChain) forkAt(n int) { c.hashes = c.hashes[:n] }
+
+func stepOK(t *testing.T, f *utxoFollower) {
+	t.Helper()
 	if err := f.Step(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	c.hashes[1] = fakeDisplayHash("fork", 1)
-	c.add("f", nil, nil)
-	before := c.calls["getblock"]
-	if err := f.Step(context.Background()); !errors.Is(err, errUtxoReorg) {
-		t.Fatalf("err %v", err)
+}
+
+func sameIndex(t *testing.T, c *fakeUtxoChain, s *utxoStore, scripts ...string) {
+	t.Helper()
+	fresh := openFollowStore(t)
+	stepOK(t, newUtxoFollower(fresh, c))
+	for _, sc := range scripts {
+		if got, want := lookupAmounts(t, s, sc), lookupAmounts(t, fresh, sc); fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Fatalf("script %s: got %v, fresh replay %v", sc, got, want)
+		}
 	}
-	if c.calls["getblock"] != before {
-		t.Fatal("fetched blocks on a reorged chain")
+	fh, ft, _, _ := fresh.Tip()
+	if h, tp, _, _ := s.Tip(); h != fh || tp != ft {
+		t.Fatalf("tip %d differs from fresh replay %d", h, fh)
 	}
-	if f.Status().State != utxoFollowReorg {
-		t.Fatalf("status %+v", f.Status())
+}
+
+func TestFollowerReorgOneBlock(t *testing.T) {
+	c := newFakeUtxoChain()
+	genesis(c)
+	c.add("a", []fakeOut{{"5152", "1.00000000"}}, nil)
+	c.add("b", []fakeOut{{"5153", "2.00000000"}}, nil)
+	s := openFollowStore(t)
+	f := newUtxoFollower(s, c)
+	stepOK(t, f)
+	c.forkAt(2)
+	c.add("f", []fakeOut{{"5154", "3.00000000"}}, nil)
+	stepOK(t, f)
+	if st := f.Status(); st.State != utxoFollowIdle || st.Error != "" {
+		t.Fatalf("status %+v", st)
 	}
-	if h, _, _, _ := s.Tip(); h != 1 {
-		t.Fatalf("store changed: %d", h)
+	if len(lookupAmounts(t, s, "5153")) != 0 || len(lookupAmounts(t, s, "5154")) != 1 {
+		t.Fatal("reorged outputs wrong")
 	}
+	sameIndex(t, c, s, "5152", "5153", "5154")
+}
+
+func TestFollowerReorgMultiBlockLongerChain(t *testing.T) {
+	c := newFakeUtxoChain()
+	genesis(c)
+	for _, l := range []string{"a", "b", "c", "d"} {
+		c.add(l, []fakeOut{{"51" + hex.EncodeToString([]byte(l)), "1.00000000"}}, nil)
+	}
+	s := openFollowStore(t)
+	f := newUtxoFollower(s, c)
+	stepOK(t, f)
+	c.forkAt(2)
+	for _, l := range []string{"x", "y", "z", "w"} {
+		c.add(l, []fakeOut{{"52" + hex.EncodeToString([]byte(l)), "1.00000000"}}, nil)
+	}
+	stepOK(t, f)
+	if h, _, _, _ := s.Tip(); h != 5 {
+		t.Fatalf("tip %d", h)
+	}
+	sameIndex(t, c, s, "5161", "5162", "5163", "5164", "5278", "5279", "527a", "5277")
 }
 
 func TestFollowerReorgToShorterChain(t *testing.T) {
 	c := newFakeUtxoChain()
 	genesis(c)
-	c.add("a", nil, nil)
-	c.add("b", nil, nil)
+	c.add("a", []fakeOut{{"5152", "1.00000000"}}, nil)
+	c.add("b", []fakeOut{{"5153", "1.00000000"}}, nil)
 	s := openFollowStore(t)
 	f := newUtxoFollower(s, c)
-	if err := f.Step(context.Background()); err != nil {
+	stepOK(t, f)
+	c.forkAt(1)
+	c.add("s", []fakeOut{{"5154", "1.00000000"}}, nil)
+	stepOK(t, f)
+	if h, _, _, _ := s.Tip(); h != 1 {
+		t.Fatalf("tip %d", h)
+	}
+	sameIndex(t, c, s, "5152", "5153", "5154")
+}
+
+func TestFollowerReorgSpendsSameOutputsDifferently(t *testing.T) {
+	c := newFakeUtxoChain()
+	genesis(c)
+	c.add("a", []fakeOut{{"5152", "1.00000000"}, {"5153", "2.00000000"}}, nil)
+	txA := fakeDisplayHash("txa", 1)
+	c.add("b", []fakeOut{{"5154", "0.90000000"}}, []fakeIn{{txA, 0, "5152"}})
+	s := openFollowStore(t)
+	f := newUtxoFollower(s, c)
+	stepOK(t, f)
+	if len(lookupAmounts(t, s, "5152")) != 0 {
+		t.Fatal("spend not applied")
+	}
+	c.forkAt(2)
+	c.add("b2", []fakeOut{{"5155", "1.90000000"}}, []fakeIn{{txA, 1, "5153"}})
+	c.add("c2", nil, nil)
+	stepOK(t, f)
+	if len(lookupAmounts(t, s, "5152")) != 1 || len(lookupAmounts(t, s, "5153")) != 0 {
+		t.Fatal("outputs not restored and respent")
+	}
+	sameIndex(t, c, s, "5152", "5153", "5154", "5155")
+}
+
+func TestFollowerReorgTooDeepForJournal(t *testing.T) {
+	c := newFakeUtxoChain()
+	genesis(c)
+	for i := 0; i < utxoJournalDepth+6; i++ {
+		c.add("a", nil, nil)
+	}
+	s := openFollowStore(t)
+	f := newUtxoFollower(s, c)
+	stepOK(t, f)
+	c.forkAt(2)
+	for i := 0; i < utxoJournalDepth+6; i++ {
+		c.add("f", nil, nil)
+	}
+	err := f.Step(context.Background())
+	if !errors.Is(err, errUtxoReorgTooDeep) {
+		t.Fatalf("err %v", err)
+	}
+	if st := f.Status(); st.State != utxoFollowError || st.Error == "" {
+		t.Fatalf("status %+v", st)
+	}
+	if err := f.Step(context.Background()); !errors.Is(err, errUtxoFollowStop) {
+		t.Fatalf("latched follower stepped: %v", err)
+	}
+	if h, _, _, _ := s.Tip(); h != utxoJournalDepth+6 {
+		t.Fatalf("store mutated, tip %d", h)
+	}
+}
+
+func snapshotBaseFollower(t *testing.T, c *fakeUtxoChain, base int) (*utxoStore, *utxoFollower) {
+	t.Helper()
+	s := openFollowStore(t)
+	h, err := utxoRevHex(c.hashes[base])
+	if err != nil {
 		t.Fatal(err)
 	}
-	c.hashes = append(c.hashes[:1], fakeDisplayHash("short", 1))
-	c.blocks[c.hashes[1]] = map[string]any{}
-	if err := f.Step(context.Background()); !errors.Is(err, errUtxoReorg) {
+	if err := s.IngestFiles(nil, uint32(base), h); err != nil {
+		t.Fatal(err)
+	}
+	return s, newUtxoFollower(s, c)
+}
+
+func TestFollowerReorgBelowSnapshotBase(t *testing.T) {
+	c := newFakeUtxoChain()
+	genesis(c)
+	for i := 0; i < 6; i++ {
+		c.add("a", nil, nil)
+	}
+	s, f := snapshotBaseFollower(t, c, 3)
+	stepOK(t, f)
+	c.forkAt(3)
+	for i := 0; i < 4; i++ {
+		c.add("f", nil, nil)
+	}
+	if err := f.Step(context.Background()); !errors.Is(err, errUtxoReorgTooDeep) {
 		t.Fatalf("err %v", err)
+	}
+	if f.Status().State != utxoFollowError {
+		t.Fatalf("status %+v", f.Status())
+	}
+	if h, _, _, _ := s.Tip(); h != 6 {
+		t.Fatalf("tip %d", h)
+	}
+}
+
+func TestFollowerReorgAtSnapshotBaseSucceeds(t *testing.T) {
+	c := newFakeUtxoChain()
+	genesis(c)
+	for i := 0; i < 5; i++ {
+		c.add("a", nil, nil)
+	}
+	s, f := snapshotBaseFollower(t, c, 3)
+	stepOK(t, f)
+	c.forkAt(4)
+	for i := 0; i < 3; i++ {
+		c.add("f", nil, nil)
+	}
+	stepOK(t, f)
+	if h, _, _, _ := s.Tip(); h != 6 {
+		t.Fatalf("tip %d", h)
+	}
+}
+
+func TestFollowerRollingBackState(t *testing.T) {
+	c := newFakeUtxoChain()
+	genesis(c)
+	c.add("a", nil, nil)
+	s := openFollowStore(t)
+	f := newUtxoFollower(s, c)
+	stepOK(t, f)
+	c.forkAt(1)
+	c.add("f", nil, nil)
+	var seen bool
+	s.beforeCommit = func() error {
+		seen = seen || f.Status().State == utxoFollowRollback
+		return nil
+	}
+	stepOK(t, f)
+	if !seen {
+		t.Fatal("never reported rolling_back")
 	}
 }
 

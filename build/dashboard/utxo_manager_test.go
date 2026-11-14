@@ -307,10 +307,6 @@ func TestUtxoManagerInvalidStates(t *testing.T) {
 			utxoMgrRewriteMeta(t, dir, func(m *utxoMeta) { m.ChainName, m.GenesisHash = "main", "00" })
 			return nil
 		}, "different chain"},
-		"node resynced": {func(t *testing.T, dir string, c *fakeUtxoChain, node *fakeUtxoNode) vfs.FS {
-			node.fakeUtxoChain = utxoMgrChain(20, "x")
-			return nil
-		}, "no longer on the node's chain"},
 		"behind retained blocks": {func(t *testing.T, dir string, c *fakeUtxoChain, node *fakeUtxoNode) vfs.FS {
 			node.pruned, node.pruneHeight = true, 15
 			return nil
@@ -366,6 +362,72 @@ func TestUtxoManagerInvalidStates(t *testing.T) {
 				t.Fatalf("lookup on invalid store: %v", err)
 			}
 		})
+	}
+}
+
+func TestUtxoManagerReorgWithinJournalStaysReady(t *testing.T) {
+	ctx := context.Background()
+	c := utxoMgrChain(20, "b")
+	node := newFakeUtxoNode(c)
+	dir := t.TempDir()
+	utxoMgrSeed(t, dir, nil, c)
+	m := utxoMgrNew(t, dir, nil, node, io.Discard)
+	m.tick(ctx)
+	utxoMgrCheck(t, m.store, c, "b", 19)
+	fork := utxoMgrChain(23, "x")
+	node.fakeUtxoChain = fork
+	m.tick(ctx)
+	if st := m.Status(); st.State != utxoStateReady || !m.store.Valid() {
+		t.Fatalf("after a reorg within the journal: %+v valid=%v", st, m.store.Valid())
+	}
+	utxoMgrCheck(t, m.store, fork, "x", 22)
+}
+
+func TestUtxoManagerReorgDeeperThanJournalIsInvalid(t *testing.T) {
+	ctx := context.Background()
+	n := utxoJournalDepth + 10
+	c := utxoMgrChain(n, "b")
+	node := newFakeUtxoNode(c)
+	dir := t.TempDir()
+	utxoMgrSeed(t, dir, nil, c)
+	m := utxoMgrNew(t, dir, nil, node, io.Discard)
+	m.tick(ctx)
+	utxoMgrCheck(t, m.store, c, "b", uint32(n-1))
+	node.fakeUtxoChain = utxoMgrChain(n+2, "x")
+	m.tick(ctx)
+	if st := m.Status(); st.State != utxoStateInvalid || !strings.Contains(st.Reason, "deeper than the undo journal") {
+		t.Fatalf("status %+v", st)
+	}
+	if err := m.store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	again := utxoMgrNew(t, dir, nil, node, io.Discard)
+	again.tick(ctx)
+	if st := again.Status(); st.State != utxoStateInvalid {
+		t.Fatalf("invalid state did not survive a restart: %+v", st)
+	}
+}
+
+func TestUtxoManagerReadyOnlyWhenIdleAndAtTip(t *testing.T) {
+	c := utxoMgrChain(20, "b")
+	node := newFakeUtxoNode(c)
+	dir := t.TempDir()
+	utxoMgrSeed(t, dir, nil, c)
+	m := utxoMgrNew(t, dir, nil, node, io.Discard)
+	m.tick(context.Background())
+	if st := m.Status(); st.State != utxoStateReady {
+		t.Fatalf("status %+v", st)
+	}
+	m.follower.set(utxoFollowRollback, nil)
+	if st := m.Status(); st.State != utxoStateCatching {
+		t.Fatalf("rolling back reported %+v", st)
+	}
+	m.follower.set(utxoFollowIdle, nil)
+	m.mu.Lock()
+	m.nodeTip += utxoReadyLag + 1
+	m.mu.Unlock()
+	if st := m.Status(); st.State != utxoStateCatching {
+		t.Fatalf("behind reported %+v", st)
 	}
 }
 

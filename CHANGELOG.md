@@ -19,9 +19,12 @@ All notable changes to this project are documented here. Format follows
   `getbestblockhash` every 10 seconds, fetches each missing block with
   `getblock` verbosity 3 and applies it in order, from an empty store or from an
   older tip. It stops with a reported error on a missing prevout, a missing coin
-  or a non-contiguous block, retries after node or network errors, and stops in a "reorg detected"
-  state when the stored tip leaves the active chain. It is not wired into the
-  dashboard, so runtime behavior is unchanged.
+  or a non-contiguous block and retries after node or network errors.
+- The internal UTXO index tip follower now survives reorgs: when the stored tip
+  leaves the active chain it rolls back through its per-block undo records
+  (144 blocks deep) to the common ancestor and applies the new branch in the
+  same step. A fork older than the journal or at or below the snapshot base
+  latches the follower in the error state with a reorg-too-deep reason.
 - The dashboard has an internal resolver that turns watch-only keys (address,
   xpub family, descriptors) into the sorted, deduplicated scriptPubKey set for
   indexes 0 to 999 of receive and change. Wallets resolve in batches of 20
@@ -43,8 +46,9 @@ All notable changes to this project are documented here. Format follows
   `ready`, `degraded` or `invalid` with the index and node heights. It resumes
   from the stored tip after a restart, pauses below 2 GB free, and goes
   `invalid` (persisted, never migrated or reseeded automatically) on a format
-  or chain mismatch, a resynced node, falling behind the node's retained
-  blocks, or a storage error. Each state change is logged once. There is no
+  or chain mismatch, a reorg deeper than the 144-block undo journal, falling
+  behind the node's retained blocks, or a storage error; shallower reorgs are
+  rolled back and it reports `catching_up` meanwhile. Each state change is logged once. There is no
   seed trigger yet, so an enabled index stays `not_seeded`; without the
   overlay nothing is opened and the endpoint answers `off`.
 - Opt-in `bitcoin.utxo_index` setting that adds the

@@ -151,6 +151,9 @@ func (m *utxoManager) Status() utxoIndexStatus {
 			st.Behind = &behind
 		}
 	}
+	if st.State == utxoStateReady && ((st.Behind != nil && *st.Behind > utxoReadyLag) || (m.follower != nil && m.follower.Status().State == utxoFollowRollback)) {
+		st.State = utxoStateCatching
+	}
 	return st
 }
 
@@ -246,7 +249,7 @@ func (m *utxoManager) tick(ctx context.Context) {
 		m.set(utxoStateDegraded, "less than 2 GB free on the index filesystem")
 		return
 	}
-	if st := m.follower.Status().State; st == utxoFollowError || st == utxoFollowReorg || errors.Is(err, syscall.ENOSPC) {
+	if st := m.follower.Status().State; st == utxoFollowError || errors.Is(err, syscall.ENOSPC) {
 		m.fail(err)
 		return
 	}
@@ -263,8 +266,8 @@ func (m *utxoManager) fail(err error) {
 	switch {
 	case errors.Is(err, errUtxoChainMismatch):
 		m.invalidate("index was built for a different chain")
-	case errors.Is(err, errUtxoReorg):
-		m.invalidate("indexed tip is no longer on the node's chain")
+	case errors.Is(err, errUtxoReorgTooDeep):
+		m.invalidate("indexed tip is no longer on the node's chain and the fork is deeper than the undo journal")
 	case errors.Is(err, errUtxoBroken), errors.Is(err, syscall.ENOSPC):
 		m.invalidate("storage error while following the chain")
 	case err == nil:

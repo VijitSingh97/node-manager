@@ -15,16 +15,17 @@ const utxoFollowInterval = 10 * time.Second
 const (
 	utxoFollowIdle     = "idle"
 	utxoFollowCatching = "catching_up"
-	utxoFollowReorg    = "reorg detected"
+	utxoFollowRollback = "rolling_back"
 	utxoFollowError    = "error"
 	utxoFollowRetry    = "retrying"
 )
 
 var (
-	errUtxoReorg      = errors.New("reorg detected: indexed tip is not on the active chain")
-	errUtxoNoPrevout  = errors.New("input has no prevout data")
-	errUtxoBadBlock   = errors.New("malformed block from node")
-	errUtxoFollowStop = errors.New("follower stopped")
+	errUtxoReorgTooDeep = errors.New("reorg is deeper than the undo journal or below the snapshot base")
+	errUtxoNoPrevout    = errors.New("input has no prevout data")
+	errUtxoBadBlock     = errors.New("malformed block from node")
+	errUtxoFollowStop   = errors.New("follower stopped")
+	errUtxoChainMoved   = errors.New("chain changed while catching up")
 )
 
 type utxoRPC interface {
@@ -132,7 +133,7 @@ func (f *utxoFollower) Run(ctx context.Context, interval time.Duration) error {
 }
 
 func utxoIntegrityError(err error) bool {
-	for _, target := range []error{errUtxoNoPrevout, errUtxoMissingCoin, errUtxoNotContiguous, errUtxoBadBlock, errUtxoInvalid, errUtxoBroken} {
+	for _, target := range []error{errUtxoNoPrevout, errUtxoMissingCoin, errUtxoNotContiguous, errUtxoBadBlock, errUtxoReorgTooDeep, errUtxoInvalid, errUtxoBroken} {
 		if errors.Is(err, target) {
 			return true
 		}
@@ -153,15 +154,13 @@ func utxoRevHex(s string) ([32]byte, error) {
 }
 
 func (f *utxoFollower) Step(ctx context.Context) (err error) {
-	if st := f.Status().State; st == utxoFollowReorg || st == utxoFollowError {
+	if f.Status().State == utxoFollowError {
 		return errUtxoFollowStop
 	}
 	defer func() {
 		switch {
 		case err == nil:
 			f.set(utxoFollowIdle, nil)
-		case errors.Is(err, errUtxoReorg):
-			f.set(utxoFollowReorg, err)
 		case ctx.Err() != nil:
 			f.set(utxoFollowIdle, nil)
 		case utxoIntegrityError(err):
@@ -193,13 +192,15 @@ func (f *utxoFollower) Step(ctx context.Context) (err error) {
 	}
 	next := uint32(0)
 	if hasTip {
-		if header.Height < height {
-			return errUtxoReorg
-		}
-		if err := f.checkTipActive(ctx, height, tip); err != nil {
+		if _, err := f.rollBack(ctx, header.Height); err != nil {
 			return err
 		}
-		next = height + 1
+		if height, _, hasTip, err = f.store.Tip(); err != nil {
+			return err
+		}
+		if hasTip {
+			next = height + 1
+		}
 	}
 	f.set(utxoFollowCatching, nil)
 	for h := next; h <= header.Height; h++ {
@@ -208,10 +209,10 @@ func (f *utxoFollower) Step(ctx context.Context) (err error) {
 		}
 		if err := f.applyHeight(ctx, h); err != nil {
 			if errors.Is(err, errUtxoNotContiguous) {
-				if th, tt, ok, terr := f.store.Tip(); terr == nil && ok {
-					if cerr := f.checkTipActive(ctx, th, tt); cerr != nil {
-						return cerr
-					}
+				if n, rerr := f.rollBack(ctx, header.Height); rerr != nil {
+					return rerr
+				} else if n > 0 {
+					return errUtxoChainMoved
 				}
 			}
 			return err
@@ -220,19 +221,71 @@ func (f *utxoFollower) Step(ctx context.Context) (err error) {
 	return nil
 }
 
-func (f *utxoFollower) checkTipActive(ctx context.Context, height uint32, tip [32]byte) error {
-	var onChain string
-	if err := f.rpc.call(ctx, "getblockhash", []any{height}, &onChain); err != nil {
+func (f *utxoFollower) checkForkReachable(ctx context.Context, bestHeight uint32) error {
+	height, hash, ok, err := f.store.Tip()
+	if err != nil || !ok {
 		return err
 	}
-	h, err := utxoRevHex(onChain)
-	if err != nil {
-		return err
+	for {
+		if height <= bestHeight {
+			var onChain string
+			if err := f.rpc.call(ctx, "getblockhash", []any{height}, &onChain); err != nil {
+				return err
+			}
+			h, err := utxoRevHex(onChain)
+			if err != nil {
+				return err
+			}
+			if h == hash {
+				return nil
+			}
+		}
+		prev, ok, err := f.store.UndoPrevHash(height)
+		if err != nil {
+			return err
+		}
+		if !ok || height == 0 {
+			return fmt.Errorf("%w: no undo record at height %d", errUtxoReorgTooDeep, height)
+		}
+		height, hash = height-1, prev
 	}
-	if h != tip {
-		return errUtxoReorg
+}
+
+func (f *utxoFollower) rollBack(ctx context.Context, bestHeight uint32) (int, error) {
+	if err := f.checkForkReachable(ctx, bestHeight); err != nil {
+		return 0, err
 	}
-	return nil
+	n := 0
+	for {
+		height, tip, ok, err := f.store.Tip()
+		if err != nil || !ok {
+			return n, err
+		}
+		if height <= bestHeight {
+			var onChain string
+			if err := f.rpc.call(ctx, "getblockhash", []any{height}, &onChain); err != nil {
+				return n, err
+			}
+			h, err := utxoRevHex(onChain)
+			if err != nil {
+				return n, err
+			}
+			if h == tip {
+				return n, nil
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return n, err
+		}
+		f.set(utxoFollowRollback, nil)
+		if err := f.store.DisconnectTip(); err != nil {
+			if errors.Is(err, errUtxoNoUndo) {
+				return n, fmt.Errorf("%w: tip height %d", errUtxoReorgTooDeep, height)
+			}
+			return n, err
+		}
+		n++
+	}
 }
 
 func (f *utxoFollower) applyHeight(ctx context.Context, height uint32) error {
