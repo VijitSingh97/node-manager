@@ -18,7 +18,7 @@ done
 printf 'fixture\n' >"$payload/build/dashboard/Dockerfile"
 for file in build/bitcoin/bitcoin.conf build/tari/config.toml build/tari/entrypoint.sh \
   build/tari-wallet/Dockerfile build/tari-wallet/go.mod build/tari-wallet/launcher.go build/tari-wallet/config.toml \
-  build/zcash/zakurad.toml build/zcash/healthcheck.sh; do
+  build/zcash/zakurad.toml build/zcash/zakurad-address-index.toml build/zcash/healthcheck.sh; do
   printf 'fixture %s\n' "$file" >"$payload/$file"
 done
 for file in node-manager node-control node-port-control node-resource-profile; do
@@ -95,7 +95,7 @@ home="$tmp/home"
 mkdir -p "$runtime/build/bitcoin" "$runtime/build/tari" "$runtime/build/zcash" "$home"
 cp scripts/node-manager "$runtime/node-manager"
 for file in build/bitcoin/bitcoin.conf build/tari/config.toml build/tari/entrypoint.sh \
-  build/zcash/zakurad.toml build/zcash/healthcheck.sh; do
+  build/zcash/zakurad.toml build/zcash/zakurad-address-index.toml build/zcash/healthcheck.sh; do
   cp "$file" "$runtime/$file"
 done
 cat >"$runtime/stack" <<'EOF'
@@ -114,7 +114,7 @@ case "$asset_root" in "$expected_base"/*) ;; *) fail "package assets were staged
 asset_name=${asset_root##*/}
 [ "${#asset_name}" -eq 64 ] || fail "package asset directory is not content-addressed"
 for file in build/bitcoin/bitcoin.conf build/tari/config.toml build/tari/entrypoint.sh \
-  build/zcash/zakurad.toml build/zcash/healthcheck.sh; do
+  build/zcash/zakurad.toml build/zcash/zakurad-address-index.toml build/zcash/healthcheck.sh; do
   cmp -s "$runtime/$file" "$asset_root/$file" || fail "staged asset differs: $file"
 done
 old_root=$asset_root

@@ -221,11 +221,12 @@ stores no private spend key.
 
 ## Unavailable wallet balances
 
-Dogecoin and Zcash display **Wallet balance not available** with no public
-reference address or balance card. Dogecoin's current pruned daemon cannot
-discover arbitrary address UTXOs, and Zakura's default checkpoint-pruned mode
-omits the address index. The dashboard does not query an external explorer to
-fill those gaps.
+Dogecoin displays **Wallet balance not available** with no public reference
+address or balance card by default, because its current pruned daemon cannot discover
+arbitrary address UTXOs; the opt-in archival mode below changes that. Zcash shows the same message unless you opt in to the
+transparent address index described below, because Zakura's default
+checkpoint-pruned mode omits it. The dashboard does not query an external
+explorer to fill those gaps.
 
 **Dogecoin:** an address watched before initial sync or before its first payment
 can be tracked going forward. Adding an old address to an already-pruned node
@@ -233,20 +234,101 @@ cannot establish its full balance: `importaddress` refuses a historical rescan,
 and skipping the rescan can miss older unspent funds. Upstream's proposed
 [UTXO scanner](https://github.com/dogecoin/dogecoin/pull/3665) remains unmerged
 as of October 31, 2026. Its current RPC requires a private spending key, so it
-also fails this dashboard's public-key-only requirement. A full archival rescan or a separately built address
-index would be needed with the current released daemon.
+also fails this dashboard's public-key-only requirement. With the current released
+daemon the only option is a full archival node with a watch-only wallet, offered
+as the opt-in described in the next section.
 
-**Zcash / Zakura:** this is a limitation of our current storage profile, not a
+**Zcash / Zakura:** this is a limitation of our default storage profile, not a
 claim that every pruned Zcash implementation lacks wallet support. Zakura 1.7.0
 can retain transparent address indexes while pruning transaction bodies, but
 requires a fresh database with checkpoint sync disabled. Upstream describes
 that mode as slower and less secure against some chain attacks; it also retains
-extra indexes with no published sizing estimate. We keep the default profile.
-See the [release notes](https://github.com/zakura-core/zakura/releases/tag/v1.7.0)
+extra indexes with no published sizing estimate. We keep the default profile and
+offer the index as an opt-in; see the next section. See the [release notes](https://github.com/zakura-core/zakura/releases/tag/v1.7.0)
 and [checkpoint configuration](https://github.com/zakura-core/zakura/blob/v1.7.0/crates/zakura-consensus/src/config.rs).
 Shielded addresses additionally need a viewing key and wallet scanner; a public
 address alone is insufficient. Zallet and lightwalletd are separate wallet/index
 services, not a small switch that enables balances in our existing database.
+
+## Dogecoin archival watch wallet (opt-in)
+
+Set `"watch_wallet": true` and `"prune_mb": 0` under `dogecoin` in `config.json`.
+The Dogecoin node then runs unpruned with its wallet enabled
+(`disablewallet=1` is dropped; nothing else in its generated config changes), and
+the dashboard accepts public Dogecoin addresses. Dogecoin Core 1.14.9 has no
+`scantxoutset`, and `importaddress` refuses to rescan a pruned chain, so an
+archival chain is the only released-code path.
+
+How it works:
+
+- Adding an address calls `importaddress <address> "" true` in the background,
+  which rescans the whole chain. The row shows **Rescanning** until it ends.
+  Only one rescan runs at a time; other addresses wait, and the dashboard refuses
+  to add a new one meanwhile. The node's RPC can be slow or unresponsive during a
+  rescan, which also pauses balance refreshes.
+- The dashboard records a completed import per address on its state volume and
+  shows a balance only after that. If the import fails or is interrupted (node or
+  dashboard restart), no balance is shown and the import repeats after six hours.
+- Once the import is recorded, the balance is the sum of `listunspent 1 9999999 [address]`
+  (confirmed outputs) and is cached for an hour like the other chains.
+- The roster is stored by the dashboard, so a restart does not lose it. If the
+  dashboard restarts mid-rescan the import is repeated, because only a completed
+  import counts.
+- The wallet file lives on the Dogecoin data volume and holds watch-only
+  addresses only, never a private key or seed. Removing an address from the
+  dashboard does not remove it from the wallet. Back up the data volume if you
+  want to avoid repeating rescans.
+- Amounts are tracked with 8 decimals in a 64-bit integer, which holds up to 180
+  billion DOGE; Dogecoin has no hard cap and is about 150 billion today.
+
+Limits to accept before enabling it:
+
+- A fresh, unpruned sync from genesis over Tor. [Dogepedia](https://dogecoin.com/dogepedia/articles/what-is-a-node/)
+  says the chain is about 70 GB, but that is undated and this stack has not
+  measured it; plan well above that on an expandable volume.
+- Rescans can take hours, longer on small boxes.
+- A pruned database cannot be converted. `configure.sh` refuses `prune_mb: 0` and
+  `watch_wallet` when the data directory has a pruned chain (block index present,
+  `blk00000.dat` missing) or the previous `.env` shows Dogecoin running pruned in
+  the same `data_dir`; point `dogecoin.data_dir` at a new directory. It also refuses
+  `watch_wallet` unless `prune_mb` is `0`.
+- Node traffic stays Tor-only; address lookups are local RPC calls and no
+  explorer is queried.
+
+With the option on, the dashboard seeds the Dogecoin Foundation address from the
+[Foundation's About page](https://foundation.dogecoin.com/about/) as a public
+example, excluded from personal totals and never imported or scanned, so it does
+not delay your own addresses. Without the option, Dogecoin has no example.
+
+## Zcash transparent addresses (opt-in)
+
+Set `"address_index": true` under `zcash` in `config.json` to run Zakura with
+`build/zcash/zakurad-address-index.toml`. It is the default config with
+`checkpoint_sync = false` and the same pruned storage. The dashboard then accepts
+transparent `t1` and `t3` addresses and reads each balance from your own node with
+`getaddressbalance`. Shielded and unified addresses are rejected because they need
+a viewing key and a wallet scanner. Balances cover confirmed transparent funds only.
+
+Limits to accept before enabling it:
+
+- The node must resync from genesis into a fresh data directory. `configure.sh`
+  refuses the option when `zcash.data_dir` already holds files and has no
+  `.address-index` marker (written by an index-mode run), or when the previous
+  `.env` shows Zcash running without it there; point `data_dir` at a new directory instead.
+- If the node reports the transparent indexes as unavailable, the dashboard logs
+  `outcome=index_unavailable` and shows Error; resync with a fresh `zcash.data_dir`.
+- Each balance is accepted only if the node's best block hash is unchanged across the
+  lookup; a block arriving mid-scan makes that scan fail and retry on the next cycle.
+- Upstream calls disabling checkpoint sync slower and less secure against some
+  chain attacks.
+- Disk use for the retained indexes is not yet measured, and no sync time is published.
+- Node traffic stays Tor-only; address lookups are local RPC calls.
+
+With the option on, the dashboard seeds the Zcash Community Grants funding-stream
+address from [ZIP 214](https://zips.z.cash/zip-0214) as a public example, excluded
+from personal totals. Without it, Zcash has no example.
+
+Tari has no sourced public example because no organisation publishes a Tari view key.
 
 ## Bitcoin: the Genesis address is a special case
 

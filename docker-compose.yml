@@ -283,6 +283,7 @@ services:
       DOGECOIN_RPC_USER: ${DOGECOIN_RPC_USER:?run ./configure.sh first}
       DOGECOIN_RPC_PASSWORD: ${DOGECOIN_RPC_PASSWORD:?run ./configure.sh first}
       DOGECOIN_PRUNE: ${DOGECOIN_PRUNE:-10000}
+      DOGECOIN_WATCH_WALLET: ${DOGECOIN_WATCH_WALLET:-0}
       TOR_PROXY: 172.29.0.25:9050
     volumes: ["${DOGECOIN_DATA_DIR:-./data/dogecoin}:/data"]
     stop_grace_period: 5m
@@ -352,7 +353,7 @@ services:
       ZAKURA_RPC__COOKIE_DIR: /data
     volumes:
       - ${ZCASH_DATA_DIR:-./data/zcash}:/data
-      - ${STACK_ASSET_ROOT:-.}/build/zcash/zakurad.toml:/etc/zakura/zakurad.toml:ro
+      - ${STACK_ASSET_ROOT:-.}/build/zcash/${ZCASH_TOML:-zakurad.toml}:/etc/zakura/zakurad.toml:ro
       - ${STACK_ASSET_ROOT:-.}/build/zcash/healthcheck.sh:/usr/local/bin/node-stack-healthcheck:ro
     tmpfs: ["/tmp:size=16m"]
     stop_grace_period: 5m
@@ -438,6 +439,7 @@ services:
       DOGECOIN_RPC_USER: ${DOGECOIN_RPC_USER:-}
       DOGECOIN_RPC_PASSWORD: ${DOGECOIN_RPC_PASSWORD:-}
       DOGECOIN_DATA_DIR: /data-dogecoin
+      DOGECOIN_WATCH_WALLET: ${DOGECOIN_WATCH_WALLET:-0}
       DOGECOIN_RPC_EXPOSE: ${DOGECOIN_RPC_EXPOSE:-0}
       DOGECOIN_RPC_BIND_IP: ${DOGECOIN_RPC_BIND_IP:-127.0.0.1}
       DOGECOIN_RPC_PORT: ${DOGECOIN_RPC_PORT:-22555}
@@ -462,6 +464,7 @@ services:
       ZCASH_RPC_USER: ${ZCASH_RPC_USER:-}
       ZCASH_RPC_PASSWORD: ${ZCASH_RPC_PASSWORD:-}
       ZCASH_DATA_DIR: /data-zcash
+      ZCASH_ADDRESS_INDEX: ${ZCASH_ADDRESS_INDEX:-0}
       ZCASH_RPC_EXPOSE: ${ZCASH_RPC_EXPOSE:-0}
       ZCASH_RPC_BIND_IP: ${ZCASH_RPC_BIND_IP:-127.0.0.1}
       ZCASH_RPC_PORT: ${ZCASH_RPC_PORT:-8232}

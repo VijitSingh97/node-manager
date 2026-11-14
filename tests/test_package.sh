@@ -87,6 +87,7 @@ for required in \
   ./usr/lib/node-manager/build/bitcoin-family/entrypoint.sh \
   ./usr/lib/node-manager/build/bitcoin-family/healthcheck.sh \
   ./usr/lib/node-manager/build/zcash/zakurad.toml \
+  ./usr/lib/node-manager/build/zcash/zakurad-address-index.toml \
   ./usr/lib/node-manager/build/zcash/healthcheck.sh \
   ./usr/lib/node-manager/build/tor/torrc \
   ./usr/lib/node-manager/node-resource-profile \

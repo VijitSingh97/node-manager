@@ -42,6 +42,8 @@ type config struct {
 	moneroWalletRPCUser     string
 	moneroWalletRPCPassword string
 	moneroWalletPassword    string
+	zcashAddressIndex       bool
+	dogecoinWatchWallet     bool
 	tariWalletEnabled       bool
 	tariWalletURL           string
 	tariWalletDir           string
@@ -143,6 +145,8 @@ func envConfig() (config, error) {
 	if err := loadAdditionalNodes(&cfg); err != nil {
 		return config{}, err
 	}
+	cfg.zcashAddressIndex = enabled(os.Getenv("ZCASH_ADDRESS_INDEX"))
+	cfg.dogecoinWatchWallet = enabled(os.Getenv("DOGECOIN_WATCH_WALLET"))
 	cfg.tariWalletEnabled = cfg.nodes[nodeTari].Enabled && enabled(os.Getenv("TARI_WALLET_ENABLED"))
 	cfg.tariWalletURL = strings.TrimSpace(envOr("TARI_WALLET_GRPC_URL", "http://172.29.0.37:18143"))
 	cfg.tariWalletDir = envOr("TARI_WALLET_DIR", "/tari-wallet")

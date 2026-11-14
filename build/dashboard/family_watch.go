@@ -64,19 +64,25 @@ type familyWatchCacheFile struct {
 }
 
 type familyWatchStore struct {
-	mu          sync.RWMutex
-	scanMu      sync.Mutex
-	rosterPath  string
-	cachePath   string
-	wallets     []familyWatchEntry
-	balances    map[string]familyWatchBalance
-	states      map[string]string
-	err         error
-	trigger     chan struct{}
-	now         func() time.Time
-	rpc         *rpcClient
-	maxSupply   uint64
-	validateLTC bool
+	mu           sync.RWMutex
+	scanMu       sync.Mutex
+	rosterPath   string
+	cachePath    string
+	wallets      []familyWatchEntry
+	balances     map[string]familyWatchBalance
+	states       map[string]string
+	err          error
+	trigger      chan struct{}
+	now          func() time.Time
+	rpc          *rpcClient
+	maxSupply    uint64
+	backend      familyWatchBackend
+	importing    string
+	imported     map[string]bool
+	retryAt      map[string]int64
+	importedPath string
+	skipExample  bool
+	logf         func(format string, args ...any)
 }
 
 type familyWatchManager struct {
@@ -86,17 +92,29 @@ type familyWatchManager struct {
 
 func newFamilyWatchManager(a *app) *familyWatchManager {
 	m := &familyWatchManager{app: a, stores: make(map[string]*familyWatchStore)}
-	for _, id := range []string{nodeLitecoin, nodeBitcoinCash} {
+	for _, id := range a.familyWatchNodes() {
 		node := a.cfg.nodes[id]
 		store := &familyWatchStore{
 			rosterPath: filepath.Join(a.cfg.stateDir, "family_watch_"+id+".json"), cachePath: filepath.Join(a.cfg.stateDir, "family_watch_"+id+"_cache.json"),
 			balances: make(map[string]familyWatchBalance), states: make(map[string]string), trigger: make(chan struct{}, 1), now: time.Now,
-			rpc: &rpcClient{url: node.RPCURL, user: node.RPCUser, password: node.RPCPassword, client: &http.Client{Timeout: familyWatchRPCTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}},
+			rpc:       &rpcClient{url: node.RPCURL, user: node.RPCUser, password: node.RPCPassword, client: &http.Client{Timeout: familyWatchRPCTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}},
+			maxSupply: 21_000_000 * 100_000_000, backend: utxoFamilyWatchBackend(false), logf: func(format string, args ...any) {
+				if a.log != nil {
+					a.log.Printf(format, args...)
+				}
+			},
 		}
-		if id == nodeLitecoin {
-			store.maxSupply, store.validateLTC = 84_000_000*100_000_000, true
-		} else {
-			store.maxSupply = 21_000_000 * 100_000_000
+		switch id {
+		case nodeLitecoin:
+			store.maxSupply, store.backend = 84_000_000*100_000_000, utxoFamilyWatchBackend(true)
+		case nodeDogecoin:
+			store.maxSupply, store.backend, store.skipExample = dogecoinMaxSupply, dogecoinFamilyWatchBackend(), true
+			store.imported, store.retryAt = make(map[string]bool), make(map[string]int64)
+			store.importedPath = filepath.Join(a.cfg.stateDir, "family_watch_dogecoin_imported.json")
+			store.loadImported()
+		case nodeZcash:
+			store.rpc.user, store.rpc.password, store.rpc.cookiePath = "", "", node.RPCCookiePath
+			store.backend = zcashFamilyWatchBackend()
 		}
 		store.load(defaultFamilyWatchEntry(id))
 		m.stores[id] = store
@@ -207,6 +225,9 @@ func (s *familyWatchStore) list(publicOnly bool) ([]familyWatchWalletView, error
 		view := familyWatchWalletView{ID: wallet.ID, Label: wallet.Label, Address: wallet.Address, SourceURL: wallet.SourceURL, Example: wallet.Example, State: s.states[wallet.ID], History: []familyWatchHistory{}}
 		if view.State == "" {
 			view.State = "pending"
+		}
+		if wallet.Example && s.skipExample {
+			view.State = "unscanned"
 		}
 		if balance, ok := s.balances[wallet.ID]; ok {
 			amount := formatFamilyWatchAmount(balance.Amount)

@@ -342,6 +342,82 @@ cat >"$tmp/config.json" <<'EOF'
 EOF
 (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "blockfilterindex was accepted on an already pruned node"
 
+# zcash.address_index: off by default, accepted on fresh installs and re-runs, refused on a database that ran without it
+zc="$tmp/zcash"
+mkdir -p "$zc"
+cp configure.sh "$zc/"
+zcash_config() { printf '{"dashboard":{"password":"configuretest12"},"zcash":{"enabled":%s,"address_index":%s,"data_dir":"%s"}}\n' "$1" "$2" "$3" >"$zc/config.json"; }
+zcash_config true false ./data/zcash
+(cd "$zc" && ./configure.sh) >/dev/null || fail "Zcash default configure failed"
+grep -q '^ZCASH_ADDRESS_INDEX=0$' "$zc/.env" || fail "address_index did not default to 0"
+grep -q '^ZCASH_TOML=zakurad.toml$' "$zc/.env" || fail "default Zcash config file changed"
+zcash_config true true ./data/zcash
+(cd "$zc" && ./configure.sh) >/dev/null 2>&1 && fail "address_index was accepted on a database that ran without it"
+grep -q '^ZCASH_ADDRESS_INDEX=0$' "$zc/.env" || fail "refused address_index changed the existing .env"
+zcash_config true true ./data/zcash-fresh
+(cd "$zc" && ./configure.sh) >/dev/null 2>&1 || fail "address_index was refused with a fresh data directory"
+grep -q '^ZCASH_ADDRESS_INDEX=1$' "$zc/.env" || fail "address_index=true not rendered as 1"
+grep -q '^ZCASH_TOML=zakurad-address-index.toml$' "$zc/.env" || fail "address_index did not select its config file"
+(cd "$zc" && ./configure.sh) >/dev/null 2>&1 || fail "re-run with address_index already on was refused"
+zcash_config true false ./data/zcash-skip
+(cd "$zc" && ./configure.sh) >/dev/null || fail "Zcash default configure on a second dir failed"
+touch "$zc/data/zcash-skip/synced-db"
+zcash_config false false ./data/zcash-skip
+(cd "$zc" && ./configure.sh) >/dev/null || fail "Zcash disable failed"
+zcash_config true true ./data/zcash-skip
+(cd "$zc" && ./configure.sh) >/dev/null 2>&1 && fail "address_index accepted after a disable step on a used database"
+rm -f "$zc/.env"
+(cd "$zc" && ./configure.sh) >/dev/null 2>&1 && fail "address_index accepted on a used database without a previous .env"
+[ -f "$zc/data/zcash-fresh/.address-index" ] || fail "index-mode run left no marker"
+rm -rf "$zc"
+mkdir -p "$zc"
+cp configure.sh "$zc/"
+zcash_config false true ./data/zcash
+(cd "$zc" && ./configure.sh) >/dev/null 2>&1 || fail "address_index with Zcash disabled was refused"
+rm -rf "$zc"
+
+# dogecoin.watch_wallet: off by default, needs prune_mb 0, refused on a database that ran pruned
+dg="$tmp/dogecoin"
+mkdir -p "$dg"
+cp configure.sh "$dg/"
+dogecoin_config() { printf '{"dashboard":{"password":"configuretest12"},"dogecoin":{"enabled":true,"watch_wallet":%s,"prune_mb":%s,"data_dir":"%s"}}\n' "$1" "$2" "$3" >"$dg/config.json"; }
+dogecoin_config false 10000 ./data/dogecoin
+(cd "$dg" && ./configure.sh) >/dev/null || fail "Dogecoin default configure failed"
+grep -q '^DOGECOIN_WATCH_WALLET=0$' "$dg/.env" || fail "watch_wallet did not default to 0"
+grep -q '^DOGECOIN_PRUNE=10000$' "$dg/.env" || fail "Dogecoin default prune changed"
+dogecoin_config true 10000 ./data/dogecoin-fresh
+(cd "$dg" && ./configure.sh) >/dev/null 2>&1 && fail "watch_wallet was accepted with a pruned node"
+dogecoin_config true 10000 ./data/dogecoin
+(cd "$dg" && ./configure.sh) >/dev/null 2>&1 && fail "watch_wallet was accepted with prune_mb above 0"
+dogecoin_config true 0 ./data/dogecoin
+(cd "$dg" && ./configure.sh) >/dev/null 2>&1 && fail "archival watch_wallet was accepted on a database that ran pruned"
+dogecoin_config false 0 ./data/dogecoin
+(cd "$dg" && ./configure.sh) >/dev/null 2>&1 && fail "archival mode was accepted on a database that ran pruned"
+grep -q '^DOGECOIN_PRUNE=10000$' "$dg/.env" || fail "refused archival mode changed the existing .env"
+dogecoin_config true 0 ./data/dogecoin-fresh
+(cd "$dg" && ./configure.sh) >/dev/null 2>&1 || fail "archival watch_wallet was refused with a fresh data directory"
+grep -q '^DOGECOIN_WATCH_WALLET=1$' "$dg/.env" || fail "watch_wallet=true not rendered as 1"
+grep -q '^DOGECOIN_PRUNE=0$' "$dg/.env" || fail "archival prune not rendered as 0"
+(cd "$dg" && ./configure.sh) >/dev/null 2>&1 || fail "re-run with watch_wallet already on was refused"
+dogecoin_config false 0 ./data/dogecoin-fresh
+(cd "$dg" && ./configure.sh) >/dev/null 2>&1 || fail "archival node without the wallet was refused"
+dogecoin_config false 100 ./data/dogecoin-fresh
+(cd "$dg" && ./configure.sh) >/dev/null 2>&1 && fail "a tiny non-zero Dogecoin prune_mb was accepted"
+rm -rf "$dg"
+mkdir -p "$dg/data/pruned/blocks" "$dg/data/full/blocks"
+cp configure.sh "$dg/"
+touch "$dg/data/pruned/blocks/index" "$dg/data/pruned/blocks/blk00007.dat" "$dg/data/full/blocks/index" "$dg/data/full/blocks/blk00000.dat"
+dogecoin_config true 0 "$dg/data/pruned"
+(cd "$dg" && ./configure.sh) >/dev/null 2>&1 && fail "archival watch_wallet was accepted on a pruned data directory without a previous .env"
+dogecoin_config true 0 "$dg/data/full"
+(cd "$dg" && ./configure.sh) >/dev/null 2>&1 || fail "archival watch_wallet was refused on a full data directory"
+rm -rf "$dg"
+mkdir -p "$dg"
+cp configure.sh "$dg/"
+dogecoin_config true 0 ./data/dogecoin
+(cd "$dg" && ./configure.sh) >/dev/null 2>&1 || fail "archival watch_wallet was refused on a first run"
+rm -rf "$dg"
+
 # Legacy false is harmless, but true is rejected before the existing .env changes.
 cat >"$tmp/config.json" <<'EOF'
 {"bitcoin": {"sync_over_clearnet": true}}

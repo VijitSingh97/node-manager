@@ -249,6 +249,34 @@ echo "$dashboard_nodes" | grep -q 'TARI_WALLET_ENABLED: "1"' || fail "dashboard 
 grep -q '^onlynet=onion$' build/bitcoin-family/entrypoint.sh || fail "Litecoin, Dogecoin and Bitcoin Cash are not Tor-only"
 echo "$all_nodes" | sed -n '/^  bitcoincash:$/,/^  dashboard:$/p' | grep -q '^    command:' && fail "Bitcoin Cash command bypasses its private runtime config"
 
+echo "$all_nodes" | grep -q 'build/zcash/zakurad.toml' || fail "Zcash default config file changed"
+echo "$all_nodes" | sed -n '/^  dashboard:$/,/^  [a-z][a-z-]*:$/p' | grep -q 'ZCASH_ADDRESS_INDEX: "0"' || fail "dashboard did not default Zcash address index off"
+index_nodes=$(COMPOSE_PROFILES=zcash ZCASH_ENABLED=1 ZCASH_ADDRESS_INDEX=1 ZCASH_TOML=zakurad-address-index.toml docker compose --env-file /dev/null -f docker-compose.yml config)
+echo "$index_nodes" | grep -q 'build/zcash/zakurad-address-index.toml' || fail "Zcash address index config file was not mounted"
+echo "$index_nodes" | sed -n '/^  dashboard:$/,/^  [a-z][a-z-]*:$/p' | grep -q 'ZCASH_ADDRESS_INDEX: "1"' || fail "dashboard did not receive Zcash address index flag"
+
+echo "$all_nodes" | sed -n '/^  dogecoin:$/,/^  [a-z][a-z-]*:$/p' | grep -q 'DOGECOIN_WATCH_WALLET: "0"' || fail "Dogecoin watch wallet did not default off"
+echo "$all_nodes" | sed -n '/^  dashboard:$/,/^  [a-z][a-z-]*:$/p' | grep -q 'DOGECOIN_WATCH_WALLET: "0"' || fail "dashboard did not default the Dogecoin watch wallet off"
+doge_nodes=$(COMPOSE_PROFILES=dogecoin DOGECOIN_ENABLED=1 DOGECOIN_PRUNE=0 DOGECOIN_WATCH_WALLET=1 DOGECOIN_RPC_USER=u DOGECOIN_RPC_PASSWORD=p docker compose --env-file /dev/null -f docker-compose.yml config)
+echo "$doge_nodes" | sed -n '/^  dogecoin:$/,/^  [a-z][a-z-]*:$/p' | grep -q 'DOGECOIN_WATCH_WALLET: "1"' || fail "Dogecoin node did not receive the watch wallet flag"
+echo "$doge_nodes" | sed -n '/^  dashboard:$/,/^  [a-z][a-z-]*:$/p' | grep -q 'DOGECOIN_WATCH_WALLET: "1"' || fail "dashboard did not receive the Dogecoin watch wallet flag"
+
+entry_dir=$(mktemp -d)
+cat >"$entry_dir/dogecoind" <<'STUB'
+#!/bin/sh
+cat "${2#-conf=}"
+STUB
+chmod +x "$entry_dir/dogecoind"
+entry_conf() { env -i PATH="$entry_dir:$PATH" NODE_BIN=dogecoin NODE_ENV_PREFIX=DOGECOIN TOR_PROXY=t:1 DOGECOIN_RPC_USER=u DOGECOIN_RPC_PASSWORD=p DOGECOIN_PRUNE="$1" "${@:2}" sh build/bitcoin-family/entrypoint.sh; }
+entry_conf 10000 | grep -q '^disablewallet=1$' || fail "default Dogecoin config enabled the wallet"
+entry_conf 0 DOGECOIN_WATCH_WALLET=0 | grep -q '^disablewallet=1$' || fail "watch wallet 0 enabled the wallet"
+watch_conf=$(entry_conf 0 DOGECOIN_WATCH_WALLET=1)
+echo "$watch_conf" | grep -q 'disablewallet' && fail "watch wallet left disablewallet in the config"
+echo "$watch_conf" | grep -q '^prune=0$' || fail "watch wallet config lost its prune setting"
+echo "$watch_conf" | grep -q '^onlynet=onion$' || fail "watch wallet config lost Tor-only networking"
+[ "$(entry_conf 10000 | grep -vc '^disablewallet=1$')" = "$(echo "$watch_conf" | grep -c '')" ] || fail "watch wallet changed more than disablewallet"
+rm -rf "$entry_dir"
+
 new_lan=$(TARI_GRPC_EXPOSE=1 TARI_GRPC_BIND_IP=192.168.1.10 TARI_GRPC_PORT=28142 \
   LITECOIN_RPC_EXPOSE=1 LITECOIN_RPC_BIND_IP=192.168.1.10 LITECOIN_RPC_PORT=29332 \
   DOGECOIN_RPC_EXPOSE=1 DOGECOIN_RPC_BIND_IP=192.168.1.10 DOGECOIN_RPC_PORT=32555 \

@@ -82,9 +82,13 @@ litecoin_enabled=$(flag '.litecoin.enabled')
 litecoin_active=$(jq -r 'if ((.litecoin // {}) | has("active")) then if .litecoin.active == true then 1 else 0 end else 1 end' <<<"$config")
 dogecoin_enabled=$(flag '.dogecoin.enabled')
 dogecoin_active=$(jq -r 'if ((.dogecoin // {}) | has("active")) then if .dogecoin.active == true then 1 else 0 end else 1 end' <<<"$config")
+dogecoin_watch_wallet=$(flag '.dogecoin.watch_wallet')
 bitcoincash_enabled=$(flag '.bitcoincash.enabled')
 bitcoincash_active=$(jq -r 'if ((.bitcoincash // {}) | has("active")) then if .bitcoincash.active == true then 1 else 0 end else 1 end' <<<"$config")
 zcash_enabled=$(flag '.zcash.enabled')
+zcash_address_index=$(flag '.zcash.address_index')
+zcash_toml=zakurad.toml
+if [ "$zcash_address_index" = 1 ]; then zcash_toml=zakurad-address-index.toml; fi
 zcash_active=$(jq -r 'if ((.zcash // {}) | has("active")) then if .zcash.active == true then 1 else 0 end else 1 end' <<<"$config")
 monero_rpc_user=$(get '.monero.node_username')
 monero_rpc_password=$(get '.monero.node_password')
@@ -574,8 +578,13 @@ case "$tari_pruning_horizon" in '' | 0 | *[!0-9]*) echo "tari.pruning_horizon mu
 for prune_config in "litecoin:$litecoin_prune:550" "dogecoin:$dogecoin_prune:2200" "bitcoincash:$bitcoincash_prune:550"; do
   IFS=: read -r node value minimum <<<"$prune_config"
   case "$value" in '' | *[!0-9]*) echo "$node.prune_mb must be a whole number of at least $minimum."; exit 1 ;; esac
+  [ "$node:$value" = "dogecoin:0" ] && continue
   [ "$value" -ge "$minimum" ] || { echo "$node.prune_mb must be at least $minimum."; exit 1; }
 done
+if [ "$dogecoin_watch_wallet" = "1" ] && [ "$dogecoin_prune" != "0" ]; then
+  echo "dogecoin.watch_wallet needs an archival node: set dogecoin.prune_mb to 0 (Dogecoin cannot rescan a pruned chain)."
+  exit 1
+fi
 if [ "$monero_rpc_expose" = "1" ]; then
   [ -n "$monero_rpc_bind_ip" ] || { echo "monero.rpc_bind_ip is required when monero.rpc_expose is true."; exit 1; }
   check_bind_ip monero.rpc_bind_ip "$monero_rpc_bind_ip" 0
@@ -731,6 +740,29 @@ if [ "$blockfilterindex" = "1" ] && [ "$prune" != "0" ] && [ -n "$prev_prune" ] 
   exit 1
 fi
 
+# Zakura only builds the transparent address index on a database that never used checkpoint sync.
+prev_zcash_enabled=$(sed -n 's/^ZCASH_ENABLED=//p' "$env_file" 2>/dev/null || true)
+prev_zcash_index=$(sed -n 's/^ZCASH_ADDRESS_INDEX=//p' "$env_file" 2>/dev/null || true)
+prev_zcash_dir=$(sed -n 's/^ZCASH_DATA_DIR=//p' "$env_file" 2>/dev/null || true)
+zcash_dir_used=0
+if [ ! -e "$zcash_data_dir/.address-index" ] && [ -n "$(ls -A "$zcash_data_dir" 2>/dev/null)" ]; then zcash_dir_used=1; fi
+if [ "$zcash_address_index" = "1" ] && { [ "$zcash_dir_used" = 1 ] || { [ "$prev_zcash_enabled" = "1" ] && [ "$prev_zcash_index" != "1" ] && [ "$prev_zcash_dir" = "$zcash_data_dir" ]; }; }; then
+  echo "The Zcash data directory already holds a database built without zcash.address_index, and Zakura cannot add the"
+  echo "transparent address index to that database. Point zcash.data_dir at a fresh directory to resync with it."
+  exit 1
+fi
+
+prev_dogecoin_enabled=$(sed -n 's/^DOGECOIN_ENABLED=//p' "$env_file" 2>/dev/null || true)
+prev_dogecoin_prune=$(sed -n 's/^DOGECOIN_PRUNE=//p' "$env_file" 2>/dev/null || true)
+prev_dogecoin_dir=$(sed -n 's/^DOGECOIN_DATA_DIR=//p' "$env_file" 2>/dev/null || true)
+dogecoin_dir_pruned=0
+if [ -e "$dogecoin_data_dir/blocks/index" ] && [ ! -e "$dogecoin_data_dir/blocks/blk00000.dat" ]; then dogecoin_dir_pruned=1; fi
+if [ "$dogecoin_prune" = "0" ] && { [ "$dogecoin_dir_pruned" = 1 ] || { [ "$prev_dogecoin_enabled" = "1" ] && [ -n "$prev_dogecoin_prune" ] && [ "$prev_dogecoin_prune" != "0" ] && [ "$prev_dogecoin_dir" = "$dogecoin_data_dir" ]; }; }; then
+  echo "The Dogecoin data directory holds a pruned chain, and a pruned node cannot become archival or rescan for a"
+  echo "watch-only wallet. Point dogecoin.data_dir at a fresh directory to download the full chain with dogecoin.prune_mb set to 0."
+  exit 1
+fi
+
 if [ "${BITCOIN_STACK_VALIDATE_ONLY:-0}" = 1 ]; then
   exit 0
 fi
@@ -867,6 +899,7 @@ DOGECOIN_RPC_USER=$dogecoin_rpc_user
 DOGECOIN_RPC_PASSWORD=$dogecoin_rpc_password
 DOGECOIN_DATA_DIR=$dogecoin_data_dir
 DOGECOIN_PRUNE=$dogecoin_prune
+DOGECOIN_WATCH_WALLET=$dogecoin_watch_wallet
 DOGECOIN_RPC_EXPOSE=$dogecoin_rpc_expose
 DOGECOIN_RPC_BIND_IP=$dogecoin_rpc_bind_ip
 DOGECOIN_RPC_PORT=$dogecoin_rpc_port
@@ -894,6 +927,8 @@ ZCASH_RPC_URL=http://172.29.0.36:8232
 ZCASH_RPC_USER=$zcash_rpc_user
 ZCASH_RPC_PASSWORD=$zcash_rpc_password
 ZCASH_DATA_DIR=$zcash_data_dir
+ZCASH_ADDRESS_INDEX=$zcash_address_index
+ZCASH_TOML=$zcash_toml
 ZCASH_RPC_EXPOSE=$zcash_rpc_expose
 ZCASH_RPC_BIND_IP=$zcash_rpc_bind_ip
 ZCASH_RPC_PORT=$zcash_rpc_port
@@ -931,6 +966,7 @@ mv -f "$env_tmp" "$env_file"
 # control units) cannot reach custom dirs outside their ReadWritePaths; those
 # already exist on the host, so creation failures are tolerated.
 mkdir -p "$data_dir" "$monero_data_dir" "$tari_data_dir" "$litecoin_data_dir" "$dogecoin_data_dir" "$bitcoincash_data_dir" "$zcash_data_dir" 2>/dev/null || true
+if [ "$zcash_address_index" = "1" ]; then : >"$zcash_data_dir/.address-index" 2>/dev/null || true; fi
 if [ "$package_managed" = "1" ] && [ -n "$BITCOIN_STACK_DATA_DIR" ] && [ "$data_dir" = "${BITCOIN_STACK_DATA_DIR%/}/bitcoin" ]; then
   chown 1000:1000 "$data_dir"
   chmod 700 "$data_dir"

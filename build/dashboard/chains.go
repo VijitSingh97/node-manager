@@ -216,7 +216,7 @@ func (a *app) apiAdditionalNode(w http.ResponseWriter, r *http.Request) {
 		WalletViewSupported: false, WalletViewReason: "Watch-only wallet view is not available for this node.",
 		SteadyCPUs: node.SteadyCPUs, SteadyMemLimitMB: node.SteadyMemLimitMB, ResourceProfile: node.ResourceProfile,
 	}
-	status.WalletViewSupported, status.WalletViewReason = familyWatchCapability(id)
+	status.WalletViewSupported, status.WalletViewReason = a.familyWatchCapability(id)
 	if id == nodeTari {
 		status.WalletViewSupported = a.cfg.tariWalletEnabled
 		status.WalletViewReason = ""

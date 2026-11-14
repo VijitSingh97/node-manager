@@ -9,13 +9,19 @@ import (
 	"time"
 )
 
-func familyWatchCapability(id string) (bool, string) {
+func (a *app) familyWatchCapability(id string) (bool, string) {
 	switch id {
 	case nodeLitecoin, nodeBitcoinCash:
 		return true, ""
 	case nodeDogecoin:
-		return false, "Dogecoin Core 1.14 has no pruned-compatible UTXO set address scan."
+		if a.cfg.dogecoinWatchWallet {
+			return true, ""
+		}
+		return false, "Dogecoin Core 1.14 has no pruned-compatible UTXO set address scan; set dogecoin.watch_wallet on an archival node."
 	case nodeZcash:
+		if a.cfg.zcashAddressIndex {
+			return true, ""
+		}
 		return false, "Zcash checkpoint pruning skips the address index needed for an accurate balance."
 	case nodeTari:
 		return false, "Tari watch-only balances require a view key and wallet service."
@@ -32,7 +38,7 @@ func (a *app) apiFamilyWatchList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	supported, reason := familyWatchCapability(id)
+	supported, reason := a.familyWatchCapability(id)
 	active := node.Enabled && a.nodeActive(id, node.Enabled)
 	response := map[string]any{"supported": supported, "enabled": node.Enabled, "active": active, "has_password": a.hasDashboardPassword(), "can_configure": a.configurationAllowed(r), "reason": reason, "wallets": []familyWatchWalletView{}}
 	if !supported {
@@ -78,21 +84,12 @@ func (a *app) apiFamilyWatchAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	var validated struct {
-		IsValid      bool   `json:"isvalid"`
-		Address      string `json:"address"`
-		ScriptPubKey string `json:"scriptPubKey"`
-		IsMWEB       bool   `json:"ismweb"`
-	}
-	if err := store.rpc.call(ctx, "validateaddress", []any{input.Address}, &validated); err != nil || !validated.IsValid || !validFamilyWatchAddress(validated.Address) || validated.ScriptPubKey == "" {
-		http.Error(w, "A valid public address for this node is required.", http.StatusBadRequest)
+	address, err := store.backend.validate(ctx, store, input.Address)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if store.validateLTC && validated.IsMWEB {
-		http.Error(w, "A valid public Litecoin address is required.", http.StatusBadRequest)
-		return
-	}
-	entry, err := store.add(input.Label, validated.Address)
+	entry, err := store.add(input.Label, address)
 	if err != nil {
 		status := http.StatusBadRequest
 		if errors.Is(err, errFamilyWatchUnavailable) {
@@ -135,7 +132,7 @@ func (a *app) familyWatchMutation(w http.ResponseWriter, r *http.Request, id str
 		http.NotFound(w, r)
 		return nil, false
 	}
-	if supported, reason := familyWatchCapability(id); !supported {
+	if supported, reason := a.familyWatchCapability(id); !supported {
 		http.Error(w, reason, http.StatusNotImplemented)
 		return nil, false
 	}

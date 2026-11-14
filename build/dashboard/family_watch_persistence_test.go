@@ -128,7 +128,7 @@ func TestFamilyWatchExampleDeletionPersistsAndFilesArePrivate(t *testing.T) {
 
 func TestFamilyWatchUnsupportedReasonsAndAtomicParser(t *testing.T) {
 	for id, phrase := range map[string]string{nodeDogecoin: "no pruned-compatible", nodeZcash: "checkpoint pruning", nodeTari: "view key"} {
-		supported, reason := familyWatchCapability(id)
+		supported, reason := (&app{}).familyWatchCapability(id)
 		if supported || !strings.Contains(reason, phrase) {
 			t.Fatalf("%s capability = %v %q", id, supported, reason)
 		}
