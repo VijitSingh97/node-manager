@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"log"
@@ -8,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,6 +21,8 @@ type zcashWatchFixture struct {
 	mu         sync.Mutex
 	balance    uint64
 	balanceErr bool
+	tipMoves   bool
+	balanceHit bool
 	tipTime    int64
 	progress   float64
 	methods    []string
@@ -40,7 +44,11 @@ func (f *zcashWatchFixture) handler(w http.ResponseWriter, r *http.Request) {
 	var result any
 	switch request.Method {
 	case "getblockchaininfo":
-		result = map[string]any{"blocks": 500, "headers": 500, "estimatedheight": 500, "bestblockhash": "abc", "verificationprogress": f.progress}
+		best := "abc"
+		if f.tipMoves && f.balanceHit {
+			best = "def"
+		}
+		result = map[string]any{"blocks": 500, "headers": 500, "estimatedheight": 500, "bestblockhash": best, "verificationprogress": f.progress}
 	case "getblockheader":
 		result = map[string]any{"time": f.tipTime}
 	case "validateaddress":
@@ -48,6 +56,7 @@ func (f *zcashWatchFixture) handler(w http.ResponseWriter, r *http.Request) {
 		result = map[string]any{"isvalid": address == zcashTestAddress, "address": address}
 	case "getaddressbalance":
 		f.params = request.Params
+		f.balanceHit = true
 		if f.balanceErr {
 			_ = json.NewEncoder(w).Encode(map[string]any{"result": nil, "error": map[string]any{"code": -1, "message": "transparent indexes unavailable"}})
 			return
@@ -118,6 +127,26 @@ func TestZcashWatchZeroBalance(t *testing.T) {
 func TestZcashWatchIndexUnavailableIsAnError(t *testing.T) {
 	manager, store, fixture := newZcashWatchTest(t, 1)
 	fixture.balanceErr = true
+	manager.scanNode(t.Context(), nodeZcash, store)
+	if state, amount := zcashWalletState(store); state != "error" || amount != "" {
+		t.Fatalf("state=%s amount=%s", state, amount)
+	}
+}
+
+func TestZcashWatchIndexUnavailableIsDistinct(t *testing.T) {
+	manager, store, fixture := newZcashWatchTest(t, 1)
+	fixture.balanceErr = true
+	var logs bytes.Buffer
+	manager.app.log = log.New(&logs, "", 0)
+	manager.scanNode(t.Context(), nodeZcash, store)
+	if !strings.Contains(logs.String(), "outcome=index_unavailable") {
+		t.Fatalf("log=%q", logs.String())
+	}
+}
+
+func TestZcashWatchRejectsTipMovedDuringScan(t *testing.T) {
+	manager, store, fixture := newZcashWatchTest(t, 7)
+	fixture.tipMoves = true
 	manager.scanNode(t.Context(), nodeZcash, store)
 	if state, amount := zcashWalletState(store); state != "error" || amount != "" {
 		t.Fatalf("state=%s amount=%s", state, amount)

@@ -738,8 +738,10 @@ fi
 prev_zcash_enabled=$(sed -n 's/^ZCASH_ENABLED=//p' "$env_file" 2>/dev/null || true)
 prev_zcash_index=$(sed -n 's/^ZCASH_ADDRESS_INDEX=//p' "$env_file" 2>/dev/null || true)
 prev_zcash_dir=$(sed -n 's/^ZCASH_DATA_DIR=//p' "$env_file" 2>/dev/null || true)
-if [ "$zcash_address_index" = "1" ] && [ "$prev_zcash_enabled" = "1" ] && [ "$prev_zcash_index" != "1" ] && [ "$prev_zcash_dir" = "$zcash_data_dir" ]; then
-  echo "The previous configuration shows Zcash running without zcash.address_index, and Zakura cannot add the"
+zcash_dir_used=0
+if [ ! -e "$zcash_data_dir/.address-index" ] && [ -n "$(ls -A "$zcash_data_dir" 2>/dev/null)" ]; then zcash_dir_used=1; fi
+if [ "$zcash_address_index" = "1" ] && { [ "$zcash_dir_used" = 1 ] || { [ "$prev_zcash_enabled" = "1" ] && [ "$prev_zcash_index" != "1" ] && [ "$prev_zcash_dir" = "$zcash_data_dir" ]; }; }; then
+  echo "The Zcash data directory already holds a database built without zcash.address_index, and Zakura cannot add the"
   echo "transparent address index to that database. Point zcash.data_dir at a fresh directory to resync with it."
   exit 1
 fi
@@ -946,6 +948,7 @@ mv -f "$env_tmp" "$env_file"
 # control units) cannot reach custom dirs outside their ReadWritePaths; those
 # already exist on the host, so creation failures are tolerated.
 mkdir -p "$data_dir" "$monero_data_dir" "$tari_data_dir" "$litecoin_data_dir" "$dogecoin_data_dir" "$bitcoincash_data_dir" "$zcash_data_dir" 2>/dev/null || true
+if [ "$zcash_address_index" = "1" ]; then : >"$zcash_data_dir/.address-index" 2>/dev/null || true; fi
 if [ "$package_managed" = "1" ] && [ -n "$BITCOIN_STACK_DATA_DIR" ] && [ "$data_dir" = "${BITCOIN_STACK_DATA_DIR%/}/bitcoin" ]; then
   chown 1000:1000 "$data_dir"
   chmod 700 "$data_dir"

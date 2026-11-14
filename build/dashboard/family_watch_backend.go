@@ -106,7 +106,15 @@ func zcashFamilyWatchBackend() familyWatchBackend {
 			var balance struct {
 				Balance uint64 `json:"balance"`
 			}
-			if s.rpc.call(ctx, "getaddressbalance", []any{map[string]any{"addresses": []string{address}}}, &balance) != nil || balance.Balance > s.maxSupply {
+			err := s.rpc.call(ctx, "getaddressbalance", []any{map[string]any{"addresses": []string{address}}}, &balance)
+			if err != nil {
+				if strings.Contains(strings.ReplaceAll(strings.ToLower(err.Error()), " ", ""), "indexesunavailable") {
+					return familyWatchResult{}, "index_unavailable"
+				}
+				return familyWatchResult{}, "failed"
+			}
+			var after zcashBlockchainInfo
+			if balance.Balance > s.maxSupply || s.rpc.call(ctx, "getblockchaininfo", nil, &after) != nil || after.BestBlockHash != tip.Best {
 				return familyWatchResult{}, "failed"
 			}
 			return familyWatchResult{strconv.FormatUint(balance.Balance, 10), tip.Blocks, tip.Best}, "ok"

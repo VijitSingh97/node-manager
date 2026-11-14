@@ -359,6 +359,16 @@ zcash_config true true ./data/zcash-fresh
 grep -q '^ZCASH_ADDRESS_INDEX=1$' "$zc/.env" || fail "address_index=true not rendered as 1"
 grep -q '^ZCASH_TOML=zakurad-address-index.toml$' "$zc/.env" || fail "address_index did not select its config file"
 (cd "$zc" && ./configure.sh) >/dev/null 2>&1 || fail "re-run with address_index already on was refused"
+zcash_config true false ./data/zcash-skip
+(cd "$zc" && ./configure.sh) >/dev/null || fail "Zcash default configure on a second dir failed"
+touch "$zc/data/zcash-skip/synced-db"
+zcash_config false false ./data/zcash-skip
+(cd "$zc" && ./configure.sh) >/dev/null || fail "Zcash disable failed"
+zcash_config true true ./data/zcash-skip
+(cd "$zc" && ./configure.sh) >/dev/null 2>&1 && fail "address_index accepted after a disable step on a used database"
+rm -f "$zc/.env"
+(cd "$zc" && ./configure.sh) >/dev/null 2>&1 && fail "address_index accepted on a used database without a previous .env"
+[ -f "$zc/data/zcash-fresh/.address-index" ] || fail "index-mode run left no marker"
 rm -rf "$zc"
 mkdir -p "$zc"
 cp configure.sh "$zc/"

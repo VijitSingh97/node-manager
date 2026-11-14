@@ -261,8 +261,13 @@ a viewing key and a wallet scanner. Balances cover confirmed transparent funds o
 Limits to accept before enabling it:
 
 - The node must resync from genesis into a fresh data directory. `configure.sh`
-  refuses the option when the previous `.env` shows Zcash running without it on the
-  same `zcash.data_dir`; point `data_dir` at a new directory instead.
+  refuses the option when `zcash.data_dir` already holds files and has no
+  `.address-index` marker (written by an index-mode run), or when the previous
+  `.env` shows Zcash running without it there; point `data_dir` at a new directory instead.
+- If the node reports the transparent indexes as unavailable, the dashboard logs
+  `outcome=index_unavailable` and shows Error; resync with a fresh `zcash.data_dir`.
+- Each balance is accepted only if the node's best block hash is unchanged across the
+  lookup; a block arriving mid-scan makes that scan fail and retry on the next cycle.
 - Upstream calls disabling checkpoint sync slower and less secure against some
   chain attacks.
 - Disk use for the retained indexes is not yet measured, and no sync time is published.
