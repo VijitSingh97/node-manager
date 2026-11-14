@@ -205,10 +205,17 @@ func readUtxoHeader(u *utxoReader, wantNetwork [4]byte) (utxoHeader, error) {
 
 // parseUtxoDump streams a dumptxoutset v2 file and rejects it if the coin count disagrees with the header.
 func parseUtxoDump(r io.Reader, wantNetwork [4]byte, fn func(utxoRecord) error) (utxoHeader, error) {
+	return parseUtxoDumpHeader(r, wantNetwork, nil, fn)
+}
+
+func parseUtxoDumpHeader(r io.Reader, wantNetwork [4]byte, onHeader func(utxoHeader), fn func(utxoRecord) error) (utxoHeader, error) {
 	u := &utxoReader{r: bufio.NewReaderSize(r, 1<<16)}
 	h, err := readUtxoHeader(u, wantNetwork)
 	if err != nil {
 		return h, err
+	}
+	if onHeader != nil {
+		onHeader(h)
 	}
 	var (
 		txid [32]byte
