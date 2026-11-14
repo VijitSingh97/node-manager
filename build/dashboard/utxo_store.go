@@ -26,6 +26,7 @@ const (
 	utxoBlockCacheBytes = 64 << 20
 	utxoMemTableBytes   = 16 << 20
 	utxoCompactions     = 1
+	utxoIngestTmpDir    = "ingest-tmp"
 )
 
 var (
@@ -38,6 +39,7 @@ var (
 	errUtxoMissingCoin   = errors.New("spent coin is not in the index")
 	errUtxoNoTip         = errors.New("index has no tip")
 	errUtxoNoUndo        = errors.New("undo record is not available")
+	errUtxoNotEmpty      = errors.New("utxo store is not empty")
 )
 
 type utxoOutpoint struct {
@@ -77,6 +79,7 @@ type utxoMeta struct {
 	HasTip       bool   `json:"has_tip"`
 	TipHeight    uint32 `json:"tip_height"`
 	TipHash      string `json:"tip_hash"`
+	Ingesting    bool   `json:"ingesting,omitempty"`
 }
 
 type utxoStore struct {
@@ -85,6 +88,10 @@ type utxoStore struct {
 	meta          utxoMeta
 	invalidReason string
 	beforeCommit  func() error
+	beforeIngest  func() error
+	dir           string
+	fs            vfs.FS
+	discard       bool
 	fatal         atomic.Pointer[string]
 }
 
@@ -154,7 +161,10 @@ func openUtxoStore(dir string) (*utxoStore, error) {
 }
 
 func openUtxoStoreFS(dir string, fs vfs.FS) (*utxoStore, error) {
-	s := &utxoStore{}
+	if fs == nil {
+		fs = vfs.Default
+	}
+	s := &utxoStore{dir: dir, fs: fs}
 	opts := &pebble.Options{
 		Cache:                    pebble.NewCache(utxoBlockCacheBytes),
 		MemTableSize:             utxoMemTableBytes,
@@ -173,9 +183,21 @@ func openUtxoStoreFS(dir string, fs vfs.FS) (*utxoStore, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	if s.discard {
+		_ = db.Close()
+		if err := clearUtxoDir(fs, dir); err != nil {
+			return nil, fmt.Errorf("discard interrupted utxo ingest: %w", err)
+		}
+		return openUtxoStoreFS(dir, fs)
+	}
 	if s.invalidReason != "" {
 		_ = db.Close()
 		s.db = nil
+		return s, nil
+	}
+	if err := fs.RemoveAll(fs.PathJoin(dir, utxoIngestTmpDir)); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("clear utxo ingest temp: %w", err)
 	}
 	return s, nil
 }
@@ -197,6 +219,10 @@ func (s *utxoStore) loadMeta() error {
 	if m.Schema != utxoSchemaVersion || m.PebbleFormat != int(utxoPebbleFormat) {
 		s.invalidReason = fmt.Sprintf("format version %d/%d, expected %d/%d",
 			m.Schema, m.PebbleFormat, utxoSchemaVersion, int(utxoPebbleFormat))
+		return nil
+	}
+	if m.Ingesting {
+		s.discard = true
 		return nil
 	}
 	if _, err := decodeUtxoTip(m); err != nil {
@@ -522,4 +548,89 @@ func (s *utxoStore) scanPrefix(h [utxoPrefixLen]byte) ([]utxoCoin, error) {
 		out = append(out, c)
 	}
 	return out, it.Close()
+}
+
+func (s *utxoStore) emptyLocked() error {
+	if s.meta.HasTip {
+		return errUtxoNotEmpty
+	}
+	it, err := s.db.NewIter(nil)
+	if err != nil {
+		return err
+	}
+	for ok := it.First(); ok; ok = it.Next() {
+		if !bytes.Equal(it.Key(), utxoMetaKey) {
+			_ = it.Close()
+			return errUtxoNotEmpty
+		}
+	}
+	return it.Close()
+}
+
+// The index directory can be a volume mount point, which cannot itself be removed.
+func clearUtxoDir(fs vfs.FS, dir string) error {
+	names, err := fs.List(dir)
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		if err := fs.RemoveAll(fs.PathJoin(dir, name)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *utxoStore) RequireEmpty() error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := s.usable(); err != nil {
+		return err
+	}
+	return s.emptyLocked()
+}
+
+func (s *utxoStore) setMeta(m utxoMeta) error {
+	b := s.db.NewBatch()
+	defer b.Close()
+	if err := b.Set(utxoMetaKey, mustMarshalUtxoMeta(m), nil); err != nil {
+		return err
+	}
+	return s.commit(b)
+}
+
+// IngestFiles loads sorted, non-overlapping SSTs into an empty store; until it returns nil the store refuses reads and a reopen discards it.
+func (s *utxoStore) IngestFiles(paths []string, height uint32, hash [32]byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.usable(); err != nil {
+		return err
+	}
+	if err := s.emptyLocked(); err != nil {
+		return err
+	}
+	pending := s.meta
+	pending.Ingesting = true
+	if err := s.setMeta(pending); err != nil {
+		return err
+	}
+	s.invalidReason = "ingest in progress"
+	if len(paths) > 0 {
+		if err := s.db.Ingest(paths); err != nil {
+			return err
+		}
+	}
+	if s.beforeIngest != nil {
+		if err := s.beforeIngest(); err != nil {
+			return err
+		}
+	}
+	meta := utxoMeta{Schema: utxoSchemaVersion, PebbleFormat: int(utxoPebbleFormat),
+		HasTip: true, TipHeight: height, TipHash: hex.EncodeToString(hash[:])}
+	if err := s.setMeta(meta); err != nil {
+		return err
+	}
+	s.meta = meta
+	s.invalidReason = ""
+	return nil
 }

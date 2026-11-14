@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Generate dumptxoutset fixtures and expected UTXO lists from the pinned regtest bitcoind.
 
-Usage: tests/utxo_regtest.py OUTDIR
+Usage: tests/utxo_regtest.py OUTDIR [--scan]
+
+With --scan each JSON file also gets a "scan" object: for every script, the coins scantxoutset
+reports for raw(script) on the live node (the independent check used by the ingest live test).
 
 Writes OUTDIR/<scenario>.dat (the dumptxoutset file) and OUTDIR/<scenario>.json (the expected
 UTXO list, derived by walking the chain over RPC rather than from the dump) for:
@@ -32,6 +35,7 @@ class Node:
     def __init__(self):
         self.name = f"utxo-regtest-{uuid.uuid4().hex[:8]}"
         self.blocks = {}
+        self.scan = False
 
     def start(self):
         subprocess.run(
@@ -67,11 +71,25 @@ class Node:
         subprocess.run(["docker", "cp", f"{self.name}:{path}", os.path.join(outdir, name + ".dat")], check=True)
         coins = self.expected_utxos()
         tip = self.cli("getbestblockhash")
+        doc = {"network": "regtest", "base_hash": tip, "base_height": self.cli("getblockcount"), "coins": coins}
+        if self.scan:
+            doc["scan"] = self.scan_unspent(coins)
         with open(os.path.join(outdir, name + ".json"), "w") as f:
-            json.dump({"network": "regtest", "base_hash": tip, "base_height": self.cli("getblockcount"),
-                       "coins": coins}, f, indent=1, sort_keys=True)
+            json.dump(doc, f, indent=1, sort_keys=True)
             f.write("\n")
         return coins
+
+    def scan_unspent(self, coins):
+        out = {}
+        for script in sorted({c["script"] for c in coins}):
+            res = self.cli("scantxoutset", "start", [{"desc": f"raw({script})"}], check=False)
+            if res is None:
+                continue
+            out[script] = sorted(
+                ({"txid": u["txid"], "vout": u["vout"], "amount": int(u["amount"] * 100000000),
+                  "height": u["height"], "coinbase": u["coinbase"]} for u in res["unspents"]),
+                key=lambda c: (c["txid"], c["vout"]))
+        return out
 
     def expected_utxos(self):
         unspent = {}
@@ -154,9 +172,10 @@ def mine_txs(node, addr, txids):
     return node.cli("generateblock", addr, txids)["hash"]
 
 
-def run(outdir):
+def run(outdir, scan=False):
     os.makedirs(outdir, exist_ok=True)
     node = Node()
+    node.scan = scan
     try:
         node.start()
         node.cli("createwallet", "w")
@@ -201,6 +220,6 @@ def run(outdir):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
+    if len(sys.argv) not in (2, 3) or (len(sys.argv) == 3 and sys.argv[2] != "--scan"):
         sys.exit(__doc__)
-    run(sys.argv[1])
+    run(sys.argv[1], len(sys.argv) == 3)
