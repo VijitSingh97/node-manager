@@ -106,6 +106,9 @@ func (m *utxoManager) set(state, reason string) {
 }
 
 func (m *utxoManager) setLocked(state, reason string) {
+	if m.seeding && state != utxoStateSeeding && state != utxoStateInvalid {
+		return
+	}
 	if m.state == state && m.reason == reason {
 		return
 	}
@@ -198,6 +201,11 @@ func (m *utxoManager) tick(ctx context.Context) {
 	}
 	var info blockchainInfo
 	if m.rpc.call(ctx, "getblockchaininfo", nil, &info) != nil {
+		m.mu.Lock()
+		if m.state == utxoStateReady {
+			m.setLocked(utxoStateCatching, "node is not answering")
+		}
+		m.mu.Unlock()
 		return
 	}
 	m.mu.Lock()
@@ -209,7 +217,13 @@ func (m *utxoManager) tick(ctx context.Context) {
 			return
 		}
 		if err := m.store.BindChain(info.Chain, genesis); err != nil {
-			m.fail(err)
+			if errors.Is(err, errUtxoChainMismatch) || errors.Is(err, errUtxoBroken) {
+				m.fail(err)
+				return
+			}
+			m.mu.Lock()
+			m.setLocked(m.state, "chain identity not recorded yet")
+			m.mu.Unlock()
 			return
 		}
 		m.bound = true
@@ -273,8 +287,17 @@ func (m *utxoManager) fail(err error) {
 	case err == nil:
 		m.invalidate("follower stopped")
 	default:
-		m.invalidate("follower error: " + err.Error())
+		m.invalidate("follower error: " + utxoErrorClass(err))
 	}
+}
+
+func utxoErrorClass(err error) string {
+	for _, target := range append(utxoIntegrityErrors, errUtxoFollowStop) {
+		if errors.Is(err, target) {
+			return target.Error()
+		}
+	}
+	return "unclassified error"
 }
 
 func (m *utxoManager) invalidate(reason string) {

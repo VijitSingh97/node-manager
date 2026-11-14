@@ -431,6 +431,81 @@ func TestUtxoManagerReadyOnlyWhenIdleAndAtTip(t *testing.T) {
 	}
 }
 
+func TestUtxoManagerTickKeepsSeedingState(t *testing.T) {
+	c := utxoMgrChain(20, "b")
+	node := newFakeUtxoNode(c)
+	dir := t.TempDir()
+	utxoMgrSeed(t, dir, nil, c)
+	m := utxoMgrNew(t, dir, nil, node, io.Discard)
+	node.hook = func(method string, _ any) error {
+		if method == "getblock" {
+			node.hook = nil
+			m.SetSeed(true, 0.1)
+		}
+		return nil
+	}
+	m.tick(context.Background())
+	if st := m.Status(); st.State != utxoStateSeeding {
+		t.Fatalf("a tick that started before the seed overwrote it: %+v", st)
+	}
+}
+
+func TestUtxoManagerNodeDownIsNotReady(t *testing.T) {
+	ctx := context.Background()
+	c := utxoMgrChain(20, "b")
+	node := newFakeUtxoNode(c)
+	dir := t.TempDir()
+	utxoMgrSeed(t, dir, nil, c)
+	m := utxoMgrNew(t, dir, nil, node, io.Discard)
+	m.tick(ctx)
+	if st := m.Status(); st.State != utxoStateReady {
+		t.Fatalf("status %+v", st)
+	}
+	node.hook = func(string, any) error { return errors.New("connection refused") }
+	m.tick(ctx)
+	if st := m.Status(); st.State != utxoStateCatching || st.Reason == "" {
+		t.Fatalf("node down reported %+v", st)
+	}
+	node.hook = nil
+	m.tick(ctx)
+	if st := m.Status(); st.State != utxoStateReady || st.Reason != "" {
+		t.Fatalf("node back reported %+v", st)
+	}
+}
+
+func TestUtxoManagerBindErrorRetries(t *testing.T) {
+	c := utxoMgrChain(20, "b")
+	node := newFakeUtxoNode(c)
+	dir := t.TempDir()
+	utxoMgrSeed(t, dir, nil, c)
+	m := utxoMgrNew(t, dir, nil, node, io.Discard)
+	if err := m.store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	m.tick(context.Background())
+	if st := m.Status(); st.State == utxoStateInvalid {
+		t.Fatalf("a failed chain bind invalidated the index: %+v", st)
+	}
+	s, err := openUtxoStoreFS(dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if !s.Valid() {
+		t.Fatalf("invalid persisted: %s", s.InvalidReason())
+	}
+}
+
+func TestUtxoErrorClassDropsDetail(t *testing.T) {
+	err := fmt.Errorf("%w: %s:%d", errUtxoNoPrevout, fakeDisplayHash("tx", 1), 0)
+	if got := utxoErrorClass(err); got != errUtxoNoPrevout.Error() {
+		t.Fatalf("class %q", got)
+	}
+	if got := utxoErrorClass(errors.New("boom /utxo-index/000001.log")); got != "unclassified error" {
+		t.Fatalf("class %q", got)
+	}
+}
+
 func TestUtxoStoreMarkInvalidPersists(t *testing.T) {
 	dir := t.TempDir()
 	s := utxoTestOpen(t, dir)
@@ -545,8 +620,7 @@ func TestUtxoManagerKillLoopOverFollowPhase(t *testing.T) {
 		}
 		if !s.Valid() {
 			_ = s.Close()
-			t.Logf("round %d: index invalid after kill (%s), accepted", round, s.InvalidReason())
-			return
+			t.Fatalf("round %d: index invalid after kill: %s", round, s.InvalidReason())
 		}
 		tip, _, _, _ := s.Tip()
 		if tip < lastTip {

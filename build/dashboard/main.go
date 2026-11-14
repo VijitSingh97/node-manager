@@ -100,7 +100,7 @@ func envConfig() (config, error) {
 			cfg.version = "dev"
 		}
 	}
-	cfg.utxoIndexEnabled = os.Getenv("UTXO_INDEX_ENABLED") == "1"
+	cfg.utxoIndexEnabled = enabled(os.Getenv("UTXO_INDEX_ENABLED"))
 	cfg.utxoIndexDir = envOr("UTXO_INDEX_DIR", "/utxo-index")
 	if cfg.utxoIndexEnabled && !filepath.IsAbs(cfg.utxoIndexDir) {
 		return config{}, errors.New("UTXO_INDEX_DIR must be an absolute path")

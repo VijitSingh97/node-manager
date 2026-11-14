@@ -50,7 +50,8 @@ All notable changes to this project are documented here. Format follows
   `invalid` (persisted, never migrated or reseeded automatically) on a format
   or chain mismatch, a reorg deeper than the 144-block undo journal, falling
   behind the node's retained blocks, or a storage error; shallower reorgs are
-  rolled back and it reports `catching_up` meanwhile. Each state change is logged once. There is no
+  rolled back, and it reports `catching_up` meanwhile and while the node is not
+  answering. The JSON fields are listed in `docs/operations.md`. Each state change is logged once. There is no
   seed trigger yet, so an enabled index stays `not_seeded`; without the
   overlay nothing is opened and the endpoint answers `off`.
 - Opt-in `bitcoin.utxo_index` setting that adds the
