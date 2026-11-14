@@ -15,6 +15,11 @@ All notable changes to this project are documented here. Format follows
   store broken until it is reopened. Nothing opens it yet, so runtime
   behavior is unchanged; the dashboard binary grows by about 5.5 MB and
   `THIRD_PARTY_NOTICES` gains the new modules.
+- Opt-in `bitcoin.utxo_index` setting that adds the
+  `docker-compose.utxo-index.yml` overlay: a `utxo_index` volume and a 1g
+  memory limit with 0.5 CPU on the dashboard. It is off by default, so
+  existing installs render the same configuration after upgrade, and bitcoind
+  is not restarted when it is enabled.
 
 ### Changed
 

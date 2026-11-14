@@ -275,4 +275,17 @@ fi
 echo "$rendered" | grep -q 'target: /data' || fail "dashboard missing /data mount"
 echo "$rendered" | grep -q 'target: /state' || fail "dashboard missing writable /state volume"
 
+base_render=$(docker compose --env-file /dev/null -f docker-compose.yml config)
+echo "$base_render" | grep -q 'utxo' && fail "default compose mentions the UTXO index"
+echo "$base_render" | sed -n '/^  dashboard:$/,/^  [a-z][a-z-]*:$/p' | grep -Eq 'mem_limit|cpus:' && fail "default dashboard gained a resource limit"
+utxo_render=$(docker compose --env-file /dev/null -f docker-compose.yml -f docker-compose.utxo-index.yml config)
+utxo_dashboard=$(echo "$utxo_render" | sed -n '/^  dashboard:$/,/^  [a-z][a-z-]*:$/p')
+echo "$utxo_dashboard" | grep -q 'UTXO_INDEX_ENABLED: "1"' || fail "UTXO index flag did not reach the dashboard"
+echo "$utxo_dashboard" | grep -q 'UTXO_INDEX_DIR: /utxo-index' || fail "UTXO index directory did not reach the dashboard"
+echo "$utxo_dashboard" | grep -q 'mem_limit: "1073741824"' || fail "UTXO index overlay did not set the dashboard memory limit"
+echo "$utxo_dashboard" | grep -q 'cpus: 0.5' || fail "UTXO index overlay did not set the dashboard CPU limit"
+echo "$utxo_dashboard" | grep -B2 -A2 'target: /utxo-index' | grep -q 'source: utxo_index' || fail "dashboard is missing the utxo_index volume"
+echo "$utxo_render" | sed -n '/^  bitcoin:$/,/^  [a-z][a-z-]*:$/p' | grep -q 'utxo' && fail "UTXO index overlay changed the bitcoin service"
+diff <(echo "$base_render" | grep -v '^  dashboard:$') <(echo "$utxo_render" | grep -v '^  dashboard:$') | grep '^<' | grep -q . && fail "UTXO index overlay removed existing configuration"
+
 echo "PASS: test_compose.sh"
