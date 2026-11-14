@@ -1,6 +1,6 @@
 # ADR 0001: Bitcoin UTXO index for instant watch-only balances
 
-- Status: Proposed. Recommendation: defer the build. The owner decides (see Open items).
+- Status: Accepted 2026-11-14. The owner chose to build the index: opt-in, balances only, filled by a one-time export on already-synced nodes and during initial sync on fresh installs (#267).
 - Date: 2026-11-14
 - Issue: #219, part of epic #213. Inputs: #216 and #217, both measured.
 - Scope: Bitcoin on pruned nodes. Litecoin follows in #238. Monero and Tari are out of scope.
@@ -156,18 +156,15 @@ Only the first row separates the two choices, and only the index meets it. Optio
 
 ### Decision
 
-**Recommendation: defer the build, and do option E.** Ship #215 plus option E (below). Hold #221-#237 until the owner confirms the first row matters enough.
+**Accepted 2026-11-14: build the index, balances only.** The owner's goal: a user can enter any wallet and see its balance as close to instantly as possible. Only option A meets it. A new wallet's balance comes from 0.15-0.33 s of lookups (derived) instead of a 162 s scan (measured). The wallet's balance sparkline is drawn from the same data. Today it plots the wallet's unspent coins by arrival height (`chainHistorySeries` in `watch_view.go`), and the index stores each coin's amount and height. So the sparkline appears with the balance, with no extra query.
 
-Reasons:
-- The only target the index uniquely meets is a wallet add that waits for a scan, about 162 s for a 2000-script wallet (measured, #219), once per new wallet. A wait of under 3 minutes once per wallet, with the node fully usable meanwhile, does not justify the costs below.
-- The scan does not block RPC. The seed does, for about 5 minutes (measured), with an alert and a heat spike on a box that shares thermal budget with other chains.
-- The cost is 11.35 GB of disk, 20.3 GiB at peak, a long-lived subsystem, and 26 modules.
+Transaction history of spent coins is out of scope. A pruned node no longer holds those blocks, and an all-address history index would be very roughly 150-300 GB (estimate).
 
-**If the owner builds it,** the design below is the plan. It is opt-in, the Pebble engine, FIFO seeding, a mandatory CPU cap and thermal gate. Every number in it is labelled measured, derived or reasoned. Several items are reasoned (journal size, pause behaviour, the 20% margin).
+The index is opt-in (section 3). It is filled one of two ways:
+1. **Already-synced nodes:** the one-time export (`dumptxoutset` through a FIFO), section 4.
+2. **Fresh installs:** built during initial sync (#267). The dashboard follows blocks from height 0 as Core downloads them, using the same per-block update as tip following (section 6). During that phase Core runs in manual prune mode, and the dashboard calls `pruneblockchain` only behind its own indexed height, so no block is pruned before it is indexed. When initial sync finishes, the index is complete and no export runs. Its cost during sync is unmeasured; #267 measures it.
 
-**Reopen triggers for deferring:** the owner reports adding wallets often enough that the wait hurts; the wallet scan time grows past a few minutes as the UTXO set grows (162 s for 2000 scripts today at 163.3M UTXOs); or a second feature needs script lookups.
-
-The gate in the earlier draft was "120 s or less: stop; 10 min or more: build; between is the owner's call". The measured 162 s for a 2000-script wallet falls in the owner's band, near its low end, with no RPC stall. That is why the call is the owner's, and why the recommendation is to defer.
+The owner accepts the costs listed under "Is a full index needed at all?" for this goal. Option E (progress UI and queued-add batching) remains useful as the fallback while the index is off, not seeded or not ready. It needs its own issue.
 
 ## Options considered
 
@@ -202,7 +199,7 @@ THIRD_PARTY_NOTICES impact: `build/dashboard/THIRD_PARTY_NOTICES` is 602 lines t
 
 - Pros: single file, simple transactions, strong crash safety, easy to inspect, pure Go (transpiled C), so `CGO_ENABLED=0` works.
 - Cons: the dependency is also large (modernc libc, memory and mathutil plus the generated SQLite source), so it does not clearly beat Pebble on the small-stack driver. Loading 163.3M rows into a B-tree is slower than ingesting sorted SSTs unless rows go in key order into a `WITHOUT ROWID` table. No compression. A 52 B key and 12 B value plus page and cell overhead is likely 70-80 B per row, about 11.4-13.1 GB at 163.3M rows (derived: 70 and 80 x 163.3M).
-- Status: **rejected, reasoned.** No variant was built. It is reopened only if the owner builds the index and rejects Pebble's dependency weight at review.
+- Status: **rejected, reasoned.** No variant was built. It is reopened only if Pebble's dependency weight is rejected at review (#222).
 
 ### C. Watch-list-only forward tracker in JSON under /state
 
@@ -210,16 +207,16 @@ Keep #215's model: store each wallet's scriptPubKey set and outpoints in JSON (`
 
 - Pros: no new dependency, no volume, no bitcoind change, no seeding.
 - Cons: an unknown wallet still needs a full `scantxoutset`. There is no cheap backfill. Reading the 5455 retained blocks at 1.8-3.0 s each is 5455 x 1.8 = 2.7 h to 5455 x 3.0 = 4.5 h (derived) and covers about five weeks of chain, so it would give wrong balances.
-- Status: **this is the deferred state, reasoned and partly measured.** It is also the fallback in every outcome.
+- Status: **rejected for the goal, reasoned and partly measured.** A new wallet still waits for a full scan. The scan path stays as the fallback in every outcome.
 
-### E. Defer plus progress UI and queued-add batching (the defer path, concrete)
+### E. Progress UI and queued-add batching (the fallback)
 
 Improve the wait instead of removing it. Show scan progress or a time estimate for a pending wallet. Queue wallets added while a scan runs and serve them with one scan.
 
 - Pros: no new dependency, disk, volume or seed. Meets "batch registration" fully, because queued adds share one walk. Makes the wait visible, which is where #215 and the measured 162 s point. Needs no owner decision on Pebble.
 - Cons: a new wallet still waits for a full scan. It does not meet "add an indexed wallet under 1 s".
 - #213 rows it improves: batch registration (Partly to Yes) and, as felt latency only, the wallet-add wait. It leaves the other rows unchanged.
-- Status: **recommended with the defer.** Reasoned. Not built or measured. It needs its own issue.
+- Status: **kept as the fallback while the index is off, not seeded or not ready.** Reasoned. Not built or measured. It needs its own issue.
 
 ### D. Separate index service (own container)
 
@@ -231,7 +228,7 @@ Improve the wait instead of removing it. Show scan progress or a time estimate f
 
 `grocksdb` needs cgo. `build/dashboard/Dockerfile:1-24` builds with `CGO_ENABLED=0` on alpine. **Rejected, measured** (the Dockerfile settings are the evidence). Bbolt and Badger were not benchmarked.
 
-## Design if built
+## Design
 
 ### 1. Engine, placement and layout
 
@@ -270,7 +267,7 @@ What existing installs get on upgrade: no runtime change. No new volume, no limi
 
 **Dependency ships to everyone.** Pebble and its 26 linked modules compile into the one dashboard binary and image that every install pulls, opted in or not. That means a larger image, a longer THIRD_PARTY_NOTICES and new supply-chain surface for all installs. Binary size is unmeasured. The 26-module count was measured for linux/amd64 only; #222 requires every target architecture, and arm64 is not counted. #213 says a non-opt-in install gets no new behavior. A larger binary is not behavior, but it is a change.
 
-Two ways to handle it. The owner picks one when building:
+Two ways to handle it. The default is the first, revisited if #222 finds the size growth unacceptable:
 - Accepted cost (the ADR's default): one binary for all. The owner signs off on the image growth and notices, after #222 measures size on every architecture.
 - Build tag or separate binary: non-opt-in images stay unchanged. The overlay then also selects the image or binary, which adds a second build to release and test. #222 must state this if chosen.
 
@@ -369,15 +366,9 @@ Rejected: dumping into the datadir (the dashboard cannot delete it, and it eats 
 
 ## Consequences
 
-If deferred (recommended):
-- No new dependency (so no image growth), disk, volume, restart or node stall.
-- A newly added wallet waits for a scan: about 162 s for a 2000-script wallet (measured). Option E makes that wait visible and batches queued adds. Everything else stays as #215 shipped it.
-- The design and measurements stay on record, so building later does not start from zero.
-
-If built:
 - Good: a new wallet shows a balance in 0.15-0.33 s of lookups (derived). Full-set walks leave the steady state. No runtime change for installs that do not opt in. The fallback is the default.
 - Bad: 26 more linked modules (amd64 counted) and a longer THIRD_PARTY_NOTICES, and a larger image for every install unless a build tag is used. 11.35 GB steady disk and 21.8 GB peak (derived, provisional). One 5-minute RPC block with an alert, and a heat load that needs a CPU cap and a thermal gate. A large subsystem to maintain.
-- Neutral: no transaction history (#240 decides history). Unpruned nodes are unchanged. No bitcoind recreate.
+- Neutral: no transaction history of spent coins (owner decision). The balance sparkline still works, from the index. Unpruned nodes are unchanged. No bitcoind recreate.
 
 ## Open items
 
@@ -385,10 +376,10 @@ Everything measured is recorded above. What remains:
 
 | Item | Needed when | What it decides | Owner |
 | --- | --- | --- | --- |
-| Defer or build | now | Whether #221-#237 start. Recommendation: defer, with option E | Owner |
-| Option E: progress UI and queued-add batching | with the defer | Needs its own issue | none yet |
+| Build during initial sync: v3 cost across a full sync, prune-lock safety limit | before fresh-install users enable it | Whether v3 is fast enough or a raw-block reader is needed | #267 |
+| Option E: progress UI and queued-add batching | while the index is off or seeding | The fallback's user experience | none yet |
 
-Only if the owner builds:
+Design items still to measure:
 
 | Item | What it decides | If it goes badly | Issue |
 | --- | --- | --- | --- |
@@ -404,4 +395,3 @@ Only if the owner builds:
 | Notice texts, the Pebble version to pin, binary size growth, linked-module count and size on arm64 and every other target | Release readiness, and the accepted-cost versus build-tag call | Size or count unacceptable: build tag or separate binary | #222 |
 | SQLite (modernc) variant | Whether the rejection of option B stands | Only if the owner rejects Pebble's dependency weight | none yet |
 
-When the owner decides, edit this file in place, change Status to Accepted, and record the date.
