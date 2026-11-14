@@ -273,6 +273,15 @@ func TestSyncCompleteIgnoresBriefSyncFlapsAfterSync(t *testing.T) {
 	}
 }
 
+func TestLegacyMonitorStateMarksOnlySettledNodesSynced(t *testing.T) {
+	var settled, syncing monitorState
+	applyPersistedNodeState(&settled, persistedNodeState{ChainKnown: true, LastBlock: 3805826, HasLastBlock: true})
+	applyPersistedNodeState(&syncing, persistedNodeState{ChainKnown: true, IBD: true, SyncPending: true, LastBlock: 99427, HasLastBlock: true})
+	if !settled.synced || syncing.synced {
+		t.Fatalf("settled synced=%v, syncing synced=%v", settled.synced, syncing.synced)
+	}
+}
+
 func TestMultiNodeOperationalStatePersistsAcrossRestart(t *testing.T) {
 	stateDir := t.TempDir()
 	bitcoinDir, moneroDir := t.TempDir(), t.TempDir()

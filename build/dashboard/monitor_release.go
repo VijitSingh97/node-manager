@@ -88,7 +88,8 @@ func persistedNodeFromState(state monitorState) persistedNodeState {
 
 func applyPersistedNodeState(state *monitorState, saved persistedNodeState) {
 	state.fails, state.downAlerted, state.chainKnown = saved.Fails, saved.DownAlerted, false
-	state.ibd, state.ibdTicks, state.synced, state.syncPending = saved.IBD, saved.IBDTicks, saved.Synced, saved.SyncPending
+	state.ibd, state.ibdTicks, state.syncPending = saved.IBD, saved.IBDTicks, saved.SyncPending
+	state.synced = saved.Synced || (saved.ChainKnown && !saved.IBD && !saved.SyncPending)
 	state.lastBlock, state.hasLastBlock, state.pendingBlock = saved.LastBlock, saved.HasLastBlock, saved.PendingBlock
 	state.diskAlerted = saved.DiskAlerted
 }
