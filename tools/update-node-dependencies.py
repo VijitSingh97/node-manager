@@ -406,7 +406,7 @@ def main():
         ("build/bitcoincash/Dockerfile", lambda text: debian_pins_update(bitcoincash_update(text))),
         ("build/tor/Dockerfile", alpine_pins_update),
     ):
-        print(f"{relative}: {'; '.join(update(ROOT / relative, transform, args.apply)) or 'current'}")
+        print(f"{relative}: {'; '.join(update(ROOT / relative, transform, args.apply)) or 'current'}", flush=True)
     return 0
 
 
