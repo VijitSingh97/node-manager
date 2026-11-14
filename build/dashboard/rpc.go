@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -36,41 +37,9 @@ func (r *rpcClient) call(ctx context.Context, method string, params any, out any
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.url, bytes.NewReader(body))
+	responseBody, err := r.post(ctx, body, method)
 	if err != nil {
 		return err
-	}
-	user, password := r.user, r.password
-	if r.cookiePath != "" {
-		user, password, err = readRPCCookie(r.cookiePath)
-		if err != nil {
-			return fmt.Errorf("read RPC cookie: %w", err)
-		}
-	}
-	if user != "" || password != "" {
-		req.SetBasicAuth(user, password)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	client := *r.client
-	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("RPC %s returned HTTP %d", method, resp.StatusCode)
-	}
-	limit := r.maxBody
-	if limit <= 0 {
-		limit = maxRPCBody
-	}
-	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
-	if err != nil {
-		return fmt.Errorf("read RPC %s: %w", method, err)
-	}
-	if int64(len(responseBody)) > limit {
-		return fmt.Errorf("RPC %s response exceeds %d bytes", method, limit)
 	}
 	var envelope rpcResponse
 	if err := json.Unmarshal(responseBody, &envelope); err != nil {
@@ -86,6 +55,96 @@ func (r *rpcClient) call(ctx context.Context, method string, params any, out any
 		return fmt.Errorf("decode RPC %s result: %w", method, err)
 	}
 	return nil
+}
+
+type rpcBatchCall struct {
+	Method string
+	Params any
+}
+
+// callBatch sends one JSON-RPC batch; a failed item has a non-empty Error, the batch itself fails only on transport or framing errors.
+func (r *rpcClient) callBatch(ctx context.Context, calls []rpcBatchCall) ([]rpcResponse, error) {
+	if len(calls) == 0 {
+		return nil, nil
+	}
+	items := make([]map[string]any, len(calls))
+	for i, c := range calls {
+		params := c.Params
+		if params == nil {
+			params = []any{}
+		}
+		items[i] = map[string]any{"jsonrpc": "1.0", "id": i, "method": c.Method, "params": params}
+	}
+	body, err := json.Marshal(items)
+	if err != nil {
+		return nil, err
+	}
+	responseBody, err := r.post(ctx, body, "batch")
+	if err != nil {
+		return nil, err
+	}
+	var envelopes []struct {
+		rpcResponse
+		ID *int `json:"id"`
+	}
+	if err := json.Unmarshal(responseBody, &envelopes); err != nil {
+		return nil, fmt.Errorf("decode RPC batch: %w", err)
+	}
+	out := make([]rpcResponse, len(calls))
+	seen := make([]bool, len(calls))
+	for _, e := range envelopes {
+		if e.ID == nil || *e.ID < 0 || *e.ID >= len(calls) || seen[*e.ID] {
+			return nil, errors.New("RPC batch has an unexpected response id")
+		}
+		seen[*e.ID] = true
+		out[*e.ID] = e.rpcResponse
+	}
+	for _, ok := range seen {
+		if !ok {
+			return nil, errors.New("RPC batch response is incomplete")
+		}
+	}
+	return out, nil
+}
+
+func (r *rpcClient) post(ctx context.Context, body []byte, label string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	user, password := r.user, r.password
+	if r.cookiePath != "" {
+		user, password, err = readRPCCookie(r.cookiePath)
+		if err != nil {
+			return nil, fmt.Errorf("read RPC cookie: %w", err)
+		}
+	}
+	if user != "" || password != "" {
+		req.SetBasicAuth(user, password)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	client := *r.client
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("RPC %s returned HTTP %d", label, resp.StatusCode)
+	}
+	limit := r.maxBody
+	if limit <= 0 {
+		limit = maxRPCBody
+	}
+	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if err != nil {
+		return nil, fmt.Errorf("read RPC %s: %w", label, err)
+	}
+	if int64(len(responseBody)) > limit {
+		return nil, fmt.Errorf("RPC %s response exceeds %d bytes", label, limit)
+	}
+	return responseBody, nil
 }
 
 func readRPCCookie(path string) (string, string, error) {
