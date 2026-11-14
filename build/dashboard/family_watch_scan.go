@@ -63,50 +63,25 @@ func (m *familyWatchManager) scanNode(parent context.Context, id string, store *
 	}
 	ctx, cancel := context.WithTimeout(parent, familyWatchRPCTimeout)
 	defer cancel()
-	var chain struct {
-		Blocks               int64           `json:"blocks"`
-		Headers              int64           `json:"headers"`
-		BestBlockHash        string          `json:"bestblockhash"`
-		InitialBlockDownload bool            `json:"initialblockdownload"`
-		Warnings             json.RawMessage `json:"warnings"`
-	}
-	if store.rpc.call(ctx, "getblockchaininfo", nil, &chain) != nil || chain.InitialBlockDownload || chain.Blocks != chain.Headers || chain.BestBlockHash == "" || !familyWatchWarningsClear(chain.Warnings) {
-		store.markWaiting()
-		return
-	}
-	var header familyBlockHeader
 	now := store.now().Unix()
-	if store.rpc.call(ctx, "getblockheader", []any{chain.BestBlockHash}, &header) != nil || header.Time <= 0 || header.Time > now || now-header.Time > int64(familyWatchTipMaxAge/time.Second) {
+	tip, ready := store.backend.ready(ctx, store, now)
+	if !ready {
 		store.markWaiting()
 		return
 	}
-	wallets := store.walletsDue(now)
-	for _, wallet := range wallets {
+	for _, wallet := range store.walletsDue(now) {
 		if ctx.Err() != nil {
 			store.markFailed(wallet.ID)
 			return
 		}
-		var scan struct {
-			Success     bool            `json:"success"`
-			TotalAmount json.RawMessage `json:"total_amount"`
-			Height      int64           `json:"height"`
-			BestBlock   string          `json:"bestblock"`
-		}
 		started := time.Now()
-		err := store.rpc.call(ctx, "scantxoutset", []any{"start", []any{"addr(" + wallet.Address + ")"}}, &scan)
-		atomic, parseErr := parseFamilyWatchAmount(scan.TotalAmount, store.maxSupply)
-		if err != nil || parseErr != nil || !scan.Success || scan.Height < chain.Blocks || scan.BestBlock == "" {
+		result, outcome := store.backend.scan(ctx, store, wallet.Address, tip)
+		if outcome != "ok" {
 			store.markFailed(wallet.ID)
-			m.logScan(id, "failed", started)
+			m.logScan(id, outcome, started)
 			continue
 		}
-		var mainChainBlock string
-		if store.rpc.call(ctx, "getblockhash", []any{scan.Height}, &mainChainBlock) != nil || mainChainBlock != scan.BestBlock {
-			store.markFailed(wallet.ID)
-			m.logScan(id, "off_chain", started)
-			continue
-		}
-		store.record(wallet.ID, atomic, scan.Height, scan.BestBlock)
+		store.record(wallet.ID, result.Atomic, result.Height, result.Best)
 		m.logScan(id, "ok", started)
 	}
 }

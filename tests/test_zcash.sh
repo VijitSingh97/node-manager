@@ -42,6 +42,14 @@ if printf '%s\n' "$zcash_service" | grep -Eq '^      (UID|GID):'; then
   exit 1
 fi
 
+index_config="$root/build/zcash/zakurad-address-index.toml"
+grep -q '^checkpoint_sync = false$' "$index_config"
+grep -q '^\[state.storage_mode.pruned\]$' "$index_config"
+[ "$(grep -v '^checkpoint_sync' "$config")" = "$(grep -v '^checkpoint_sync' "$index_config")" ] || {
+  echo "Address-index config must differ from zakurad.toml only in checkpoint_sync" >&2
+  exit 1
+}
+
 cookie_dir="$(mktemp -d)"
 trap 'rm -rf "$cookie_dir"' EXIT
 cookie='__cookie__:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='

@@ -342,6 +342,30 @@ cat >"$tmp/config.json" <<'EOF'
 EOF
 (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "blockfilterindex was accepted on an already pruned node"
 
+# zcash.address_index: off by default, accepted on fresh installs and re-runs, refused on a database that ran without it
+zc="$tmp/zcash"
+mkdir -p "$zc"
+cp configure.sh "$zc/"
+zcash_config() { printf '{"dashboard":{"password":"configuretest12"},"zcash":{"enabled":%s,"address_index":%s,"data_dir":"%s"}}\n' "$1" "$2" "$3" >"$zc/config.json"; }
+zcash_config true false ./data/zcash
+(cd "$zc" && ./configure.sh) >/dev/null || fail "Zcash default configure failed"
+grep -q '^ZCASH_ADDRESS_INDEX=0$' "$zc/.env" || fail "address_index did not default to 0"
+grep -q '^ZCASH_TOML=zakurad.toml$' "$zc/.env" || fail "default Zcash config file changed"
+zcash_config true true ./data/zcash
+(cd "$zc" && ./configure.sh) >/dev/null 2>&1 && fail "address_index was accepted on a database that ran without it"
+grep -q '^ZCASH_ADDRESS_INDEX=0$' "$zc/.env" || fail "refused address_index changed the existing .env"
+zcash_config true true ./data/zcash-fresh
+(cd "$zc" && ./configure.sh) >/dev/null 2>&1 || fail "address_index was refused with a fresh data directory"
+grep -q '^ZCASH_ADDRESS_INDEX=1$' "$zc/.env" || fail "address_index=true not rendered as 1"
+grep -q '^ZCASH_TOML=zakurad-address-index.toml$' "$zc/.env" || fail "address_index did not select its config file"
+(cd "$zc" && ./configure.sh) >/dev/null 2>&1 || fail "re-run with address_index already on was refused"
+rm -rf "$zc"
+mkdir -p "$zc"
+cp configure.sh "$zc/"
+zcash_config false true ./data/zcash
+(cd "$zc" && ./configure.sh) >/dev/null 2>&1 || fail "address_index with Zcash disabled was refused"
+rm -rf "$zc"
+
 # Legacy false is harmless, but true is rejected before the existing .env changes.
 cat >"$tmp/config.json" <<'EOF'
 {"bitcoin": {"sync_over_clearnet": true}}

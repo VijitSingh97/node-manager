@@ -85,6 +85,9 @@ dogecoin_active=$(jq -r 'if ((.dogecoin // {}) | has("active")) then if .dogecoi
 bitcoincash_enabled=$(flag '.bitcoincash.enabled')
 bitcoincash_active=$(jq -r 'if ((.bitcoincash // {}) | has("active")) then if .bitcoincash.active == true then 1 else 0 end else 1 end' <<<"$config")
 zcash_enabled=$(flag '.zcash.enabled')
+zcash_address_index=$(flag '.zcash.address_index')
+zcash_toml=zakurad.toml
+if [ "$zcash_address_index" = 1 ]; then zcash_toml=zakurad-address-index.toml; fi
 zcash_active=$(jq -r 'if ((.zcash // {}) | has("active")) then if .zcash.active == true then 1 else 0 end else 1 end' <<<"$config")
 monero_rpc_user=$(get '.monero.node_username')
 monero_rpc_password=$(get '.monero.node_password')
@@ -731,6 +734,16 @@ if [ "$blockfilterindex" = "1" ] && [ "$prune" != "0" ] && [ -n "$prev_prune" ] 
   exit 1
 fi
 
+# Zakura only builds the transparent address index on a database that never used checkpoint sync.
+prev_zcash_enabled=$(sed -n 's/^ZCASH_ENABLED=//p' "$env_file" 2>/dev/null || true)
+prev_zcash_index=$(sed -n 's/^ZCASH_ADDRESS_INDEX=//p' "$env_file" 2>/dev/null || true)
+prev_zcash_dir=$(sed -n 's/^ZCASH_DATA_DIR=//p' "$env_file" 2>/dev/null || true)
+if [ "$zcash_address_index" = "1" ] && [ "$prev_zcash_enabled" = "1" ] && [ "$prev_zcash_index" != "1" ] && [ "$prev_zcash_dir" = "$zcash_data_dir" ]; then
+  echo "The previous configuration shows Zcash running without zcash.address_index, and Zakura cannot add the"
+  echo "transparent address index to that database. Point zcash.data_dir at a fresh directory to resync with it."
+  exit 1
+fi
+
 if [ "${BITCOIN_STACK_VALIDATE_ONLY:-0}" = 1 ]; then
   exit 0
 fi
@@ -894,6 +907,8 @@ ZCASH_RPC_URL=http://172.29.0.36:8232
 ZCASH_RPC_USER=$zcash_rpc_user
 ZCASH_RPC_PASSWORD=$zcash_rpc_password
 ZCASH_DATA_DIR=$zcash_data_dir
+ZCASH_ADDRESS_INDEX=$zcash_address_index
+ZCASH_TOML=$zcash_toml
 ZCASH_RPC_EXPOSE=$zcash_rpc_expose
 ZCASH_RPC_BIND_IP=$zcash_rpc_bind_ip
 ZCASH_RPC_PORT=$zcash_rpc_port

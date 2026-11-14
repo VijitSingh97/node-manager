@@ -57,6 +57,7 @@ for required in \
   node-manager/build/tari-wallet/launcher.go \
   node-manager/build/tari-wallet/config.toml \
   node-manager/build/zcash/zakurad.toml \
+  node-manager/build/zcash/zakurad-address-index.toml \
   node-manager/build/zcash/healthcheck.sh \
   node-manager/scripts/node-manager \
   node-manager/scripts/node-control \

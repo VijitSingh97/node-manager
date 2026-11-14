@@ -221,11 +221,12 @@ stores no private spend key.
 
 ## Unavailable wallet balances
 
-Dogecoin and Zcash display **Wallet balance not available** with no public
-reference address or balance card. Dogecoin's current pruned daemon cannot
-discover arbitrary address UTXOs, and Zakura's default checkpoint-pruned mode
-omits the address index. The dashboard does not query an external explorer to
-fill those gaps.
+Dogecoin displays **Wallet balance not available** with no public reference
+address or balance card, because its current pruned daemon cannot discover
+arbitrary address UTXOs. Zcash shows the same message unless you opt in to the
+transparent address index described below, because Zakura's default
+checkpoint-pruned mode omits it. The dashboard does not query an external
+explorer to fill those gaps.
 
 **Dogecoin:** an address watched before initial sync or before its first payment
 can be tracked going forward. Adding an old address to an already-pruned node
@@ -236,17 +237,42 @@ as of October 31, 2026. Its current RPC requires a private spending key, so it
 also fails this dashboard's public-key-only requirement. A full archival rescan or a separately built address
 index would be needed with the current released daemon.
 
-**Zcash / Zakura:** this is a limitation of our current storage profile, not a
+**Zcash / Zakura:** this is a limitation of our default storage profile, not a
 claim that every pruned Zcash implementation lacks wallet support. Zakura 1.7.0
 can retain transparent address indexes while pruning transaction bodies, but
 requires a fresh database with checkpoint sync disabled. Upstream describes
 that mode as slower and less secure against some chain attacks; it also retains
-extra indexes with no published sizing estimate. We keep the default profile.
-See the [release notes](https://github.com/zakura-core/zakura/releases/tag/v1.7.0)
+extra indexes with no published sizing estimate. We keep the default profile and
+offer the index as an opt-in; see the next section. See the [release notes](https://github.com/zakura-core/zakura/releases/tag/v1.7.0)
 and [checkpoint configuration](https://github.com/zakura-core/zakura/blob/v1.7.0/crates/zakura-consensus/src/config.rs).
 Shielded addresses additionally need a viewing key and wallet scanner; a public
 address alone is insufficient. Zallet and lightwalletd are separate wallet/index
 services, not a small switch that enables balances in our existing database.
+
+## Zcash transparent addresses (opt-in)
+
+Set `"address_index": true` under `zcash` in `config.json` to run Zakura with
+`build/zcash/zakurad-address-index.toml`. It is the default config with
+`checkpoint_sync = false` and the same pruned storage. The dashboard then accepts
+transparent `t1` and `t3` addresses and reads each balance from your own node with
+`getaddressbalance`. Shielded and unified addresses are rejected because they need
+a viewing key and a wallet scanner. Balances cover confirmed transparent funds only.
+
+Limits to accept before enabling it:
+
+- The node must resync from genesis into a fresh data directory. `configure.sh`
+  refuses the option when the previous `.env` shows Zcash running without it on the
+  same `zcash.data_dir`; point `data_dir` at a new directory instead.
+- Upstream calls disabling checkpoint sync slower and less secure against some
+  chain attacks.
+- Disk use for the retained indexes is not yet measured, and no sync time is published.
+- Node traffic stays Tor-only; address lookups are local RPC calls.
+
+With the option on, the dashboard seeds the Zcash Community Grants funding-stream
+address from [ZIP 214](https://zips.z.cash/zip-0214) as a public example, excluded
+from personal totals. Without it, Zcash has no example.
+
+Tari has no sourced public example because no organisation publishes a Tari view key.
 
 ## Bitcoin: the Genesis address is a special case
 
