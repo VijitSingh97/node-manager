@@ -315,7 +315,7 @@ func (s *prunedScanner) applyBlocks(entries []WatchEntry, base string, chain blo
 		})
 		caches[watchKeyID(item.entry.Key)] = entryScanCache{entry: item.entry, cache: prunedScanCache{
 			DescriptorID: item.cache.DescriptorID, BTC: float64(sats) / 1e8, Height: chain.Blocks,
-			BestBlock: previous, ScannedAt: now, Outpoints: outpoints,
+			BestBlock: previous, ScannedAt: now, Outpoints: outpoints, Source: item.cache.Source,
 		}}
 	}
 	stored := s.app.watch.StoreScanBatch(caches)
@@ -560,7 +560,7 @@ func (s *prunedScanner) publicScanObject(ctx context.Context, descriptor string)
 	params := []any{info.Descriptor}
 	var object any = info.Descriptor
 	if *info.IsRange {
-		rangeValue := []int{0, 999}
+		rangeValue := []int{deriveRangeStart, deriveRangeEnd}
 		params = append(params, rangeValue)
 		object = map[string]any{"desc": info.Descriptor, "range": rangeValue}
 	}

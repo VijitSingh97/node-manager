@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -69,6 +70,7 @@ func (s *prunedScanner) indexScripts(ctx context.Context, entry WatchEntry) [][]
 	if descriptorID == "" {
 		return nil
 	}
+	descriptorID = fmt.Sprintf("%s:%d-%d", descriptorID, deriveRangeStart, deriveRangeEnd)
 	s.scriptMu.Lock()
 	defer s.scriptMu.Unlock()
 	s.loadScriptsLocked()

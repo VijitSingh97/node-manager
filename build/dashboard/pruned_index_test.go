@@ -379,6 +379,37 @@ func TestPrunedIndexRegistryPrunedWhenWalletRemoved(t *testing.T) {
 	}
 }
 
+func TestPrunedIndexRegistryRederivesWhenRangeChanges(t *testing.T) {
+	c := indexTestChain(nil)
+	m := indexTestManager(t, c)
+	a, handler, _ := indexTestApp(t, c, m)
+	a.scanner.resolveScripts = indexTestScripts(indexTestScript)
+	addPrunedWatch(t, handler, "Cold", genesisAddress)
+	waitPrunedState(t, handler, "ok")
+	waitPrunedScannerIdle(t, a.scanner)
+	entry := a.watch.Entries()[0]
+	identity := watchKeyID(entry.Key)
+	a.scanner.scriptMu.Lock()
+	record := a.scanner.scripts[identity]
+	record.DescriptorID = descriptorSetID(entry)
+	a.scanner.scripts[identity] = record
+	a.scanner.scriptMu.Unlock()
+	calls := 0
+	resolve := indexTestScripts(indexTestScript)
+	a.scanner.resolveScripts = func(ctx context.Context, keys []string) ([]walletScripts, error) {
+		calls++
+		return resolve(ctx, keys)
+	}
+	for range 2 {
+		if scripts := a.scanner.indexScripts(context.Background(), entry); len(scripts) != 1 {
+			t.Fatalf("scripts = %d", len(scripts))
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("a record made for another derive range was reused or re-derived %d times", calls)
+	}
+}
+
 func (m *utxoManager) mustTip() [32]byte {
 	_, hash, _ := m.Tip()
 	return hash
