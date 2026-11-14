@@ -11,7 +11,7 @@ fail() {
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-for development_file in AGENTS.md docs/developer-bot.md tools; do
+for development_file in AGENTS.md docs/developer-bot.md docs/adr tools; do
   git check-attr export-ignore -- "$development_file" | grep -Fq ': export-ignore: set' ||
     fail "$development_file is not excluded from release archives"
 done
@@ -40,7 +40,7 @@ for required in stack configure.sh docker-compose.yml docker-compose.rpc.yml con
   docs/Caddyfile.example docs/getting-started.md docs/configuration.md docs/operations.md docs/watch-only.md docs/privacy.md; do
   grep -Fxq "$required" "$tmp/contents" || fail "release archive is missing $required"
 done
-if grep -Ev '^scripts/$|^scripts/(node-port-control|node-control|node-resource-profile|node-manager)$' "$tmp/contents" | grep -Eq '(^|/)(tests|parity|experiments|images)(/|$)|(_test\.go|\.test\.mjs|\.proto|\.pyc)$|^(\.github/|\.gitattributes$|\.gitleaks\.toml$|ruff\.toml$|AGENTS\.md$|CONTRIBUTING\.md$|scripts/|packaging/|tools/|docs/(developer-bot|releasing)\.md$|build/dashboard/package\.json$)'; then
+if grep -Ev '^scripts/$|^scripts/(node-port-control|node-control|node-resource-profile|node-manager)$' "$tmp/contents" | grep -Eq '(^|/)(tests|parity|experiments|images)(/|$)|(_test\.go|\.test\.mjs|\.proto|\.pyc)$|^(\.github/|\.gitattributes$|\.gitleaks\.toml$|ruff\.toml$|AGENTS\.md$|CONTRIBUTING\.md$|scripts/|packaging/|tools/|docs/(developer-bot|releasing)\.md$|docs/adr/|build/dashboard/package\.json$)'; then
   fail "release archive includes development-only files"
 fi
 
