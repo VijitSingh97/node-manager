@@ -1,13 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatTariAtomic, tariAccessView, tariDraftAfterSubmit, tariHistoryPoints, tariWalletImport, tariWalletView } from "./tari-watch.js";
-
-test("Tari atomic amounts retain all six decimals without floating point rounding", () => {
-  assert.equal(formatTariAtomic("123456789012345678"), "123456789012.345678");
-  assert.equal(formatTariAtomic("0"), "0.000000");
-  assert.equal(formatTariAtomic(123456789012345678), "—");
-  assert.equal(formatTariAtomic("1.5"), "—");
-});
+import { tariAccessView, tariDetails, tariDraftAfterSubmit, tariRow, tariWalletImport } from "./tari-watch.js";
 
 test("view-only JSON accepts only a public spend key and private view key", () => {
   const input = { name: "Cold", public_spend_key: "a".repeat(64), view_key: "b".repeat(64), birthday: "2024-02-29" };
@@ -23,33 +16,38 @@ test("view-only JSON accepts only a public spend key and private view key", () =
 });
 
 test("pending and failed scans never display an unverified zero balance", () => {
-  assert.equal(tariWalletView({ state: "pending", balance_atomic: "0" }).balance, "Pending scan…");
-  assert.equal(tariWalletView({ state: "waiting", balance_atomic: "0" }).balance, "Waiting for node sync…");
-  assert.equal(tariWalletView({ state: "error", balance_atomic: "0" }).balance, "Scan failed");
-  assert.equal(tariWalletView({ state: "ok", balance_atomic: "0" }).balance, "0.000000 XTM");
-  assert.equal(tariWalletView({ state: "ok" }).balance, "Balance unavailable");
+  for (const [state, text] of [["pending", "Pending scan…"], ["waiting", "Waiting for node sync…"], ["error", "Scan failed"]]) {
+    const row = tariRow({ state, balance_atomic: "0" });
+    assert.equal(row.amount, "");
+    assert.equal(row.stateText, text);
+    assert.equal(row.fiatAsset, null);
+  }
+  assert.equal(tariRow({ state: "ok", balance_atomic: "0" }).amount, "0.000000");
+  assert.equal(tariRow({ state: "ok", balance_atomic: "1234567000000" }).amount, "1,234,567.000000");
+  assert.equal(tariRow({ state: "ok", balance_atomic: "1234567000000" }).fiatAsset, "tari");
+  assert.equal(tariRow({ state: "ok" }).stateText, "Balance unavailable");
 });
 
-test("confirmed balance components stay separate", () => {
-  const view = tariWalletView({ state: "ok", balance_atomic: "5000000", available_atomic: "3000000", timelocked_atomic: "2000000", pending_incoming_atomic: "1000000", pending_outgoing_atomic: "500000" });
-  assert.deepEqual(view.details, [
+test("confirmed balance components stay separate and only for a confirmed balance", () => {
+  const wallet = { state: "ok", balance_atomic: "5000000", available_atomic: "3000000", timelocked_atomic: "2000000", pending_incoming_atomic: "1000000", pending_outgoing_atomic: "500000" };
+  assert.deepEqual(tariDetails(wallet), [
     { label: "Available", value: "3.000000 XTM" },
     { label: "Timelocked", value: "2.000000 XTM" },
     { label: "Pending incoming", value: "1.000000 XTM" },
     { label: "Pending outgoing", value: "0.500000 XTM" },
   ]);
   for (const state of ["pending", "waiting", "error", "removing"]) {
-    assert.deepEqual(tariWalletView({ state, balance_atomic: "5000000", available_atomic: "0", timelocked_atomic: "5000000" }).details, []);
+    assert.deepEqual(tariDetails({ state, balance_atomic: "5000000", available_atomic: "0", timelocked_atomic: "5000000" }), []);
   }
-  assert.deepEqual(tariWalletView({ state: "stale", available_atomic: "0" }).details, []);
-  assert.deepEqual(tariWalletView({ state: "stale", scan_time: 1, available_atomic: "0" }).details, [{ label: "Available", value: "0.000000 XTM" }]);
+  assert.deepEqual(tariDetails({ state: "stale", available_atomic: "0" }), []);
+  assert.deepEqual(tariDetails({ state: "stale", scan_time: 1, balance_atomic: "0", available_atomic: "0" }), [{ label: "Available", value: "0.000000 XTM" }]);
+  assert.deepEqual(tariDetails({ state: "pending", birthday: "2024-01-01" }), [{ label: "Birthday", value: "2024-01-01" }]);
 });
 
 test("snapshot charts preserve a single atomic-unit change", () => {
-  const chart = tariHistoryPoints([{ balance_atomic: "9007199254740993000000" }, { balance_atomic: "9007199254740993000001" }]);
-  assert.equal(chart.length, 2);
-  assert.ok(chart[0].y > chart[1].y);
-  assert.deepEqual(tariHistoryPoints([{ balance_atomic: "1" }]), []);
+  const series = tariRow({ state: "ok", balance_atomic: "1", history: [{ balance_atomic: "9007199254740993000000" }, { balance_atomic: "9007199254740993000001" }] }).series;
+  assert.deepEqual(series, [0, 1]);
+  assert.deepEqual(tariRow({ state: "ok", history: [{ balance_atomic: "1" }] }).series, []);
 });
 
 test("editing requires trusted configuration access and an active available wallet service", () => {

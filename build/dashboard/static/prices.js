@@ -53,6 +53,34 @@ export function towerPriceView(data, currency) {
   };
 }
 
+const watched = new Map();
+let walletCurrencyCode = "USD";
+
+export function walletCurrency() {
+  return walletCurrencyCode;
+}
+
+export function watchPrice(asset, listener) {
+  let entry = watched.get(asset);
+  if (!entry) {
+    entry = { data: { available: false }, listeners: new Set() };
+    watched.set(asset, entry);
+    const poll = async () => {
+      try {
+        const response = await fetch(priceURL(asset), { headers: { Accept: "application/json" }, credentials: "same-origin" });
+        entry.data = response.ok ? await response.json() : { available: false };
+      } catch {
+        entry.data = { available: false };
+      }
+      entry.listeners.forEach((notify) => notify());
+    };
+    poll();
+    setInterval(poll, POLL_MS);
+  }
+  if (listener) entry.listeners.add(listener);
+  return entry.data;
+}
+
 function defaultTime(unixSeconds) {
   const date = new Date(unixSeconds * 1000);
   try {
@@ -134,6 +162,8 @@ if (typeof document !== "undefined") {
   }
 
   document.addEventListener("appearance-updated", event => {
+    walletCurrencyCode = normalizeCurrency(event.detail?.default_currency);
+    for (const entry of watched.values()) entry.listeners.forEach((notify) => notify());
     configuredCurrency = normalizeCurrency(event.detail?.default_currency);
     for (const controller of controllers.values()) {
       controller.currency = configuredCurrency;

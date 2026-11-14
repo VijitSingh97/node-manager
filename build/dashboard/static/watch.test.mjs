@@ -2,39 +2,21 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   balanceLabel,
+  btcRow,
+  btcTotal,
   editAccess,
-  fiatLabel,
-  formatBTCAmount,
   genesisNote,
   isBareExtendedPublicKey,
   publicExampleNote,
   scanNote,
-  shortKey,
   totalLabel,
   walletKeyForPost,
   walletPost,
   walletView,
   watchHint,
 } from "./watch.js";
-import { formatPrice } from "./prices.js";
 
-test("balances group integer digits and keep the fraction verbatim", () => {
-  assert.equal(formatBTCAmount("248597.59296803"), "248,597.59296803");
-  assert.equal(formatBTCAmount("0.3484765"), "0.3484765");
-  assert.equal(formatBTCAmount("1234567"), "1,234,567");
-  assert.equal(balanceLabel({ state: "ok", btc: "248597.59296803" }), "248,597.59296803 BTC");
-  assert.equal(totalLabel({ total_state: "ok", total: "1000.5" }), "1,000.5 BTC");
-});
 
-test("fiat labels follow the price feed and currency", () => {
-  const price = { available: true, prices: { usd: 100000, eur: 90000 } };
-  assert.equal(fiatLabel("2", price, "USD"), `≈ ${formatPrice(200000, "USD")}`);
-  assert.equal(fiatLabel("2", price, "EUR"), `≈ ${formatPrice(180000, "EUR")}`);
-  assert.equal(fiatLabel("2", { ...price, stale: true }, "USD"), `≈ ${formatPrice(200000, "USD")} · stale`);
-  assert.equal(fiatLabel("2", { available: false }, "USD"), "");
-  assert.equal(fiatLabel("2", { available: true, prices: {} }, "USD"), "");
-  assert.equal(fiatLabel(null, price, "USD"), "");
-});
 
 test("an omitted Bitcoin label gets the first unused wallet name", () => {
   assert.deepEqual(walletPost("", "bc1qaddress", "legacy", "", [
@@ -83,11 +65,6 @@ test("balanceLabel shows the cached value when stale (node unreachable)", () => 
   assert.equal(balanceLabel({ state: "stale", btc: "1.25" }), "1.25 BTC");
 });
 
-test("shortKey shows first 4 … last 4, or the whole thing when short", () => {
-  assert.equal(shortKey("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"), "1A1z…vfNa");
-  assert.equal(shortKey("bc1qshort"), "bc1qshort"); // <= 12 chars, shown whole
-  assert.equal(shortKey("zpub6rFR7y4Q2AijBEqTU"), "zpub…EqTU");
-});
 
 test("walletView displays an alias but preserves the delete identifier", () => {
   assert.deepEqual(walletView({ name: "Satoshi", display_name: "Genesis" }), {
@@ -153,4 +130,27 @@ test("totalLabel does not show a partial balance while wallets are unresolved", 
   assert.equal(totalLabel({ total_state: "unavailable", total: "1.5" }), "—");
   assert.equal(totalLabel({ total_state: "ok", total: "1.5" }), "1.5 BTC");
   assert.equal(totalLabel({ total: "2" }), "2 BTC");
+});
+
+test("Bitcoin rows match the shared row model exactly", () => {
+  const ledger = btcRow({ name: "Ledger SegWit", state: "ok", btc: "0.3484765", balance_kind: "confirmed", scan_time: "2026-11-13T19:44:31Z" });
+  assert.equal(ledger.amount, "0.3484765");
+  assert.equal(ledger.unit, "BTC");
+  assert.equal(ledger.fiatAsset, "bitcoin");
+  assert.equal(ledger.note, "");
+  assert.match(ledger.status, /^Scanned /);
+  const binance = btcRow({ name: "Binance (public)", example: true, state: "ok", btc: "248597.59296803", balance_kind: "confirmed" });
+  assert.equal(binance.amount, "248,597.59296803");
+  assert.match(binance.note, /Public example/);
+  const pending = btcRow({ name: "New", state: "pending", balance_kind: "confirmed" });
+  assert.equal(pending.amount, "");
+  assert.equal(pending.stateText, "Pending balance…");
+  assert.equal(pending.fiatAsset, null);
+  assert.equal(btcRow({ name: "Old", state: "stale", btc: "1", balance_kind: "confirmed" }).stale, true);
+});
+
+test("Bitcoin totals carry their value for fiat only when complete", () => {
+  assert.deepEqual(btcTotal({ total_state: "ok", total: "1000.5", wallets: [] }), { text: "1,000.5 BTC", value: "1000.5", fiatAsset: "bitcoin", reason: "" });
+  assert.equal(btcTotal({ total_state: "unavailable", total: "0", total_reason: "mixed_sources", wallets: [] }).value, "");
+  assert.match(btcTotal({ total_state: "unavailable", total: "0", total_reason: "mixed_sources", wallets: [] }).reason, /overlap/);
 });

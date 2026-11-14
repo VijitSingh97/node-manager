@@ -6,6 +6,21 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Every chain's watch-only wallets now render through one shared component, so
+  Bitcoin, Monero, Tari, Litecoin and Bitcoin Cash rows look and behave the
+  same: the name (with an ⓘ tooltip for notes such as public-example caveats),
+  a comma-grouped amount and unit, an approximate value in the chosen currency
+  when the amount is a real balance, one status line, and a sparkline in the
+  chain's own colour. Tari and the family chains now show their balances on
+  their tower like Bitcoin and Monero, and every wallet card lists wallets the
+  same way, with a confirmed ✕ to remove one.
+- The Monero example wallet shows its total received as
+  "137,131.438327228521 XMR" with "Total received" on the status line and the
+  view-key caveat in its tooltip; a received-only total no longer gets a fiat
+  value, since it is not a current balance.
+
 ### Fixed
 
 - `configure.sh` no longer claims `blockfilterindex` cannot run on a pruned node
