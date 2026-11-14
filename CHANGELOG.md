@@ -6,6 +6,12 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- The Zcash panel warns when Zakura is within about 14 days of its end-of-support
+  height (block 3,643,309 for Zakura 1.8.6 and 1.8.7, around 2026-12-03), and the
+  monitor records one event per crossing. See `docs/nodes.md`.
+
 ### Changed
 
 - The Litecoin, Dogecoin and Bitcoin Cash images now build from one shared

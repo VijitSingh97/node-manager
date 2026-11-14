@@ -110,6 +110,24 @@ last confirmed result and marks it **Stale** or **Error** rather than replacing 
 with zero. Litecoin and Bitcoin Cash public examples are excluded from personal totals. No chain falls
 back to an external block explorer.
 
+### Zakura end of support
+
+Every Zakura release halts on Mainnet once the chain tip passes a fixed last
+supported height. Zakura 1.8.6 and 1.8.7 stop above block 3,643,309, about
+2026-12-03 to 2026-12-05 because the halt follows block height. The container
+then stays down after its five restarts until the image is upgraded; the data
+directory is not touched.
+
+Within about 14 days of that height the Zcash panel shows a warning, and the
+event log (`./stack events`) and Telegram, when enabled, record one entry per
+crossing. The dashboard reads the height from Zakura's `getdeprecationinfo` RPC
+and shows nothing when a release lacks it. In the Zakura logs look for
+`Your Zakura release is too old and it will stop running at block` (warning) and
+`Zakura refuses to run past the last supported Mainnet height` (panic).
+
+Remedy: upgrade node-manager once a release pins a Zakura with a later last
+supported height, then apply the update; the same data directory resumes.
+
 ## Default setup and adding nodes
 
 Package installation does not start services or prompt. Run
