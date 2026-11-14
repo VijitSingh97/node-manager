@@ -754,21 +754,15 @@ func seedUnparkWriter(t *testing.T, dir string) {
 	}
 }
 
-func TestSeedAbortsWhenNoFirstByteArrives(t *testing.T) {
+func TestSeedWaitsThroughSilentHashPass(t *testing.T) {
 	core := newFakeCore(t)
-	gate := make(chan struct{})
-	core.onCall = func() { <-gate }
 	fx := newSeedFixture(t, core)
-	fx.m.firstByteWithin = 30 * time.Millisecond
+	core.onCall = func() { time.Sleep(200 * fx.m.checkEvery) }
 	fx.request(t, seedTestRequestID(20), time.Now())
 	fx.m.pollSeed(t.Context())
-	fx.assertEmptyStore(t)
-	if st := fx.m.Status(); st.LastSeed.Outcome != "failed" || st.LastSeed.Reason != errSeedNoData.Error() {
+	if st := fx.m.Status(); st.LastSeed == nil || st.LastSeed.Outcome != "ok" {
 		t.Fatalf("last seed %+v", st.LastSeed)
 	}
-	core.skip = true
-	close(gate)
-	<-core.done
 }
 
 func TestSeedAbortsWhenPipeIsReplacedBeforeFirstByte(t *testing.T) {

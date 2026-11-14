@@ -262,7 +262,7 @@ What happens:
   `dumptxoutset` straight from the FIFO, so no 9 GB dump file lands on disk.
   The command prints the phase (`waiting`, `importing`, `merging`, `paused`,
   `cancelling`) and progress until the seed ends, then removes the FIFO names
-  (opening a still-parked dump once first so bitcoind is never left blocked).
+  (opening a still-parked dump once first so bitcoind is not left blocked).
   Ctrl-C only detaches; the seed keeps running and the FIFO names stay until
   the next `./stack utxo-seed`.
 - **Heat and disk.** The dashboard pauses reading at 85 C and resumes at 72 C,
@@ -275,13 +275,20 @@ What happens:
 Recovery:
 
 - **Cancel** closes the dashboard's end of the FIFO. Core ends the dump with
-  an RPC error (`AutoFile::write: write failed`) and keeps running.
+  an RPC error (`AutoFile::write: write failed`) and keeps running. On mainnet
+  Core first hashes the coin set for about 5 minutes before it writes
+  anything; a cancel in that window ends the seed in the dashboard at once,
+  but Core only stops when the hash pass is done, so RPC stays slow until
+  then.
 - **`./stack stop`, `down` and `restart`** open a parked dump once
   (`timeout 5 cat` on the FIFO) before stopping bitcoind, when `getrpcinfo`
   shows a dump and the dashboard is not seeding. Without that, `bitcoin-cli
   stop` hangs while Core waits for a reader. If you stop bitcoind another way
   and it will not exit, run `docker compose exec -T bitcoin sh -c 'timeout 5
   cat /data/utxo-seed.dat.incomplete >/dev/null'` once.
+- If the FIFO is replaced or removed before Core opens it, Core writes a
+  regular file instead. The dashboard aborts the seed, but Core keeps writing
+  that file (about 9 GB, within the 27 GB free check) until the dump ends.
 - If a seed ever leaves `utxo-seed.dat` or `utxo-seed.dat.incomplete` behind,
   the next `./stack utxo-seed` removes both. The status file
   (`utxo-seed.json` in the state volume) and logs carry phases, counts and

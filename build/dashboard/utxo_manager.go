@@ -82,11 +82,10 @@ type utxoManager struct {
 	seedJobs chan utxoSeedJob
 	seedPath string
 
-	host            *utxoSeedHost
-	temp            func() (float64, error)
-	guards          func(context.Context) seedGuardInput
-	checkEvery      time.Duration
-	firstByteWithin time.Duration
+	host       *utxoSeedHost
+	temp       func() (float64, error)
+	guards     func(context.Context) seedGuardInput
+	checkEvery time.Duration
 
 	mu           sync.Mutex
 	state        string
@@ -121,7 +120,7 @@ func newUtxoManager(dir string, fs vfs.FS, rpc utxoRPC, logger *log.Logger) *utx
 		fs = vfs.Default
 	}
 	m := &utxoManager{dir: dir, fs: fs, rpc: rpc, log: logger, state: utxoStateNotSeeded,
-		now: time.Now, seedJobs: make(chan utxoSeedJob), checkEvery: seedCheckEvery, firstByteWithin: seedFirstByteWithin,
+		now: time.Now, seedJobs: make(chan utxoSeedJob), checkEvery: seedCheckEvery,
 		temp: func() (float64, error) { return hottestThermalC(seedThermalGlob) },
 		freeBytes: func() uint64 {
 			if d := diskUsage(dir); d.Total > 0 {

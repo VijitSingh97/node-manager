@@ -22,7 +22,6 @@ const (
 	seedPollEvery       = 2 * time.Second
 	seedCheckEvery      = time.Second
 	seedRequestMaxBytes = 4096
-	seedFirstByteWithin = 60 * time.Second
 
 	utxoSeedChecking = "checking"
 	utxoSeedRunning  = "seeding"
@@ -37,7 +36,6 @@ var (
 	errSeedMismatch    = errors.New("dump does not match the dumptxoutset result")
 	errSeedThermal     = errors.New("temperature rose above the start limit before the dump")
 	errSeedInterrupted = errors.New("dashboard restarted during the seed")
-	errSeedNoData      = errors.New("the dump produced no data in time")
 	errSeedPipeGone    = errors.New("the seed pipe was replaced during the seed")
 )
 
@@ -70,7 +68,7 @@ func (m *utxoManager) configureSeed(h utxoSeedHost) {
 }
 
 func seedErrorClass(err error) string {
-	for _, target := range []error{errSeedDump, errSeedLowDisk, errSeedMismatch, errSeedThermal, errSeedInterrupted, errSeedNoData, errSeedPipeGone} {
+	for _, target := range []error{errSeedDump, errSeedLowDisk, errSeedMismatch, errSeedThermal, errSeedInterrupted, errSeedPipeGone} {
 		if errors.Is(err, target) {
 			return target.Error()
 		}
@@ -292,10 +290,10 @@ func (m *utxoManager) watchSeedCancel(ctx context.Context, cancel context.Cancel
 	}
 }
 
+// No time limit: on mainnet Core hashes the coin set for about 300 s before it writes the first byte.
 func (m *utxoManager) watchSeedFirstByte(ctx context.Context, cancel context.CancelCauseFunc, f *seedFIFO) {
 	t := time.NewTicker(m.checkEvery)
 	defer t.Stop()
-	deadline := time.Now().Add(m.firstByteWithin)
 	for {
 		select {
 		case <-ctx.Done():
@@ -309,9 +307,6 @@ func (m *utxoManager) watchSeedFirstByte(ctx context.Context, cancel context.Can
 				return
 			case m.freeBytes() < utxoMinFreeBytes:
 				cancel(errSeedLowDisk)
-				return
-			case time.Now().After(deadline):
-				cancel(errSeedNoData)
 				return
 			}
 		}
