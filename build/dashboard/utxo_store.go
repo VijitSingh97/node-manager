@@ -436,6 +436,27 @@ func reverseUtxoOps(ops []byte) []byte {
 	return out
 }
 
+func (s *utxoStore) UndoPrevHash(height uint32) (prev [32]byte, ok bool, err error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := s.usable(); err != nil {
+		return prev, false, err
+	}
+	undo, closer, err := s.db.Get(utxoUndoKey(height))
+	if errors.Is(err, pebble.ErrNotFound) {
+		return prev, false, nil
+	}
+	if err != nil {
+		return prev, false, err
+	}
+	defer closer.Close()
+	if len(undo) < 64 {
+		return prev, false, errors.New("corrupt undo record")
+	}
+	copy(prev[:], undo[32:64])
+	return prev, true, nil
+}
+
 func (s *utxoStore) DisconnectTip() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

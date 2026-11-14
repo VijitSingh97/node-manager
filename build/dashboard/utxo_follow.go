@@ -220,7 +220,40 @@ func (f *utxoFollower) Step(ctx context.Context) (err error) {
 	return nil
 }
 
+func (f *utxoFollower) checkForkReachable(ctx context.Context, bestHeight uint32) error {
+	height, hash, ok, err := f.store.Tip()
+	if err != nil || !ok {
+		return err
+	}
+	for {
+		if height <= bestHeight {
+			var onChain string
+			if err := f.rpc.call(ctx, "getblockhash", []any{height}, &onChain); err != nil {
+				return err
+			}
+			h, err := utxoRevHex(onChain)
+			if err != nil {
+				return err
+			}
+			if h == hash {
+				return nil
+			}
+		}
+		prev, ok, err := f.store.UndoPrevHash(height)
+		if err != nil {
+			return err
+		}
+		if !ok || height == 0 {
+			return fmt.Errorf("%w: no undo record at height %d", errUtxoReorgTooDeep, height)
+		}
+		height, hash = height-1, prev
+	}
+}
+
 func (f *utxoFollower) rollBack(ctx context.Context, bestHeight uint32) (int, error) {
+	if err := f.checkForkReachable(ctx, bestHeight); err != nil {
+		return 0, err
+	}
 	n := 0
 	for {
 		height, tip, ok, err := f.store.Tip()

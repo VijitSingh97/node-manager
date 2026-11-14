@@ -395,6 +395,9 @@ func TestFollowerReorgTooDeepForJournal(t *testing.T) {
 	if err := f.Step(context.Background()); !errors.Is(err, errUtxoFollowStop) {
 		t.Fatalf("latched follower stepped: %v", err)
 	}
+	if h, _, _, _ := s.Tip(); h != utxoJournalDepth+6 {
+		t.Fatalf("store mutated, tip %d", h)
+	}
 }
 
 func snapshotBaseFollower(t *testing.T, c *fakeUtxoChain, base int) (*utxoStore, *utxoFollower) {
@@ -428,7 +431,7 @@ func TestFollowerReorgBelowSnapshotBase(t *testing.T) {
 	if f.Status().State != utxoFollowError {
 		t.Fatalf("status %+v", f.Status())
 	}
-	if h, _, _, _ := s.Tip(); h != 3 {
+	if h, _, _, _ := s.Tip(); h != 6 {
 		t.Fatalf("tip %d", h)
 	}
 }
