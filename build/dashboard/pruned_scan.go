@@ -29,6 +29,10 @@ type prunedScanner struct {
 	now      func() time.Time
 	derived  map[string]derivedAddresses
 	waiting  map[string]scanWait
+
+	scriptMu       sync.Mutex
+	scripts        map[string]indexScriptRecord
+	resolveScripts func(context.Context, []string) ([]walletScripts, error)
 }
 
 type scanWait struct {
@@ -94,6 +98,9 @@ func newPrunedScanner(a *app) *prunedScanner {
 	return &prunedScanner{
 		app: a, queued: map[string]bool{}, failures: map[string]int{}, lastTry: map[string]time.Time{},
 		jobs: make(chan WatchEntry, maxWatchWallets), now: time.Now, derived: map[string]derivedAddresses{}, waiting: map[string]scanWait{},
+		resolveScripts: func(ctx context.Context, keys []string) ([]walletScripts, error) {
+			return resolveWalletScripts(ctx, a.rpc, keys)
+		},
 	}
 }
 
@@ -179,6 +186,9 @@ func (s *prunedScanner) refresh(entries []WatchEntry, chain blockchainInfo) {
 	for _, entry := range entries {
 		if s.app.watch.hasResolvedWallet(s.app.walletRPC, entry) {
 			s.app.watch.ClearPendingIfCurrent(entry)
+			continue
+		}
+		if s.fromIndex(entry) {
 			continue
 		}
 		cache, _, ok := s.app.watch.scanSnapshot(entry)
@@ -353,6 +363,9 @@ func (s *prunedScanner) scanBatch(parent context.Context) {
 			continue
 		}
 		if _, _, cached := s.app.watch.scanSnapshot(entry); cached && !pending[identity] {
+			continue
+		}
+		if s.fromIndex(entry) {
 			continue
 		}
 		objects, addresses, err := s.scanObjects(ctx, entry)

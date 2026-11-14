@@ -25,6 +25,7 @@ type prunedScanCache struct {
 	BestBlock    string         `json:"best_block"`
 	ScannedAt    time.Time      `json:"scanned_at"`
 	Outpoints    []scanOutpoint `json:"outpoints"`
+	Source       string         `json:"source,omitempty"`
 }
 
 type entryScanCache struct {
