@@ -568,6 +568,9 @@ func TestUtxoManagerAlertsSuppressedCap(t *testing.T) {
 	if !m.AlertsSuppressed() || m.Status().AlertsSuppressedUntil == nil {
 		t.Fatal("not suppressed inside the window")
 	}
+	if until := m.Status().AlertsSuppressedUntil; !until.Equal(now.Add(utxoAlertCap)) {
+		t.Fatalf("status shows suppression until %v, past the 15 minute cap", until)
+	}
 	m.now = func() time.Time { return now.Add(utxoAlertCap - time.Second) }
 	if !m.AlertsSuppressed() {
 		t.Fatal("suppression ended before the cap")

@@ -290,12 +290,12 @@ The FIFO worked end to end in #216: the bitcoin container created `utxo-fifo.dat
 | Cleanup of a 9.3 GB file | none | dashboard must delete it |
 | Seed time | about 15 min (derived) | about 21 min (derived) |
 | A failed parse | the dump must run again: 10 min plus a 5 min RPC block | re-read the file |
-| Reader dies mid-dump | unmeasured | not applicable |
+| Reader dies mid-dump | clean RPC error, no restart (regtest, #280) | not applicable |
 
 FIFO wins on every row that touches the live node. Its costs are two, both stated:
 
 1. **A host-side step creates the FIFO.** The dashboard cannot: the datadir is mounted read-only and there is no docker socket. The `stack` script creates it in the bitcoin container (`docker exec`), removes a stale `utxo-seed.dat` first (Core refuses to overwrite), and removes the renamed FIFO afterwards. The seed button stays disabled until the FIFO exists. #223 and #226 own the command name.
-2. **A crashed or absent reader is unmeasured.** The dashboard opens the FIFO `O_RDONLY|O_NONBLOCK`, then a keeper writer, before it issues `dumptxoutset`; a blocking read-open would deadlock, because the open waits for a writer that only the RPC creates. On cancel or error it drains to EOF rather than closing early, until the FIFO matrix proves an early close safe. If the reader dies mid-write, Core's behavior was not tested. #226 tests it on a throwaway node. If it wedges bitcoind, this decision reverts to the shared volume. By reasoning, a reader that stops reading after the hash pass holds back only the write, not `cs_main`, so the consumer can pause during the write phase. During the first 300 s there is no pause lever.
+2. **The reader's failure modes, measured on regtest (#280).** The dashboard opens the FIFO `O_RDONLY|O_NONBLOCK`, then a keeper writer, before it issues `dumptxoutset`; a blocking read-open would deadlock, because the open waits for a writer that only the RPC creates. It runs as bitcoind's uid (the datadir is mode 0700) and requires the path to be a named pipe, because with no FIFO Core writes a regular file. With no reader, the dump parks one RPC thread and other RPCs stay fast. A reader killed mid-write ends the RPC with a clean error and no restart, so cancel closes the reader instead of draining. A reader stalled for 120 s blocks only the write. One wedge: `stop` does not finish while the dump is parked waiting for a reader, until something opens the FIFO, so the stack opens it once (`timeout 5 cat`) before stopping bitcoind. Mainnet's 300 s hash pass was not covered; during it there is no pause lever.
 
 Rejected: dumping into the datadir (the dashboard cannot delete it, and it eats the chain volume).
 
@@ -383,7 +383,7 @@ Design items still to measure:
 
 | Item | What it decides | If it goes badly | Issue |
 | --- | --- | --- | --- |
-| Reader dies or never opens the FIFO | Whether FIFO is safe | Core wedges or the dump is lost without recovery: revert to the shared volume (9.32 GB file, bitcoind recreate) | #226 |
+| Reader dies or never opens the FIFO on mainnet (regtest done in #280: no wedge except `stop` while parked) | Whether the 300 s hash pass changes the regtest result | Core wedges: revert to the shared volume (9.32 GB file, bitcoind recreate) | #226, #236 |
 | Heat and speed of a capped dashboard reading 9.3 GB and parsing, run together with a real dump | The 85 C and 72 C thresholds, seed time, whether a write-phase pause is safe | Over 85 C within the cap: lower the start limit or require an idle host | #224, #236 |
 | Idle host temperature with all chains running | Whether the 75 C start limit ever passes | Idle above 75 C: raise the start limit or require pausing other chains | #236 |
 | FIFO dump with a reader at 0.5 CPU | Whether the dump and the degraded-RPC period lengthen | Dump over 15 min: raise the alert cap or use the file path | #226, #236 |

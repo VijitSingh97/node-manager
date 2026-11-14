@@ -212,7 +212,7 @@ func (m *utxoManager) Status() utxoIndexStatus {
 		st.StartedAt = &started
 	}
 	if m.alertsSuppressedLocked() {
-		until := m.seed.AlertsUntil
+		until := m.alertsEndLocked()
 		st.AlertsSuppressedUntil = &until
 	}
 	if m.nodeTip > 0 {
@@ -422,15 +422,20 @@ func (m *utxoManager) suppressAlerts(until time.Time) {
 	m.persistSeedLocked()
 }
 
-func (m *utxoManager) alertsSuppressedLocked() bool {
+func (m *utxoManager) alertsEndLocked() time.Time {
 	if m.seed.AlertsUntil.IsZero() || m.seed.StartedAt.IsZero() {
-		return false
+		return time.Time{}
 	}
-	end := m.seed.AlertsUntil
-	if limit := m.seed.StartedAt.Add(utxoAlertCap); limit.Before(end) {
+	end, limit := m.seed.AlertsUntil, m.seed.StartedAt.Add(utxoAlertCap)
+	if limit.Before(end) {
 		end = limit
 	}
-	return m.now().Before(end)
+	return end
+}
+
+func (m *utxoManager) alertsSuppressedLocked() bool {
+	end := m.alertsEndLocked()
+	return !end.IsZero() && m.now().Before(end)
 }
 
 func (m *utxoManager) AlertsSuppressed() bool {
