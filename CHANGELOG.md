@@ -61,6 +61,10 @@ All notable changes to this project are documented here. Format follows
   flow runs unchanged. Derived script sets are cached per descriptor in
   `utxo_scripts.json` under the state directory (mode 0600); logs carry counts,
   heights and durations only. Non-pruned nodes keep the Core-wallet path.
+- The UTXO index manager can now run a seed inside its own goroutine, reset a
+  not-seeded or invalid store, hold the pruned scanner off, check the seed
+  safety guards, and report seed phase, refusals and the last seed result on
+  `/api/utxo-index`; nothing starts a seed yet.
 - Opt-in `bitcoin.utxo_index` setting that adds the
   `docker-compose.utxo-index.yml` overlay: a `utxo_index` volume and a 1g
   memory limit with 0.5 CPU on the dashboard. It is off by default, so

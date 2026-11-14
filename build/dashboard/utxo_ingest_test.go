@@ -39,7 +39,7 @@ func utxoTestIngestFile(t testing.TB, s *utxoStore, datPath string, height uint3
 	}
 	defer f.Close()
 	prog := &utxoIngestProgress{}
-	h, err := ingestUtxoSnapshot(s, f, utxoNetRegtest, height, prog)
+	h, err := ingestUtxoSnapshot(s, f, utxoNetRegtest, utxoTestHeight(height), prog)
 	if err != nil {
 		t.Fatalf("ingest %s: %v", datPath, err)
 	}
@@ -158,7 +158,7 @@ func TestUtxoIngestRefusesNonEmptyStore(t *testing.T) {
 	utxoTestIngestFile(t, s, "testdata/utxo/all_types.dat", 103)
 	f, _ := os.Open("testdata/utxo/all_types.dat")
 	defer f.Close()
-	if _, err := ingestUtxoSnapshot(s, f, utxoNetRegtest, 103, nil); !errors.Is(err, errUtxoNotEmpty) {
+	if _, err := ingestUtxoSnapshot(s, f, utxoNetRegtest, utxoTestHeight(103), nil); !errors.Is(err, errUtxoNotEmpty) {
 		t.Fatalf("second ingest = %v, want errUtxoNotEmpty", err)
 	}
 
@@ -166,7 +166,7 @@ func TestUtxoIngestRefusesNonEmptyStore(t *testing.T) {
 	utxoTestApply(t, s2, 1, 3)
 	f2, _ := os.Open("testdata/utxo/all_types.dat")
 	defer f2.Close()
-	if _, err := ingestUtxoSnapshot(s2, f2, utxoNetRegtest, 103, nil); !errors.Is(err, errUtxoNotEmpty) {
+	if _, err := ingestUtxoSnapshot(s2, f2, utxoNetRegtest, utxoTestHeight(103), nil); !errors.Is(err, errUtxoNotEmpty) {
 		t.Fatalf("ingest over applied blocks = %v, want errUtxoNotEmpty", err)
 	}
 	utxoTestExpectTip(t, s2, 3)
@@ -179,7 +179,7 @@ func TestUtxoIngestDiscardKeepsTheIndexDirectory(t *testing.T) {
 	s.beforeIngest = func() error { return errors.New("simulated crash before ready") }
 	f, _ := os.Open("testdata/utxo/all_types.dat")
 	defer f.Close()
-	if _, err := ingestUtxoSnapshot(s, f, utxoNetRegtest, 103, nil); err == nil {
+	if _, err := ingestUtxoSnapshot(s, f, utxoNetRegtest, utxoTestHeight(103), nil); err == nil {
 		t.Fatal("expected the interrupted ingest to fail")
 	}
 	if err := s.Close(); err != nil {
@@ -204,7 +204,7 @@ func TestUtxoIngestInterruptedIsDiscardedAndNeverServed(t *testing.T) {
 	s.beforeIngest = func() error { return errors.New("simulated crash before ready") }
 	f, _ := os.Open("testdata/utxo/all_types.dat")
 	defer f.Close()
-	if _, err := ingestUtxoSnapshot(s, f, utxoNetRegtest, 103, nil); err == nil {
+	if _, err := ingestUtxoSnapshot(s, f, utxoNetRegtest, utxoTestHeight(103), nil); err == nil {
 		t.Fatal("expected the interrupted ingest to fail")
 	}
 	if s.Valid() {
@@ -272,7 +272,7 @@ func TestUtxoIngestSkipsUnspendableAndMatchesStoreKeys(t *testing.T) {
 	})
 	s := utxoTestOpen(t, t.TempDir())
 	prog := &utxoIngestProgress{}
-	h, err := ingestUtxoSnapshot(s, bytes.NewReader(data), utxoNetRegtest, 9, prog)
+	h, err := ingestUtxoSnapshot(s, bytes.NewReader(data), utxoNetRegtest, utxoTestHeight(9), prog)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,7 +316,7 @@ func TestUtxoIngestRejectsBadInputWithoutChange(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
 			s := utxoTestOpen(t, dir)
-			if _, err := ingestUtxoSnapshot(s, bytes.NewReader(data), utxoNetRegtest, 1, nil); err == nil {
+			if _, err := ingestUtxoSnapshot(s, bytes.NewReader(data), utxoNetRegtest, utxoTestHeight(1), nil); err == nil {
 				t.Fatal("expected an error")
 			}
 			if !s.Valid() {
@@ -405,7 +405,7 @@ func TestUtxoIngestMultiRunMultiSST(t *testing.T) {
 		}
 	}()
 	prog := &utxoIngestProgress{}
-	_, err := ingestUtxoSnapshot(s, utxoTestRandomDump(coins), utxoNetRegtest, 50, prog)
+	_, err := ingestUtxoSnapshot(s, utxoTestRandomDump(coins), utxoNetRegtest, utxoTestHeight(50), prog)
 	close(stop)
 	wg.Wait()
 	if err != nil {
@@ -508,7 +508,7 @@ func TestUtxoIngestLargeMeasure(t *testing.T) {
 	}()
 	prog := &utxoIngestProgress{}
 	start := time.Now()
-	_, err = ingestUtxoSnapshot(s, utxoTestRandomDump(coins), utxoNetRegtest, 1, prog)
+	_, err = ingestUtxoSnapshot(s, utxoTestRandomDump(coins), utxoNetRegtest, utxoTestHeight(1), prog)
 	elapsed := time.Since(start)
 	close(stop)
 	<-done
@@ -536,4 +536,8 @@ func utxoTestDirSize(dir string) int64 {
 		return nil
 	})
 	return n
+}
+
+func utxoTestHeight(h uint32) func([32]byte) (uint32, error) {
+	return func([32]byte) (uint32, error) { return h, nil }
 }

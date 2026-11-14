@@ -181,12 +181,16 @@ func TestUtxoManagerStateMachine(t *testing.T) {
 	utxoMgrCheck(t, m.store, c, "b", 11)
 
 	node.hook = func(method string, _ any) error { return errors.New("no rpc while seeding: " + method) }
-	m.SetSeed(true, 0.25)
+	m.set(utxoStateNotSeeded, "")
+	if err := m.startSeed(); err != nil {
+		t.Fatal(err)
+	}
+	m.setSeedProgress(0.25)
 	m.tick(ctx)
 	if st := m.Status(); st.State != utxoStateSeeding || st.SeedProgress == nil || *st.SeedProgress != 0.25 {
 		t.Fatalf("seeding: %+v", st)
 	}
-	m.SetSeed(false, 0)
+	m.finishSeed(nil)
 	if st := m.Status(); st.State != utxoStateCatching || st.SeedProgress != nil {
 		t.Fatalf("after seeding: %+v", st)
 	}
@@ -431,22 +435,177 @@ func TestUtxoManagerReadyOnlyWhenIdleAndAtTip(t *testing.T) {
 	}
 }
 
-func TestUtxoManagerTickKeepsSeedingState(t *testing.T) {
+func TestUtxoManagerNoTickDuringRunSeed(t *testing.T) {
 	c := utxoMgrChain(20, "b")
 	node := newFakeUtxoNode(c)
-	dir := t.TempDir()
-	utxoMgrSeed(t, dir, nil, c)
-	m := utxoMgrNew(t, dir, nil, node, io.Discard)
-	node.hook = func(method string, _ any) error {
-		if method == "getblock" {
-			node.hook = nil
-			m.SetSeed(true, 0.1)
+	m := utxoMgrNew(t, t.TempDir(), nil, node, io.Discard)
+	var inSeed, violated atomic.Bool
+	node.hook = func(string, any) error {
+		if inSeed.Load() {
+			violated.Store(true)
 		}
 		return nil
 	}
-	m.tick(context.Background())
-	if st := m.Status(); st.State != utxoStateSeeding {
-		t.Fatalf("a tick that started before the seed overwrote it: %+v", st)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { m.run(ctx); close(done) }()
+	for i := 0; i < 20; i++ {
+		err := m.runSeed(ctx, func(context.Context) error {
+			inSeed.Store(true)
+			defer inSeed.Store(false)
+			time.Sleep(5 * time.Millisecond)
+			if st := m.Status(); st.State != utxoStateSeeding || st.Phase != utxoPhaseWaiting || st.StartedAt == nil {
+				t.Errorf("status during seed: %+v", st)
+			}
+			return errors.New("seed failed")
+		})
+		if err == nil {
+			t.Fatal("seed error not returned")
+		}
+	}
+	cancel()
+	<-done
+	if violated.Load() {
+		t.Fatal("a follower tick ran during a seed")
+	}
+}
+
+func TestUtxoManagerSeedLifecycle(t *testing.T) {
+	m := utxoMgrNew(t, t.TempDir(), nil, newFakeUtxoNode(utxoMgrChain(5, "b")), io.Discard)
+	if err := m.startSeed(); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.startSeed(); !errors.Is(err, errUtxoSeedState) {
+		t.Fatalf("second start: %v", err)
+	}
+	if err := m.resetStore(); !errors.Is(err, errUtxoSeedState) {
+		t.Fatalf("reset while seeding: %v", err)
+	}
+	m.setSeedPhase(utxoPhaseImporting)
+	m.setSeedProgress(0.4)
+	if st := m.Status(); st.Phase != utxoPhaseImporting || *st.SeedProgress != 0.4 {
+		t.Fatalf("%+v", st)
+	}
+	m.finishSeed(context.Canceled)
+	st := m.Status()
+	if st.State != utxoStateNotSeeded || st.Phase != "" || st.SeedProgress != nil || st.StartedAt != nil || st.LastSeed == nil || st.LastSeed.Outcome != "cancelled" {
+		t.Fatalf("after cancel: %+v", st)
+	}
+	if err := m.startSeed(); err != nil {
+		t.Fatal(err)
+	}
+	m.finishSeed(nil)
+	if st := m.Status(); st.State != utxoStateCatching || st.LastSeed.Outcome != "ok" {
+		t.Fatalf("after success: %+v", st)
+	}
+	if err := m.resetStore(); !errors.Is(err, errUtxoSeedState) {
+		t.Fatalf("reset from catching_up: %v", err)
+	}
+}
+
+func TestUtxoManagerResetStore(t *testing.T) {
+	c := utxoMgrChain(10, "b")
+	dir := t.TempDir()
+	utxoMgrSeed(t, dir, nil, c)
+	m := utxoMgrNew(t, dir, nil, newFakeUtxoNode(c), io.Discard)
+	if err := m.resetStore(); !errors.Is(err, errUtxoSeedState) {
+		t.Fatalf("reset from catching_up: %v", err)
+	}
+	m.invalidate("test")
+	if st := m.Status(); st.State != utxoStateInvalid {
+		t.Fatalf("%+v", st)
+	}
+	old := m.store
+	if err := m.resetStore(); err != nil {
+		t.Fatal(err)
+	}
+	if st := m.Status(); st.State != utxoStateNotSeeded || st.IndexTip != nil || m.store == old || m.follower == nil || m.bound {
+		t.Fatalf("after reset: %+v", st)
+	}
+	if _, _, has, err := m.store.Tip(); err != nil || has {
+		t.Fatalf("store not empty: %v %v", has, err)
+	}
+	if err := m.startSeed(); err != nil {
+		t.Fatal(err)
+	}
+	m.finishSeed(errors.New("boom"))
+	if st := m.Status(); st.State != utxoStateNotSeeded || st.LastSeed.Outcome != "failed" {
+		t.Fatalf("%+v", st)
+	}
+}
+
+func TestUtxoManagerRunSeedInvalidWipesFirst(t *testing.T) {
+	c := utxoMgrChain(10, "b")
+	dir := t.TempDir()
+	utxoMgrSeed(t, dir, nil, c)
+	m := utxoMgrNew(t, dir, nil, newFakeUtxoNode(c), io.Discard)
+	m.invalidate("test")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go m.run(ctx)
+	err := m.runSeed(ctx, func(context.Context) error {
+		if _, _, has, _ := m.currentStore().Tip(); has {
+			t.Error("seed started on a non-empty store")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUtxoManagerAlertsSuppressedCap(t *testing.T) {
+	now := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	path := filepath.Join(t.TempDir(), "utxo-seed.json")
+	m := utxoMgrNew(t, t.TempDir(), nil, newFakeUtxoNode(utxoMgrChain(2, "b")), io.Discard)
+	m.now = func() time.Time { return now }
+	m.setSeedStatePath(path)
+	var nilMgr *utxoManager
+	if nilMgr.AlertsSuppressed() || m.AlertsSuppressed() {
+		t.Fatal("suppressed without a deadline")
+	}
+	m.suppressAlerts(now.Add(time.Hour))
+	if !m.AlertsSuppressed() || m.Status().AlertsSuppressedUntil == nil {
+		t.Fatal("not suppressed inside the window")
+	}
+	m.now = func() time.Time { return now.Add(utxoAlertCap - time.Second) }
+	if !m.AlertsSuppressed() {
+		t.Fatal("suppression ended before the cap")
+	}
+	m.now = func() time.Time { return now.Add(utxoAlertCap) }
+	if m.AlertsSuppressed() {
+		t.Fatal("deadline beyond the 15 minute cap was honoured")
+	}
+	m.now = func() time.Time { return now.Add(time.Minute) }
+	m2 := utxoMgrNew(t, t.TempDir(), nil, newFakeUtxoNode(utxoMgrChain(2, "b")), io.Discard)
+	m2.now = m.now
+	m2.setSeedStatePath(path)
+	if !m2.AlertsSuppressed() {
+		t.Fatal("deadline was not persisted")
+	}
+	m2.suppressAlerts(now)
+	if m2.AlertsSuppressed() {
+		t.Fatal("past deadline still suppresses")
+	}
+}
+
+func TestUtxoStatusJSONSeedFields(t *testing.T) {
+	m := utxoMgrNew(t, t.TempDir(), nil, newFakeUtxoNode(utxoMgrChain(2, "b")), io.Discard)
+	raw, err := json.Marshal(m.Status())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"phase", "started_at", "refusals", "last_seed", "alerts_suppressed_until"} {
+		if _, ok := got[key]; !ok {
+			t.Fatalf("missing %s in %s", key, raw)
+		}
+	}
+	if list, ok := got["refusals"].([]any); !ok || len(list) != 0 || got["last_seed"] != nil || got["started_at"] != nil || got["phase"] != "" {
+		t.Fatalf("idle status %s", raw)
 	}
 }
 
@@ -676,6 +835,12 @@ type utxoAPIStatus struct {
 	NodeTip      *float64 `json:"node_tip_height"`
 	Behind       *float64 `json:"blocks_behind"`
 	SeedProgress *float64 `json:"seed_progress"`
+
+	Phase                 string                    `json:"phase"`
+	StartedAt             *string                   `json:"started_at"`
+	Refusals              []seedRefusal             `json:"refusals"`
+	LastSeed              *struct{ Outcome string } `json:"last_seed"`
+	AlertsSuppressedUntil *string                   `json:"alerts_suppressed_until"`
 }
 
 func TestUtxoIndexAPIPerState(t *testing.T) {
@@ -705,9 +870,19 @@ func TestUtxoIndexAPIPerState(t *testing.T) {
 		{utxoStateSeeding, func(t *testing.T) *utxoManager {
 			var n *fakeUtxoNode
 			m := seeded(t, 5, &n)
-			m.SetSeed(true, 0.5)
+			m.set(utxoStateNotSeeded, "")
+			if err := m.startSeed(); err != nil {
+				t.Fatal(err)
+			}
+			m.setSeedProgress(0.5)
+			m.setSeedPhase(utxoPhaseMerging)
+			m.setRefusals([]seedRefusal{{"thermal", "hot"}})
+			m.suppressAlerts(m.now().Add(time.Minute))
 			return m
 		}, func(t *testing.T, st utxoAPIStatus) {
+			if st.Phase != utxoPhaseMerging || st.StartedAt == nil || st.AlertsSuppressedUntil == nil || len(st.Refusals) != 1 || st.Refusals[0].Guard != "thermal" {
+				t.Fatalf("%+v", st)
+			}
 			if st.SeedProgress == nil || *st.SeedProgress != 0.5 {
 				t.Fatalf("%+v", st)
 			}

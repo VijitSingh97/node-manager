@@ -35,6 +35,17 @@ type utxoIngestProgress struct {
 	Total   atomic.Uint64
 	Parsed  atomic.Uint64
 	Written atomic.Uint64
+
+	Checkpoint func() error
+}
+
+const utxoIngestCheckpointEvery = 4096
+
+func (p *utxoIngestProgress) checkpoint() error {
+	if p.Checkpoint == nil {
+		return nil
+	}
+	return p.Checkpoint()
 }
 
 func (p *utxoIngestProgress) Fraction() float64 {
@@ -167,9 +178,13 @@ func mergeUtxoRunsToSSTs(fs vfs.FS, tmp string, runs []string, prog *utxoIngestP
 			_ = closeWriter()
 			return ssts, err
 		}
-		if pending++; pending == 4096 {
+		if pending++; pending == utxoIngestCheckpointEvery {
 			prog.Written.Add(pending)
 			pending = 0
+			if err := prog.checkpoint(); err != nil {
+				_ = closeWriter()
+				return ssts, err
+			}
 		}
 		ok, err := top.next()
 		if err != nil {
@@ -187,8 +202,8 @@ func mergeUtxoRunsToSSTs(fs vfs.FS, tmp string, runs []string, prog *utxoIngestP
 	return ssts, closeWriter()
 }
 
-// ingestUtxoSnapshot loads a dumptxoutset v2 stream into an empty store; the caller supplies the base block height, which the dump does not carry.
-func ingestUtxoSnapshot(s *utxoStore, r io.Reader, network [4]byte, height uint32, prog *utxoIngestProgress) (utxoHeader, error) {
+// ingestUtxoSnapshot loads a dumptxoutset v2 stream into an empty store; baseHeight resolves the dump's base hash to a height after the merge, and prog.Checkpoint can abort it.
+func ingestUtxoSnapshot(s *utxoStore, r io.Reader, network [4]byte, baseHeight func(hash [32]byte) (uint32, error), prog *utxoIngestProgress) (utxoHeader, error) {
 	if prog == nil {
 		prog = &utxoIngestProgress{}
 	}
@@ -225,7 +240,11 @@ func ingestUtxoSnapshot(s *utxoStore, r io.Reader, network [4]byte, height uint3
 		prog.Total.Store(h.CoinsCount)
 		buf = make([]utxoIngestRec, 0, min(h.CoinsCount, utxoIngestRunRecords))
 	}, func(rec utxoRecord) error {
-		prog.Parsed.Add(1)
+		if prog.Parsed.Add(1)%utxoIngestCheckpointEvery == 0 {
+			if err := prog.checkpoint(); err != nil {
+				return err
+			}
+		}
 		if rec.Vout > math.MaxUint32 {
 			return fmt.Errorf("output index %d out of range", rec.Vout)
 		}
@@ -255,6 +274,10 @@ func ingestUtxoSnapshot(s *utxoStore, r io.Reader, network [4]byte, height uint3
 	}
 	for _, p := range runs {
 		_ = fs.Remove(p)
+	}
+	height, err := baseHeight(hdr.BaseHash)
+	if err != nil {
+		return hdr, err
 	}
 	return hdr, s.IngestFiles(ssts, height, hdr.BaseHash)
 }
