@@ -265,7 +265,11 @@ func (a *app) healthAdditionalNode(parent context.Context, id string, node nodeC
 			return nil
 		}
 		a.recordNodeHealth(id, true)
-		return map[string]any{"active": true, "initialblockdownload": !status.Synced, "blocks": status.Height}
+		info := map[string]any{"active": true, "initialblockdownload": !status.Synced, "blocks": status.Height}
+		if status.EndOfSupportWarning {
+			info["end_of_support_height"], info["end_of_support_remaining_blocks"] = status.EndOfSupportHeight, status.EndOfSupportRemaining
+		}
+		return info
 	}
 	rpc := &rpcClient{url: node.RPCURL, user: node.RPCUser, password: node.RPCPassword, client: &http.Client{}}
 	var result map[string]any

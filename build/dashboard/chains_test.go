@@ -248,6 +248,8 @@ func TestZcashStatusUsesNativeShapeWithoutBitcoinIBDOrAuth(t *testing.T) {
 			result = map[string]any{"time": time.Now().Add(-time.Minute).Unix()}
 		case "getstandardfee":
 			result = map[string]any{"standard_fee": 400, "version": 0}
+		case "getdeprecationinfo":
+			result = map[string]any{}
 		default:
 			t.Fatalf("unexpected Zakura method %q", request.Method)
 		}
