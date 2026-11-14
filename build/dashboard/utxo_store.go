@@ -185,7 +185,7 @@ func openUtxoStoreFS(dir string, fs vfs.FS) (*utxoStore, error) {
 	}
 	if s.discard {
 		_ = db.Close()
-		if err := fs.RemoveAll(dir); err != nil {
+		if err := clearUtxoDir(fs, dir); err != nil {
 			return nil, fmt.Errorf("discard interrupted utxo ingest: %w", err)
 		}
 		return openUtxoStoreFS(dir, fs)
@@ -565,6 +565,20 @@ func (s *utxoStore) emptyLocked() error {
 		}
 	}
 	return it.Close()
+}
+
+// The index directory can be a volume mount point, which cannot itself be removed.
+func clearUtxoDir(fs vfs.FS, dir string) error {
+	names, err := fs.List(dir)
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		if err := fs.RemoveAll(fs.PathJoin(dir, name)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *utxoStore) RequireEmpty() error {

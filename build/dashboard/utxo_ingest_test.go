@@ -172,6 +172,32 @@ func TestUtxoIngestRefusesNonEmptyStore(t *testing.T) {
 	utxoTestExpectTip(t, s2, 3)
 }
 
+func TestUtxoIngestDiscardKeepsTheIndexDirectory(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "utxo-index")
+	s := utxoTestOpen(t, dir)
+	s.beforeIngest = func() error { return errors.New("simulated crash before ready") }
+	f, _ := os.Open("testdata/utxo/all_types.dat")
+	defer f.Close()
+	if _, err := ingestUtxoSnapshot(s, f, utxoNetRegtest, 103, nil); err == nil {
+		t.Fatal("expected the interrupted ingest to fail")
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(parent, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(parent, 0o755)
+	s = utxoTestOpen(t, dir)
+	if !s.Valid() {
+		t.Fatalf("reopen inside an undeletable directory failed: %s", s.InvalidReason())
+	}
+	if err := s.RequireEmpty(); err != nil {
+		t.Fatalf("discarded store not empty: %v", err)
+	}
+}
+
 func TestUtxoIngestInterruptedIsDiscardedAndNeverServed(t *testing.T) {
 	dir := t.TempDir()
 	s := utxoTestOpen(t, dir)
