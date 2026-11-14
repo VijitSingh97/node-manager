@@ -283,7 +283,7 @@ func (m *utxoManager) run(ctx context.Context) {
 	}
 }
 
-// runSeed executes fn inside the run goroutine, so no follower step runs or starts while it does.
+// Running fn on the run goroutine is what keeps follower steps out of a seed.
 func (m *utxoManager) runSeed(ctx context.Context, fn func(context.Context) error) error {
 	job := utxoSeedJob{ctx: ctx, fn: fn, done: make(chan error, 1)}
 	select {

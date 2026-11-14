@@ -202,7 +202,7 @@ func mergeUtxoRunsToSSTs(fs vfs.FS, tmp string, runs []string, prog *utxoIngestP
 	return ssts, closeWriter()
 }
 
-// ingestUtxoSnapshot loads a dumptxoutset v2 stream into an empty store; baseHeight resolves the dump's base hash to a height after the merge, and prog.Checkpoint can abort it.
+// baseHeight runs after the merge so the tip comes from the RPC result, not the dump alone.
 func ingestUtxoSnapshot(s *utxoStore, r io.Reader, network [4]byte, baseHeight func(hash [32]byte) (uint32, error), prog *utxoIngestProgress) (utxoHeader, error) {
 	if prog == nil {
 		prog = &utxoIngestProgress{}

@@ -171,7 +171,7 @@ func (s *prunedScanner) enqueue(entry WatchEntry, force bool) bool {
 	}
 }
 
-// hold succeeds only when no scan is running or queued; until release, none can start.
+// A scan must not start mid-seed, so the hold refuses while one runs or is queued.
 func (s *prunedScanner) hold() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()

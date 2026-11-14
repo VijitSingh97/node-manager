@@ -80,7 +80,6 @@ func thermalStartGuard(c float64, err error) *seedRefusal {
 	return nil
 }
 
-// thermalPaused returns the next paused state: pause at seedPauseC, resume at seedResumeC, pause on an unreadable sensor.
 func thermalPaused(paused bool, c float64, err error) bool {
 	switch {
 	case err != nil:
