@@ -21,6 +21,12 @@ All notable changes to this project are documented here. Format follows
   view-key caveat in its tooltip; a received-only total no longer gets a fiat
   value, since it is not a current balance.
 
+### Fixed
+
+- The Tor image builds again: Alpine 3.24 replaced Tor 0.4.9.15 with 0.4.9.17,
+  so the pinned package no longer existed and every image build and CI run
+  failed. The pin now names 0.4.9.17-r0.
+
 ## [1.33.18] - 2026-11-13
 
 ### Added
