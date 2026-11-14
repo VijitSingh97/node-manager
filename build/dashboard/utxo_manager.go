@@ -161,6 +161,42 @@ func (m *utxoManager) Status() utxoIndexStatus {
 	return st
 }
 
+func (m *utxoManager) currentStore() *utxoStore {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.store
+}
+
+func (m *utxoManager) Tip() (height uint32, hash [32]byte, ok bool) {
+	if m == nil || m.Status().State != utxoStateReady {
+		return
+	}
+	height, hash, has, err := m.currentStore().Tip()
+	return height, hash, has && err == nil
+}
+
+func (m *utxoManager) Lookup(scripts [][]byte) (coins []utxoCoin, height uint32, hash [32]byte, ok bool) {
+	if m == nil || m.Status().State != utxoStateReady {
+		return
+	}
+	store := m.currentStore()
+	for range 2 {
+		h, tipHash, has, err := store.Tip()
+		if err != nil || !has {
+			return
+		}
+		found, err := store.Lookup(scripts)
+		h2, tipHash2, _, err2 := store.Tip()
+		if err != nil || err2 != nil {
+			return
+		}
+		if h == h2 && tipHash == tipHash2 {
+			return found, h, tipHash, true
+		}
+	}
+	return
+}
+
 func (m *utxoManager) SetSeed(active bool, progress float64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -307,7 +343,9 @@ func (m *utxoManager) invalidate(reason string) {
 	if err != nil {
 		if ns, oerr := openUtxoStoreFS(m.dir, m.fs); oerr == nil {
 			err = ns.MarkInvalid(reason)
+			m.mu.Lock()
 			m.store = ns
+			m.mu.Unlock()
 		}
 	}
 	if err != nil {

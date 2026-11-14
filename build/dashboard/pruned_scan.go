@@ -29,6 +29,10 @@ type prunedScanner struct {
 	now      func() time.Time
 	derived  map[string]derivedAddresses
 	waiting  map[string]scanWait
+
+	scriptMu       sync.Mutex
+	scripts        map[string]indexScriptRecord
+	resolveScripts func(context.Context, []string) ([]walletScripts, error)
 }
 
 type scanWait struct {
@@ -94,6 +98,9 @@ func newPrunedScanner(a *app) *prunedScanner {
 	return &prunedScanner{
 		app: a, queued: map[string]bool{}, failures: map[string]int{}, lastTry: map[string]time.Time{},
 		jobs: make(chan WatchEntry, maxWatchWallets), now: time.Now, derived: map[string]derivedAddresses{}, waiting: map[string]scanWait{},
+		resolveScripts: func(ctx context.Context, keys []string) ([]walletScripts, error) {
+			return resolveWalletScripts(ctx, a.rpc, keys)
+		},
 	}
 }
 
@@ -175,10 +182,14 @@ func (s *prunedScanner) refresh(entries []WatchEntry, chain blockchainInfo) {
 	if !s.app.nodeWorkerRunnable(nodeBitcoin, true) || !chain.Pruned || chain.InitialBlockDownload || chain.BestBlockHash == "" || s.app.watch.ScanErr() != nil {
 		return
 	}
+	s.pruneScripts(entries)
 	behind := map[string][]WatchEntry{}
 	for _, entry := range entries {
 		if s.app.watch.hasResolvedWallet(s.app.walletRPC, entry) {
 			s.app.watch.ClearPendingIfCurrent(entry)
+			continue
+		}
+		if s.fromIndex(entry, chain.BestBlockHash) {
 			continue
 		}
 		cache, _, ok := s.app.watch.scanSnapshot(entry)
@@ -304,7 +315,7 @@ func (s *prunedScanner) applyBlocks(entries []WatchEntry, base string, chain blo
 		})
 		caches[watchKeyID(item.entry.Key)] = entryScanCache{entry: item.entry, cache: prunedScanCache{
 			DescriptorID: item.cache.DescriptorID, BTC: float64(sats) / 1e8, Height: chain.Blocks,
-			BestBlock: previous, ScannedAt: now, Outpoints: outpoints,
+			BestBlock: previous, ScannedAt: now, Outpoints: outpoints, Source: item.cache.Source,
 		}}
 	}
 	stored := s.app.watch.StoreScanBatch(caches)
@@ -353,6 +364,9 @@ func (s *prunedScanner) scanBatch(parent context.Context) {
 			continue
 		}
 		if _, _, cached := s.app.watch.scanSnapshot(entry); cached && !pending[identity] {
+			continue
+		}
+		if s.fromIndex(entry, "") {
 			continue
 		}
 		objects, addresses, err := s.scanObjects(ctx, entry)
@@ -546,7 +560,7 @@ func (s *prunedScanner) publicScanObject(ctx context.Context, descriptor string)
 	params := []any{info.Descriptor}
 	var object any = info.Descriptor
 	if *info.IsRange {
-		rangeValue := []int{0, 999}
+		rangeValue := []int{deriveRangeStart, deriveRangeEnd}
 		params = append(params, rangeValue)
 		object = map[string]any{"desc": info.Descriptor, "range": rangeValue}
 	}

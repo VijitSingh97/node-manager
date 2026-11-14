@@ -57,6 +57,13 @@ All notable changes to this project are documented here. Format follows
   answering. The JSON fields are listed in `docs/operations.md`. Each state change is logged once. There is no
   seed trigger yet, so an enabled index stays `not_seeded`; without the
   overlay nothing is opened and the endpoint answers `off`.
+- On a pruned node, watched-wallet balances now come from the UTXO index while
+  it is `ready`, within 2 blocks of the node tip, and the wallet's scripts can
+  be derived; each row reports `balance_source` as `index` or `scan`. In every
+  other state, or if the index result is rejected, the existing `scantxoutset`
+  flow runs unchanged. Derived script sets are cached per descriptor in
+  `utxo_scripts.json` under the state directory (mode 0600); logs carry counts,
+  heights and durations only. Non-pruned nodes keep the Core-wallet path.
 - Opt-in `bitcoin.utxo_index` setting that adds the
   `docker-compose.utxo-index.yml` overlay: a `utxo_index` volume and a 1g
   memory limit with 0.5 CPU on the dashboard. It is off by default, so

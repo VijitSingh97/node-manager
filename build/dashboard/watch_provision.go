@@ -33,7 +33,7 @@ func descriptorRangeCovers(value any) bool {
 	}
 	start, startOK := balanceValue(values[0])
 	end, endOK := balanceValue(values[1])
-	return startOK && endOK && start <= 0 && end >= 999
+	return startOK && endOK && start <= deriveRangeStart && end >= deriveRangeEnd
 }
 
 func walletMatches(walletRPC WalletRPCFunc, name string, entry WatchEntry) bool {

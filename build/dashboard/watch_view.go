@@ -161,6 +161,10 @@ func (s *WatchStore) walletBalances(walletRPC WalletRPCFunc, entries []WatchEntr
 				row["btc"] = formatBTC(cache.BTC)
 				row["scan_height"] = cache.Height
 				row["scan_time"] = cache.ScannedAt.Format(time.RFC3339)
+				row["balance_source"] = scanSourceScan
+				if cache.Source != "" {
+					row["balance_source"] = cache.Source
+				}
 				if series := chainHistorySeries(cache.Outpoints, cache.Height); series != nil {
 					row["chain_history"] = series
 				}
