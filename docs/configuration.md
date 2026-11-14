@@ -82,6 +82,7 @@ shows the overridable settings with their defaults:
         "prune_mb": 10000,
         "inbound_onion": false,
         "blockfilterindex": false,
+        "utxo_index": false,
         "mem_limit_mb": 0,
         "cpus": 0,
         "resource_profile": "off",
@@ -219,6 +220,7 @@ shows the overridable settings with their defaults:
 | `bitcoin.prune_mb` | `10000` | Keeps 10,000 MiB of recent block files after full validation. Existing explicit configuration and rendered state remain unchanged. `0` remains an advanced manual archival setting; any nonzero value must be ≥ `550`. See [Pruned node](#pruned-node). |
 | `bitcoin.inbound_onion` | `false` | `true` publishes a Tor onion service so your node accepts inbound connections and serves available blocks with no IP exposure. See [Inbound onion service](#inbound-onion-service). |
 | `bitcoin.blockfilterindex` | `false` | Advanced archival-node compatibility setting. It works with pruning only if enabled before the first prune (Core refuses to add it to an already pruned datadir); it is not needed for the default pruned watch-only balance scan. |
+| `bitcoin.utxo_index` | `false` | Opt-in. `true` adds the `docker-compose.utxo-index.yml` overlay: a `utxo_index` volume and a 1g memory limit with 0.5 CPU on the dashboard container, plus `UTXO_INDEX_ENABLED` and `UTXO_INDEX_DIR` in its environment. `./stack apply` recreates the dashboard only; bitcoind is not restarted. With the key absent or false, the rendered `.env` and Compose file set are unchanged. Requires `bitcoin.enabled`. Removing the key drops the overlay but keeps the volume; `docker volume rm` deletes it (the APT purge and Homebrew uninstall do not remove Docker volumes). |
 | `bitcoin.mem_limit_mb` | `0` (unlimited) | Optional memory cap on the bitcoin container, in MB. `0` = no limit (Docker's default). A cap turns a bitcoind memory blowup into a contained container restart instead of a whole-host OOM. **Size it above `dbcache_mb`** and leave additional room for Core's workload-dependent memory outside the cache. There is no universal fixed margin; monitor actual usage because a low cap can make bitcoind restart-loop. `configure.sh` warns if the cap is not above `dbcache_mb`. |
 | `bitcoin.cpus` | `0` (unlimited) | Optional hard CPU cap on the bitcoin container, applied from container start and kept across upgrades, unlike a manual `docker update`. Same number format as `steady_cpus`; `0` = no limit. Applies during initial sync too, so a thermally or otherwise constrained host is never left uncapped while catching up. The resource profiler leaves operator-set limits alone. |
 | | | Data folders of installed nodes can be moved from the dashboard: Settings → node set → "Move data…" migrates the data and updates this value in one guarded step. |

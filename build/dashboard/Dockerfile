@@ -16,8 +16,8 @@ COPY --chmod=0755 build/dashboard/static ./static
 COPY --chmod=0644 VERSION ./VERSION
 COPY --chmod=0644 build/dashboard/THIRD_PARTY_NOTICES ./THIRD_PARTY_NOTICES
 RUN find /app/static -type f -exec chmod 0644 {} + \
-    && mkdir -p /state /tari-wallet \
-    && chown 1000:1000 /state /tari-wallet
+    && mkdir -p /state /tari-wallet /utxo-index \
+    && chown 1000:1000 /state /tari-wallet /utxo-index
 USER 1000:1000
 EXPOSE 8000
 STOPSIGNAL SIGTERM

@@ -22,6 +22,11 @@ All notable changes to this project are documented here. Format follows
   or a non-contiguous block, retries after node or network errors, and stops in a "reorg detected"
   state when the stored tip leaves the active chain. It is not wired into the
   dashboard, so runtime behavior is unchanged.
+- Opt-in `bitcoin.utxo_index` setting that adds the
+  `docker-compose.utxo-index.yml` overlay: a `utxo_index` volume and a 1g
+  memory limit with 0.5 CPU on the dashboard. It is off by default, so
+  existing installs render the same configuration after upgrade, and bitcoind
+  is not restarted when it is enabled.
 
 ### Changed
 
