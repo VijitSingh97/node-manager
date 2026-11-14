@@ -18,8 +18,10 @@ All notable changes to this project are documented here. Format follows
   same way, with a confirmed ✕ to remove one.
 - The Monero example wallet shows its total received as
   "137,131.438327228521 XMR" with "Total received" on the status line and the
-  view-key caveat in its tooltip; a received-only total no longer gets a fiat
-  value, since it is not a current balance.
+  view-key caveat in its tooltip, and every Monero wallet row shows its
+  approximate value in the chosen currency like Bitcoin's public example; the
+  status line still says when the figure is a total received rather than a
+  verified balance.
 
 ### Fixed
 
