@@ -27,6 +27,16 @@ Anything the machine can't run is skipped with a `SKIP:` line. CI
 ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the same suite
 plus a full image build on every push and PR.
 
+The UTXO dump parser tests read small regtest fixtures committed in
+`build/dashboard/testdata/utxo/`, so CI and `go test` need no bitcoind. To
+regenerate them from the pinned bitcoin image, or to re-check the harness
+(local only, not run in CI), use Docker and Python 3:
+
+```bash
+tests/utxo_regtest.py build/dashboard/testdata/utxo
+UTXO_REGTEST=1 go test -run RegtestLive ./...   # from build/dashboard
+```
+
 Native daemon checks run separately for Monero, Tari, Litecoin, Dogecoin,
 Bitcoin Cash, and Zcash in CI. To test one locally:
 
