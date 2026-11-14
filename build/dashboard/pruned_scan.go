@@ -182,13 +182,14 @@ func (s *prunedScanner) refresh(entries []WatchEntry, chain blockchainInfo) {
 	if !s.app.nodeWorkerRunnable(nodeBitcoin, true) || !chain.Pruned || chain.InitialBlockDownload || chain.BestBlockHash == "" || s.app.watch.ScanErr() != nil {
 		return
 	}
+	s.pruneScripts(entries)
 	behind := map[string][]WatchEntry{}
 	for _, entry := range entries {
 		if s.app.watch.hasResolvedWallet(s.app.walletRPC, entry) {
 			s.app.watch.ClearPendingIfCurrent(entry)
 			continue
 		}
-		if s.fromIndex(entry) {
+		if s.fromIndex(entry, chain.BestBlockHash) {
 			continue
 		}
 		cache, _, ok := s.app.watch.scanSnapshot(entry)
@@ -365,7 +366,7 @@ func (s *prunedScanner) scanBatch(parent context.Context) {
 		if _, _, cached := s.app.watch.scanSnapshot(entry); cached && !pending[identity] {
 			continue
 		}
-		if s.fromIndex(entry) {
+		if s.fromIndex(entry, "") {
 			continue
 		}
 		objects, addresses, err := s.scanObjects(ctx, entry)

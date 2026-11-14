@@ -28,6 +28,42 @@ func (s *prunedScanner) scriptsPath() string {
 	return filepath.Join(filepath.Dir(s.app.watch.scanPath), "utxo_scripts.json")
 }
 
+func (s *prunedScanner) loadScriptsLocked() {
+	if s.scripts != nil {
+		return
+	}
+	s.scripts = map[string]indexScriptRecord{}
+	if b, err := os.ReadFile(s.scriptsPath()); err == nil {
+		_ = json.Unmarshal(b, &s.scripts)
+	}
+}
+
+func (s *prunedScanner) saveScriptsLocked() {
+	if b, err := json.Marshal(s.scripts); err != nil || writePrivateFileAtomic(s.scriptsPath(), b) != nil {
+		s.app.log.Print("watch index: script registry not saved")
+	}
+}
+
+func (s *prunedScanner) pruneScripts(entries []WatchEntry) {
+	current := map[string]bool{}
+	for _, entry := range entries {
+		current[watchKeyID(entry.Key)] = true
+	}
+	s.scriptMu.Lock()
+	defer s.scriptMu.Unlock()
+	s.loadScriptsLocked()
+	changed := false
+	for key := range s.scripts {
+		if !current[key] {
+			delete(s.scripts, key)
+			changed = true
+		}
+	}
+	if changed {
+		s.saveScriptsLocked()
+	}
+}
+
 func (s *prunedScanner) indexScripts(ctx context.Context, entry WatchEntry) [][]byte {
 	identity, descriptorID := watchKeyID(entry.Key), descriptorSetID(entry)
 	if descriptorID == "" {
@@ -35,12 +71,7 @@ func (s *prunedScanner) indexScripts(ctx context.Context, entry WatchEntry) [][]
 	}
 	s.scriptMu.Lock()
 	defer s.scriptMu.Unlock()
-	if s.scripts == nil {
-		s.scripts = map[string]indexScriptRecord{}
-		if b, err := os.ReadFile(s.scriptsPath()); err == nil {
-			_ = json.Unmarshal(b, &s.scripts)
-		}
-	}
+	s.loadScriptsLocked()
 	record, ok := s.scripts[identity]
 	if !ok || record.DescriptorID != descriptorID {
 		resolved, err := s.resolveScripts(ctx, []string{entry.Key})
@@ -52,18 +83,7 @@ func (s *prunedScanner) indexScripts(ctx context.Context, entry WatchEntry) [][]
 			record.Scripts = append(record.Scripts, hex.EncodeToString(script))
 		}
 		s.scripts[identity] = record
-		current := map[string]bool{}
-		for _, item := range s.app.watch.Entries() {
-			current[watchKeyID(item.Key)] = true
-		}
-		for key := range s.scripts {
-			if !current[key] {
-				delete(s.scripts, key)
-			}
-		}
-		if b, err := json.Marshal(s.scripts); err != nil || writePrivateFileAtomic(s.scriptsPath(), b) != nil {
-			s.app.log.Print("watch index: script registry not saved")
-		}
+		s.saveScriptsLocked()
 	}
 	if record.Fallback {
 		return nil
@@ -80,9 +100,18 @@ func (s *prunedScanner) indexScripts(ctx context.Context, entry WatchEntry) [][]
 }
 
 // True means the index owns this refresh and no scan is needed; false falls back to scantxoutset.
-func (s *prunedScanner) fromIndex(entry WatchEntry) bool {
-	if s.app.utxo.Status().State != utxoStateReady {
+func (s *prunedScanner) fromIndex(entry WatchEntry, nodeTip string) bool {
+	if st := s.app.utxo.Status(); st.State != utxoStateReady || st.Behind == nil || *st.Behind != 0 {
 		return false
+	}
+	_, tip, ok := s.app.utxo.Tip()
+	if !ok || nodeTip != "" && reverseHex(tip) != nodeTip {
+		return false
+	}
+	if cache, _, cached := s.app.watch.scanSnapshot(entry); cached && cache.Source == scanSourceIndex && cache.BestBlock == reverseHex(tip) {
+		s.app.watch.ClearPendingIfCurrent(entry)
+		s.succeeded(watchKeyID(entry.Key))
+		return true
 	}
 	started := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), indexQueryLimit)
@@ -96,8 +125,8 @@ func (s *prunedScanner) fromIndex(entry WatchEntry) bool {
 		return false
 	}
 	best := reverseHex(hash)
-	if cache, _, cached := s.app.watch.scanSnapshot(entry); cached && cache.Source == scanSourceIndex && cache.BestBlock == best {
-		return true
+	if nodeTip != "" && best != nodeTip {
+		return false
 	}
 	outpoints := make([]scanOutpoint, 0, len(coins))
 	var sats int64

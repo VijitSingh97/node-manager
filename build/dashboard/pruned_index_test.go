@@ -316,3 +316,70 @@ func TestUtxoManagerLookupRaceWithInvalidate(t *testing.T) {
 		t.Fatal("invalid index served a lookup")
 	}
 }
+
+func TestPrunedIndexOneBlockBehindFallsThroughToScan(t *testing.T) {
+	c := indexTestChain(nil)
+	m := indexTestManager(t, c)
+	m.nodeTip = 10
+	if st := m.Status(); st.State != utxoStateReady || *st.Behind != 1 {
+		t.Fatalf("status = %#v", st)
+	}
+	a, handler, mock := indexTestApp(t, c, m)
+	a.scanner.resolveScripts = indexTestScripts(indexTestScript)
+	addPrunedWatch(t, handler, "Cold", genesisAddress)
+	row := waitPrunedState(t, handler, "ok")
+	if scanCalls(mock) != 1 || row["balance_source"] != "scan" {
+		t.Fatalf("scans=%d row=%#v", scanCalls(mock), row)
+	}
+}
+
+func TestPrunedIndexCurrentCacheClearsPending(t *testing.T) {
+	c := indexTestChain(nil)
+	m := indexTestManager(t, c)
+	a, handler, _ := indexTestApp(t, c, m)
+	a.scanner.resolveScripts = indexTestScripts(indexTestScript)
+	addPrunedWatch(t, handler, "Cold", genesisAddress)
+	waitPrunedState(t, handler, "ok")
+	waitPrunedScannerIdle(t, a.scanner)
+	entry := a.watch.Entries()[0]
+	identity := watchKeyID(entry.Key)
+	a.watch.SetPending(entry.Key, true)
+	a.scanner.mu.Lock()
+	a.scanner.failures[identity] = 3
+	a.scanner.mu.Unlock()
+	a.scanner.scanBatch(context.Background())
+	if _, pending := a.watch.snapshot(); pending[identity] {
+		t.Fatal("pending flag stuck after the index served a current cache")
+	}
+	a.scanner.mu.Lock()
+	failures := a.scanner.failures[identity]
+	a.scanner.mu.Unlock()
+	if failures != 0 {
+		t.Fatalf("failures = %d", failures)
+	}
+}
+
+func TestPrunedIndexRegistryPrunedWhenWalletRemoved(t *testing.T) {
+	c := indexTestChain(nil)
+	m := indexTestManager(t, c)
+	a, handler, _ := indexTestApp(t, c, m)
+	a.scanner.resolveScripts = indexTestScripts(indexTestScript)
+	addPrunedWatch(t, handler, "Cold", genesisAddress)
+	waitPrunedState(t, handler, "ok")
+	waitPrunedScannerIdle(t, a.scanner)
+	if b, _ := os.ReadFile(a.scanner.scriptsPath()); !strings.Contains(string(b), indexTestScript) {
+		t.Fatalf("registry = %s", b)
+	}
+	if removed, err := a.watch.Remove("Cold"); !removed || err != nil {
+		t.Fatalf("remove: %v %v", removed, err)
+	}
+	a.scanner.refresh(a.watch.Entries(), blockchainInfo{Pruned: true, BestBlockHash: reverseHex(m.mustTip()), Blocks: 9})
+	if b, _ := os.ReadFile(a.scanner.scriptsPath()); strings.Contains(string(b), indexTestScript) {
+		t.Fatalf("registry still holds a removed wallet: %s", b)
+	}
+}
+
+func (m *utxoManager) mustTip() [32]byte {
+	_, hash, _ := m.Tip()
+	return hash
+}

@@ -161,13 +161,25 @@ func (m *utxoManager) Status() utxoIndexStatus {
 	return st
 }
 
+func (m *utxoManager) currentStore() *utxoStore {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.store
+}
+
+func (m *utxoManager) Tip() (height uint32, hash [32]byte, ok bool) {
+	if m == nil || m.Status().State != utxoStateReady {
+		return
+	}
+	height, hash, has, err := m.currentStore().Tip()
+	return height, hash, has && err == nil
+}
+
 func (m *utxoManager) Lookup(scripts [][]byte) (coins []utxoCoin, height uint32, hash [32]byte, ok bool) {
 	if m == nil || m.Status().State != utxoStateReady {
 		return
 	}
-	m.mu.Lock()
-	store := m.store
-	m.mu.Unlock()
+	store := m.currentStore()
 	for range 2 {
 		h, tipHash, has, err := store.Tip()
 		if err != nil || !has {
