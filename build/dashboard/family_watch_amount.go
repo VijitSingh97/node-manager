@@ -14,6 +14,7 @@ import (
 var familyWatchSeeds = map[string]familyWatchEntry{
 	nodeLitecoin:    familyWatchExample("Linux Mint", "LW1Zckzn9Y6baEvhoo2tGBJJa5YLXXD1B2", "https://www.linuxmint.com/donors.php"),
 	nodeBitcoinCash: familyWatchExample("Bitcoin Cash Node", "bitcoincash:pq22wvjxu3et9rxgw8zgwcs0j3270gs6lumlq52mxl", "https://bitcoincashnode.org/en/"),
+	nodeDogecoin:    familyWatchExample("Dogecoin Foundation", "D89DhnsgKncmN12RejxudfU8AwXp3946q1", "https://foundation.dogecoin.com/about/"),
 	nodeZcash:       familyWatchExample("Zcash Community Grants", "t3cFfPt1Bcvgez9ZbMBFWeZsskxTkPzGCow", "https://zips.z.cash/zip-0214"),
 }
 

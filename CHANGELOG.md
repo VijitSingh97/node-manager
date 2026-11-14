@@ -67,6 +67,15 @@ All notable changes to this project are documented here. Format follows
   your own node, with the Zcash Community Grants address as an excluded example.
   It needs a fresh data directory and full resync, and `configure.sh` refuses it
   on an existing checkpoint-pruned database. The default is unchanged.
+- Opt-in `dogecoin.watch_wallet` runs Dogecoin as an archival node with a
+  watch-only wallet so the dashboard can show balances for public Dogecoin
+  addresses from your own node, with the Dogecoin Foundation address as an
+  excluded example. It needs `dogecoin.prune_mb` set to 0, a fresh data
+  directory and a full unpruned sync, and `configure.sh` refuses it on a
+  database that ran pruned. Adding an address starts a rescan that can take
+  hours; a balance appears only after a recorded complete import, failed
+  imports retry after six hours, and the example is never scanned. The
+  default is unchanged.
 
 ### Changed
 

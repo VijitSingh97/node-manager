@@ -200,7 +200,4 @@ func TestZcashWatchCapabilityFollowsIndexFlag(t *testing.T) {
 	if got := defaultFamilyWatchEntry(nodeZcash); got.Address != "t3cFfPt1Bcvgez9ZbMBFWeZsskxTkPzGCow" || !got.Example || got.SourceURL != "https://zips.z.cash/zip-0214" {
 		t.Fatalf("zcash seed = %+v", got)
 	}
-	if got := defaultFamilyWatchEntry(nodeDogecoin); got.Address != "" {
-		t.Fatalf("dogecoin got a seed: %+v", got)
-	}
 }
