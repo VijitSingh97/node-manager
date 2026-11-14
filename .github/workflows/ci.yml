@@ -24,9 +24,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: ShellCheck
-        run: shellcheck configure.sh stack build/*/*.sh scripts/*.sh scripts/node-control scripts/node-port-control scripts/node-resource-profile tests/*.sh
-
       - name: Secret scan (gitleaks)
         run: docker run --rm -v "$PWD":/repo "$(awk '/^FROM.*gitleaks/ {print $2}' .github/tool-images/Dockerfile)"
           detect --no-git --source=/repo --config=/repo/.gitleaks.toml --redact --verbose
@@ -46,6 +43,9 @@ jobs:
         with:
           go-version-file: build/dashboard/go.mod
           cache: false
+
+      - name: Lint
+        run: scripts/lint.sh
 
       - name: Dashboard vulnerability scan
         working-directory: build/dashboard
@@ -146,13 +146,12 @@ jobs:
       - name: Install package test tools
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends apt-utils ca-certificates git gnupg jq openssl ruby shellcheck
+          apt-get install -y --no-install-recommends apt-utils ca-certificates git gnupg jq openssl ruby
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Trust the container checkout
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Build and test the package
         run: |
-          shellcheck packaging/postinst scripts/resolve-runtime-images.sh scripts/node-manager scripts/build-deb.sh scripts/build-apt.sh scripts/build-homebrew-formula.sh scripts/node-resource-profile scripts/node-port-control scripts/node-control tests/test_package.sh tests/test_package_upgrade.sh tests/test_runtime_images.sh tests/test_apt.sh tests/test_homebrew.sh tests/test_host_install.sh tests/test_brew_data.sh tests/test_resource_profile.sh tests/test_port_control.sh tests/test_node_control.sh
           tests/test_package.sh
           tests/test_package_upgrade.sh
           tests/test_runtime_images.sh

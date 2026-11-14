@@ -6,10 +6,9 @@ import re
 import tarfile
 import tempfile
 import unittest
-from unittest import mock
 import urllib.request
 from pathlib import Path
-
+from unittest import mock
 
 ROOT = Path(__file__).parents[1]
 SPEC = importlib.util.spec_from_file_location("node_dependencies", ROOT / "tools/update-node-dependencies.py")
@@ -160,7 +159,7 @@ class NodeDependencyTests(unittest.TestCase):
             "1.0.1",
             "1:0.1",
         ]
-        self.assertEqual(sorted(reversed(ordered), key=MODULE.debian_version_key), ordered)
+        self.assertEqual(sorted(reversed(ordered), key=MODULE.debian_version_key), ordered)  # noqa: C414 - unsorted input proves the key orders
 
     def test_debian_pins_take_the_newest_version_across_suites(self):
         text = (ROOT / "build/bitcoin-family/Dockerfile").read_text()
@@ -326,7 +325,7 @@ class NodeDependencyTests(unittest.TestCase):
         self.assertRegex(dependabot, r"package-ecosystem: docker\s+directory: /\.github/tool-images\b")
         tools = (ROOT / ".github/tool-images/Dockerfile").read_text()
         workflows = "".join(p.read_text() for p in (ROOT / ".github/workflows").glob("*.yml"))
-        for image in ("ghcr.io/gitleaks/gitleaks", "hadolint/hadolint", "tonistiigi/binfmt"):
+        for image in ("ghcr.io/gitleaks/gitleaks", "hadolint/hadolint", "tonistiigi/binfmt", "koalaman/shellcheck", "ghcr.io/astral-sh/ruff", "rhysd/actionlint"):
             self.assertRegex(tools, rf"(?m)^FROM {re.escape(image)}:[^\s]+@sha256:[0-9a-f]{{64}}$")
             self.assertNotIn(image + ":", workflows)
         for tool in ("gitleaks", "hadolint", "binfmt"):

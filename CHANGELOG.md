@@ -8,6 +8,19 @@ All notable changes to this project are documented here. Format follows
 
 ### Changed
 
+- The Litecoin, Dogecoin and Bitcoin Cash images now build from one shared
+  base in `build/bitcoin-family/`, with one entrypoint and healthcheck, so a
+  base, package or startup fix lands once instead of three times. Binaries,
+  users, paths and settings are unchanged; Litecoin and Dogecoin images now
+  also carry `libatomic1`, which Bitcoin Cash already needed.
+
+## [1.33.19] - 2026-11-13
+
+### Changed
+
+- Zcash runs Zakura 1.8.6 (from 1.8.5), and the Debian and Alpine base images
+  for Monero, Litecoin, Dogecoin, Bitcoin Cash and the dashboard are refreshed
+  to their current digests.
 - Tari now also connects to the peers that advertise clearnet addresses, still
   only through Tor: its transport moves from onion-only (`tor`) to `tcp_tor`,
   and with the proxy bypass off each clearnet dial leaves through a Tor exit
@@ -29,11 +42,11 @@ All notable changes to this project are documented here. Format follows
   approximate value in the chosen currency like Bitcoin's public example; the
   status line still says when the figure is a total received rather than a
   verified balance.
-- The Litecoin, Dogecoin and Bitcoin Cash images now build from one shared
-  base in `build/bitcoin-family/`, with one entrypoint and healthcheck, so a
-  base, package or startup fix lands once instead of three times. Binaries,
-  users, paths and settings are unchanged; Litecoin and Dogecoin images now
-  also carry `libatomic1`, which Bitcoin Cash already needed.
+- `scripts/lint.sh` is the one lint entrypoint for CI and `tests/run.sh`. It
+  runs shellcheck over a single file list (including `packaging/postinst` and
+  `scripts/node-manager`), ruff, actionlint and gofmt. The lint images are
+  digest-pinned in `.github/tool-images/Dockerfile` beside the other CI tools,
+  so Dependabot bumps them too.
 
 ### Fixed
 
@@ -1300,7 +1313,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.18...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.19...HEAD
+[1.33.19]: https://github.com/VijitSingh97/node-manager/compare/v1.33.18...v1.33.19
 [1.33.18]: https://github.com/VijitSingh97/node-manager/compare/v1.33.17...v1.33.18
 [1.33.17]: https://github.com/VijitSingh97/node-manager/compare/v1.33.16...v1.33.17
 [1.33.16]: https://github.com/VijitSingh97/node-manager/compare/v1.33.15...v1.33.16

@@ -11,7 +11,6 @@ from contextlib import redirect_stderr
 from pathlib import Path
 from unittest import mock
 
-
 SCRIPT = Path(__file__).parents[1] / "tools" / "developer-bot.py"
 SPEC = importlib.util.spec_from_file_location("developer_bot", SCRIPT)
 BOT = importlib.util.module_from_spec(SPEC)
@@ -32,8 +31,7 @@ class DeveloperBotTest(unittest.TestCase):
             ["git", "-C", str(repo), *args],
             check=True,
             env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             text=True,
         ).stdout.strip()
 
@@ -103,15 +101,13 @@ class DeveloperBotTest(unittest.TestCase):
             return Response(json.dumps(next(replies)).encode())
 
         output = io.StringIO()
-        with mock.patch.object(BOT, "load_config", return_value=(123, Path("/unused/key"))), mock.patch.object(BOT, "mint_jwt", return_value="jwt"), mock.patch.object(BOT.HTTP, "open", side_effect=fake_open), redirect_stderr(output):
-            with self.assertRaises(BOT.BotError):
-                BOT.installation_identity()
+        with mock.patch.object(BOT, "load_config", return_value=(123, Path("/unused/key"))), mock.patch.object(BOT, "mint_jwt", return_value="jwt"), mock.patch.object(BOT.HTTP, "open", side_effect=fake_open), redirect_stderr(output), self.assertRaises(BOT.BotError):
+            BOT.installation_identity()
         self.assertNotIn("never-print-this", output.getvalue())
 
     def test_gh_uses_isolated_token_and_has_no_real_binary_fallback(self):
-        with mock.patch.object(BOT.shutil, "which", return_value=None), mock.patch.object(BOT.subprocess, "run") as run:
-            with self.assertRaises(BOT.BotError):
-                BOT.run_gh(["pr", "list"], "secret")
+        with mock.patch.object(BOT.shutil, "which", return_value=None), mock.patch.object(BOT.subprocess, "run") as run, self.assertRaises(BOT.BotError):
+            BOT.run_gh(["pr", "list"], "secret")
         run.assert_not_called()
 
         seen = {}
@@ -172,15 +168,13 @@ class DeveloperBotTest(unittest.TestCase):
         self.assertNotIn("app-token", " ".join(call["args"]))
         self.assertEqual(call["env"]["BSS_DEVELOPER_BOT_TOKEN"], "app-token")
         self.assertEqual(call["env"]["BSS_DEVELOPER_BOT_ASKPASS"], "1")
-        with mock.patch.object(BOT, "require_tool", return_value="/isolated/git"), mock.patch.object(BOT.subprocess, "run", side_effect=fake_run):
-            with self.assertRaises(BOT.BotError):
-                BOT.run_git(["push", "https://evil.example/repo"], "app-token", "bot", "bot@example")
+        with mock.patch.object(BOT, "require_tool", return_value="/isolated/git"), mock.patch.object(BOT.subprocess, "run", side_effect=fake_run), self.assertRaises(BOT.BotError):
+            BOT.run_git(["push", "https://evil.example/repo"], "app-token", "bot", "bot@example")
 
     def test_git_rejects_wrong_repo_and_url_rewrites(self):
         wrong = subprocess.CompletedProcess([], 0, "https://github.com/example/other.git\n", "")
-        with mock.patch.object(BOT, "require_tool", return_value="/isolated/git"), mock.patch.object(BOT.subprocess, "run", return_value=wrong):
-            with self.assertRaises(BOT.BotError):
-                BOT.run_git(["commit", "-m", "message"], "app-token", "bot", "bot@example")
+        with mock.patch.object(BOT, "require_tool", return_value="/isolated/git"), mock.patch.object(BOT.subprocess, "run", return_value=wrong), self.assertRaises(BOT.BotError):
+            BOT.run_git(["commit", "-m", "message"], "app-token", "bot", "bot@example")
 
         def rewritten(args, **kwargs):
             if "remote.origin.url" in args:
@@ -189,9 +183,8 @@ class DeveloperBotTest(unittest.TestCase):
                 return subprocess.CompletedProcess(args, 0, "remote.origin.url\n", "")
             return subprocess.CompletedProcess(args, 0, "https://evil.example/repo.git\n", "")
 
-        with mock.patch.object(BOT, "require_tool", return_value="/isolated/git"), mock.patch.object(BOT.subprocess, "run", side_effect=rewritten):
-            with self.assertRaises(BOT.BotError):
-                BOT.run_git(["push", "HEAD:main"], "app-token", "bot", "bot@example")
+        with mock.patch.object(BOT, "require_tool", return_value="/isolated/git"), mock.patch.object(BOT.subprocess, "run", side_effect=rewritten), self.assertRaises(BOT.BotError):
+            BOT.run_git(["push", "HEAD:main"], "app-token", "bot", "bot@example")
 
     def test_git_commit_forces_bot_identity_for_reuse_amend_and_paths(self):
         bot_name = f"{BOT.APP_SLUG}[bot]"
@@ -242,9 +235,8 @@ class DeveloperBotTest(unittest.TestCase):
         ):
             with self.subTest(key=key), mock.patch.object(BOT, "require_tool", return_value="/isolated/git"), mock.patch.object(
                 BOT.subprocess, "run", side_effect=configured(key)
-            ):
-                with self.assertRaisesRegex(BOT.BotError, "transport overrides"):
-                    BOT.run_git(["push", "HEAD:main"], "app-token", "bot", "bot@example")
+            ), self.assertRaisesRegex(BOT.BotError, "transport overrides"):
+                BOT.run_git(["push", "HEAD:main"], "app-token", "bot", "bot@example")
 
     def test_redirects_and_askpass_are_bound_to_exact_repo(self):
         self.assertIsNone(BOT.NoRedirect().redirect_request(None, None, 302, "Found", {}, "https://evil.example"))
@@ -265,9 +257,8 @@ class DeveloperBotTest(unittest.TestCase):
     def test_missing_config_is_a_clean_failure(self):
         with tempfile.TemporaryDirectory() as directory, mock.patch.dict(
             BOT.os.environ, {"BSS_DEVELOPER_BOT_CONFIG_DIR": directory}, clear=False
-        ):
-            with self.assertRaisesRegex(BOT.BotError, "config file not found"):
-                BOT.load_config()
+        ), self.assertRaisesRegex(BOT.BotError, "config file not found"):
+            BOT.load_config()
 
 
 if __name__ == "__main__":
