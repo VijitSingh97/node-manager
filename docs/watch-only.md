@@ -407,6 +407,38 @@ xpub.
   must be enabled before the first prune. It is not required for the default
   UTXO-set scan.
 
+## Bitcoin balance index (opt-in)
+
+On a pruned node, `bitcoin.utxo_index` (off by default) keeps a local index of
+the coin set, so a watched wallet's balance comes from a lookup instead of a
+`scantxoutset` walk. It starts empty: seed it once with `./stack utxo-seed`, as
+[Operations](operations.md#seeding-the-bitcoin-balance-index) describes. The
+design and its measurements are in
+[ADR 0001](adr/0001-bitcoin-utxo-index.md).
+
+- **When the index answers.** Only while it is `ready` and level with the node
+  tip, and only for a wallet whose scripts it can derive. Every other wallet, and
+  every wallet while the index is seeding, catching up, degraded or invalid,
+  uses the scan above. Each wallet in `/api/watch` reports `balance_source` as
+  `index` or `scan`.
+- **Same limits as the scan.** Confirmed unspent balance only: no transaction
+  history, no spent outputs, no mempool or unconfirmed activity. Indexes 0 to
+  999 of receive and change per descriptor, so a wallet that used a higher index
+  is undercounted, as with the scan. Bitcoin only.
+- **Supported keys.** Addresses and `pkh`, `wpkh`, `sh(wpkh)`, `wsh` and `tr`
+  descriptors, including xpubs that resolve to them. Other shapes, such as
+  `pk()` or `combo()`, keep using the scan.
+- **What is stored.** The `utxo_index` volume holds public chain data: hashed
+  script prefixes, txids, output numbers, amounts and heights. It does not say
+  who owns what. Each wallet's derived scripts are cached in `utxo_scripts.json`
+  in the private state directory (mode 0600), next to the scan cache. Logs carry
+  counts, heights and durations only.
+- **No new network path.** The index reads only from your own bitcoind on the
+  internal network. It calls no external service.
+- **Turning it off.** Set `bitcoin.utxo_index` to false and run `./stack apply`.
+  The scan serves again and the volume is kept; see
+  [Configuration](configuration.md) for removing it.
+
 ## Bitcoin public example and seeding from config.json
 
 Fresh installs start with one public example address disclosed by Binance in
