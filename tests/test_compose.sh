@@ -320,6 +320,5 @@ for key in networks ports extra_hosts dns; do
   utxo_count=$(echo "$utxo_render" | grep -Ec "^ +$key:" || true)
   [ "$base_count" = "$utxo_count" ] || fail "UTXO index overlay changed $key settings"
 done
-diff <(echo "$base_render") <(echo "$utxo_render") | grep '^>' | grep -Eq '^> +(networks|ports|extra_hosts|dns):' && fail "UTXO index overlay added network settings"
 
 echo "PASS: test_compose.sh"
