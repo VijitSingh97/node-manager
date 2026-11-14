@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 import argparse
+import difflib
+import functools
+import io
 import json
+import lzma
 import os
 import re
 import subprocess
+import tarfile
 import tempfile
 import urllib.parse
 import urllib.request
@@ -18,12 +23,16 @@ MONERO_SIGNER = "81AC591FE9C4B65C5806AFC3F0AF4D462A0BDF92"
 USER_AGENT = "node-starter-stack-dependency-updater"
 ALLOWED_HOSTS = {
     "api.github.com",
+    "deb.debian.org",
+    "dl-cdn.alpinelinux.org",
     "github.com",
     "gitlab.com",
     "objects.githubusercontent.com",
     "release-assets.githubusercontent.com",
     "www.getmonero.org",
 }
+ALPINE_ARCHES = ("x86_64", "aarch64")
+DEBIAN_ARCHES = ("amd64", "arm64")
 
 
 class UpdateError(Exception):
@@ -274,33 +283,130 @@ def monero_update(text, get=fetch, verify=verify_monero_checksums):
     return updated
 
 
+def index_versions(text, name_field, version_field):
+    fields = re.compile(rf"^({name_field}|{version_field}): ?(\S+)$", re.MULTILINE)
+    versions = {}
+    for stanza in text.split("\n\n"):
+        values = dict(fields.findall(stanza))
+        if name_field in values and version_field in values:
+            versions.setdefault(values[name_field], set()).add(values[version_field])
+    return versions
+
+
+@functools.cache
+def alpine_index(branch, arch, get=fetch):
+    texts = []
+    for repository in ("main", "community"):
+        data = get(f"https://dl-cdn.alpinelinux.org/alpine/v{branch}/{repository}/{arch}/APKINDEX.tar.gz")
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
+            texts.append(archive.extractfile("APKINDEX").read().decode("utf-8"))
+    return index_versions("\n\n".join(texts), "P", "V")
+
+
+@functools.cache
+def debian_index(codename, arch, get=fetch):
+    texts = [
+        lzma.decompress(get(f"https://deb.debian.org/{archive}/dists/{suite}/main/binary-{arch}/Packages.xz")).decode(
+            "utf-8"
+        )
+        for archive, suite in (
+            ("debian", codename),
+            ("debian", f"{codename}-updates"),
+            ("debian-security", f"{codename}-security"),
+        )
+    ]
+    return index_versions("\n\n".join(texts), "Package", "Version")
+
+
+def debian_part_key(part):
+    return [
+        ([-1 if char == "~" else ord(char) if char.isalpha() else ord(char) + 256 for char in letters] + [0], int(digits or 0))
+        for letters, digits in re.findall(r"([^0-9]*)([0-9]*)", part)
+    ]
+
+
+def debian_version_key(version):
+    epoch, upstream, revision = re.fullmatch(r"(?:([0-9]+):)?(.+?)(?:-([^-]+))?", version).groups()
+    return int(epoch or 0), debian_part_key(upstream), debian_part_key(revision or "")
+
+
+def only_version(versions, name):
+    if len(versions) != 1:
+        raise UpdateError(f"package index lists several {name} versions")
+    return next(iter(versions))
+
+
+def newest_debian_version(versions, _name):
+    return max(versions, key=debian_version_key)
+
+
+def bump_pins(text, command, indexes, pick):
+    def newest(pin):
+        name = pin[2]
+        chosen = set()
+        for index in indexes:
+            if name not in index:
+                raise UpdateError(f"package index has no {name}")
+            chosen.add(pick(index[name], name))
+        if len(chosen) != 1:
+            raise UpdateError(f"architectures disagree on the newest {name}")
+        return f"{pin[1]}{name}={chosen.pop()}"
+
+    def bump(match):
+        updated, pins = re.subn(r"(\s)([a-z0-9][a-z0-9+.-]*)=\S+", newest, match[0])
+        if not pins:
+            raise UpdateError("package install command has no version pins")
+        return updated
+
+    updated, commands = re.subn(command, bump, text)
+    if commands != 1:
+        raise UpdateError("expected exactly one pinned package install command")
+    return updated
+
+
+def alpine_pins_update(text, get=fetch):
+    branch = re.search(r"^FROM alpine:([0-9]+\.[0-9]+)(?:\.[0-9]+)?@sha256:", text, re.MULTILINE)
+    if not branch:
+        raise UpdateError("could not find the Alpine branch")
+    indexes = [alpine_index(branch[1], arch, get) for arch in ALPINE_ARCHES]
+    return bump_pins(text, r"apk add [^\n]*", indexes, only_version)
+
+
+def debian_pins_update(text, get=fetch):
+    codename = re.search(r"^FROM debian:([a-z]+)(?:-slim)?@sha256:", text, re.MULTILINE)
+    if not codename:
+        raise UpdateError("could not find the Debian release")
+    indexes = [debian_index(codename[1], arch, get) for arch in DEBIAN_ARCHES]
+    return bump_pins(text, r"apt-get install [^&\n]*", indexes, newest_debian_version)
+
+
+def changes(old, new):
+    old, new = old.split(), new.split()
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes():
+        if tag != "equal":
+            yield f"{' '.join(old[i1:i2])} -> {' '.join(new[j1:j2])}"
+
+
 def update(path, transform, apply):
     original = path.read_text(encoding="utf-8")
     changed = transform(original)
-    if changed == original:
-        return False
-    if apply:
+    if apply and changed != original:
         path.write_text(changed, encoding="utf-8")
-    return True
+    return list(changes(original, changed))
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Update pinned node release binaries")
+    parser = argparse.ArgumentParser(description="Update pinned node release binaries and OS package pins")
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
-    changed = []
     for relative, transform in (
         ("build/monero/Dockerfile", monero_update),
-        ("build/litecoin/Dockerfile", litecoin_update),
-        ("build/dogecoin/Dockerfile", dogecoin_update),
-        ("build/bitcoincash/Dockerfile", bitcoincash_update),
+        ("build/litecoin/Dockerfile", lambda text: debian_pins_update(litecoin_update(text))),
+        ("build/dogecoin/Dockerfile", lambda text: debian_pins_update(dogecoin_update(text))),
+        ("build/bitcoincash/Dockerfile", lambda text: debian_pins_update(bitcoincash_update(text))),
+        ("build/tor/Dockerfile", alpine_pins_update),
     ):
-        if update(ROOT / relative, transform, args.apply):
-            changed.append(relative)
-    if changed:
-        print(("updated " if args.apply else "updates available for ") + ", ".join(changed))
-        return 0
-    print("node release pins are current")
+        print(f"{relative}: {'; '.join(update(ROOT / relative, transform, args.apply)) or 'current'}")
     return 0
 
 
