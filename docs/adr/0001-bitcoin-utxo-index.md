@@ -26,8 +26,8 @@ Facts, all from the reference node. Rows sourced to the "earlier #216 comment" c
 | Fact | Value | Source |
 | --- | --- | --- |
 | UTXO count | 163,325,604 (`coins_written`); `scantxoutset` saw 163,325,996 | measured, #216 |
-| `scantxoutset` full walk of one script (`raw(6a)`, matches nothing): a single-script baseline and a lower bound for a real wallet scan | 153 s | measured, #216 |
-| Real wallet scan time (a batch of descriptors with range 0-999, thousands of scripts) | not measured. #213 lists #214 to record real scan timings; no result is cited here | unmeasured |
+| `scantxoutset` full walk of one script (`raw(6a)`, matches nothing): a single-script baseline | 153 s | measured, #216 |
+| Real wallet scan time: 2000 scripts (two `wpkh` descriptors with range 0-999, as `pruned_scan.go` builds them, on a public BIP32 test-vector key) | 162 s with the Tari base node running, no RPC block, peak 83 C. Matching thousands of scripts adds about 9 s to the walk | measured, #219 |
 | RPC during `scantxoutset` | not blocked: 0 of 30 probes failed, p50 212 ms | measured, #216 |
 | `dumptxoutset` wall time | 592 s to a file, 613 s to a FIFO | measured, #216 |
 | Dump file size | 9,319,541,901 bytes (8.68 GiB), 57.1 B per coin, mode 0600, uid 1000 | measured, #216 |
@@ -117,12 +117,12 @@ The measurements make the existing path better than the draft assumed.
 
 What the scan path gives today, with no new dependency, disk or restart:
 - A wallet that has been scanned once follows each new block in about a second (measured, #216 read-only comment).
-- A first scan takes at least 153 s (the single-script baseline, measured, #216; the real wallet time is unmeasured) and the baseline does not block RPC (measured, #216). The old worry that every scan stalls the node was wrong.
+- A first scan takes about 162 s for a 2000-script wallet (measured, #219) and does not block RPC (measured, #216). The old worry that every scan stalls the node was wrong.
 - Balances survive restarts through the JSON scan cache.
 - Wallets are scanned in batches, so several wallets cost one walk.
 
 What the full index would still add:
-1. A newly added wallet shows a balance in under 1 s (0.15-0.33 s of lookups, derived) instead of waiting for a scan. The scan takes at least 153 s (the single-script baseline, measured, #216). A real wallet scan tests every UTXO against thousands of scripts, so it is probably longer. Its time is unmeasured.
+1. A newly added wallet shows a balance in under 1 s (0.15-0.33 s of lookups, derived) instead of waiting for a scan. The scan takes about 162 s for a 2000-script wallet (measured, #219); one script takes 153 s, so matching thousands of scripts adds little.
 2. No periodic full scan after a reorg deeper than the cache can follow, after a gap of more than 144 blocks, or after a failed delta.
 
 It adds nothing for wallets already tracked. It adds no history. It does not help unpruned nodes.
@@ -145,9 +145,9 @@ The index's own seed blocks RPC for longer than any scan ever does. Scans are th
 
 | #213 target | Defer (scan path plus #215) | Build the Pebble index, opt-in |
 | --- | --- | --- |
-| Add an already-indexed wallet under 1 s | No. At least 153 s (single-script baseline, measured; real time unmeasured) | Yes. 0.15-0.33 s of lookups (derived), plus derivation time (unmeasured) |
+| Add an already-indexed wallet under 1 s | No. About 162 s for a 2000-script wallet (measured) | Yes. 0.15-0.33 s of lookups (derived), plus derivation time (unmeasured) |
 | Cached read under 100 ms | Reasoned yes: it is a read of the JSON cache. Not benchmarked | Yes (lookups far below 100 ms) |
-| Batch registration | Partly. One scan serves a batch, but each batch costs at least 153 s. Option E queues adds into one scan | Yes |
+| Batch registration | Partly. One scan serves a batch, but each batch costs about 162 s. Option E queues adds into one scan | Yes |
 | Incremental blocks | Yes, #215 (measured) | Yes |
 | Pruned nodes | Yes | Yes |
 | Opt-in, no runtime change on upgrade, scan fallback | Yes | Yes for runtime (overlay). Not for the image: the binary carries Pebble for everyone unless built otherwise (see "Dependency ships to everyone") |
@@ -159,15 +159,15 @@ Only the first row separates the two choices, and only the index meets it. Optio
 **Recommendation: defer the build, and do option E.** Ship #215 plus option E (below). Hold #221-#237 until the owner confirms the first row matters enough.
 
 Reasons:
-- The only target the index uniquely meets is a wallet add that waits for a scan, at least 153 s (a lower bound, single-script baseline), once per new wallet. The real wallet-scan time is unmeasured, so this reason is weaker than it looks. The recommendation rests more on the RPC block, the heat and the dependency than on the 153 s.
+- The only target the index uniquely meets is a wallet add that waits for a scan, about 162 s for a 2000-script wallet (measured, #219), once per new wallet. A wait of under 3 minutes once per wallet, with the node fully usable meanwhile, does not justify the costs below.
 - The scan does not block RPC. The seed does, for about 5 minutes (measured), with an alert and a heat spike on a box that shares thermal budget with other chains.
 - The cost is 11.35 GB of disk, 20.3 GiB at peak, a long-lived subsystem, and 26 modules.
 
 **If the owner builds it,** the design below is the plan. It is opt-in, the Pebble engine, FIFO seeding, a mandatory CPU cap and thermal gate. Every number in it is labelled measured, derived or reasoned. Several items are reasoned (journal size, pause behaviour, the 20% margin).
 
-**Reopen triggers for deferring:** the owner reports adding wallets often enough that the wait hurts; the scan time grows past a few minutes as the UTXO set grows (153 s single-script baseline today at 163.3M); a real wallet scan, measured with a 2000-script `scanobjects` run (range 0-999, as `pruned_scan.go` builds it), takes more than a few minutes; or a second feature needs script lookups. That 2000-script run is the measurement that decides defer versus build, and it comes first.
+**Reopen triggers for deferring:** the owner reports adding wallets often enough that the wait hurts; the wallet scan time grows past a few minutes as the UTXO set grows (162 s for 2000 scripts today at 163.3M UTXOs); or a second feature needs script lookups.
 
-The gate in the earlier draft was "120 s or less: stop; 10 min or more: build; between is the owner's call". The measured 153 s falls in the owner's band, with no RPC stall. But it is a floor: the real wallet scan could land higher, possibly in the build band. That is why the call is the owner's, and why the 2000-script run is the first open item.
+The gate in the earlier draft was "120 s or less: stop; 10 min or more: build; between is the owner's call". The measured 162 s for a 2000-script wallet falls in the owner's band, near its low end, with no RPC stall. That is why the call is the owner's, and why the recommendation is to defer.
 
 ## Options considered
 
@@ -216,7 +216,7 @@ Keep #215's model: store each wallet's scriptPubKey set and outpoints in JSON (`
 
 Improve the wait instead of removing it. Show scan progress or a time estimate for a pending wallet. Queue wallets added while a scan runs and serve them with one scan.
 
-- Pros: no new dependency, disk, volume or seed. Meets "batch registration" fully, because queued adds share one walk. Makes the wait visible, which is where #215 and the 153 s point. Needs no owner decision on Pebble.
+- Pros: no new dependency, disk, volume or seed. Meets "batch registration" fully, because queued adds share one walk. Makes the wait visible, which is where #215 and the measured 162 s point. Needs no owner decision on Pebble.
 - Cons: a new wallet still waits for a full scan. It does not meet "add an indexed wallet under 1 s".
 - #213 rows it improves: batch registration (Partly to Yes) and, as felt latency only, the wallet-add wait. It leaves the other rows unchanged.
 - Status: **recommended with the defer.** Reasoned. Not built or measured. It needs its own issue.
@@ -255,7 +255,7 @@ Lookup is a prefix scan per wallet script. The derived batch cost is 0.15 s at p
 | --- | --- |
 | Pebble index | Derive scripts (RPC, unmeasured), then 0.15-0.33 s of lookups (derived from #217) |
 | SQLite index | Reasoned: similar once built. No measurement |
-| Defer / watch-list JSON | A full `scantxoutset`: at least 153 s (single-script baseline, measured, #216; real time unmeasured), no RPC stall. The wallet shows pending meanwhile |
+| Defer / watch-list JSON | A full `scantxoutset`: about 162 s for 2000 scripts (measured, #219), no RPC stall. The wallet shows pending meanwhile |
 | Separate service | Same as Pebble plus a local network hop |
 
 ### 3. Opt-in mechanism and upgrade behavior
@@ -371,7 +371,7 @@ Rejected: dumping into the datadir (the dashboard cannot delete it, and it eats 
 
 If deferred (recommended):
 - No new dependency (so no image growth), disk, volume, restart or node stall.
-- A newly added wallet waits for a scan: at least 153 s (single-script baseline, measured; the real time is unmeasured). Option E makes that wait visible and batches queued adds. Everything else stays as #215 shipped it.
+- A newly added wallet waits for a scan: about 162 s for a 2000-script wallet (measured). Option E makes that wait visible and batches queued adds. Everything else stays as #215 shipped it.
 - The design and measurements stay on record, so building later does not start from zero.
 
 If built:
@@ -386,7 +386,6 @@ Everything measured is recorded above. What remains:
 | Item | Needed when | What it decides | Owner |
 | --- | --- | --- | --- |
 | Defer or build | now | Whether #221-#237 start. Recommendation: defer, with option E | Owner |
-| Real wallet scan time: a 2000-script `scanobjects` run with range 0-999 (or the production scan log, or #214 if it has results) | now | Whether the 153 s floor is the real cost. Decides defer versus build | Owner or #214 |
 | Option E: progress UI and queued-add batching | with the defer | Needs its own issue | none yet |
 
 Only if the owner builds:
