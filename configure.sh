@@ -82,6 +82,7 @@ litecoin_enabled=$(flag '.litecoin.enabled')
 litecoin_active=$(jq -r 'if ((.litecoin // {}) | has("active")) then if .litecoin.active == true then 1 else 0 end else 1 end' <<<"$config")
 dogecoin_enabled=$(flag '.dogecoin.enabled')
 dogecoin_active=$(jq -r 'if ((.dogecoin // {}) | has("active")) then if .dogecoin.active == true then 1 else 0 end else 1 end' <<<"$config")
+dogecoin_watch_wallet=$(flag '.dogecoin.watch_wallet')
 bitcoincash_enabled=$(flag '.bitcoincash.enabled')
 bitcoincash_active=$(jq -r 'if ((.bitcoincash // {}) | has("active")) then if .bitcoincash.active == true then 1 else 0 end else 1 end' <<<"$config")
 zcash_enabled=$(flag '.zcash.enabled')
@@ -577,8 +578,13 @@ case "$tari_pruning_horizon" in '' | 0 | *[!0-9]*) echo "tari.pruning_horizon mu
 for prune_config in "litecoin:$litecoin_prune:550" "dogecoin:$dogecoin_prune:2200" "bitcoincash:$bitcoincash_prune:550"; do
   IFS=: read -r node value minimum <<<"$prune_config"
   case "$value" in '' | *[!0-9]*) echo "$node.prune_mb must be a whole number of at least $minimum."; exit 1 ;; esac
+  [ "$node:$value" = "dogecoin:0" ] && continue
   [ "$value" -ge "$minimum" ] || { echo "$node.prune_mb must be at least $minimum."; exit 1; }
 done
+if [ "$dogecoin_watch_wallet" = "1" ] && [ "$dogecoin_prune" != "0" ]; then
+  echo "dogecoin.watch_wallet needs an archival node: set dogecoin.prune_mb to 0 (Dogecoin cannot rescan a pruned chain)."
+  exit 1
+fi
 if [ "$monero_rpc_expose" = "1" ]; then
   [ -n "$monero_rpc_bind_ip" ] || { echo "monero.rpc_bind_ip is required when monero.rpc_expose is true."; exit 1; }
   check_bind_ip monero.rpc_bind_ip "$monero_rpc_bind_ip" 0
@@ -746,6 +752,15 @@ if [ "$zcash_address_index" = "1" ] && { [ "$zcash_dir_used" = 1 ] || { [ "$prev
   exit 1
 fi
 
+prev_dogecoin_enabled=$(sed -n 's/^DOGECOIN_ENABLED=//p' "$env_file" 2>/dev/null || true)
+prev_dogecoin_prune=$(sed -n 's/^DOGECOIN_PRUNE=//p' "$env_file" 2>/dev/null || true)
+prev_dogecoin_dir=$(sed -n 's/^DOGECOIN_DATA_DIR=//p' "$env_file" 2>/dev/null || true)
+if [ "$dogecoin_prune" = "0" ] && [ "$prev_dogecoin_enabled" = "1" ] && [ -n "$prev_dogecoin_prune" ] && [ "$prev_dogecoin_prune" != "0" ] && [ "$prev_dogecoin_dir" = "$dogecoin_data_dir" ]; then
+  echo "The previous configuration shows Dogecoin running pruned, and a pruned node cannot become archival or rescan for a"
+  echo "watch-only wallet. Point dogecoin.data_dir at a fresh directory to download the full chain with dogecoin.prune_mb set to 0."
+  exit 1
+fi
+
 if [ "${BITCOIN_STACK_VALIDATE_ONLY:-0}" = 1 ]; then
   exit 0
 fi
@@ -882,6 +897,7 @@ DOGECOIN_RPC_USER=$dogecoin_rpc_user
 DOGECOIN_RPC_PASSWORD=$dogecoin_rpc_password
 DOGECOIN_DATA_DIR=$dogecoin_data_dir
 DOGECOIN_PRUNE=$dogecoin_prune
+DOGECOIN_WATCH_WALLET=$dogecoin_watch_wallet
 DOGECOIN_RPC_EXPOSE=$dogecoin_rpc_expose
 DOGECOIN_RPC_BIND_IP=$dogecoin_rpc_bind_ip
 DOGECOIN_RPC_PORT=$dogecoin_rpc_port

@@ -44,6 +44,12 @@ test("editing requires a supported active node and trusted configuration access"
   assert.equal(familyAccessView({ supported: true, enabled: true, active: true, has_password: false, can_configure: true }, "litecoin").canEdit, true);
   assert.match(familyAccessView({ supported: true, enabled: true, active: true, has_password: false }, "litecoin").status, /trusted LAN/);
   assert.equal(familyAccessView({ supported: false, reason: "Dogecoin scanner details." }, "dogecoin").status, "Dogecoin scanner details.");
+  assert.equal(familyAccessView({ supported: false, reason: "Dogecoin scanner details." }, "dogecoin").canEdit, false);
+  assert.equal(familyAccessView({ supported: true, enabled: true, active: true, has_password: true }, "dogecoin").canEdit, true);
+  const doge = familyRow({ state: "ok", amount: "150000000000.12345678" }, "dogecoin");
+  assert.equal(`${doge.amount} ${doge.unit}`, "150,000,000,000.12345678 DOGE");
+  assert.equal(doge.fiatAsset, "dogecoin");
+  assert.equal(familyRow({ state: "rescanning" }, "dogecoin").stateText, "Rescanning the chain; this can take hours…");
   assert.equal(familyAccessView({ supported: false, reason: "Zcash scanner details." }, "zcash").status, "Zcash scanner details.");
   assert.equal(familyAccessView({ supported: true, enabled: true, active: true, has_password: true }, "zcash").canEdit, true);
   assert.equal(familyRow({ state: "ok", amount: "1.50000000" }, "zcash").unit, "ZEC");

@@ -67,6 +67,7 @@
         "node_username": "admin",
         "data_dir": "./data/dogecoin",
         "prune_mb": 10000,
+        "watch_wallet": false,
         "resource_profile": "off",
         "steady_cpus": 1,
         "steady_mem_limit_mb": 4096,

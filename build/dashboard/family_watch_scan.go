@@ -76,6 +76,10 @@ func (m *familyWatchManager) scanNode(parent context.Context, id string, store *
 		}
 		started := time.Now()
 		result, outcome := store.backend.scan(ctx, store, wallet.Address, tip)
+		if outcome == "rescanning" {
+			store.markRescanning(wallet.ID)
+			continue
+		}
 		if outcome != "ok" {
 			store.markFailed(wallet.ID)
 			m.logScan(id, outcome, started)
@@ -109,7 +113,7 @@ func (s *familyWatchStore) walletsDue(now int64) []familyWatchEntry {
 	for _, wallet := range s.wallets {
 		balance, cached := s.balances[wallet.ID]
 		state := s.states[wallet.ID]
-		if !cached || state == "error" || state == "stale" || balance.ScanTime > now || now-balance.ScanTime >= int64(familyWatchInterval/time.Second) {
+		if !cached || state == "error" || state == "stale" || state == "rescanning" || balance.ScanTime > now || now-balance.ScanTime >= int64(familyWatchInterval/time.Second) {
 			wallets = append(wallets, wallet)
 		}
 	}
@@ -122,6 +126,8 @@ func (s *familyWatchStore) markWaiting() {
 	for _, wallet := range s.wallets {
 		if _, ok := s.balances[wallet.ID]; ok {
 			s.states[wallet.ID] = "stale"
+		} else if s.importing != "" {
+			s.states[wallet.ID] = "rescanning"
 		} else {
 			s.states[wallet.ID] = "waiting"
 		}
@@ -159,4 +165,10 @@ func (s *familyWatchStore) record(id, amount string, height int64, bestBlock str
 		}
 		return
 	}
+}
+
+func (s *familyWatchStore) markRescanning(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.states[id] = "rescanning"
 }

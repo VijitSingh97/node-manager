@@ -77,6 +77,8 @@ type familyWatchStore struct {
 	rpc        *rpcClient
 	maxSupply  uint64
 	backend    familyWatchBackend
+	importing  string
+	logf       func(format string, args ...any)
 }
 
 type familyWatchManager struct {
@@ -92,11 +94,17 @@ func newFamilyWatchManager(a *app) *familyWatchManager {
 			rosterPath: filepath.Join(a.cfg.stateDir, "family_watch_"+id+".json"), cachePath: filepath.Join(a.cfg.stateDir, "family_watch_"+id+"_cache.json"),
 			balances: make(map[string]familyWatchBalance), states: make(map[string]string), trigger: make(chan struct{}, 1), now: time.Now,
 			rpc:       &rpcClient{url: node.RPCURL, user: node.RPCUser, password: node.RPCPassword, client: &http.Client{Timeout: familyWatchRPCTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}},
-			maxSupply: 21_000_000 * 100_000_000, backend: utxoFamilyWatchBackend(false),
+			maxSupply: 21_000_000 * 100_000_000, backend: utxoFamilyWatchBackend(false), logf: func(format string, args ...any) {
+				if a.log != nil {
+					a.log.Printf(format, args...)
+				}
+			},
 		}
 		switch id {
 		case nodeLitecoin:
 			store.maxSupply, store.backend = 84_000_000*100_000_000, utxoFamilyWatchBackend(true)
+		case nodeDogecoin:
+			store.maxSupply, store.backend = dogecoinMaxSupply, dogecoinFamilyWatchBackend()
 		case nodeZcash:
 			store.rpc.user, store.rpc.password, store.rpc.cookiePath = "", "", node.RPCCookiePath
 			store.backend = zcashFamilyWatchBackend()

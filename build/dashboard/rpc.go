@@ -28,6 +28,10 @@ type rpcResponse struct {
 	Error  json.RawMessage `json:"error"`
 }
 
+type rpcNoResultError struct{ method string }
+
+func (e rpcNoResultError) Error() string { return fmt.Sprintf("RPC %s returned no result", e.method) }
+
 func (r *rpcClient) call(ctx context.Context, method string, params any, out any) error {
 	if params == nil {
 		params = []any{}
@@ -84,7 +88,7 @@ func (r *rpcClient) call(ctx context.Context, method string, params any, out any
 		return fmt.Errorf("RPC %s returned an error: %s", method, detail.Message)
 	}
 	if len(envelope.Result) == 0 || string(envelope.Result) == "null" {
-		return fmt.Errorf("RPC %s returned no result", method)
+		return rpcNoResultError{method}
 	}
 	if err := json.Unmarshal(envelope.Result, out); err != nil {
 		return fmt.Errorf("decode RPC %s result: %w", method, err)

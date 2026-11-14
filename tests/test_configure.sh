@@ -376,6 +376,40 @@ zcash_config false true ./data/zcash
 (cd "$zc" && ./configure.sh) >/dev/null 2>&1 || fail "address_index with Zcash disabled was refused"
 rm -rf "$zc"
 
+# dogecoin.watch_wallet: off by default, needs prune_mb 0, refused on a database that ran pruned
+dg="$tmp/dogecoin"
+mkdir -p "$dg"
+cp configure.sh "$dg/"
+dogecoin_config() { printf '{"dashboard":{"password":"configuretest12"},"dogecoin":{"enabled":true,"watch_wallet":%s,"prune_mb":%s,"data_dir":"%s"}}\n' "$1" "$2" "$3" >"$dg/config.json"; }
+dogecoin_config false 10000 ./data/dogecoin
+(cd "$dg" && ./configure.sh) >/dev/null || fail "Dogecoin default configure failed"
+grep -q '^DOGECOIN_WATCH_WALLET=0$' "$dg/.env" || fail "watch_wallet did not default to 0"
+grep -q '^DOGECOIN_PRUNE=10000$' "$dg/.env" || fail "Dogecoin default prune changed"
+dogecoin_config true 10000 ./data/dogecoin-fresh
+(cd "$dg" && ./configure.sh) >/dev/null 2>&1 && fail "watch_wallet was accepted with a pruned node"
+dogecoin_config true 10000 ./data/dogecoin
+(cd "$dg" && ./configure.sh) >/dev/null 2>&1 && fail "watch_wallet was accepted with prune_mb above 0"
+dogecoin_config true 0 ./data/dogecoin
+(cd "$dg" && ./configure.sh) >/dev/null 2>&1 && fail "archival watch_wallet was accepted on a database that ran pruned"
+dogecoin_config false 0 ./data/dogecoin
+(cd "$dg" && ./configure.sh) >/dev/null 2>&1 && fail "archival mode was accepted on a database that ran pruned"
+grep -q '^DOGECOIN_PRUNE=10000$' "$dg/.env" || fail "refused archival mode changed the existing .env"
+dogecoin_config true 0 ./data/dogecoin-fresh
+(cd "$dg" && ./configure.sh) >/dev/null 2>&1 || fail "archival watch_wallet was refused with a fresh data directory"
+grep -q '^DOGECOIN_WATCH_WALLET=1$' "$dg/.env" || fail "watch_wallet=true not rendered as 1"
+grep -q '^DOGECOIN_PRUNE=0$' "$dg/.env" || fail "archival prune not rendered as 0"
+(cd "$dg" && ./configure.sh) >/dev/null 2>&1 || fail "re-run with watch_wallet already on was refused"
+dogecoin_config false 0 ./data/dogecoin-fresh
+(cd "$dg" && ./configure.sh) >/dev/null 2>&1 || fail "archival node without the wallet was refused"
+dogecoin_config false 100 ./data/dogecoin-fresh
+(cd "$dg" && ./configure.sh) >/dev/null 2>&1 && fail "a tiny non-zero Dogecoin prune_mb was accepted"
+rm -rf "$dg"
+mkdir -p "$dg"
+cp configure.sh "$dg/"
+dogecoin_config true 0 ./data/dogecoin
+(cd "$dg" && ./configure.sh) >/dev/null 2>&1 || fail "archival watch_wallet was refused on a first run"
+rm -rf "$dg"
+
 # Legacy false is harmless, but true is rejected before the existing .env changes.
 cat >"$tmp/config.json" <<'EOF'
 {"bitcoin": {"sync_over_clearnet": true}}

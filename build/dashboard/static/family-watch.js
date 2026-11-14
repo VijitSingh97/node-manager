@@ -2,10 +2,10 @@ import { dashboardFetch as fetch } from "./session.js";
 import { bigSeries, formatAmount, httpsURL, joinNote, scanNote } from "./wallet-format.js";
 import { el, managerRow, renderWalletList, safeLink } from "./wallet-ui.js";
 
-const SUPPORTED = new Set(["litecoin", "bitcoincash", "zcash"]);
+const SUPPORTED = new Set(["litecoin", "dogecoin", "bitcoincash", "zcash"]);
 const LABELS = { tari: "Tari", litecoin: "Litecoin", dogecoin: "Dogecoin", bitcoincash: "Bitcoin Cash", zcash: "Zcash" };
-const UNITS = { litecoin: "LTC", bitcoincash: "BCH", zcash: "ZEC" };
-const PRICE_ASSETS = { litecoin: "litecoin", bitcoincash: "bitcoin-cash", zcash: "zcash" };
+const UNITS = { litecoin: "LTC", dogecoin: "DOGE", bitcoincash: "BCH", zcash: "ZEC" };
+const PRICE_ASSETS = { litecoin: "litecoin", dogecoin: "dogecoin", bitcoincash: "bitcoin-cash", zcash: "zcash" };
 const HEADERS = { "X-Requested-With": "fetch" };
 
 export function familyAmount(value) {
@@ -20,6 +20,7 @@ export function familyRow(wallet, node) {
   const shown = (ready || stale) && Boolean(amount);
   let stateText = "Scanning for confirmed funds…";
   if (state === "waiting" || state === "waiting_sync") stateText = "Waiting for node sync…";
+  else if (state === "rescanning") stateText = "Rescanning the chain; this can take hours…";
   else if (ready || stale) stateText = "Balance unavailable";
   else if (state === "error") stateText = "Scan failed";
   else if (state === "unavailable") stateText = "Unavailable";

@@ -27,6 +27,9 @@ type familyWatchBackend struct {
 
 func (a *app) familyWatchNodes() []string {
 	ids := []string{nodeLitecoin, nodeBitcoinCash}
+	if a.cfg.dogecoinWatchWallet {
+		ids = append(ids, nodeDogecoin)
+	}
 	if a.cfg.zcashAddressIndex {
 		ids = append(ids, nodeZcash)
 	}

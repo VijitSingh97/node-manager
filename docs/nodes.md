@@ -90,7 +90,7 @@ Wallet capabilities differ by chain:
 | Monero | Primary address plus private view key, with optional signed key images. Without complete key images, the amount is received-only rather than a verified current balance. |
 | Litecoin | Address-only confirmed UTXO snapshots from the local node. |
 | Bitcoin Cash | Address-only confirmed UTXO snapshots from the local node. |
-| Dogecoin | **Wallet balance not available.** The current pruned daemon cannot discover an arbitrary address balance. No public reference address is shown. |
+| Dogecoin | **Wallet balance not available** by default: the pruned daemon cannot discover an arbitrary address balance. With the opt-in `dogecoin.watch_wallet` (archival node, fresh unpruned sync, hours-long rescans, disk not yet measured here), public addresses are read from the local node's watch-only wallet and the Dogecoin Foundation address is shown as an example. |
 | Zcash / Zakura | **Wallet balance not available** by default: Zakura's checkpoint-pruned mode does not retain the address index. With the opt-in `zcash.address_index` (fresh resync, slower and less secure upstream, disk not yet measured), transparent `t1`/`t3` addresses are read from the local node and the Zcash Community Grants address is shown as an example. |
 | Tari | One native view-only wallet using a public spend key, private view key, and optional `YYYY-MM-DD` birthday. Blank birthday scans from genesis. No seed or private spend key is accepted. |
 
@@ -100,7 +100,8 @@ Bitcoin Cash Node. Source installs may also seed a public Binance Bitcoin
 address; pruned APT and Homebrew installs default to no Bitcoin example. Public
 examples are excluded from personal totals. Tari has no example, because no organisation publishes a Tari view key, and accepts one
 imported view-only wallet. Zcash adds the Zcash Community Grants example only with
-`zcash.address_index`. Dogecoin has neither wallet lookup nor an example.
+`zcash.address_index`, and Dogecoin adds the Dogecoin Foundation example only with
+`dogecoin.watch_wallet`.
 
 Litecoin and Bitcoin Cash use their native `scantxoutset` RPC after sync. The
 dashboard caches the confirmed result for an hour and records balance snapshots;

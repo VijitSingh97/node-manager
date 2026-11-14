@@ -14,7 +14,10 @@ func (a *app) familyWatchCapability(id string) (bool, string) {
 	case nodeLitecoin, nodeBitcoinCash:
 		return true, ""
 	case nodeDogecoin:
-		return false, "Dogecoin Core 1.14 has no pruned-compatible UTXO set address scan."
+		if a.cfg.dogecoinWatchWallet {
+			return true, ""
+		}
+		return false, "Dogecoin Core 1.14 has no pruned-compatible UTXO set address scan; set dogecoin.watch_wallet on an archival node."
 	case nodeZcash:
 		if a.cfg.zcashAddressIndex {
 			return true, ""
