@@ -22,9 +22,14 @@ All notable changes to this project are documented here. Format follows
   `getbestblockhash` every 10 seconds, fetches each missing block with
   `getblock` verbosity 3 and applies it in order, from an empty store or from an
   older tip. It stops with a reported error on a missing prevout, a missing coin
-  or a non-contiguous block, retries after node or network errors, and stops in a "reorg detected"
-  state when the stored tip leaves the active chain. It is not wired into the
-  dashboard, so runtime behavior is unchanged.
+  or a non-contiguous block and retries after node or network errors.
+- The internal UTXO index tip follower now survives reorgs: when the stored tip
+  leaves the active chain it rolls back through its per-block undo records
+  (144 blocks deep) to the common ancestor and applies the new branch in the
+  same step. A fork older than the journal or at or below the snapshot base
+  latches the follower in the error state with a reorg-too-deep reason; a node
+  further behind the index than the journal (for example while reindexing) is
+  retried, not treated as a reorg.
 - The dashboard has an internal resolver that turns watch-only keys (address,
   xpub family, descriptors) into the sorted, deduplicated scriptPubKey set for
   indexes 0 to 999 of receive and change. Wallets resolve in batches of 20
@@ -40,6 +45,18 @@ All notable changes to this project are documented here. Format follows
   undo record. The index is not served until ingest finishes, and a restart
   after an interruption discards it. Nothing calls it yet, so runtime behavior
   is unchanged.
+- With the `bitcoin.utxo_index` overlay enabled, the dashboard now opens the
+  UTXO index at `UTXO_INDEX_DIR` (created 0700) and follows the node tip, and
+  `GET /api/utxo-index` reports `off`, `not_seeded`, `seeding`, `catching_up`,
+  `ready`, `degraded` or `invalid` with the index and node heights. It resumes
+  from the stored tip after a restart, pauses below 2 GB free, and goes
+  `invalid` (persisted, never migrated or reseeded automatically) on a format
+  or chain mismatch, a reorg deeper than the 144-block undo journal, falling
+  behind the node's retained blocks, or a storage error; shallower reorgs are
+  rolled back, and it reports `catching_up` meanwhile and while the node is not
+  answering. The JSON fields are listed in `docs/operations.md`. Each state change is logged once. There is no
+  seed trigger yet, so an enabled index stays `not_seeded`; without the
+  overlay nothing is opened and the endpoint answers `off`.
 - Opt-in `bitcoin.utxo_index` setting that adds the
   `docker-compose.utxo-index.yml` overlay: a `utxo_index` volume and a 1g
   memory limit with 0.5 CPU on the dashboard. It is off by default, so

@@ -216,6 +216,14 @@ first — a live copy of `chainstate/` is corrupt by construction.
 - **Fee sparkline:** the dashboard samples the next-block fee once a minute
   into an in-memory 24-hour series (reset on restart) and draws it under the
   fee row. Served as JSON at `/api/fees` behind the same authentication.
+- **Bitcoin balance index:** with `bitcoin.utxo_index` enabled,
+  `/api/utxo-index` returns JSON behind the same authentication: `enabled`,
+  `state` (`off`, `not_seeded`, `seeding`, `catching_up`, `ready`, `degraded`
+  or `invalid`), `reason`, `index_tip_height`, `node_tip_height`,
+  `blocks_behind` and `seed_progress` (0 to 1). Heights and `blocks_behind`
+  are `null` until the index has a tip and the node has answered once;
+  `seed_progress` is `null` unless a seed is running. `ready` means the index
+  is valid, idle and within 2 blocks of the node tip.
 
 ## Self-healing (a deliberate non-feature)
 
