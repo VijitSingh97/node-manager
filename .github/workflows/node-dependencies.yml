@@ -2,7 +2,7 @@ name: Node dependency updates
 
 on:
   schedule:
-    - cron: "17 9 * * 1"
+    - cron: "17 9 * * *"
   workflow_dispatch:
 
 permissions:
@@ -41,7 +41,7 @@ jobs:
           count=$(tools/developer-bot.py gh pr list --state open --search 'in:title Update node dependencies' --json number --jq length)
           test "$count" = 0 || echo "skip=true" >>"$GITHUB_OUTPUT"
 
-      - name: Update release pins
+      - name: Update release and package pins
         if: steps.existing.outputs.skip != 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -50,12 +50,12 @@ jobs:
       - name: Open update pull request
         if: steps.existing.outputs.skip != 'true'
         run: |
-          git diff --quiet -- build/monero/Dockerfile build/litecoin/Dockerfile build/dogecoin/Dockerfile build/bitcoincash/Dockerfile && exit 0
+          git diff --quiet -- 'build/*/Dockerfile' && exit 0
           branch="automation/node-dependencies-${GITHUB_RUN_ID}"
           git switch -c "$branch"
-          git add build/monero/Dockerfile build/litecoin/Dockerfile build/dogecoin/Dockerfile build/bitcoincash/Dockerfile
+          git add 'build/*/Dockerfile'
           tools/developer-bot.py git commit -m 'Update node dependencies'
           tools/developer-bot.py git push "HEAD:$branch"
           body="$RUNNER_TEMP/node-dependencies.md"
-          printf '%s\n' 'Updates stable Monero, Litecoin, Dogecoin, and Bitcoin Cash node binaries and their verified SHA-256 pins. Direct node images remain monitored by Dependabot.' >"$body"
+          printf '%s\n' 'Updates stable Monero, Litecoin, Dogecoin, and Bitcoin Cash node binaries and their verified SHA-256 pins, plus the exact Alpine and Debian package pins in the Tor and node images. Direct node images remain monitored by Dependabot.' >"$body"
           tools/developer-bot.py gh pr create --base main --head "$branch" --title 'Update node dependencies' --body-file "$body"
