@@ -23,6 +23,13 @@ All notable changes to this project are documented here. Format follows
   store broken until it is reopened. Nothing opens it yet, so runtime
   behavior is unchanged; the dashboard binary grows by about 5.5 MB and
   `THIRD_PARTY_NOTICES` gains the new modules.
+- The internal UTXO index store gains a tip follower that polls
+  `getbestblockhash` every 10 seconds, fetches each missing block with
+  `getblock` verbosity 3 and applies it in order, from an empty store or from an
+  older tip. It stops with a reported error on a missing prevout, a missing coin
+  or a non-contiguous block, retries after node or network errors, and stops in a "reorg detected"
+  state when the stored tip leaves the active chain. It is not wired into the
+  dashboard, so runtime behavior is unchanged.
 
 ### Changed
 
