@@ -132,6 +132,13 @@ test("totalLabel does not show a partial balance while wallets are unresolved", 
   assert.equal(totalLabel({ total: "2" }), "2 BTC");
 });
 
+test("an index row says so in its status and a scan row does not", () => {
+  const base = { name: "Ledger", state: "ok", btc: "1", balance_kind: "confirmed", scan_time: "2026-11-13T19:44:31Z" };
+  assert.match(btcRow({ ...base, balance_source: "index" }).status, /^From the balance index · Scanned /);
+  assert.equal(btcRow({ ...base, balance_source: "scan" }).status, scanNote(base));
+  assert.equal(btcRow({ ...base, balance_source: "index", scan_time: "bad" }).status, "From the balance index");
+});
+
 test("Bitcoin rows match the shared row model exactly", () => {
   const ledger = btcRow({ name: "Ledger SegWit", state: "ok", btc: "0.3484765", balance_kind: "confirmed", scan_time: "2026-11-13T19:44:31Z" });
   assert.equal(ledger.amount, "0.3484765");

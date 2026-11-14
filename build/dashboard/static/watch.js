@@ -1,5 +1,5 @@
 import { dashboardFetch as fetch } from "./session.js";
-import { formatAmount, scanNote as scannedAt } from "./wallet-format.js";
+import { formatAmount, joinNote, scanNote as scannedAt } from "./wallet-format.js";
 import { el, managerRow, renderWalletList } from "./wallet-ui.js";
 
 const CSRF = { "X-Requested-With": "fetch" }; // blocks cross-site form posts
@@ -24,7 +24,8 @@ export function totalLabel(view) {
 }
 
 export function scanNote(w) {
-  return w.balance_kind === "confirmed" ? scannedAt(w.scan_time) : "";
+  const scanned = w.balance_kind === "confirmed" ? scannedAt(w.scan_time) : "";
+  return w.balance_source === "index" ? joinNote(["From the balance index", scanned]) : scanned;
 }
 
 export function btcRow(w) {

@@ -129,6 +129,23 @@ func utxoMgrNew(t testing.TB, dir string, fs vfs.FS, node utxoRPC, logs io.Write
 
 func utxoMgrState(m *utxoManager) string { return m.Status().State }
 
+func TestUtxoSeedPhaseChangeIsLoggedOnce(t *testing.T) {
+	logs := &bytes.Buffer{}
+	m := utxoMgrNew(t, t.TempDir(), nil, newFakeUtxoNode(utxoMgrChain(10, "b")), logs)
+	if err := m.startSeed(); err != nil {
+		t.Fatal(err)
+	}
+	m.setSeedPhase(utxoPhaseImporting)
+	m.setSeedPhase(utxoPhaseImporting)
+	m.setSeedPhase(utxoPhaseMerging)
+	if got := strings.Count(logs.String(), "utxo index: seed phase=importing\n"); got != 1 {
+		t.Fatalf("importing logged %d times: %q", got, logs.String())
+	}
+	if !strings.Contains(logs.String(), "utxo index: seed phase=merging\n") {
+		t.Fatalf("merging not logged: %q", logs.String())
+	}
+}
+
 func TestUtxoManagerStateMachine(t *testing.T) {
 	ctx := context.Background()
 	c := utxoMgrChain(10, "b")
