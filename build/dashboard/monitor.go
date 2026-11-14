@@ -82,9 +82,9 @@ type Monitor struct {
 	client         *http.Client
 	freshTorClient func() *http.Client
 	now            func() time.Time
-	diskFreeGB func(string) (float64, error)
-	output     io.Writer
-	tickEvery  time.Duration
+	diskFreeGB     func(string) (float64, error)
+	output         io.Writer
+	tickEvery      time.Duration
 
 	state          monitorState
 	moneroState    monitorState

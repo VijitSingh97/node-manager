@@ -3,10 +3,9 @@ import json
 import re
 import tempfile
 import unittest
-from unittest import mock
 import urllib.request
 from pathlib import Path
-
+from unittest import mock
 
 ROOT = Path(__file__).parents[1]
 SPEC = importlib.util.spec_from_file_location("node_dependencies", ROOT / "tools/update-node-dependencies.py")

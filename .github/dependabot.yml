@@ -35,6 +35,11 @@ updates:
     schedule:
       interval: weekly
 
+  - package-ecosystem: docker
+    directory: /.github/linters
+    schedule:
+      interval: weekly
+
   - package-ecosystem: gomod
     directory: /build/tari-wallet
     schedule:

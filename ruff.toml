@@ -1,0 +1,8 @@
+# Host tools and their tests run on macOS's system Python 3.9.
+target-version = "py39"
+extend-exclude = ["experiments"]
+src = [".", "build/dashboard/parity/reference"]
+
+[lint.per-file-ignores]
+# The parity reference mirrors the released dashboard, which never lets one failed probe stop the monitor.
+"build/dashboard/parity/**" = ["BLE001"]

@@ -1,18 +1,19 @@
 import hmac
+import json
 import os
 import re
 import shutil
 import threading
-import requests
-import json
-from flask import Flask, render_template_string, request, Response, jsonify
 from datetime import datetime
+
+import requests
+from flask import Flask, Response, jsonify, render_template_string, request
 from waitress import serve
 
-import monitor
-import fee_history
-import watch
 import balance_history
+import fee_history
+import monitor
+import watch
 
 app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), "..", "..", "static"))
 # Revalidate static assets every load (cheap 304s) so a deploy's new CSS/JS is
@@ -166,7 +167,7 @@ def metrics():
         network = get_rpc_data("getnetworkinfo") or {}
         peers = get_rpc_data("getpeerinfo") or []
         inbound = sum(1 for p in peers if isinstance(p, dict) and p.get("inbound"))
-        total, used, free = shutil.disk_usage(BITCOIN_DIR)
+        _total, _used, free = shutil.disk_usage(BITCOIN_DIR)
         m("bitcoin_node_up", 1)
         m("bitcoin_blocks", blockchain.get("blocks", 0))
         m("bitcoin_headers", blockchain.get("headers", 0))
@@ -314,7 +315,7 @@ def index():
     
     # Calculate Disk
     node_bytes = blockchain.get("size_on_disk", 0)
-    total, used, free = shutil.disk_usage(BITCOIN_DIR)
+    total, _used, free = shutil.disk_usage(BITCOIN_DIR)
     free_gb = round(free / (1024**3), 2)
     last_update = datetime.now().strftime("%H:%M:%S")
 

@@ -3,7 +3,6 @@ import json
 
 import watch
 
-
 # --- base58check (the foundation the xpub conversion rests on) ---
 
 def test_b58_decode_known_address():

@@ -9,7 +9,6 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 BITCOINCASH_SIGNER = "D465135F97D0047E18E99DC321810A542031C02C"
 DOGECOIN_SIGNER = "DC6EF4A8BF9F1B1E4DE1EE522D3A345B98D0DC1F"
@@ -106,6 +105,7 @@ def verify_signed_checksums(data, key, signer, project):
             ["gpg", "--batch", "--homedir", str(home), "--import", str(key)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            check=False,
         )
         if imported.returncode:
             raise UpdateError(f"could not import the pinned {project} release key")
@@ -114,6 +114,7 @@ def verify_signed_checksums(data, key, signer, project):
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
+            check=False,
         )
     valid = [line.split()[2] for line in checked.stdout.splitlines() if line.startswith("[GNUPG:] VALIDSIG ")]
     if checked.returncode or valid != [signer]:
@@ -218,7 +219,7 @@ def dogecoin_update(text, get=fetch, verify=verify_dogecoin_checksums):
 
 
 def bitcoincash_update(text, get=fetch, verify=verify_bitcoincash_checksums):
-    release, version = stable_release(releases("bitcoin-cash-node/bitcoin-cash-node", get))
+    _release, version = stable_release(releases("bitcoin-cash-node/bitcoin-cash-node", get))
     sums_url = (
         "https://gitlab.com/bitcoin-cash-node/announcements/-/raw/master/"
         f"release-sigs/{version}/SHA256SUMS.{version}.asc.Calin_Culianu"

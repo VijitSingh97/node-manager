@@ -10,8 +10,8 @@ cd node-manager
 pip install -r build/dashboard/parity/reference/requirements.txt pytest
 ```
 
-Go 1.27, `shellcheck`, and Docker are needed for the full test suite
-(`sudo apt install shellcheck` / `brew install shellcheck`).
+Go 1.27 and Docker are needed for the full test suite. Lint tools run from
+digest-pinned images, so nothing else needs installing.
 
 ## Running tests
 
@@ -19,7 +19,8 @@ Go 1.27, `shellcheck`, and Docker are needed for the full test suite
 tests/run.sh
 ```
 
-That runs shellcheck, the `configure.sh` end-to-end test, the
+That runs [scripts/lint.sh](scripts/lint.sh) (shellcheck, hadolint, ruff,
+actionlint, gofmt), the `configure.sh` end-to-end test, the
 docker-compose contract test, Go race/vet/unit checks, the frozen Python
 reference suite, and the same HTTP contract tests against both runtimes.
 Anything the machine can't run is skipped with a `SKIP:` line. CI

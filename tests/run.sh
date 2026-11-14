@@ -3,11 +3,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-if command -v shellcheck >/dev/null; then
-  shellcheck configure.sh stack build/*/*.sh scripts/*.sh scripts/node-control scripts/node-port-control scripts/node-resource-profile tests/*.sh
-  echo "PASS: shellcheck"
+if command -v docker >/dev/null; then
+  scripts/lint.sh
 else
-  echo "SKIP: shellcheck (not installed)"
+  echo "SKIP: lint (Docker not installed)"
 fi
 
 tests/test_configure.sh
