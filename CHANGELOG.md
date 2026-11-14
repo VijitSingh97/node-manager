@@ -15,6 +15,13 @@ All notable changes to this project are documented here. Format follows
   store broken until it is reopened. Nothing opens it yet, so runtime
   behavior is unchanged; the dashboard binary grows by about 5.5 MB and
   `THIRD_PARTY_NOTICES` gains the new modules.
+- The internal UTXO index store can now load a parsed `dumptxoutset` snapshot
+  into an empty store: records are sorted by key in bounded memory (2M-record
+  runs spilled to a temp directory inside the index directory), merged into
+  non-overlapping SSTs and ingested, with the tip set to the snapshot base and no
+  undo record. The index is not served until ingest finishes, and a restart
+  after an interruption discards it. Nothing calls it yet, so runtime behavior
+  is unchanged.
 
 ### Changed
 
