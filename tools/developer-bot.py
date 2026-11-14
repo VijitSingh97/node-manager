@@ -110,6 +110,7 @@ def configure(app_id, source):
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        check=False,
     )
     if checked.returncode:
         raise BotError("OpenSSL could not read the private key")
@@ -162,6 +163,7 @@ def mint_jwt(app_id, key, now=None):
         input=signed,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
+        check=False,
     )
     if result.returncode or not result.stdout:
         raise BotError("OpenSSL could not sign the GitHub App JWT")
@@ -241,6 +243,7 @@ def reject_unsafe_repo_config(git, env):
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         text=True,
+        check=False,
     )
     if configured.returncode:
         raise BotError("could not inspect repository Git transport configuration")
@@ -268,11 +271,8 @@ def run_gh(args, token):
         raise BotError("gh command must be one of: api, pr, release, run, workflow")
     if any(
         "://" in arg
-        or arg.startswith("//")
-        or arg in {"-R", "--repo"}
-        or arg.startswith(("-R", "--repo="))
-        or arg in {"--debug", "--verbose", "--hostname", "--host"}
-        or arg.startswith(("--debug=", "--verbose=", "--hostname=", "--host="))
+        or arg.startswith(("//", "-R", "--repo=", "--debug=", "--verbose=", "--hostname=", "--host="))
+        or arg in {"-R", "--repo", "--debug", "--verbose", "--hostname", "--host"}
         for arg in args
     ):
         raise BotError("debug and alternate-host options are disabled")
@@ -280,7 +280,7 @@ def run_gh(args, token):
     env.update({"GH_TOKEN": token, "GH_HOST": "github.com", "GH_REPO": f"{OWNER}/{REPO}"})
     with tempfile.TemporaryDirectory() as gh_config:
         env["GH_CONFIG_DIR"] = gh_config
-        return subprocess.run([require_tool("gh"), *args], env=env).returncode
+        return subprocess.run([require_tool("gh"), *args], env=env, check=False).returncode
 
 
 def run_git(args, token, name, email):
@@ -302,6 +302,7 @@ def run_git(args, token, name, email):
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         text=True,
+        check=False,
     )
     allowed_origins = {
         f"https://github.com/{OWNER}/{REPO}.git",
@@ -312,8 +313,8 @@ def run_git(args, token, name, email):
     if origin.returncode or origin.stdout.strip() not in allowed_origins:
         raise BotError("current checkout is not the expected GitHub repository")
     if commit_args:
-        return subprocess.run([git, *commit_args], env=env).returncode
-    if any("://" in arg or "@github.com" in arg or arg.startswith("--exec") or arg.startswith("--receive-pack") for arg in args[1:]):
+        return subprocess.run([git, *commit_args], env=env, check=False).returncode
+    if any("://" in arg or "@github.com" in arg or arg.startswith(("--exec", "--receive-pack")) for arg in args[1:]):
         raise BotError("push arguments may contain only options and refspecs")
     reject_unsafe_repo_config(git, env)
     target = f"https://github.com/{OWNER}/{REPO}.git"
@@ -323,6 +324,7 @@ def run_git(args, token, name, email):
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         text=True,
+        check=False,
     )
     if effective.returncode or effective.stdout.strip() != target:
         raise BotError("could not verify Git URL rewrite configuration")
@@ -341,7 +343,7 @@ def run_git(args, token, name, email):
         "-c", "http.followRedirects=false",
         "push", target, *args[1:],
     ]
-    return subprocess.run(command, env=env).returncode
+    return subprocess.run(command, env=env, check=False).returncode
 
 
 def askpass(prompt):

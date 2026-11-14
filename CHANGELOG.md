@@ -20,6 +20,11 @@ All notable changes to this project are documented here. Format follows
   "137,131.438327228521 XMR" with "Total received" on the status line and the
   view-key caveat in its tooltip; a received-only total no longer gets a fiat
   value, since it is not a current balance.
+- `scripts/lint.sh` is the one lint entrypoint for CI and `tests/run.sh`. It
+  runs shellcheck over a single file list (including `packaging/postinst` and
+  `scripts/node-manager`), ruff, actionlint and gofmt. The lint images are
+  digest-pinned in `.github/tool-images/Dockerfile` beside the other CI tools,
+  so Dependabot bumps them too.
 
 ### Fixed
 

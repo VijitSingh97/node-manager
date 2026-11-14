@@ -4,7 +4,6 @@ import hashlib
 import http.server
 import json
 import os
-from pathlib import Path
 import socket
 import subprocess
 import sys
@@ -15,6 +14,7 @@ import unittest
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ADDRESS = '1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa'

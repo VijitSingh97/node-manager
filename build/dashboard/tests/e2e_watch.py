@@ -9,7 +9,6 @@ import time
 import urllib.error
 import urllib.request
 
-
 DASHBOARD = os.environ.get("E2E_DASHBOARD_URL", "http://localhost:80")
 DASHBOARD_PASSWORD = os.environ["E2E_DASHBOARD_PASSWORD"]
 RPC_USER = os.environ["BITCOIN_RPC_USER"]

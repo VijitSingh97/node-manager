@@ -184,9 +184,8 @@ def tick(get_blockchain_info, state, disk_path="/data", get_network_info=None):
     # Ping every 5 minutes (matching the recommended Healthchecks period), but
     # keep retrying each tick until one gets through — so a single Tor hiccup
     # can't trip a tight grace window. The clock only advances on success.
-    if state.get("ticks", 0) >= state.get("ping_due", 0):
-        if ping_healthchecks(healthy):
-            state["ping_due"] = state.get("ticks", 0) + PING_EVERY_TICKS
+    if state.get("ticks", 0) >= state.get("ping_due", 0) and ping_healthchecks(healthy):
+        state["ping_due"] = state.get("ticks", 0) + PING_EVERY_TICKS
 
     if healthy and get_network_info and state.get("ticks", 0) % UPDATE_CHECK_EVERY_TICKS == 0:
         network = get_network_info() or {}
