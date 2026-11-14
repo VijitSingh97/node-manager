@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
@@ -10,6 +11,8 @@ import (
 	"os/exec"
 	"reflect"
 	"sort"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -378,7 +381,10 @@ func TestUtxoStoreDiskFullLeavesStoreOpenable(t *testing.T) {
 	if err == nil {
 		t.Fatal("apply succeeded on a full disk")
 	}
-	if _, _, _, err := s.Tip(); !errors.Is(err, errUtxoClosed) {
+	if !errors.Is(err, errUtxoBroken) {
+		t.Fatalf("apply error: %v", err)
+	}
+	if _, _, _, err := s.Tip(); !errors.Is(err, errUtxoBroken) {
 		t.Fatalf("handle after failed commit: %v", err)
 	}
 	s, err = openUtxoStoreFS("db", fs)
@@ -393,6 +399,37 @@ func TestUtxoStoreDiskFullLeavesStoreOpenable(t *testing.T) {
 	utxoTestApply(t, s, 11, 11)
 }
 
+func TestUtxoStoreBackgroundFatalMarksStoreBroken(t *testing.T) {
+	fs := vfs.NewMem()
+	s, err := openUtxoStoreFS("db", fs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	utxoTestApply(t, s, 1, 10)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		utxoQuietLogger{s: s}.Fatalf("MANIFEST flush failed: %v", syscall.ENOSPC)
+	}()
+	<-done
+	if err := s.ApplyBlock(utxoTestBlock(11)); !errors.Is(err, errUtxoBroken) {
+		t.Fatalf("apply after background fatal: %v", err)
+	}
+	if _, err := s.Lookup(utxoTestAllScripts()); !errors.Is(err, errUtxoBroken) {
+		t.Fatalf("lookup after background fatal: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("close after background fatal: %v", err)
+	}
+	s, err = openUtxoStoreFS("db", fs)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer s.Close()
+	utxoTestExpectTip(t, s, 10)
+	utxoTestApply(t, s, 11, 11)
+}
+
 func TestUtxoStoreKillLoop(t *testing.T) {
 	if testing.Short() {
 		t.Skip("kill loop skipped in short mode")
@@ -403,31 +440,20 @@ func TestUtxoStoreKillLoop(t *testing.T) {
 	for round := 0; round < 8; round++ {
 		cmd := exec.Command(os.Args[0], "-test.run=^TestUtxoStoreKillHelper$")
 		cmd.Env = append(os.Environ(), "UTXO_KILL_DIR="+dir)
+		out, err := cmd.StdoutPipe()
+		if err != nil {
+			t.Fatal(err)
+		}
 		if err := cmd.Start(); err != nil {
 			t.Fatal(err)
+		}
+		if _, err := bufio.NewReader(out).ReadString('\n'); err != nil {
+			t.Fatalf("round %d: helper never committed: %v", round, err)
 		}
 		time.Sleep(time.Duration(300+rng.Intn(500)) * time.Millisecond)
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
-		s, err := openUtxoStore(dir)
-		if err != nil {
-			t.Fatalf("round %d reopen: %v", round, err)
-		}
-		tip, hash, ok, err := s.Tip()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if ok && hash != utxoTestHash(tip) {
-			t.Fatalf("round %d: tip hash does not match height %d", round, tip)
-		}
-		if tip < lastTip {
-			t.Fatalf("round %d: tip went back from %d to %d", round, lastTip, tip)
-		}
-		if got := utxoTestAll(t, s); !reflect.DeepEqual(got, utxoTestExpected(tip)) {
-			t.Fatalf("round %d: contents do not match tip %d", round, tip)
-		}
-		lastTip = tip
-		_ = s.Close()
+		lastTip = utxoTestCheckConsistent(t, dir, lastTip, fmt.Sprintf("round %d", round))
 	}
 	if lastTip == 0 {
 		t.Fatal("helper never committed a block")
@@ -435,12 +461,77 @@ func TestUtxoStoreKillLoop(t *testing.T) {
 	t.Logf("kill loop finished at tip %d", lastTip)
 }
 
+func utxoTestCheckConsistent(t *testing.T, dir string, minTip uint32, label string) uint32 {
+	t.Helper()
+	s, err := openUtxoStore(dir)
+	if err != nil {
+		t.Fatalf("%s reopen: %v", label, err)
+	}
+	defer s.Close()
+	tip, hash, ok, err := s.Tip()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok && hash != utxoTestHash(tip) {
+		t.Fatalf("%s: tip hash does not match height %d", label, tip)
+	}
+	if tip < minTip {
+		t.Fatalf("%s: tip went back from %d to %d", label, minTip, tip)
+	}
+	if got := utxoTestAll(t, s); !reflect.DeepEqual(got, utxoTestExpected(tip)) {
+		t.Fatalf("%s: coins do not match tip %d", label, tip)
+	}
+	if ok {
+		if _, closer, err := s.db.Get(utxoUndoKey(tip)); err != nil {
+			t.Fatalf("%s: undo record for tip %d: %v", label, tip, err)
+		} else {
+			closer.Close()
+		}
+	}
+	return tip
+}
+
+func TestUtxoStoreCrashAtEveryWALWrite(t *testing.T) {
+	if testing.Short() {
+		t.Skip("crash points skipped in short mode")
+	}
+	crashed := 0
+	for k := 1; k <= 40; k++ {
+		dir := t.TempDir()
+		cmd := exec.Command(os.Args[0], "-test.run=^TestUtxoStoreKillHelper$")
+		cmd.Env = append(os.Environ(), "UTXO_KILL_DIR="+dir, fmt.Sprintf("UTXO_CRASH_AT=%d", k))
+		if err := cmd.Run(); err == nil {
+			t.Fatalf("crash point %d: helper exited cleanly", k)
+		} else if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != utxoTestCrashExit {
+			t.Fatalf("crash point %d: helper failed: %v", k, err)
+		}
+		crashed++
+		utxoTestCheckConsistent(t, dir, 0, fmt.Sprintf("crash point %d", k))
+	}
+	if crashed == 0 {
+		t.Fatal("no crash points ran")
+	}
+}
+
+const utxoTestCrashExit = 7
+
 func TestUtxoStoreKillHelper(t *testing.T) {
 	dir := os.Getenv("UTXO_KILL_DIR")
 	if dir == "" {
-		t.Skip("helper for TestUtxoStoreKillLoop")
+		t.Skip("helper for the kill and crash-point tests")
 	}
-	s, err := openUtxoStore(dir)
+	var fs vfs.FS
+	if v := os.Getenv("UTXO_CRASH_AT"); v != "" {
+		n, _ := strconv.ParseInt(v, 10, 64)
+		var count atomic.Int64
+		fs = errorfs.Wrap(vfs.Default, errorfs.InjectorFunc(func(op errorfs.Op, path string) error {
+			if strings.HasSuffix(path, ".log") && (op == errorfs.OpFileWrite || op == errorfs.OpFileSync) && count.Add(1) == n {
+				os.Exit(utxoTestCrashExit)
+			}
+			return nil
+		}))
+	}
+	s, err := openUtxoStoreFS(dir, fs)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
@@ -449,10 +540,14 @@ func TestUtxoStoreKillHelper(t *testing.T) {
 	if tip, _, ok, _ := s.Tip(); ok {
 		next = tip + 1
 	}
+	first := next
 	for ; ; next++ {
 		if err := s.ApplyBlock(utxoTestBlock(next)); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(3)
+		}
+		if next == first {
+			fmt.Println("committed")
 		}
 	}
 }

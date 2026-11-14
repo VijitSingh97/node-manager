@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/vfs"
@@ -32,6 +33,7 @@ var (
 
 	errUtxoInvalid       = errors.New("utxo index is invalid")
 	errUtxoClosed        = errors.New("utxo store is closed")
+	errUtxoBroken        = errors.New("utxo store hit a fatal storage error, reopen required")
 	errUtxoNotContiguous = errors.New("block does not extend the indexed tip")
 	errUtxoMissingCoin   = errors.New("spent coin is not in the index")
 	errUtxoNoTip         = errors.New("index has no tip")
@@ -83,33 +85,34 @@ type utxoStore struct {
 	meta          utxoMeta
 	invalidReason string
 	beforeCommit  func() error
+	fatal         atomic.Pointer[string]
 }
 
-type utxoQuietLogger struct{}
+type utxoQuietLogger struct{ s *utxoStore }
 
 func (utxoQuietLogger) Infof(string, ...interface{}) {}
 
-type utxoFatal string
-
-func (utxoQuietLogger) Fatalf(format string, args ...interface{}) {
-	panic(utxoFatal(fmt.Sprintf(format, args...)))
+// Pebble also calls this from background goroutines, so it records instead of panicking.
+func (l utxoQuietLogger) Fatalf(format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	l.s.fatal.CompareAndSwap(nil, &msg)
 }
 
-// Pebble treats a failed WAL write as fatal, so the handle is dropped and the caller reopens.
-func (s *utxoStore) commit(b *pebble.Batch) (err error) {
-	defer func() {
-		r := recover()
-		if r == nil {
-			return
-		}
-		f, ok := r.(utxoFatal)
-		if !ok {
-			panic(r)
-		}
-		err = fmt.Errorf("utxo store commit failed, reopen required: %s", string(f))
+func (s *utxoStore) brokenError() error {
+	if m := s.fatal.Load(); m != nil {
+		return fmt.Errorf("%w: %s", errUtxoBroken, *m)
+	}
+	return nil
+}
+
+// Pebble returns nil from Commit after a fatal WAL failure, so the flag is the only signal.
+func (s *utxoStore) commit(b *pebble.Batch) error {
+	err := b.Commit(pebble.Sync)
+	if berr := s.brokenError(); berr != nil {
 		s.abandon()
-	}()
-	return b.Commit(pebble.Sync)
+		return berr
+	}
+	return err
 }
 
 func (s *utxoStore) abandon() {
@@ -151,12 +154,13 @@ func openUtxoStore(dir string) (*utxoStore, error) {
 }
 
 func openUtxoStoreFS(dir string, fs vfs.FS) (*utxoStore, error) {
+	s := &utxoStore{}
 	opts := &pebble.Options{
 		Cache:                    pebble.NewCache(utxoBlockCacheBytes),
 		MemTableSize:             utxoMemTableBytes,
 		MaxConcurrentCompactions: func() int { return utxoCompactions },
 		FormatMajorVersion:       utxoPebbleFormat,
-		Logger:                   utxoQuietLogger{},
+		Logger:                   utxoQuietLogger{s: s},
 		FS:                       fs,
 	}
 	defer opts.Cache.Unref()
@@ -164,7 +168,7 @@ func openUtxoStoreFS(dir string, fs vfs.FS) (*utxoStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open utxo store: %w", err)
 	}
-	s := &utxoStore{db: db}
+	s.db = db
 	if err := s.loadMeta(); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -265,6 +269,9 @@ func (s *utxoStore) InvalidReason() string {
 }
 
 func (s *utxoStore) usable() error {
+	if err := s.brokenError(); err != nil {
+		return err
+	}
 	if s.invalidReason != "" {
 		return fmt.Errorf("%w: %s", errUtxoInvalid, s.invalidReason)
 	}
