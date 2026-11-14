@@ -167,6 +167,7 @@ shows the overridable settings with their defaults:
         "enabled": false,
         "active": true,
         "node_username": "admin",
+        "address_index": false,
         "data_dir": "./data/zcash",
         "resource_profile": "off",
         "steady_cpus": 1,
@@ -254,6 +255,7 @@ shows the overridable settings with their defaults:
 | `tari.grpc_expose`, `grpc_bind_ip`, `grpc_port` | `false`, `""`, `18142` | Optional unauthenticated Tari mining gRPC for Pithead on a trusted private LAN or WireGuard link. It is separate from the internal authenticated view-only wallet service. |
 | `litecoin.prune_mb`, `dogecoin.prune_mb`, `bitcoincash.prune_mb` | `10000` | Recent block-file target in MiB. Chainstate and other state are additional. |
 | `litecoin.rpc_port`, `dogecoin.rpc_port`, `bitcoincash.rpc_port` | `9332`, `22555`, `8332` | Default host port for each opt-in authenticated private-LAN RPC proxy. Each also has `rpc_expose` and `rpc_bind_ip`. |
+| `zcash.address_index` | `false` | Runs Zakura with `checkpoint_sync = false` so transparent addresses can be watched. Needs a fresh `zcash.data_dir` and a full resync; refused on an existing checkpoint-pruned database. See [watch-only](watch-only.md). |
 | `zcash.rpc_expose`, `rpc_bind_ip`, `rpc_port` | `false`, `""`, `8232` | Optional authenticated read-only dashboard proxy. Native cookie-authenticated Zakura RPC stays internal and is never published. |
 | `litecoin.node_password`, `dogecoin.node_password`, `bitcoincash.node_password`, `zcash.node_password` | auto-generated | Separate RPC or proxy passwords. LAN exposure requires at least 24 letters or numbers. |
 | `dashboard.password` | generated on new `init` | Required dashboard password, 12–128 letters or numbers. New installs generate one 32-character value, persist it in mode-600 `config.json`, and print it once during `init`; configure rejects missing or empty values. Existing saved dashboard hashes remain authoritative until deliberately recovered; see [Operations](operations.md#dashboard-and-node-credentials). |

@@ -93,6 +93,7 @@
         "enabled": false,
         "active": true,
         "node_username": "admin",
+        "address_index": false,
         "data_dir": "./data/zcash",
         "resource_profile": "off",
         "steady_cpus": 1,

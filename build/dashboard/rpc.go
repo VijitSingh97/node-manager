@@ -77,7 +77,11 @@ func (r *rpcClient) call(ctx context.Context, method string, params any, out any
 		return fmt.Errorf("decode RPC %s: %w", method, err)
 	}
 	if len(envelope.Error) > 0 && string(envelope.Error) != "null" {
-		return fmt.Errorf("RPC %s returned an error", method)
+		var detail struct {
+			Message string `json:"message"`
+		}
+		_ = json.Unmarshal(envelope.Error, &detail)
+		return fmt.Errorf("RPC %s returned an error: %s", method, detail.Message)
 	}
 	if len(envelope.Result) == 0 || string(envelope.Result) == "null" {
 		return fmt.Errorf("RPC %s returned no result", method)

@@ -91,16 +91,16 @@ Wallet capabilities differ by chain:
 | Litecoin | Address-only confirmed UTXO snapshots from the local node. |
 | Bitcoin Cash | Address-only confirmed UTXO snapshots from the local node. |
 | Dogecoin | **Wallet balance not available.** The current pruned daemon cannot discover an arbitrary address balance. No public reference address is shown. |
-| Zcash / Zakura | **Wallet balance not available.** Zakura's default checkpoint-pruned mode does not retain the address index needed for lookup. No public reference address is shown. |
+| Zcash / Zakura | **Wallet balance not available** by default: Zakura's checkpoint-pruned mode does not retain the address index. With the opt-in `zcash.address_index` (fresh resync, slower and less secure upstream, disk not yet measured), transparent `t1`/`t3` addresses are read from the local node and the Zcash Community Grants address is shown as an example. |
 | Tari | One native view-only wallet using a public spend key, private view key, and optional `YYYY-MM-DD` birthday. Blank birthday scans from genesis. No seed or private spend key is accepted. |
 
 On fresh dashboard state, Monero includes the sourced Monero General Fund as a
 received-only example, Litecoin includes Linux Mint, and Bitcoin Cash includes
 Bitcoin Cash Node. Source installs may also seed a public Binance Bitcoin
 address; pruned APT and Homebrew installs default to no Bitcoin example. Public
-examples are excluded from personal totals. Tari has no example and accepts one
-imported view-only wallet. Dogecoin and Zcash have neither wallet lookup nor an
-example.
+examples are excluded from personal totals. Tari has no example, because no organisation publishes a Tari view key, and accepts one
+imported view-only wallet. Zcash adds the Zcash Community Grants example only with
+`zcash.address_index`. Dogecoin has neither wallet lookup nor an example.
 
 Litecoin and Bitcoin Cash use their native `scantxoutset` RPC after sync. The
 dashboard caches the confirmed result for an hour and records balance snapshots;

@@ -249,6 +249,12 @@ echo "$dashboard_nodes" | grep -q 'TARI_WALLET_ENABLED: "1"' || fail "dashboard 
 grep -q '^onlynet=onion$' build/bitcoin-family/entrypoint.sh || fail "Litecoin, Dogecoin and Bitcoin Cash are not Tor-only"
 echo "$all_nodes" | sed -n '/^  bitcoincash:$/,/^  dashboard:$/p' | grep -q '^    command:' && fail "Bitcoin Cash command bypasses its private runtime config"
 
+echo "$all_nodes" | grep -q 'build/zcash/zakurad.toml' || fail "Zcash default config file changed"
+echo "$all_nodes" | sed -n '/^  dashboard:$/,/^  [a-z][a-z-]*:$/p' | grep -q 'ZCASH_ADDRESS_INDEX: "0"' || fail "dashboard did not default Zcash address index off"
+index_nodes=$(COMPOSE_PROFILES=zcash ZCASH_ENABLED=1 ZCASH_ADDRESS_INDEX=1 ZCASH_TOML=zakurad-address-index.toml docker compose --env-file /dev/null -f docker-compose.yml config)
+echo "$index_nodes" | grep -q 'build/zcash/zakurad-address-index.toml' || fail "Zcash address index config file was not mounted"
+echo "$index_nodes" | sed -n '/^  dashboard:$/,/^  [a-z][a-z-]*:$/p' | grep -q 'ZCASH_ADDRESS_INDEX: "1"' || fail "dashboard did not receive Zcash address index flag"
+
 new_lan=$(TARI_GRPC_EXPOSE=1 TARI_GRPC_BIND_IP=192.168.1.10 TARI_GRPC_PORT=28142 \
   LITECOIN_RPC_EXPOSE=1 LITECOIN_RPC_BIND_IP=192.168.1.10 LITECOIN_RPC_PORT=29332 \
   DOGECOIN_RPC_EXPOSE=1 DOGECOIN_RPC_BIND_IP=192.168.1.10 DOGECOIN_RPC_PORT=32555 \
