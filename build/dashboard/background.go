@@ -42,6 +42,9 @@ func (a *app) startBackground(ctx context.Context) <-chan struct{} {
 	if a.familyWatch != nil && (a.cfg.nodes[nodeLitecoin].Enabled || a.cfg.nodes[nodeBitcoinCash].Enabled) {
 		start(func() { a.familyWatch.run(ctx) })
 	}
+	if a.utxo != nil {
+		start(func() { a.utxo.run(ctx) })
+	}
 	if a.cfg.moneroWalletEnabled {
 		start(func() { a.moneroWatch.run(ctx, func() bool { return a.nodeWorkerRunnable(nodeMonero, true) }) })
 	}

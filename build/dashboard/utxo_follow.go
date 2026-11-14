@@ -32,8 +32,9 @@ type utxoRPC interface {
 }
 
 type utxoFollower struct {
-	store *utxoStore
-	rpc   utxoRPC
+	store   *utxoStore
+	rpc     utxoRPC
+	onBlock func(height uint32)
 
 	mu       sync.Mutex
 	state    string
@@ -260,6 +261,9 @@ func (f *utxoFollower) applyHeight(ctx context.Context, height uint32) error {
 	f.fetchDur += fetched.Sub(start)
 	f.applyDur += time.Since(fetched)
 	f.mu.Unlock()
+	if f.onBlock != nil {
+		f.onBlock(height)
+	}
 	return nil
 }
 

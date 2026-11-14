@@ -37,6 +37,16 @@ All notable changes to this project are documented here. Format follows
   undo record. The index is not served until ingest finishes, and a restart
   after an interruption discards it. Nothing calls it yet, so runtime behavior
   is unchanged.
+- With the `bitcoin.utxo_index` overlay enabled, the dashboard now opens the
+  UTXO index at `UTXO_INDEX_DIR` (created 0700) and follows the node tip, and
+  `GET /api/utxo-index` reports `off`, `not_seeded`, `seeding`, `catching_up`,
+  `ready`, `degraded` or `invalid` with the index and node heights. It resumes
+  from the stored tip after a restart, pauses below 2 GB free, and goes
+  `invalid` (persisted, never migrated or reseeded automatically) on a format
+  or chain mismatch, a resynced node, falling behind the node's retained
+  blocks, or a storage error. Each state change is logged once. There is no
+  seed trigger yet, so an enabled index stays `not_seeded`; without the
+  overlay nothing is opened and the endpoint answers `off`.
 - Opt-in `bitcoin.utxo_index` setting that adds the
   `docker-compose.utxo-index.yml` overlay: a `utxo_index` volume and a 1g
   memory limit with 0.5 CPU on the dashboard. It is off by default, so

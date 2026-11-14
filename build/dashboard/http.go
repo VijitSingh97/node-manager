@@ -24,6 +24,7 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /metrics", a.metrics)
 	mux.HandleFunc("GET /api/fees", a.apiFees)
 	mux.HandleFunc("GET /api/prices", a.apiPrices)
+	mux.HandleFunc("GET /api/utxo-index", a.apiUtxoIndex)
 	mux.HandleFunc("GET /api/monero", a.apiMonero)
 	mux.HandleFunc("GET /api/{node}", a.apiAdditionalNode)
 	mux.HandleFunc("GET /api/{node}/fees", a.apiAdditionalFees)

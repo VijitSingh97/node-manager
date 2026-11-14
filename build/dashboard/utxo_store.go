@@ -40,6 +40,7 @@ var (
 	errUtxoNoTip         = errors.New("index has no tip")
 	errUtxoNoUndo        = errors.New("undo record is not available")
 	errUtxoNotEmpty      = errors.New("utxo store is not empty")
+	errUtxoChainMismatch = errors.New("utxo index chain mismatch")
 )
 
 type utxoOutpoint struct {
@@ -80,6 +81,11 @@ type utxoMeta struct {
 	TipHeight    uint32 `json:"tip_height"`
 	TipHash      string `json:"tip_hash"`
 	Ingesting    bool   `json:"ingesting,omitempty"`
+	ChainName    string `json:"chain_name,omitempty"`
+	GenesisHash  string `json:"genesis_hash,omitempty"`
+	BaseHeight   uint32 `json:"base_height,omitempty"`
+	BaseHash     string `json:"base_hash,omitempty"`
+	Invalid      string `json:"invalid,omitempty"`
 }
 
 type utxoStore struct {
@@ -214,6 +220,10 @@ func (s *utxoStore) loadMeta() error {
 	var m utxoMeta
 	if err := json.Unmarshal(raw, &m); err != nil {
 		s.invalidReason = "unreadable metadata"
+		return nil
+	}
+	if m.Invalid != "" {
+		s.invalidReason = m.Invalid
 		return nil
 	}
 	if m.Schema != utxoSchemaVersion || m.PebbleFormat != int(utxoPebbleFormat) {
@@ -377,8 +387,8 @@ func (s *utxoStore) ApplyBlock(blk utxoBlock) error {
 			return err
 		}
 	}
-	meta := utxoMeta{Schema: utxoSchemaVersion, PebbleFormat: int(utxoPebbleFormat),
-		HasTip: true, TipHeight: blk.Height, TipHash: hex.EncodeToString(blk.Hash[:])}
+	meta := s.meta
+	meta.HasTip, meta.TipHeight, meta.TipHash = true, blk.Height, hex.EncodeToString(blk.Hash[:])
 	if err := b.Set(utxoMetaKey, mustMarshalUtxoMeta(meta), nil); err != nil {
 		return err
 	}
@@ -478,7 +488,8 @@ func (s *utxoStore) DisconnectTip() error {
 	if err := b.Delete(utxoUndoKey(height), nil); err != nil {
 		return err
 	}
-	meta := utxoMeta{Schema: utxoSchemaVersion, PebbleFormat: int(utxoPebbleFormat)}
+	meta := s.meta
+	meta.HasTip, meta.TipHeight, meta.TipHash = false, 0, ""
 	if height > 0 {
 		meta.HasTip, meta.TipHeight, meta.TipHash = true, height-1, hex.EncodeToString(raw[32:64])
 	}
@@ -625,12 +636,55 @@ func (s *utxoStore) IngestFiles(paths []string, height uint32, hash [32]byte) er
 			return err
 		}
 	}
-	meta := utxoMeta{Schema: utxoSchemaVersion, PebbleFormat: int(utxoPebbleFormat),
-		HasTip: true, TipHeight: height, TipHash: hex.EncodeToString(hash[:])}
+	meta := s.meta
+	meta.HasTip, meta.TipHeight, meta.TipHash = true, height, hex.EncodeToString(hash[:])
+	meta.BaseHeight, meta.BaseHash = height, meta.TipHash
 	if err := s.setMeta(meta); err != nil {
 		return err
 	}
 	s.meta = meta
 	s.invalidReason = ""
 	return nil
+}
+
+// BindChain records the chain identity on first use and rejects a different one later.
+func (s *utxoStore) BindChain(name, genesis string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.usable(); err != nil {
+		return err
+	}
+	if s.meta.ChainName == name && s.meta.GenesisHash == genesis {
+		return nil
+	}
+	if s.meta.ChainName != "" || s.meta.GenesisHash != "" {
+		return fmt.Errorf("%w: index was built for a different chain", errUtxoChainMismatch)
+	}
+	meta := s.meta
+	meta.ChainName, meta.GenesisHash = name, genesis
+	if err := s.setMeta(meta); err != nil {
+		return err
+	}
+	s.meta = meta
+	return nil
+}
+
+// MarkInvalid persists the invalid state and releases the database; the in-memory state is set even when persisting fails.
+func (s *utxoStore) MarkInvalid(reason string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.invalidReason != "" {
+		return nil
+	}
+	s.invalidReason = reason
+	var err error
+	if s.db == nil || s.brokenError() != nil {
+		err = errUtxoBroken
+	} else {
+		meta := s.meta
+		meta.Invalid = reason
+		err = s.setMeta(meta)
+	}
+	s.abandon()
+	return err
 }
