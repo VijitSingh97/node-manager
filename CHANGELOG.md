@@ -8,6 +8,13 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
+- The dashboard now links Pebble (a pure Go key-value store) and carries an
+  internal UTXO index store: each block is applied in one fsynced batch with
+  a 144-block undo journal (checked by a SIGKILL loop and a crash at each of the first
+  40 WAL writes), plus a format-version check; a fatal storage error marks the
+  store broken until it is reopened. Nothing opens it yet, so runtime
+  behavior is unchanged; the dashboard binary grows by about 5.5 MB and
+  `THIRD_PARTY_NOTICES` gains the new modules.
 - Opt-in `zcash.address_index` runs Zakura with checkpoint sync off so the
   dashboard can show watch-only balances for transparent Zcash addresses from
   your own node, with the Zcash Community Grants address as an excluded example.

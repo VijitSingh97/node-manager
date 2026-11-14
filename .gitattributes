@@ -28,3 +28,4 @@ formula_renames.json export-ignore
 scripts/build-homebrew-formula.sh export-ignore
 scripts/lint.sh export-ignore
 ruff.toml export-ignore
+docs/adr export-ignore
