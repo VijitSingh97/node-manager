@@ -1,0 +1,12 @@
+services:
+  dashboard:
+    mem_limit: 1g
+    cpus: 0.5
+    environment:
+      UTXO_INDEX_ENABLED: "1"
+      UTXO_INDEX_DIR: /utxo-index
+    volumes:
+      - utxo_index:/utxo-index
+
+volumes:
+  utxo_index:
