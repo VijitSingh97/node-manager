@@ -163,7 +163,7 @@ func TestSeedSimpleGuards(t *testing.T) {
 	if cpuGuard(0.51, nil) == nil || cpuGuard(math.Inf(1), nil) == nil || cpuGuard(0, errors.New("x")) == nil {
 		t.Error("cpu over the cap or unreadable passed")
 	}
-	if freeSpaceGuard(seedMinFreeBytes) != nil || freeSpaceGuard(seedMinFreeBytes-1) == nil {
+	if freeSpaceGuard(seedMinFreeBytes, nil) != nil || freeSpaceGuard(seedMinFreeBytes-1, nil) == nil || freeSpaceGuard(seedMinFreeBytes, errors.New("x")) == nil {
 		t.Error("free space boundary")
 	}
 	for state, refused := range map[string]bool{
@@ -437,5 +437,14 @@ func TestIngestCheckpointCancelDiscardsPartialIndex(t *testing.T) {
 				t.Fatalf("temp dir left behind: %v", err)
 			}
 		})
+	}
+}
+
+func TestGatherSeedGuardsUnreadableFreeSpace(t *testing.T) {
+	m := utxoMgrNew(t, t.TempDir(), nil, newFakeUtxoNode(utxoMgrChain(5, "b")), io.Discard)
+	m.dir = filepath.Join(t.TempDir(), "missing")
+	in := m.gatherSeedGuards(t.Context())
+	if in.FreeErr == nil || freeSpaceGuard(in.FreeBytes, in.FreeErr) == nil {
+		t.Fatalf("unreadable free space must refuse: %+v", in)
 	}
 }

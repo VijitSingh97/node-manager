@@ -37,6 +37,7 @@ type seedGuardInput struct {
 	CPUs       float64
 	CPUErr     error
 	FreeBytes  uint64
+	FreeErr    error
 	Chain      blockchainInfo
 	TipTime    time.Time
 	ChainErr   error
@@ -51,7 +52,7 @@ func evaluateSeedGuards(in seedGuardInput) []seedRefusal {
 		stateGuard(in.State),
 		thermalStartGuard(in.TempC, in.TempErr),
 		cpuGuard(in.CPUs, in.CPUErr),
-		freeSpaceGuard(in.FreeBytes),
+		freeSpaceGuard(in.FreeBytes, in.FreeErr),
 		nodeGuard(in.Chain, in.TipTime, in.Now, in.ChainErr),
 		rpcIdleGuard(in.RPCMethods, in.RPCErr),
 	} {
@@ -100,7 +101,10 @@ func cpuGuard(cpus float64, err error) *seedRefusal {
 	return nil
 }
 
-func freeSpaceGuard(free uint64) *seedRefusal {
+func freeSpaceGuard(free uint64, err error) *seedRefusal {
+	if err != nil {
+		return &seedRefusal{"free_space", "free space is unreadable"}
+	}
 	if free < seedMinFreeBytes {
 		return &seedRefusal{"free_space", fmt.Sprintf("%.1f GB free, 27 GB needed", float64(free)/1e9)}
 	}
@@ -227,7 +231,12 @@ func readSeedChain(ctx context.Context, rpc utxoRPC) (blockchainInfo, time.Time,
 }
 
 func (m *utxoManager) gatherSeedGuards(ctx context.Context) seedGuardInput {
-	in := seedGuardInput{State: m.Status().State, FreeBytes: m.freeBytes(), Now: m.now()}
+	in := seedGuardInput{State: m.Status().State, Now: m.now()}
+	if d := diskUsage(m.dir); d.Total > 0 {
+		in.FreeBytes = d.Free
+	} else {
+		in.FreeErr = errors.New("statfs failed")
+	}
 	in.TempC, in.TempErr = hottestThermalC(seedThermalGlob)
 	in.CPUs, in.CPUErr = readCPULimit(seedCgroupRoot)
 	in.Chain, in.TipTime, in.ChainErr = readSeedChain(ctx, m.rpc)

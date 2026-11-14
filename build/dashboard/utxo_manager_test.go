@@ -1056,3 +1056,22 @@ func TestUtxoManagerLowDiskMidCatchUpPausesWithoutInvalidating(t *testing.T) {
 		t.Fatalf("after space returned: %+v", st)
 	}
 }
+
+func TestUtxoStartSeedRefusesWhenReopenFails(t *testing.T) {
+	var armed atomic.Bool
+	fs := errorfs.Wrap(vfs.NewMem(), errorfs.InjectorFunc(func(op errorfs.Op, _ string) error {
+		if armed.Load() && op == errorfs.OpMkdirAll {
+			return errors.New("injected")
+		}
+		return nil
+	}))
+	m := utxoMgrNew(t, t.TempDir(), fs, newFakeUtxoNode(utxoMgrChain(5, "b")), io.Discard)
+	m.invalidate("test")
+	armed.Store(true)
+	if err := m.startSeed(); !errors.Is(err, errUtxoSeedState) {
+		t.Fatalf("start on a failed reopen: %v", err)
+	}
+	if st := m.Status(); st.State != utxoStateInvalid || m.seeding {
+		t.Fatalf("%+v seeding=%v", st, m.seeding)
+	}
+}

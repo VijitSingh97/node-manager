@@ -317,6 +317,9 @@ func (m *utxoManager) startSeed() error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.state != utxoStateNotSeeded {
+		return errUtxoSeedState
+	}
 	zero := 0.0
 	m.seeding, m.phase, m.seedProgress, m.refusals = true, utxoPhaseWaiting, &zero, nil
 	m.seed.StartedAt, m.seed.AlertsUntil = m.now(), time.Time{}
