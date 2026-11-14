@@ -66,7 +66,8 @@
     </section>{{end}}
     <p style="color: var(--faint); font-size: 0.7rem;">{{.Version}}</p>
     </div></div>
-    {{if .BitcoinEnabled}}<section id="watch" class="card watch-card" hidden></section>{{end}}
+    {{if .BitcoinEnabled}}<section id="watch" class="card watch-card" hidden></section>
+    <section id="utxo-index" class="card watch-card" hidden></section>{{end}}
     <section class="card node-power-card" style="--node-accent:#f2a900">
       <h2>Node controls</h2>
       <p id="bitcoin-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
@@ -542,6 +543,7 @@ node-manager apply</code></pre>
   <script type="module" src="/static/tari-watch.js"></script>
   <script type="module" src="/static/family-watch.js"></script>
   <script type="module" src="/static/settings.js"></script>
-  {{if .BitcoinEnabled}}<script type="module" src="/static/watch.js"></script>{{end}}
+  {{if .BitcoinEnabled}}<script type="module" src="/static/watch.js"></script>
+  <script type="module" src="/static/utxo-index.js"></script>{{end}}
 </body>
 </html>

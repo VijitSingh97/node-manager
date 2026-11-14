@@ -67,7 +67,15 @@ All notable changes to this project are documented here. Format follows
 - The UTXO index manager can now run a seed inside its own goroutine, reset a
   not-seeded or invalid store, hold the pruned scanner off, check the seed
   safety guards, and report seed phase, refusals and the last seed result on
-  `/api/utxo-index`; nothing starts a seed yet.
+  `/api/utxo-index`.
+- `./stack utxo-seed [-y]` and `./stack utxo-seed cancel` seed the Bitcoin
+  balance index: the stack script creates a FIFO in the bitcoin container, the
+  dashboard reads `dumptxoutset` from it under the thermal, disk and CPU
+  guards (pause at 85 C, resume at 72 C, abort below 2 GB free), checks the
+  dump against the RPC result and holds node-down alerts for up to 15 minutes.
+  `stop`, `down` and `restart` cancel a running seed and unpark the dump
+  before stopping bitcoind, and the dashboard
+  shows the index state, progress, refusals and the host command.
 - Opt-in `bitcoin.utxo_index` setting that adds the
   `docker-compose.utxo-index.yml` overlay: a `utxo_index` volume and a 1g
   memory limit with 0.5 CPU on the dashboard. It is off by default, so

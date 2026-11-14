@@ -236,7 +236,7 @@ func (m *utxoManager) gatherSeedGuards(ctx context.Context) seedGuardInput {
 	} else {
 		in.FreeErr = errors.New("statfs failed")
 	}
-	in.TempC, in.TempErr = hottestThermalC(seedThermalGlob)
+	in.TempC, in.TempErr = m.temp()
 	in.CPUs, in.CPUErr = readCPULimit(seedCgroupRoot)
 	in.Chain, in.TipTime, in.ChainErr = readSeedChain(ctx, m.rpc)
 	in.RPCMethods, in.RPCErr = readActiveRPCMethods(ctx, m.rpc)

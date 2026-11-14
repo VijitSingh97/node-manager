@@ -172,6 +172,9 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 		a.utxo = newUtxoManager(cfg.utxoIndexDir, nil, &blockRPC, logger)
 		if cfg.stateDir != "" {
 			a.utxo.setSeedStatePath(filepath.Join(cfg.stateDir, "utxo-seed.json"))
+			dumpRPC := *rpc
+			dumpRPC.client, dumpRPC.maxBody = &http.Client{}, 1<<20
+			a.utxo.configureSeed(utxoSeedHost{stateDir: cfg.stateDir, dataDir: cfg.dataDir, dump: &dumpRPC, hold: a.scanner.hold, release: a.scanner.release})
 		}
 	}
 	if a.moneroWatch.Err() != nil {

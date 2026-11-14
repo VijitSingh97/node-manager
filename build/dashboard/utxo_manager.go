@@ -43,11 +43,17 @@ var errUtxoSeedState = errors.New("index state does not allow a seed or reset")
 
 type utxoSeedResult struct {
 	Outcome         string    `json:"outcome"`
+	Reason          string    `json:"reason,omitempty"`
 	FinishedAt      time.Time `json:"finished_at"`
 	DurationSeconds float64   `json:"duration_seconds"`
 }
 
 type utxoSeedState struct {
+	RequestID   string          `json:"request_id,omitempty"`
+	SeedState   string          `json:"seed_state,omitempty"`
+	Phase       string          `json:"phase,omitempty"`
+	Progress    *float64        `json:"progress,omitempty"`
+	Refusals    []seedRefusal   `json:"refusals,omitempty"`
 	StartedAt   time.Time       `json:"started_at"`
 	AlertsUntil time.Time       `json:"alerts_suppressed_until"`
 	Last        *utxoSeedResult `json:"last_seed"`
@@ -75,6 +81,11 @@ type utxoManager struct {
 	now      func() time.Time
 	seedJobs chan utxoSeedJob
 	seedPath string
+
+	host       *utxoSeedHost
+	temp       func() (float64, error)
+	guards     func(context.Context) seedGuardInput
+	checkEvery time.Duration
 
 	mu           sync.Mutex
 	state        string
@@ -109,13 +120,15 @@ func newUtxoManager(dir string, fs vfs.FS, rpc utxoRPC, logger *log.Logger) *utx
 		fs = vfs.Default
 	}
 	m := &utxoManager{dir: dir, fs: fs, rpc: rpc, log: logger, state: utxoStateNotSeeded,
-		now: time.Now, seedJobs: make(chan utxoSeedJob),
+		now: time.Now, seedJobs: make(chan utxoSeedJob), checkEvery: seedCheckEvery,
+		temp: func() (float64, error) { return hottestThermalC(seedThermalGlob) },
 		freeBytes: func() uint64 {
 			if d := diskUsage(dir); d.Total > 0 {
 				return d.Free
 			}
 			return math.MaxUint64
 		}}
+	m.guards = m.gatherSeedGuards
 	m.mu.Lock()
 	m.openLocked()
 	m.mu.Unlock()
@@ -268,17 +281,30 @@ func (m *utxoManager) Lookup(scripts [][]byte) (coins []utxoCoin, height uint32,
 func (m *utxoManager) run(ctx context.Context) {
 	t := time.NewTicker(utxoFollowInterval)
 	defer t.Stop()
+	var poll <-chan time.Time
+	if m.host != nil {
+		pt := time.NewTicker(seedPollEvery)
+		defer pt.Stop()
+		poll = pt.C
+	}
 	for {
 		if m.follower != nil {
 			m.tick(ctx)
 		}
-		select {
-		case <-ctx.Done():
-			_ = m.currentStore().Close()
-			return
-		case <-t.C:
-		case job := <-m.seedJobs:
-			job.done <- m.execSeed(job.ctx, job.fn)
+	wait:
+		for {
+			select {
+			case <-ctx.Done():
+				_ = m.currentStore().Close()
+				return
+			case <-t.C:
+				break wait
+			case job := <-m.seedJobs:
+				job.done <- m.execSeed(job.ctx, job.fn)
+				break wait
+			case <-poll:
+				m.pollSeed(ctx)
+			}
 		}
 	}
 }
@@ -322,6 +348,7 @@ func (m *utxoManager) startSeed() error {
 	}
 	zero := 0.0
 	m.seeding, m.phase, m.seedProgress, m.refusals = true, utxoPhaseWaiting, &zero, nil
+	m.seed.SeedState, m.seed.Phase, m.seed.Progress = utxoSeedRunning, utxoPhaseWaiting, &zero
 	m.seed.StartedAt, m.seed.AlertsUntil = m.now(), time.Time{}
 	m.setLocked(utxoStateSeeding, "")
 	m.persistSeedLocked()
@@ -339,8 +366,12 @@ func (m *utxoManager) finishSeed(err error) {
 	}
 	now := m.now()
 	m.seeding, m.phase, m.seedProgress = false, "", nil
-	m.seed.AlertsUntil = time.Time{}
-	m.seed.Last = &utxoSeedResult{Outcome: outcome, FinishedAt: now, DurationSeconds: now.Sub(m.seed.StartedAt).Seconds()}
+	m.seed.SeedState, m.seed.Phase, m.seed.Progress = outcome, "", nil
+	// After a failure Core may still be hashing with RPC stalled, so only success ends the hold early.
+	if err == nil {
+		m.seed.AlertsUntil = time.Time{}
+	}
+	m.seed.Last = &utxoSeedResult{Outcome: outcome, Reason: seedErrorClass(err), FinishedAt: now, DurationSeconds: now.Sub(m.seed.StartedAt).Seconds()}
 	m.persistSeedLocked()
 	m.log.Printf("utxo index: seed outcome=%s duration=%.0fs", outcome, m.seed.Last.DurationSeconds)
 	if err == nil {
@@ -357,15 +388,21 @@ func (m *utxoManager) setSeedPhase(phase string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.seeding {
-		m.phase = phase
+		m.phase, m.seed.Phase = phase, phase
+		m.persistSeedLocked()
 	}
 }
 
 func (m *utxoManager) setSeedProgress(fraction float64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.seeding {
-		m.seedProgress = &fraction
+	if !m.seeding {
+		return
+	}
+	m.seedProgress = &fraction
+	if m.seed.Progress == nil || int(fraction*100) != int(*m.seed.Progress*100) {
+		m.seed.Progress = &fraction
+		m.persistSeedLocked()
 	}
 }
 
@@ -381,6 +418,10 @@ func (m *utxoManager) resetStore() error {
 	if m.seeding || m.state != utxoStateNotSeeded && m.state != utxoStateInvalid {
 		return errUtxoSeedState
 	}
+	return m.wipeLocked()
+}
+
+func (m *utxoManager) wipeLocked() error {
 	_ = m.store.Close()
 	if err := clearUtxoDir(m.fs, m.dir); err != nil {
 		m.log.Printf("utxo index: cannot clear the index directory: %v", err)
@@ -400,12 +441,26 @@ func (m *utxoManager) setSeedStatePath(path string) {
 	if raw, err := os.ReadFile(path); err == nil {
 		_ = json.Unmarshal(raw, &m.seed)
 	}
+	m.refusals = m.seed.Refusals
+	if m.seed.SeedState != utxoSeedRunning && m.seed.SeedState != utxoSeedChecking {
+		return
+	}
+	interrupted := m.seed.SeedState == utxoSeedRunning
+	now := m.now()
+	m.seed.SeedState, m.seed.Phase, m.seed.Progress = utxoOutcomeFailed, "", nil
+	if interrupted {
+		m.seed.Last = &utxoSeedResult{Outcome: utxoOutcomeFailed, Reason: errSeedInterrupted.Error(), FinishedAt: now, DurationSeconds: now.Sub(m.seed.StartedAt).Seconds()}
+		_ = m.wipeLocked()
+	}
+	m.persistSeedLocked()
+	m.log.Print("utxo index: a seed was interrupted by a restart and its partial index was discarded")
 }
 
 func (m *utxoManager) persistSeedLocked() {
 	if m.seedPath == "" {
 		return
 	}
+	m.seed.Refusals = m.refusals
 	raw, _ := json.Marshal(m.seed)
 	if err := writePrivateFileAtomic(m.seedPath, raw); err != nil {
 		m.log.Print("utxo index: seed state could not be persisted")
