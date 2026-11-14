@@ -227,7 +227,7 @@ def fresh_ok(env, expect):
     env.prep()
     r = env.reader(DRAIN)
     p = env.start_dump()
-    out, err = p.communicate(timeout=180)
+    _out, err = p.communicate(timeout=180)
     env.wait_container(r)
     kv = read_reader_result(env.logs(r))
     hdr = parse_header(kv.get("hdr", "00" * HEADER_LEN), expect["hash"], expect["coins"])
@@ -238,7 +238,7 @@ def fresh_ok(env, expect):
 def probes(env, rounds_label):
     res = {}
     for name, args in (("getblockchaininfo", ["getblockchaininfo"]), ("getrpcinfo", ["getrpcinfo"])):
-        rc, out, err, el = env.cli_raw(args, client_timeout=2, timeout=15)
+        rc, _out, err, el = env.cli_raw(args, client_timeout=2, timeout=15)
         res[name] = {"rc": rc, "seconds": round(el, 2), "err": err}
     res["label"] = rounds_label
     return res
@@ -246,9 +246,9 @@ def probes(env, rounds_label):
 
 def verify_chain(env):
     out = {}
-    rc, o, e, el = env.cli_raw(["getblockchaininfo"], timeout=30)
+    rc, o, _e, el = env.cli_raw(["getblockchaininfo"], timeout=30)
     out["getblockchaininfo_rc"] = rc
-    rc, o, e, el = env.cli_raw(["verifychain", "1", "0"], timeout=120)
+    rc, o, _e, el = env.cli_raw(["verifychain", "1", "0"], timeout=120)
     out["verifychain_1_rc"], out["verifychain_1_out"], out["verifychain_seconds"] = rc, o, round(el, 2)
     return out
 
@@ -276,7 +276,7 @@ def scenario_s1(env, expect, R):
     s0 = env.state()
     p = env.start_dump()
     time.sleep(2)
-    active, aerr, aelapsed = env.active_commands()
+    active, aerr, _aelapsed = env.active_commands()
     rounds = [probes(env, "t+2s")]
     time.sleep(8)
     rounds.append(probes(env, "t+10s"))
@@ -284,7 +284,7 @@ def scenario_s1(env, expect, R):
     rounds.append(probes(env, "t+30s"))
     still_parked = p.poll() is None
     t_unpark = time.time()
-    rc, out = env.sh(f"timeout 5 cat {INC} > /dev/null; echo cat_rc=$?")
+    _rc, out = env.sh(f"timeout 5 cat {INC} > /dev/null; echo cat_rc=$?")
     try:
         o, e = p.communicate(timeout=60)
     except subprocess.TimeoutExpired:
@@ -386,7 +386,6 @@ def scenario_s5(env, expect, R):
     ok = True
     env.prep()
     mark = env.log_mark()
-    s0 = env.state()
     p = env.start_dump()
     time.sleep(2)
     rc, o, e, el = env.cli_raw(["stop"], timeout=30)
@@ -492,7 +491,7 @@ def main():
             t = time.time()
             try:
                 R["verdicts"][sid] = "PASS" if fn(env, expect, R) else "FAIL"
-            except Exception as exc:
+            except (subprocess.SubprocessError, OSError, ValueError, KeyError, TypeError) as exc:
                 R["verdicts"][sid] = "FAIL"
                 R.setdefault(sid, {})["exception"] = repr(exc)
                 if not env.state()["running"]:
