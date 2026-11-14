@@ -23,6 +23,11 @@ All notable changes to this project are documented here. Format follows
   memory limit with 0.5 CPU on the dashboard. It is off by default, so
   existing installs render the same configuration after upgrade, and bitcoind
   is not restarted when it is enabled.
+- Opt-in `zcash.address_index` runs Zakura with checkpoint sync off so the
+  dashboard can show watch-only balances for transparent Zcash addresses from
+  your own node, with the Zcash Community Grants address as an excluded example.
+  It needs a fresh data directory and full resync, and `configure.sh` refuses it
+  on an existing checkpoint-pruned database. The default is unchanged.
 
 ### Changed
 

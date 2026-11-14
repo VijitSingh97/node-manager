@@ -64,19 +64,19 @@ type familyWatchCacheFile struct {
 }
 
 type familyWatchStore struct {
-	mu          sync.RWMutex
-	scanMu      sync.Mutex
-	rosterPath  string
-	cachePath   string
-	wallets     []familyWatchEntry
-	balances    map[string]familyWatchBalance
-	states      map[string]string
-	err         error
-	trigger     chan struct{}
-	now         func() time.Time
-	rpc         *rpcClient
-	maxSupply   uint64
-	validateLTC bool
+	mu         sync.RWMutex
+	scanMu     sync.Mutex
+	rosterPath string
+	cachePath  string
+	wallets    []familyWatchEntry
+	balances   map[string]familyWatchBalance
+	states     map[string]string
+	err        error
+	trigger    chan struct{}
+	now        func() time.Time
+	rpc        *rpcClient
+	maxSupply  uint64
+	backend    familyWatchBackend
 }
 
 type familyWatchManager struct {
@@ -86,17 +86,20 @@ type familyWatchManager struct {
 
 func newFamilyWatchManager(a *app) *familyWatchManager {
 	m := &familyWatchManager{app: a, stores: make(map[string]*familyWatchStore)}
-	for _, id := range []string{nodeLitecoin, nodeBitcoinCash} {
+	for _, id := range a.familyWatchNodes() {
 		node := a.cfg.nodes[id]
 		store := &familyWatchStore{
 			rosterPath: filepath.Join(a.cfg.stateDir, "family_watch_"+id+".json"), cachePath: filepath.Join(a.cfg.stateDir, "family_watch_"+id+"_cache.json"),
 			balances: make(map[string]familyWatchBalance), states: make(map[string]string), trigger: make(chan struct{}, 1), now: time.Now,
-			rpc: &rpcClient{url: node.RPCURL, user: node.RPCUser, password: node.RPCPassword, client: &http.Client{Timeout: familyWatchRPCTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}},
+			rpc:       &rpcClient{url: node.RPCURL, user: node.RPCUser, password: node.RPCPassword, client: &http.Client{Timeout: familyWatchRPCTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}},
+			maxSupply: 21_000_000 * 100_000_000, backend: utxoFamilyWatchBackend(false),
 		}
-		if id == nodeLitecoin {
-			store.maxSupply, store.validateLTC = 84_000_000*100_000_000, true
-		} else {
-			store.maxSupply = 21_000_000 * 100_000_000
+		switch id {
+		case nodeLitecoin:
+			store.maxSupply, store.backend = 84_000_000*100_000_000, utxoFamilyWatchBackend(true)
+		case nodeZcash:
+			store.rpc.user, store.rpc.password, store.rpc.cookiePath = "", "", node.RPCCookiePath
+			store.backend = zcashFamilyWatchBackend()
 		}
 		store.load(defaultFamilyWatchEntry(id))
 		m.stores[id] = store

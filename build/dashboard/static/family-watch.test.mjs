@@ -43,8 +43,10 @@ test("editing requires a supported active node and trusted configuration access"
   assert.equal(familyAccessView({ supported: true, enabled: true, active: true, has_password: true }, "litecoin").canEdit, true);
   assert.equal(familyAccessView({ supported: true, enabled: true, active: true, has_password: false, can_configure: true }, "litecoin").canEdit, true);
   assert.match(familyAccessView({ supported: true, enabled: true, active: true, has_password: false }, "litecoin").status, /trusted LAN/);
-  assert.equal(familyAccessView({ supported: false, reason: "Dogecoin scanner details." }, "dogecoin").status, "Wallet balance not available.");
-  assert.equal(familyAccessView({ supported: false, reason: "Zcash scanner details." }, "zcash").status, "Wallet balance not available.");
+  assert.equal(familyAccessView({ supported: false, reason: "Dogecoin scanner details." }, "dogecoin").status, "Dogecoin scanner details.");
+  assert.equal(familyAccessView({ supported: false, reason: "Zcash scanner details." }, "zcash").status, "Zcash scanner details.");
+  assert.equal(familyAccessView({ supported: true, enabled: true, active: true, has_password: true }, "zcash").canEdit, true);
+  assert.equal(familyRow({ state: "ok", amount: "1.50000000" }, "zcash").unit, "ZEC");
   assert.equal(familyAccessView({ supported: false, reason: "Tari wallet service unavailable." }, "tari").status, "Tari wallet service unavailable.");
   assert.equal(familyAccessView({ supported: true, enabled: true, active: false, reason: "Litecoin is inactive." }, "litecoin").status, "Litecoin is inactive.");
 });

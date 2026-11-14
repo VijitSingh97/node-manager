@@ -9,7 +9,7 @@ import (
 
 func TestUnavailableWalletBalancesAreExplicit(t *testing.T) {
 	for _, id := range []string{nodeDogecoin, nodeZcash} {
-		supported, reason := familyWatchCapability(id)
+		supported, reason := (&app{}).familyWatchCapability(id)
 		if supported || reason == "" {
 			t.Fatalf("%s capability = (%v, %q)", id, supported, reason)
 		}

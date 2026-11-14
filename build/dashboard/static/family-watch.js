@@ -2,10 +2,10 @@ import { dashboardFetch as fetch } from "./session.js";
 import { bigSeries, formatAmount, httpsURL, joinNote, scanNote } from "./wallet-format.js";
 import { el, managerRow, renderWalletList, safeLink } from "./wallet-ui.js";
 
-const SUPPORTED = new Set(["litecoin", "bitcoincash"]);
+const SUPPORTED = new Set(["litecoin", "bitcoincash", "zcash"]);
 const LABELS = { tari: "Tari", litecoin: "Litecoin", dogecoin: "Dogecoin", bitcoincash: "Bitcoin Cash", zcash: "Zcash" };
-const UNITS = { litecoin: "LTC", bitcoincash: "BCH" };
-const PRICE_ASSETS = { litecoin: "litecoin", bitcoincash: "bitcoin-cash" };
+const UNITS = { litecoin: "LTC", bitcoincash: "BCH", zcash: "ZEC" };
+const PRICE_ASSETS = { litecoin: "litecoin", bitcoincash: "bitcoin-cash", zcash: "zcash" };
 const HEADERS = { "X-Requested-With": "fetch" };
 
 export function familyAmount(value) {
@@ -41,7 +41,6 @@ export function familyRow(wallet, node) {
 
 export function familyAccessView(data, node) {
   const reason = String(data?.reason || "");
-  if (data?.supported !== true && (node === "dogecoin" || node === "zcash")) return { canEdit: false, status: "Wallet balance not available." };
   if (data?.supported !== true) return { canEdit: false, status: reason || "Watch-only balances are unavailable for this chain." };
   if (data?.enabled !== true || data?.active !== true) return { canEdit: false, status: reason || `${LABELS[node] || "This node"} is unavailable.` };
   if (data?.can_configure !== true && data?.has_password !== true) return { canEdit: false, status: "Open this dashboard from its trusted LAN address to manage watch-only addresses." };

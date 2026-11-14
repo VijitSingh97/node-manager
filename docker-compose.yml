@@ -352,7 +352,7 @@ services:
       ZAKURA_RPC__COOKIE_DIR: /data
     volumes:
       - ${ZCASH_DATA_DIR:-./data/zcash}:/data
-      - ${STACK_ASSET_ROOT:-.}/build/zcash/zakurad.toml:/etc/zakura/zakurad.toml:ro
+      - ${STACK_ASSET_ROOT:-.}/build/zcash/${ZCASH_TOML:-zakurad.toml}:/etc/zakura/zakurad.toml:ro
       - ${STACK_ASSET_ROOT:-.}/build/zcash/healthcheck.sh:/usr/local/bin/node-stack-healthcheck:ro
     tmpfs: ["/tmp:size=16m"]
     stop_grace_period: 5m
@@ -462,6 +462,7 @@ services:
       ZCASH_RPC_USER: ${ZCASH_RPC_USER:-}
       ZCASH_RPC_PASSWORD: ${ZCASH_RPC_PASSWORD:-}
       ZCASH_DATA_DIR: /data-zcash
+      ZCASH_ADDRESS_INDEX: ${ZCASH_ADDRESS_INDEX:-0}
       ZCASH_RPC_EXPOSE: ${ZCASH_RPC_EXPOSE:-0}
       ZCASH_RPC_BIND_IP: ${ZCASH_RPC_BIND_IP:-127.0.0.1}
       ZCASH_RPC_PORT: ${ZCASH_RPC_PORT:-8232}

@@ -11,13 +11,18 @@ import (
 	"strings"
 )
 
+var familyWatchSeeds = map[string]familyWatchEntry{
+	nodeLitecoin:    familyWatchExample("Linux Mint", "LW1Zckzn9Y6baEvhoo2tGBJJa5YLXXD1B2", "https://www.linuxmint.com/donors.php"),
+	nodeBitcoinCash: familyWatchExample("Bitcoin Cash Node", "bitcoincash:pq22wvjxu3et9rxgw8zgwcs0j3270gs6lumlq52mxl", "https://bitcoincashnode.org/en/"),
+	nodeZcash:       familyWatchExample("Zcash Community Grants", "t3cFfPt1Bcvgez9ZbMBFWeZsskxTkPzGCow", "https://zips.z.cash/zip-0214"),
+}
+
+func familyWatchExample(label, address, source string) familyWatchEntry {
+	return familyWatchEntry{ID: familyWatchID(address), Label: label, Address: address, SourceURL: source, Example: true}
+}
+
 func defaultFamilyWatchEntry(id string) familyWatchEntry {
-	if id == nodeLitecoin {
-		address := "LW1Zckzn9Y6baEvhoo2tGBJJa5YLXXD1B2"
-		return familyWatchEntry{ID: familyWatchID(address), Label: "Linux Mint", Address: address, SourceURL: "https://www.linuxmint.com/donors.php", Example: true}
-	}
-	address := "bitcoincash:pq22wvjxu3et9rxgw8zgwcs0j3270gs6lumlq52mxl"
-	return familyWatchEntry{ID: familyWatchID(address), Label: "Bitcoin Cash Node", Address: address, SourceURL: "https://bitcoincashnode.org/en/", Example: true}
+	return familyWatchSeeds[id]
 }
 
 func familyWatchID(address string) string {

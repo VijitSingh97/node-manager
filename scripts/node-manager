@@ -53,6 +53,7 @@ if [ "$package_managed" = brew ]; then
 build/tari/config.toml
 build/tari/entrypoint.sh
 build/zcash/zakurad.toml
+build/zcash/zakurad-address-index.toml
 build/zcash/healthcheck.sh'
   asset_base=$state_dir/package-assets
   mkdir -p "$asset_base"

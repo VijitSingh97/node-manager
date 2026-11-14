@@ -9,7 +9,7 @@ fail() { echo "FAIL: $1"; exit 1; }
 copy_assets() {
   target=$1
   for file in build/bitcoin/bitcoin.conf build/tari/config.toml build/tari/entrypoint.sh \
-    build/zcash/zakurad.toml build/zcash/healthcheck.sh; do
+    build/zcash/zakurad.toml build/zcash/zakurad-address-index.toml build/zcash/healthcheck.sh; do
     mkdir -p "$target/${file%/*}"
     cp "$root/$file" "$target/$file"
   done

@@ -1,0 +1,31 @@
+[consensus]
+checkpoint_sync = false
+
+[network]
+cache_dir = false
+initial_mainnet_peers = [
+    "172.29.0.25:18233",
+    "172.29.0.25:18234",
+    "172.29.0.25:18235",
+    "172.29.0.25:18236",
+]
+listen_addr = "127.0.0.1:8233"
+max_connections_per_ip = 8
+network = "Mainnet"
+p2p_stack = "legacy"
+peerset_initial_target_size = 4
+
+[rpc]
+listen_addr = "0.0.0.0:8232"
+cookie_dir = "/data"
+enable_cookie_auth = true
+
+[state]
+cache_dir = "/data"
+
+[state.storage_mode.pruned]
+tx_retention = 10000
+
+[tracing]
+force_use_color = false
+use_color = false

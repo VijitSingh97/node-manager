@@ -101,7 +101,7 @@ func newFamilyScanTest(t *testing.T, now time.Time, wallets ...familyWatchEntry)
 	t.Cleanup(server.Close)
 	store := &familyWatchStore{
 		cachePath: t.TempDir() + "/cache.json", wallets: wallets, balances: make(map[string]familyWatchBalance), states: make(map[string]string),
-		trigger: make(chan struct{}, 1), now: func() time.Time { return now }, maxSupply: 84_000_000 * 100_000_000,
+		trigger: make(chan struct{}, 1), now: func() time.Time { return now }, maxSupply: 84_000_000 * 100_000_000, backend: utxoFamilyWatchBackend(false),
 		rpc: &rpcClient{url: server.URL, client: server.Client()},
 	}
 	a := &app{cfg: config{nodes: map[string]nodeConfig{nodeLitecoin: {ID: nodeLitecoin, Enabled: true, Active: true, ActiveSet: true}}}, log: log.New(io.Discard, "", 0), nodeHealth: make(map[string]nodeHealthSnapshot)}
