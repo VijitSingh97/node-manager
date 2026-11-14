@@ -29,6 +29,10 @@ All notable changes to this project are documented here. Format follows
 - `configure.sh` no longer claims `blockfilterindex` cannot run on a pruned node
   (Core allows it). It now refuses only to add the index to an already pruned
   node, which bitcoind cannot start with, and docs state the real rule (#218).
+- The "initial sync complete" alert no longer repeats every few minutes after
+  a node has synced. Monero (and Tari) briefly report syncing whenever a new
+  block arrives, and each blip re-announced the sync; once a node has synced,
+  the alert now re-arms only after it stays behind for 10 minutes.
 
 ## [1.33.18] - 2026-11-13
 

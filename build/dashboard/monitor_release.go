@@ -81,14 +81,15 @@ func (m *Monitor) persistedState() persistedMonitorState {
 func persistedNodeFromState(state monitorState) persistedNodeState {
 	return persistedNodeState{
 		Fails: state.fails, DownAlerted: state.downAlerted, ChainKnown: state.chainKnown,
-		IBD: state.ibd, SyncPending: state.syncPending, LastBlock: state.lastBlock,
+		IBD: state.ibd, IBDTicks: state.ibdTicks, Synced: state.synced, SyncPending: state.syncPending, LastBlock: state.lastBlock,
 		HasLastBlock: state.hasLastBlock, PendingBlock: state.pendingBlock, DiskAlerted: state.diskAlerted,
 	}
 }
 
 func applyPersistedNodeState(state *monitorState, saved persistedNodeState) {
 	state.fails, state.downAlerted, state.chainKnown = saved.Fails, saved.DownAlerted, false
-	state.ibd, state.syncPending = saved.IBD, saved.SyncPending
+	state.ibd, state.ibdTicks, state.syncPending = saved.IBD, saved.IBDTicks, saved.SyncPending
+	state.synced = saved.Synced || (saved.ChainKnown && !saved.IBD && !saved.SyncPending)
 	state.lastBlock, state.hasLastBlock, state.pendingBlock = saved.LastBlock, saved.HasLastBlock, saved.PendingBlock
 	state.diskAlerted = saved.DiskAlerted
 }
