@@ -35,7 +35,7 @@ for required in stack configure.sh docker-compose.yml docker-compose.rpc.yml con
   build/bitcoin-family/Dockerfile build/bitcoin-family/entrypoint.sh build/bitcoin-family/healthcheck.sh \
   build/zcash/zakurad.toml build/zcash/healthcheck.sh \
   docker-compose.monero-rpc.yml docker-compose.monero-zmq.yml docker-compose.tari-grpc.yml \
-  docker-compose.litecoin-rpc.yml docker-compose.dogecoin-rpc.yml docker-compose.bitcoincash-rpc.yml docker-compose.zcash-rpc.yml \
+  docker-compose.litecoin-rpc.yml docker-compose.dogecoin-rpc.yml docker-compose.bitcoincash-rpc.yml docker-compose.zcash-rpc.yml docker-compose.utxo-index.yml \
   build/dashboard/static/nodes.js docs/nodes.md $runtime_helpers \
   docs/Caddyfile.example docs/getting-started.md docs/configuration.md docs/operations.md docs/watch-only.md docs/privacy.md; do
   grep -Fxq "$required" "$tmp/contents" || fail "release archive is missing $required"

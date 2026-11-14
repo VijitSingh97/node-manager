@@ -8,6 +8,7 @@
         "prune_mb": 10000,
         "inbound_onion": false,
         "blockfilterindex": false,
+        "utxo_index": false,
         "mem_limit_mb": 0,
         "cpus": 0,
         "resource_profile": "off",

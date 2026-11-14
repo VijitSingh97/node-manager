@@ -46,7 +46,7 @@ install -m 644 packaging/systemd/node-manager-resource-profile.service packaging
   "$package/usr/lib/systemd/system/"
 install -m 644 docker-compose.yml docker-compose.rpc.yml docker-compose.monero-rpc.yml docker-compose.monero-zmq.yml \
   docker-compose.tari-wallet.yml docker-compose.tari-grpc.yml docker-compose.litecoin-rpc.yml docker-compose.dogecoin-rpc.yml docker-compose.bitcoincash-rpc.yml \
-  docker-compose.zcash-rpc.yml VERSION .dockerignore "$root/"
+  docker-compose.zcash-rpc.yml docker-compose.utxo-index.yml VERSION .dockerignore "$root/"
 printf '%s\n' "$version" >"$root/VERSION"
 install -m 644 "$image_digests" "$root/runtime-images.json"
 for service in tor dashboard monero tari-wallet litecoin dogecoin bitcoincash; do

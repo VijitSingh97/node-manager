@@ -6,6 +6,14 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in `bitcoin.utxo_index` setting that adds the
+  `docker-compose.utxo-index.yml` overlay: a `utxo_index` volume and a 1g
+  memory limit with 0.5 CPU on the dashboard. It is off by default, so
+  existing installs render the same configuration after upgrade, and bitcoind
+  is not restarted when it is enabled.
+
 ### Changed
 
 - The Litecoin, Dogecoin and Bitcoin Cash images now build from one shared
