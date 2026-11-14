@@ -8,6 +8,14 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
+- The dashboard has an internal resolver that turns watch-only keys (address,
+  xpub family, descriptors) into the sorted, deduplicated scriptPubKey set for
+  indexes 0 to 999 of receive and change. Wallets resolve in batches of 20
+  descriptors through bitcoind (`deriveaddresses`) and a stdlib decode of
+  base58check, bech32 and bech32m. Only addr, pkh, wpkh, sh(wpkh), wsh and tr
+  shapes are resolved; anything else (`pk()`, `combo()`, a key bitcoind
+  rejects, a short derivation) is flagged per wallet to keep using
+  `scantxoutset`. `rpcClient` gains JSON-RPC batching. Nothing calls it yet, so runtime behavior is unchanged.
 - The dashboard now links Pebble (a pure Go key-value store) and carries an
   internal UTXO index store: each block is applied in one fsynced batch with
   a 144-block undo journal (checked by a SIGKILL loop and a crash at each of the first
