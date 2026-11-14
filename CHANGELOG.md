@@ -8,6 +8,13 @@ All notable changes to this project are documented here. Format follows
 
 ### Changed
 
+- Tari now also connects to the peers that advertise clearnet addresses, still
+  only through Tor: its transport moves from onion-only (`tor`) to `tcp_tor`,
+  and with the proxy bypass off each clearnet dial leaves through a Tor exit
+  relay. Exit connections are faster and steadier than onion ones, which helps
+  the node find sync peers. The Tari container stays on the internal network,
+  so nothing can connect directly even if the setting changed, and a compose
+  test now guards the bypass settings.
 - Every chain's watch-only wallets now render through one shared component, so
   Bitcoin, Monero, Tari, Litecoin and Bitcoin Cash rows look and behave the
   same: the name (with an ⓘ tooltip for notes such as public-example caveats),
