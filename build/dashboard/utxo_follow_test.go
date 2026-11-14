@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 )
 
 type fakeUtxoChain struct {
@@ -323,5 +324,57 @@ func TestRPCAmount(t *testing.T) {
 		if json.Unmarshal([]byte(in), &a) == nil {
 			t.Errorf("%s accepted", in)
 		}
+	}
+}
+
+type flakyUtxoRPC struct {
+	utxoRPC
+	failNext int
+}
+
+func (r *flakyUtxoRPC) call(ctx context.Context, method string, params any, out any) error {
+	if r.failNext > 0 {
+		r.failNext--
+		return errors.New("rpc: connection refused")
+	}
+	return r.utxoRPC.call(ctx, method, params, out)
+}
+
+func TestFollowerRecoversFromTransientRPCError(t *testing.T) {
+	c := newFakeUtxoChain()
+	genesis(c)
+	c.add("p", []fakeOut{{"5152", "1.00000000"}}, nil)
+	s := openFollowStore(t)
+	r := &flakyUtxoRPC{utxoRPC: c, failNext: 1}
+	f := newUtxoFollower(s, r)
+	if err := f.Step(context.Background()); err == nil {
+		t.Fatal("expected the transient error")
+	}
+	if st := f.Status(); st.State != utxoFollowRetry || st.Error == "" {
+		t.Fatalf("status %+v", st)
+	}
+	if err := f.Step(context.Background()); err != nil {
+		t.Fatalf("did not resume: %v", err)
+	}
+	if st := f.Status(); st.State != utxoFollowIdle || st.Error != "" {
+		t.Fatalf("status %+v", st)
+	}
+	if h, _, _, _ := s.Tip(); h != 1 {
+		t.Fatalf("tip %d", h)
+	}
+}
+
+func TestFollowerRunSurvivesTransientErrorAndStopsOnIntegrity(t *testing.T) {
+	c := newFakeUtxoChain()
+	genesis(c)
+	c.add("p", nil, []fakeIn{{fakeDisplayHash("nothing", 1), 0, "5152"}})
+	s := openFollowStore(t)
+	f := newUtxoFollower(s, &flakyUtxoRPC{utxoRPC: c, failNext: 2})
+	err := f.Run(context.Background(), time.Millisecond)
+	if !errors.Is(err, errUtxoMissingCoin) {
+		t.Fatalf("run returned %v", err)
+	}
+	if f.Status().State != utxoFollowError {
+		t.Fatalf("status %+v", f.Status())
 	}
 }

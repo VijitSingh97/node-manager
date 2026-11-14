@@ -17,6 +17,7 @@ const (
 	utxoFollowCatching = "catching_up"
 	utxoFollowReorg    = "reorg detected"
 	utxoFollowError    = "error"
+	utxoFollowRetry    = "retrying"
 )
 
 var (
@@ -118,7 +119,7 @@ func (f *utxoFollower) Run(ctx context.Context, interval time.Duration) error {
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
-		if err := f.Step(ctx); err != nil {
+		if err := f.Step(ctx); err != nil && f.Status().State != utxoFollowRetry && ctx.Err() == nil {
 			return err
 		}
 		select {
@@ -127,6 +128,15 @@ func (f *utxoFollower) Run(ctx context.Context, interval time.Duration) error {
 		case <-t.C:
 		}
 	}
+}
+
+func utxoIntegrityError(err error) bool {
+	for _, target := range []error{errUtxoNoPrevout, errUtxoMissingCoin, errUtxoNotContiguous, errUtxoBadBlock, errUtxoInvalid, errUtxoBroken} {
+		if errors.Is(err, target) {
+			return true
+		}
+	}
+	return false
 }
 
 func utxoRevHex(s string) ([32]byte, error) {
@@ -153,8 +163,10 @@ func (f *utxoFollower) Step(ctx context.Context) (err error) {
 			f.set(utxoFollowReorg, err)
 		case ctx.Err() != nil:
 			f.set(utxoFollowIdle, nil)
-		default:
+		case utxoIntegrityError(err):
 			f.set(utxoFollowError, err)
+		default:
+			f.set(utxoFollowRetry, err)
 		}
 	}()
 	var best string

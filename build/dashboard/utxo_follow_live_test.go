@@ -129,8 +129,13 @@ func TestUtxoFollowerRegtestLive(t *testing.T) {
 		addrs, scripts = append(addrs, a), append(scripts, s)
 	}
 	mine := n.str("getnewaddress", "", "bech32")
-	_, mineScript := n.newScript("bech32")
-	scripts = append(scripts, mineScript)
+	var mineInfo struct {
+		ScriptPubKey string `json:"scriptPubKey"`
+	}
+	if err := json.Unmarshal(n.do("getaddressinfo", mine), &mineInfo); err != nil {
+		t.Fatal(err)
+	}
+	scripts = append(scripts, mineInfo.ScriptPubKey)
 	n.do("generatetoaddress", 101, mine)
 
 	store := openFollowStore(t)
@@ -195,6 +200,22 @@ func TestUtxoFollowerRegtestLive(t *testing.T) {
 	if h, _, _, _ := store.Tip(); int(h) != n.height() {
 		t.Fatalf("tip %d, node %d", h, n.height())
 	}
+	var unspent []struct {
+		ScriptPubKey string `json:"scriptPubKey"`
+	}
+	if err := json.Unmarshal(n.do("listunspent", 0), &unspent); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, s := range scripts {
+		seen[s] = true
+	}
+	for _, u := range unspent {
+		if !seen[u.ScriptPubKey] {
+			seen[u.ScriptPubKey] = true
+			scripts = append(scripts, u.ScriptPubKey)
+		}
+	}
 	checked := 0
 	for _, s := range scripts {
 		want := n.scan(s)
@@ -208,6 +229,18 @@ func TestUtxoFollowerRegtestLive(t *testing.T) {
 			}
 		}
 		checked += len(want)
+	}
+	var setInfo struct {
+		TxOuts int `json:"txouts"`
+	}
+	if err := json.Unmarshal(n.do("gettxoutsetinfo", "none"), &setInfo); err != nil {
+		t.Fatal(err)
+	}
+	if setInfo.TxOuts != checked {
+		t.Fatalf("index holds %d coins at wallet scripts, node utxo set has %d", checked, setInfo.TxOuts)
+	}
+	if got := len(lookupAmounts(t, store, mineInfo.ScriptPubKey)); got < 100 {
+		t.Fatalf("only %d coinbase coins at the mining script", got)
 	}
 	if checked < 20 {
 		t.Fatalf("only %d coins compared", checked)
