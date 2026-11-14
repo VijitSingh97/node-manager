@@ -10,13 +10,11 @@ import sys
 import tempfile
 from pathlib import Path
 
-
 REFERENCE = Path(__file__).resolve().parent / "reference"
 sys.path.insert(0, str(REFERENCE))
 
 import balance_history
 import watch
-
 
 BIP84_ZPUB = (
     "zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1"
@@ -161,7 +159,6 @@ def bad_key_sequence():
 
     def wallet_rpc(wallet, method, params=None):
         wallet_calls.append({"wallet": wallet, "method": method, "params": params or []})
-        return None
 
     output = io.StringIO()
     with contextlib.redirect_stdout(output):

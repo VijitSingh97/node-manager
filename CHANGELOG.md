@@ -29,6 +29,11 @@ All notable changes to this project are documented here. Format follows
   approximate value in the chosen currency like Bitcoin's public example; the
   status line still says when the figure is a total received rather than a
   verified balance.
+- `scripts/lint.sh` is the one lint entrypoint for CI and `tests/run.sh`. It
+  runs shellcheck over a single file list (including `packaging/postinst` and
+  `scripts/node-manager`), ruff, actionlint and gofmt. The lint images are
+  digest-pinned in `.github/tool-images/Dockerfile` beside the other CI tools,
+  so Dependabot bumps them too.
 
 ### Fixed
 

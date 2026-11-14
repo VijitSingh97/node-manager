@@ -64,7 +64,7 @@ Versioning rules:
    re-runs everything on the tag regardless.
 
 3. The tag push triggers the [Release workflow](../.github/workflows/release.yml):
-   the **full CI suite** (shellcheck, unit tests, compose contract, e2e
+   the **full CI suite** (lint, unit tests, compose contract, e2e
    boot with the egress audit) runs against the tagged commit, and only
    then is the GitHub Release published — title, notes extracted from the
    changelog section, and a `node-manager.tar.gz` source tarball
