@@ -30,7 +30,7 @@ export function moneroRow(wallet) {
     unit: "XMR",
     stateText: pending ? "Pending scan…" : "—",
     stale: wallet.spending_status === "stale" || wallet.state === "error",
-    fiatAsset: verified ? "monero" : null,
+    fiatAsset: "monero",
     status: joinNote(status),
     series: bigSeries(history),
     seriesTitle: verified ? "Saved verified balance snapshots" : "Saved incoming-funds snapshots; spending unknown",

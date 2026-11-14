@@ -8,6 +8,13 @@ All notable changes to this project are documented here. Format follows
 
 ### Changed
 
+- Tari now also connects to the peers that advertise clearnet addresses, still
+  only through Tor: its transport moves from onion-only (`tor`) to `tcp_tor`,
+  and with the proxy bypass off each clearnet dial leaves through a Tor exit
+  relay. Exit connections are faster and steadier than onion ones, which helps
+  the node find sync peers. The Tari container stays on the internal network,
+  so nothing can connect directly even if the setting changed, and a compose
+  test now guards the bypass settings.
 - Every chain's watch-only wallets now render through one shared component, so
   Bitcoin, Monero, Tari, Litecoin and Bitcoin Cash rows look and behave the
   same: the name (with an ⓘ tooltip for notes such as public-example caveats),
@@ -18,8 +25,10 @@ All notable changes to this project are documented here. Format follows
   same way, with a confirmed ✕ to remove one.
 - The Monero example wallet shows its total received as
   "137,131.438327228521 XMR" with "Total received" on the status line and the
-  view-key caveat in its tooltip; a received-only total no longer gets a fiat
-  value, since it is not a current balance.
+  view-key caveat in its tooltip, and every Monero wallet row shows its
+  approximate value in the chosen currency like Bitcoin's public example; the
+  status line still says when the figure is a total received rather than a
+  verified balance.
 - `scripts/lint.sh` is the one lint entrypoint for CI and `tests/run.sh`. It
   runs shellcheck over a single file list (including `packaging/postinst` and
   `scripts/node-manager`), ruff, actionlint and gofmt. The lint images are
