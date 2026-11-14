@@ -6,81 +6,55 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.34.0] - 2026-11-14
+
 ### Added
 
 - The Zcash panel warns when Zakura is within about 14 days of its end-of-support
   height (block 3,643,309 for Zakura 1.8.6 and 1.8.7, around 2026-12-03), and the
   monitor records one event per crossing. See `docs/nodes.md`.
-- The dashboard now links Pebble (a pure Go key-value store) and carries an
-  internal UTXO index store: each block is applied in one fsynced batch with
-  a 144-block undo journal (checked by a SIGKILL loop and a crash at each of the first
-  40 WAL writes), plus a format-version check; a fatal storage error marks the
-  store broken until it is reopened. Nothing opens it yet, so runtime
-  behavior is unchanged; the dashboard binary grows by about 5.5 MB and
-  `THIRD_PARTY_NOTICES` gains the new modules.
-- The internal UTXO index store gains a tip follower that polls
-  `getbestblockhash` every 10 seconds, fetches each missing block with
-  `getblock` verbosity 3 and applies it in order, from an empty store or from an
-  older tip. It stops with a reported error on a missing prevout, a missing coin
-  or a non-contiguous block and retries after node or network errors.
-- The internal UTXO index tip follower now survives reorgs: when the stored tip
-  leaves the active chain it rolls back through its per-block undo records
-  (144 blocks deep) to the common ancestor and applies the new branch in the
-  same step. A fork older than the journal or at or below the snapshot base
-  latches the follower in the error state with a reorg-too-deep reason; a node
-  further behind the index than the journal (for example while reindexing) is
-  retried, not treated as a reorg.
-- The dashboard has an internal resolver that turns watch-only keys (address,
-  xpub family, descriptors) into the sorted, deduplicated scriptPubKey set for
-  indexes 0 to 999 of receive and change. Wallets resolve in batches of 20
-  descriptors through bitcoind (`deriveaddresses`) and a stdlib decode of
-  base58check, bech32 and bech32m. Only addr, pkh, wpkh, sh(wpkh), wsh and tr
-  shapes are resolved; anything else (`pk()`, `combo()`, a key bitcoind
-  rejects, a short derivation) is flagged per wallet to keep using
-  `scantxoutset`. `rpcClient` gains JSON-RPC batching. Nothing calls it yet, so runtime behavior is unchanged.
-- The internal UTXO index store can now load a parsed `dumptxoutset` snapshot
-  into an empty store: records are sorted by key in bounded memory (2M-record
-  runs spilled to a temp directory inside the index directory), merged into
-  non-overlapping SSTs and ingested, with the tip set to the snapshot base and no
-  undo record. The index is not served until ingest finishes, and a restart
-  after an interruption discards it. Nothing calls it yet, so runtime behavior
-  is unchanged.
-- With the `bitcoin.utxo_index` overlay enabled, the dashboard now opens the
-  UTXO index at `UTXO_INDEX_DIR` (created 0700) and follows the node tip, and
-  `GET /api/utxo-index` reports `off`, `not_seeded`, `seeding`, `catching_up`,
-  `ready`, `degraded` or `invalid` with the index and node heights. It resumes
-  from the stored tip after a restart, pauses below 2 GB free, and goes
-  `invalid` (persisted, never migrated or reseeded automatically) on a format
-  or chain mismatch, a reorg deeper than the 144-block undo journal, falling
-  behind the node's retained blocks, or a storage error; shallower reorgs are
-  rolled back, and it reports `catching_up` meanwhile and while the node is not
-  answering. The JSON fields are listed in `docs/operations.md`. Each state change is logged once. There is no
-  seed trigger yet, so an enabled index stays `not_seeded`; without the
-  overlay nothing is opened and the endpoint answers `off`.
-- On a pruned node, watched-wallet balances now come from the UTXO index while
-  it is `ready`, within 2 blocks of the node tip, and the wallet's scripts can
-  be derived; each row reports `balance_source` as `index` or `scan`. In every
-  other state, or if the index result is rejected, the existing `scantxoutset`
-  flow runs unchanged. Derived script sets are cached per descriptor in
-  `utxo_scripts.json` under the state directory (mode 0600); logs carry counts,
-  heights and durations only. Non-pruned nodes keep the Core-wallet path.
-- The UTXO index manager can now run a seed inside its own goroutine, reset a
-  not-seeded or invalid store, hold the pruned scanner off, check the seed
-  safety guards, and report seed phase, refusals and the last seed result on
-  `/api/utxo-index`.
-- `./stack utxo-seed [-y]` and `./stack utxo-seed cancel` seed the Bitcoin
-  balance index: the stack script creates a FIFO in the bitcoin container, the
-  dashboard reads `dumptxoutset` from it under the thermal, disk and CPU
-  guards (pause at 85 C, resume at 72 C, abort below 2 GB free), checks the
-  dump against the RPC result and holds node-down alerts for up to 15 minutes.
-  `stop`, `down` and `restart` cancel a running seed and unpark the dump
-  before stopping bitcoind, and the dashboard
-  shows the index state, progress, refusals and the host command.
-- Opt-in `bitcoin.utxo_index` setting that adds the
-  `docker-compose.utxo-index.yml` overlay: a `utxo_index` volume and a 1g
-  memory limit with 0.5 CPU on the dashboard. It is off by default, so
-  existing installs render the same configuration after upgrade, and bitcoind
-  is not restarted when it is enabled.
+- Opt-in Bitcoin balance index for pruned nodes (`bitcoin.utxo_index`, off by
+  default), so watched-wallet balances come from a local index instead of a
+  `scantxoutset` walk of the whole coin set.
+  - Turning it on adds the `docker-compose.utxo-index.yml` overlay: a
+    `utxo_index` volume and a 1g memory limit with 0.5 CPU on the dashboard.
+    `./stack apply` recreates only the dashboard, never bitcoind. Existing
+    installs render the same configuration after upgrade.
+  - `./stack utxo-seed [-y]` fills the index once from `dumptxoutset`, read
+    through a pipe in the bitcoin container, so no 9 GB dump file is written.
+    Bitcoin RPC fails for about 5 minutes during the dump; allow at least 15
+    minutes. It refuses to start unless the node is synced with a fresh tip,
+    no other dump or scan is running, 27 GB is free, the dashboard is capped at
+    0.5 CPU and the host is at or below 75 C. While it runs it holds the
+    pruned-wallet scanner, pauses reading at 85 C and resumes at 72 C, aborts
+    below 2 GB free, accepts the result only if it matches the RPC result, and
+    holds node-down alerts for up to 15 minutes. `./stack utxo-seed cancel`
+    stops it, and `stop`, `down` and `restart` cancel a running seed and
+    unblock the dump before stopping bitcoind. See "Seeding the Bitcoin
+    balance index" in `docs/operations.md`.
+  - After the seed the dashboard follows the node tip, polling every 10
+    seconds and applying each block with `getblock` verbosity 3 in one fsynced
+    batch, and rolls back reorgs up to 144 blocks deep from its own undo
+    journal. It pauses below 2 GB free and goes `invalid` (persisted, never
+    migrated or reseeded automatically) on a format or chain mismatch, a
+    deeper reorg, falling behind the node's retained blocks, or a storage
+    error.
+  - Watched-wallet balances come from the index while it is `ready` and level
+    with the node tip, and the wallet's scripts can be derived: addr, pkh,
+    wpkh, sh(wpkh), wsh and tr shapes, indexes 0 to 999 of receive and change,
+    derived through bitcoind. Each row reports `balance_source` as `index` or
+    `scan`. Wallets with other shapes (for example `pk()` or `combo()`), and
+    every wallet while the index is in any other state, keep the existing
+    `scantxoutset` flow unchanged. Derived script sets are cached in `utxo_scripts.json`
+    (mode 0600) under the state directory, and logs carry counts, heights and
+    durations only. Non-pruned nodes keep the Core-wallet path.
+  - `GET /api/utxo-index` and a dashboard card report the index state (`off`,
+    `not_seeded`, `seeding`, `catching_up`, `ready`, `degraded` or
+    `invalid`), the index and node heights, seed phase and progress, refusals
+    and the host command to run. The JSON fields are listed in
+    `docs/operations.md`.
+  - The dashboard now links Pebble, a pure Go key-value store. The binary
+    grows by about 5.5 MB and `THIRD_PARTY_NOTICES` gains the new modules.
 - Opt-in `zcash.address_index` runs Zakura with checkpoint sync off so the
   dashboard can show watch-only balances for transparent Zcash addresses from
   your own node, with the Zcash Community Grants address as an excluded example.
@@ -1403,7 +1377,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.19...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.34.0...HEAD
+[1.34.0]: https://github.com/VijitSingh97/node-manager/compare/v1.33.19...v1.34.0
 [1.33.19]: https://github.com/VijitSingh97/node-manager/compare/v1.33.18...v1.33.19
 [1.33.18]: https://github.com/VijitSingh97/node-manager/compare/v1.33.17...v1.33.18
 [1.33.17]: https://github.com/VijitSingh97/node-manager/compare/v1.33.16...v1.33.17
