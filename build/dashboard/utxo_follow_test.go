@@ -269,6 +269,42 @@ func TestFollowerStopsOnNonContiguousBlock(t *testing.T) {
 	}
 }
 
+type hookedUtxoRPC struct {
+	utxoRPC
+	before func(method string)
+}
+
+func (h hookedUtxoRPC) call(ctx context.Context, method string, params any, out any) error {
+	h.before(method)
+	return h.utxoRPC.call(ctx, method, params, out)
+}
+
+func TestFollowerRetriesNonContiguousBlockWhenChainMoved(t *testing.T) {
+	c := newFakeUtxoChain()
+	genesis(c)
+	c.add("a", nil, nil)
+	c.add("b", nil, nil)
+	prev := c.blocks[c.hashes[2]]["previousblockhash"]
+	c.blocks[c.hashes[2]]["previousblockhash"] = fakeDisplayHash("elsewhere", 1)
+	s := openFollowStore(t)
+	f := newUtxoFollower(s, hookedUtxoRPC{c, func(method string) {
+		if method == "getblock" && len(c.hashes) == 3 {
+			c.add("c", nil, nil)
+		}
+	}})
+	if err := f.Step(context.Background()); !errors.Is(err, errUtxoChainMoved) {
+		t.Fatalf("err %v", err)
+	}
+	if st := f.Status(); st.State != utxoFollowRetry {
+		t.Fatalf("status %+v", st)
+	}
+	c.blocks[c.hashes[2]]["previousblockhash"] = prev
+	stepOK(t, f)
+	if h, _, _, _ := s.Tip(); h != 3 {
+		t.Fatalf("tip %d", h)
+	}
+}
+
 func (c *fakeUtxoChain) forkAt(n int) { c.hashes = c.hashes[:n] }
 
 func stepOK(t *testing.T, f *utxoFollower) {
@@ -397,6 +433,34 @@ func TestFollowerReorgTooDeepForJournal(t *testing.T) {
 	}
 	if h, _, _, _ := s.Tip(); h != utxoJournalDepth+6 {
 		t.Fatalf("store mutated, tip %d", h)
+	}
+}
+
+func TestFollowerWaitsWhileNodeIsFarBehind(t *testing.T) {
+	c := newFakeUtxoChain()
+	genesis(c)
+	for i := 0; i < utxoJournalDepth+60; i++ {
+		c.add("a", nil, nil)
+	}
+	s := openFollowStore(t)
+	f := newUtxoFollower(s, c)
+	stepOK(t, f)
+	full := c.hashes
+	c.hashes = full[:20]
+	if err := f.Step(context.Background()); !errors.Is(err, errUtxoNodeBehind) {
+		t.Fatalf("err %v", err)
+	}
+	if st := f.Status(); st.State != utxoFollowRetry {
+		t.Fatalf("status %+v", st)
+	}
+	if h, _, _, _ := s.Tip(); h != utxoJournalDepth+60 {
+		t.Fatalf("store mutated, tip %d", h)
+	}
+	c.hashes = full
+	c.add("a", nil, nil)
+	stepOK(t, f)
+	if h, _, _, _ := s.Tip(); h != utxoJournalDepth+61 {
+		t.Fatalf("tip %d after the node caught up", h)
 	}
 }
 
