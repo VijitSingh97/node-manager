@@ -6,6 +6,14 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- The dashboard now links Pebble (a pure Go key-value store) and carries an
+  internal UTXO index store: crash-safe per-block apply, a 144-block undo
+  journal, and a format-version check. Nothing opens it yet, so runtime
+  behavior is unchanged; the dashboard binary grows by about 5.5 MB and
+  `THIRD_PARTY_NOTICES` gains the new modules.
+
 ### Changed
 
 - The Litecoin, Dogecoin and Bitcoin Cash images now build from one shared
