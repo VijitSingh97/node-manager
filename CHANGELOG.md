@@ -6,8 +6,13 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.33.19] - 2026-11-13
+
 ### Changed
 
+- Zcash runs Zakura 1.8.6 (from 1.8.5), and the Debian and Alpine base images
+  for Monero, Litecoin, Dogecoin, Bitcoin Cash and the dashboard are refreshed
+  to their current digests.
 - Tari now also connects to the peers that advertise clearnet addresses, still
   only through Tor: its transport moves from onion-only (`tor`) to `tcp_tor`,
   and with the proxy bypass off each clearnet dial leaves through a Tor exit
@@ -1300,7 +1305,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.18...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.33.19...HEAD
+[1.33.19]: https://github.com/VijitSingh97/node-manager/compare/v1.33.18...v1.33.19
 [1.33.18]: https://github.com/VijitSingh97/node-manager/compare/v1.33.17...v1.33.18
 [1.33.17]: https://github.com/VijitSingh97/node-manager/compare/v1.33.16...v1.33.17
 [1.33.16]: https://github.com/VijitSingh97/node-manager/compare/v1.33.15...v1.33.16
