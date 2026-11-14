@@ -26,6 +26,7 @@ var (
 	errUtxoBadBlock     = errors.New("malformed block from node")
 	errUtxoFollowStop   = errors.New("follower stopped")
 	errUtxoChainMoved   = errors.New("chain changed while catching up")
+	errUtxoNodeBehind   = errors.New("node is further behind the index than the undo journal")
 )
 
 type utxoRPC interface {
@@ -131,8 +132,10 @@ func (f *utxoFollower) Run(ctx context.Context, interval time.Duration) error {
 	}
 }
 
+var utxoIntegrityErrors = []error{errUtxoNoPrevout, errUtxoMissingCoin, errUtxoNotContiguous, errUtxoBadBlock, errUtxoReorgTooDeep, errUtxoInvalid, errUtxoBroken}
+
 func utxoIntegrityError(err error) bool {
-	for _, target := range []error{errUtxoNoPrevout, errUtxoMissingCoin, errUtxoNotContiguous, errUtxoBadBlock, errUtxoReorgTooDeep, errUtxoInvalid, errUtxoBroken} {
+	for _, target := range utxoIntegrityErrors {
 		if errors.Is(err, target) {
 			return true
 		}
@@ -208,9 +211,17 @@ func (f *utxoFollower) Step(ctx context.Context) (err error) {
 		}
 		if err := f.applyHeight(ctx, h); err != nil {
 			if errors.Is(err, errUtxoNotContiguous) {
-				if n, rerr := f.rollBack(ctx, header.Height); rerr != nil {
+				n, rerr := f.rollBack(ctx, header.Height)
+				if rerr != nil {
 					return rerr
-				} else if n > 0 {
+				}
+				var now string
+				if n == 0 {
+					if rerr := f.rpc.call(ctx, "getbestblockhash", nil, &now); rerr != nil {
+						return rerr
+					}
+				}
+				if n > 0 || now != best {
 					return errUtxoChainMoved
 				}
 			}
@@ -244,6 +255,10 @@ func (f *utxoFollower) checkForkReachable(ctx context.Context, bestHeight uint32
 			return err
 		}
 		if !ok || height == 0 {
+			// A reindexing or lagging node has not reached the journal yet, which is not a fork.
+			if height > bestHeight {
+				return fmt.Errorf("%w: node height %d", errUtxoNodeBehind, bestHeight)
+			}
 			return fmt.Errorf("%w: no undo record at height %d", errUtxoReorgTooDeep, height)
 		}
 		height, hash = height-1, prev

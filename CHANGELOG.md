@@ -25,7 +25,9 @@ All notable changes to this project are documented here. Format follows
   leaves the active chain it rolls back through its per-block undo records
   (144 blocks deep) to the common ancestor and applies the new branch in the
   same step. A fork older than the journal or at or below the snapshot base
-  latches the follower in the error state with a reorg-too-deep reason. It is
+  latches the follower in the error state with a reorg-too-deep reason; a node
+  further behind the index than the journal (for example while reindexing) is
+  retried, not treated as a reorg. It is
   not wired into the dashboard, so runtime behavior is unchanged.
 - The dashboard has an internal resolver that turns watch-only keys (address,
   xpub family, descriptors) into the sorted, deduplicated scriptPubKey set for
