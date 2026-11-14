@@ -6,6 +6,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -222,7 +223,9 @@ func (m *utxoManager) tick(ctx context.Context) {
 				return
 			}
 			m.mu.Lock()
-			m.setLocked(m.state, "chain identity not recorded yet")
+			if !m.seeding {
+				m.setLocked(m.state, "chain identity not recorded yet")
+			}
 			m.mu.Unlock()
 			return
 		}
@@ -292,7 +295,7 @@ func (m *utxoManager) fail(err error) {
 }
 
 func utxoErrorClass(err error) string {
-	for _, target := range append(utxoIntegrityErrors, errUtxoFollowStop) {
+	for _, target := range slices.Concat(utxoIntegrityErrors, []error{errUtxoFollowStop}) {
 		if errors.Is(err, target) {
 			return target.Error()
 		}

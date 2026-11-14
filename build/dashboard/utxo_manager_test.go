@@ -842,9 +842,11 @@ func TestUtxoIndexConfigRejectsRelativeDir(t *testing.T) {
 	if err != nil || !cfg.utxoIndexEnabled || cfg.utxoIndexDir != "/utxo-index" {
 		t.Fatalf("envConfig: %+v %v", cfg, err)
 	}
-	t.Setenv("UTXO_INDEX_ENABLED", "")
-	if cfg, err := envConfig(); err != nil || cfg.utxoIndexEnabled {
-		t.Fatalf("default config: %+v %v", cfg, err)
+	for value, want := range map[string]bool{"": false, "0": false, "FALSE": false, "off": false, "no": false, "2": false, "TRUE": true, "on": true, "yes": true} {
+		t.Setenv("UTXO_INDEX_ENABLED", value)
+		if cfg, err := envConfig(); err != nil || cfg.utxoIndexEnabled != want {
+			t.Fatalf("UTXO_INDEX_ENABLED=%q: enabled=%v err=%v", value, cfg.utxoIndexEnabled, err)
+		}
 	}
 }
 
