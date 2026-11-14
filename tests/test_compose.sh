@@ -244,9 +244,7 @@ dashboard_nodes=$(echo "$all_nodes" | sed -n '/^  dashboard:$/,/^  [a-z][a-z-]*:
 echo "$dashboard_nodes" | grep -B2 -A2 'target: /tari-wallet' | grep -q 'source: tari_wallet' || fail "dashboard cannot write Tari wallet control requests"
 echo "$dashboard_nodes" | grep -q 'source: tari_wallet_data' && fail "dashboard can read Tari wallet private data"
 echo "$dashboard_nodes" | grep -q 'TARI_WALLET_ENABLED: "1"' || fail "dashboard did not enable Tari wallet integration"
-grep -q '^onlynet=onion$' build/litecoin/entrypoint.sh || fail "Litecoin is not Tor-only"
-grep -q '^onlynet=onion$' build/dogecoin/entrypoint.sh || fail "Dogecoin is not Tor-only"
-grep -q '^onlynet=onion$' build/bitcoincash/entrypoint.sh || fail "Bitcoin Cash is not Tor-only"
+grep -q '^onlynet=onion$' build/bitcoin-family/entrypoint.sh || fail "Litecoin, Dogecoin and Bitcoin Cash are not Tor-only"
 echo "$all_nodes" | sed -n '/^  bitcoincash:$/,/^  dashboard:$/p' | grep -q '^    command:' && fail "Bitcoin Cash command bypasses its private runtime config"
 
 new_lan=$(TARI_GRPC_EXPOSE=1 TARI_GRPC_BIND_IP=192.168.1.10 TARI_GRPC_PORT=28142 \

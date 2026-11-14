@@ -20,6 +20,11 @@ All notable changes to this project are documented here. Format follows
   "137,131.438327228521 XMR" with "Total received" on the status line and the
   view-key caveat in its tooltip; a received-only total no longer gets a fiat
   value, since it is not a current balance.
+- The Litecoin, Dogecoin and Bitcoin Cash images now build from one shared
+  base in `build/bitcoin-family/`, with one entrypoint and healthcheck, so a
+  base, package or startup fix lands once instead of three times. Binaries,
+  users, paths and settings are unchanged; Litecoin and Dogecoin images now
+  also carry `libatomic1`, which Bitcoin Cash already needed.
 
 ### Fixed
 

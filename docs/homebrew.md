@@ -188,10 +188,16 @@ tar -xzf "$preview_dir/node-manager.tar.gz" -C "$preview_dir"
 cd "$preview_dir/node-manager"
 version=$(cat VERSION)
 
-for image in tor monero litecoin dogecoin bitcoincash; do
+for image in tor monero; do
   docker build \
     --tag "ghcr.io/vijitsingh97/node-manager-$image:$version" \
     "build/$image"
+done
+
+for image in litecoin dogecoin bitcoincash; do
+  docker build \
+    --tag "ghcr.io/vijitsingh97/node-manager-$image:$version" \
+    --target "$image" build/bitcoin-family
 done
 
 for image in dashboard tari-wallet; do

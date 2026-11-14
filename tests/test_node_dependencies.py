@@ -58,7 +58,7 @@ class NodeDependencyTests(unittest.TestCase):
         self.assertEqual(release["tag_name"], "v2.1.0")
 
     def test_litecoin_uses_signed_checksums(self):
-        text = (ROOT / "build/litecoin/Dockerfile").read_text()
+        text = (ROOT / "build/bitcoin-family/Dockerfile").read_text()
         release = {
             "tag_name": "v0.21.5.8",
             "draft": False,
@@ -82,7 +82,7 @@ class NodeDependencyTests(unittest.TestCase):
         self.assertNotIn("litecoin-0.21.4", updated)
 
     def test_litecoin_rejects_bad_checksum_signature(self):
-        text = (ROOT / "build/litecoin/Dockerfile").read_text()
+        text = (ROOT / "build/bitcoin-family/Dockerfile").read_text()
         release = {
             "tag_name": "v0.21.5.8",
             "draft": False,
@@ -105,7 +105,7 @@ class NodeDependencyTests(unittest.TestCase):
             )
 
     def test_dogecoin_requires_signed_checksums(self):
-        text = (ROOT / "build/dogecoin/Dockerfile").read_text()
+        text = (ROOT / "build/bitcoin-family/Dockerfile").read_text()
         release = {
             "tag_name": "v1.15.0",
             "draft": False,
@@ -123,9 +123,22 @@ class NodeDependencyTests(unittest.TestCase):
         with self.assertRaises(MODULE.UpdateError):
             MODULE.dogecoin_update(text, get, lambda _data: (_ for _ in ()).throw(MODULE.UpdateError("bad signature")))
         updated = MODULE.dogecoin_update(text, get, lambda _data: None)
-        self.assertIn("dogecoin-1.15.0", updated)
+        self.assertIn("releases/download/v1.15.0/dogecoin-1.15.0-${archive}", updated)
+        self.assertNotIn("1.14.9", updated[updated.index("FROM base AS dogecoin") :].split("\nFROM ")[0])
         self.assertIn("sha=" + "c" * 64, updated)
         self.assertIn("sha=" + "d" * 64, updated)
+
+    def test_release_update_stays_inside_its_build_stage(self):
+        text = (ROOT / "build/bitcoin-family/Dockerfile").read_text()
+        current = MODULE.current_version(text, "dogecoin")
+        updated = MODULE.replace_release(text, "dogecoin", "dogecoin", current, current + ".1", "c" * 64, "d" * 64)
+        stages = zip(re.split(r"(?m)^(?=FROM )", text), re.split(r"(?m)^(?=FROM )", updated))
+        changed = [new for old, new in stages if old != new]
+        self.assertEqual(len(changed), 1)
+        self.assertTrue(changed[0].startswith("FROM base AS dogecoin\n"))
+        self.assertIn(f"dogecoin-{current}.1", changed[0])
+        with self.assertRaises(MODULE.UpdateError):
+            MODULE.replace_release(text, "namecoin", "dogecoin", current, current, "c" * 64, "d" * 64)
 
     def test_update_dry_run_reports_without_writing(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -150,7 +163,7 @@ class NodeDependencyTests(unittest.TestCase):
         self.assertEqual(sorted(reversed(ordered), key=MODULE.debian_version_key), ordered)
 
     def test_debian_pins_take_the_newest_version_across_suites(self):
-        text = (ROOT / "build/bitcoincash/Dockerfile").read_text()
+        text = (ROOT / "build/bitcoin-family/Dockerfile").read_text()
         suites = {
             "main": debian_packages(("curl", "7.88.1-10+deb12u99"), ("libatomic1", "12.2.0-14+deb12u2")),
             "updates": debian_packages(("ca-certificates", "20250419~deb12u3")),
@@ -282,7 +295,7 @@ class NodeDependencyTests(unittest.TestCase):
         self.assertIn("ARG MONERO_ARM64_SHA256=" + "f" * 64, updated)
 
     def test_bitcoincash_uses_signed_checksums(self):
-        text = (ROOT / "build/bitcoincash/Dockerfile").read_text()
+        text = (ROOT / "build/bitcoin-family/Dockerfile").read_text()
         release = {"tag_name": "v30.0.0", "draft": False, "prerelease": False, "assets": []}
         sums = (
             ("1" * 64) + "  bitcoin-cash-node-30.0.0-x86_64-linux-gnu.tar.gz\n"
@@ -305,7 +318,7 @@ class NodeDependencyTests(unittest.TestCase):
             self.assertRegex(compose, rf"image: {re.escape(image)}:[^\s]+@sha256:[0-9a-f]{{64}}")
         dependabot = (ROOT / ".github/dependabot.yml").read_text()
         self.assertRegex(dependabot, r"package-ecosystem: docker-compose\s+directory: /")
-        for directory in ("monero", "litecoin", "dogecoin", "bitcoincash"):
+        for directory in ("monero", "bitcoin-family"):
             self.assertRegex(dependabot, rf"package-ecosystem: docker\s+directory: /build/{directory}\b")
 
     def test_workflow_tool_images_are_digest_pinned_and_monitored(self):

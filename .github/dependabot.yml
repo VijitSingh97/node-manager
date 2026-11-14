@@ -16,17 +16,7 @@ updates:
       interval: weekly
 
   - package-ecosystem: docker
-    directory: /build/litecoin
-    schedule:
-      interval: weekly
-
-  - package-ecosystem: docker
-    directory: /build/dogecoin
-    schedule:
-      interval: weekly
-
-  - package-ecosystem: docker
-    directory: /build/bitcoincash
+    directory: /build/bitcoin-family
     schedule:
       interval: weekly
 

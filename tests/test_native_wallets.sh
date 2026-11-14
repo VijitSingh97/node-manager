@@ -187,7 +187,7 @@ run_chain() {
   active_image="${project}-${chain}:native-wallet"
   active_runner="${project}-${chain}-runner"
   active_runner_image="${project}-${chain}-runner:native-wallet"
-  context=$root/build/$chain
+  context=$root/build/bitcoin-family
   if [[ $chain == litecoin ]]; then daemon=litecoind; rpc_port=19443; else daemon=bitcoind; rpc_port=18443; fi
   host_port=$(python3 -c 'import socket; server=socket.socket(); server.bind(("127.0.0.1", 0)); print(server.getsockname()[1]); server.close()')
   conf="$work/${chain}.conf"
@@ -222,7 +222,7 @@ COPY *.go ./
 EOF
   chmod 0644 "$runner_file"
 
-  bounded_log "$timeout_seconds" "$work/${chain}-build.log" docker build --tag "$active_image" "$context"
+  bounded_log "$timeout_seconds" "$work/${chain}-build.log" docker build --tag "$active_image" --target "$chain" "$context"
   bounded_log "$timeout_seconds" "$work/${chain}-runner-build.log" docker build --tag "$active_runner_image" "$runner_context"
   bounded 30 docker network create --internal --subnet "$subnet" "$active_network" >"$work/${chain}-network.id"
   bounded 30 docker volume create "$active_volume" >"$work/${chain}-volume.id"
