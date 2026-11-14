@@ -151,6 +151,9 @@ type genericNodeStatus struct {
 	LatestBlockTimestamp  int64    `json:"latest_block_timestamp"`
 	LatestBlockAgeSeconds int64    `json:"latest_block_age_seconds"`
 	LatestBlockAvailable  bool     `json:"latest_block_available"`
+	EndOfSupportHeight    int64    `json:"end_of_support_height,omitempty"`
+	EndOfSupportRemaining int64    `json:"end_of_support_remaining_blocks,omitempty"`
+	EndOfSupportWarning   bool     `json:"end_of_support_warning,omitempty"`
 	FeeEstimates          []string `json:"fee_estimates,omitempty"`
 	FeeUnit               string   `json:"fee_unit,omitempty"`
 	FeesAvailable         bool     `json:"fees_available"`
@@ -304,6 +307,7 @@ func (a *app) fetchZcashStatus(ctx context.Context, node nodeConfig, status gene
 		status.FeeEstimates = []string{value}
 		status.FeeUnit, status.FeesAvailable = "zats/action", true
 	}
+	applyZakuraEndOfSupport(ctx, rpc, &status)
 	if disk := diskUsage(node.DataDir); disk.Total > 0 {
 		status.DiskTotalBytes, status.DiskFreeBytes, status.DiskAvailable = disk.Total, disk.Free, true
 	}

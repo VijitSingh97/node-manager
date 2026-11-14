@@ -28,6 +28,8 @@ type blockchainInfo struct {
 	Pruned               bool    `json:"pruned"`
 	PruneTargetSize      int64   `json:"prune_target_size"`
 	SizeOnDisk           int64   `json:"size_on_disk"`
+	Chain                string  `json:"chain"`
+	PruneHeight          int64   `json:"pruneheight"`
 }
 
 type networkInfo struct {
@@ -107,6 +109,7 @@ type app struct {
 	moneroFees       *MoneroFeeHistory
 	familyWatch      *familyWatchManager
 	tariWatch        *TariWatchStore
+	utxo             *utxoManager
 	dashboardAuth    *dashboardAuth
 	sessions         *dashboardSessions
 	loginLimiter     *loginLimiter
@@ -163,6 +166,11 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 	a.moneroFees = NewMoneroFeeHistory(cfg.stateDir)
 	a.familyWatch = newFamilyWatchManager(a)
 	a.tariWatch = NewTariWatchStore(cfg)
+	if cfg.utxoIndexEnabled && !cfg.bitcoinDisabled {
+		blockRPC := *rpc
+		blockRPC.client, blockRPC.maxBody = &http.Client{Timeout: 2 * time.Minute}, 64<<20
+		a.utxo = newUtxoManager(cfg.utxoIndexDir, nil, &blockRPC, logger)
+	}
 	if a.moneroWatch.Err() != nil {
 		a.log.Print("Monero watch-only wallet state unavailable until the state file is repaired and the dashboard restarts")
 	}

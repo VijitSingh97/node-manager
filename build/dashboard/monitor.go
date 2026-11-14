@@ -44,6 +44,7 @@ type monitorState struct {
 	hasLastBlock  bool
 	pendingBlock  int64
 	diskAlerted   bool
+	eosAlerted    bool
 	ticks         int
 	pingDue       int
 	notifiedStack string
@@ -69,6 +70,7 @@ type persistedNodeState struct {
 	HasLastBlock bool  `json:"has_last_block"`
 	PendingBlock int64 `json:"pending_block"`
 	DiskAlerted  bool  `json:"disk_alerted"`
+	EOSAlerted   bool  `json:"eos_alerted,omitempty"`
 }
 
 type Monitor struct {
@@ -464,6 +466,7 @@ func (m *Monitor) tickConfiguredNodes(ctx context.Context, infos map[string]map[
 		activeCount++
 		healthy, hasIBD, ibd := m.tickNode(ctx, state, nodeDisplayName(id), m.nodeDataDir(id), alertNewBlockFor(settings, id), info)
 		anySynced = anySynced || (healthy && hasIBD && !ibd)
+		m.tickEndOfSupport(ctx, state, nodeDisplayName(id), info)
 		state.ticks++
 	}
 	if activeCount == 0 {

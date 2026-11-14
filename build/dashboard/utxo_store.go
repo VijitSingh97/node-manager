@@ -26,6 +26,7 @@ const (
 	utxoBlockCacheBytes = 64 << 20
 	utxoMemTableBytes   = 16 << 20
 	utxoCompactions     = 1
+	utxoIngestTmpDir    = "ingest-tmp"
 )
 
 var (
@@ -38,6 +39,8 @@ var (
 	errUtxoMissingCoin   = errors.New("spent coin is not in the index")
 	errUtxoNoTip         = errors.New("index has no tip")
 	errUtxoNoUndo        = errors.New("undo record is not available")
+	errUtxoNotEmpty      = errors.New("utxo store is not empty")
+	errUtxoChainMismatch = errors.New("utxo index chain mismatch")
 )
 
 type utxoOutpoint struct {
@@ -77,6 +80,12 @@ type utxoMeta struct {
 	HasTip       bool   `json:"has_tip"`
 	TipHeight    uint32 `json:"tip_height"`
 	TipHash      string `json:"tip_hash"`
+	Ingesting    bool   `json:"ingesting,omitempty"`
+	ChainName    string `json:"chain_name,omitempty"`
+	GenesisHash  string `json:"genesis_hash,omitempty"`
+	BaseHeight   uint32 `json:"base_height,omitempty"`
+	BaseHash     string `json:"base_hash,omitempty"`
+	Invalid      string `json:"invalid,omitempty"`
 }
 
 type utxoStore struct {
@@ -85,6 +94,10 @@ type utxoStore struct {
 	meta          utxoMeta
 	invalidReason string
 	beforeCommit  func() error
+	beforeIngest  func() error
+	dir           string
+	fs            vfs.FS
+	discard       bool
 	fatal         atomic.Pointer[string]
 }
 
@@ -154,7 +167,10 @@ func openUtxoStore(dir string) (*utxoStore, error) {
 }
 
 func openUtxoStoreFS(dir string, fs vfs.FS) (*utxoStore, error) {
-	s := &utxoStore{}
+	if fs == nil {
+		fs = vfs.Default
+	}
+	s := &utxoStore{dir: dir, fs: fs}
 	opts := &pebble.Options{
 		Cache:                    pebble.NewCache(utxoBlockCacheBytes),
 		MemTableSize:             utxoMemTableBytes,
@@ -173,9 +189,21 @@ func openUtxoStoreFS(dir string, fs vfs.FS) (*utxoStore, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	if s.discard {
+		_ = db.Close()
+		if err := clearUtxoDir(fs, dir); err != nil {
+			return nil, fmt.Errorf("discard interrupted utxo ingest: %w", err)
+		}
+		return openUtxoStoreFS(dir, fs)
+	}
 	if s.invalidReason != "" {
 		_ = db.Close()
 		s.db = nil
+		return s, nil
+	}
+	if err := fs.RemoveAll(fs.PathJoin(dir, utxoIngestTmpDir)); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("clear utxo ingest temp: %w", err)
 	}
 	return s, nil
 }
@@ -194,9 +222,17 @@ func (s *utxoStore) loadMeta() error {
 		s.invalidReason = "unreadable metadata"
 		return nil
 	}
+	if m.Invalid != "" {
+		s.invalidReason = m.Invalid
+		return nil
+	}
 	if m.Schema != utxoSchemaVersion || m.PebbleFormat != int(utxoPebbleFormat) {
 		s.invalidReason = fmt.Sprintf("format version %d/%d, expected %d/%d",
 			m.Schema, m.PebbleFormat, utxoSchemaVersion, int(utxoPebbleFormat))
+		return nil
+	}
+	if m.Ingesting {
+		s.discard = true
 		return nil
 	}
 	if _, err := decodeUtxoTip(m); err != nil {
@@ -351,8 +387,8 @@ func (s *utxoStore) ApplyBlock(blk utxoBlock) error {
 			return err
 		}
 	}
-	meta := utxoMeta{Schema: utxoSchemaVersion, PebbleFormat: int(utxoPebbleFormat),
-		HasTip: true, TipHeight: blk.Height, TipHash: hex.EncodeToString(blk.Hash[:])}
+	meta := s.meta
+	meta.HasTip, meta.TipHeight, meta.TipHash = true, blk.Height, hex.EncodeToString(blk.Hash[:])
 	if err := b.Set(utxoMetaKey, mustMarshalUtxoMeta(meta), nil); err != nil {
 		return err
 	}
@@ -410,6 +446,27 @@ func reverseUtxoOps(ops []byte) []byte {
 	return out
 }
 
+func (s *utxoStore) UndoPrevHash(height uint32) (prev [32]byte, ok bool, err error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := s.usable(); err != nil {
+		return prev, false, err
+	}
+	undo, closer, err := s.db.Get(utxoUndoKey(height))
+	if errors.Is(err, pebble.ErrNotFound) {
+		return prev, false, nil
+	}
+	if err != nil {
+		return prev, false, err
+	}
+	defer closer.Close()
+	if len(undo) < 64 {
+		return prev, false, errors.New("corrupt undo record")
+	}
+	copy(prev[:], undo[32:64])
+	return prev, true, nil
+}
+
 func (s *utxoStore) DisconnectTip() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -452,7 +509,8 @@ func (s *utxoStore) DisconnectTip() error {
 	if err := b.Delete(utxoUndoKey(height), nil); err != nil {
 		return err
 	}
-	meta := utxoMeta{Schema: utxoSchemaVersion, PebbleFormat: int(utxoPebbleFormat)}
+	meta := s.meta
+	meta.HasTip, meta.TipHeight, meta.TipHash = false, 0, ""
 	if height > 0 {
 		meta.HasTip, meta.TipHeight, meta.TipHash = true, height-1, hex.EncodeToString(raw[32:64])
 	}
@@ -522,4 +580,131 @@ func (s *utxoStore) scanPrefix(h [utxoPrefixLen]byte) ([]utxoCoin, error) {
 		out = append(out, c)
 	}
 	return out, it.Close()
+}
+
+func (s *utxoStore) emptyLocked() error {
+	if s.meta.HasTip {
+		return errUtxoNotEmpty
+	}
+	it, err := s.db.NewIter(nil)
+	if err != nil {
+		return err
+	}
+	for ok := it.First(); ok; ok = it.Next() {
+		if !bytes.Equal(it.Key(), utxoMetaKey) {
+			_ = it.Close()
+			return errUtxoNotEmpty
+		}
+	}
+	return it.Close()
+}
+
+// The index directory can be a volume mount point, which cannot itself be removed.
+func clearUtxoDir(fs vfs.FS, dir string) error {
+	names, err := fs.List(dir)
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		if err := fs.RemoveAll(fs.PathJoin(dir, name)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *utxoStore) RequireEmpty() error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := s.usable(); err != nil {
+		return err
+	}
+	return s.emptyLocked()
+}
+
+func (s *utxoStore) setMeta(m utxoMeta) error {
+	b := s.db.NewBatch()
+	defer b.Close()
+	if err := b.Set(utxoMetaKey, mustMarshalUtxoMeta(m), nil); err != nil {
+		return err
+	}
+	return s.commit(b)
+}
+
+// IngestFiles loads sorted, non-overlapping SSTs into an empty store; until it returns nil the store refuses reads and a reopen discards it.
+func (s *utxoStore) IngestFiles(paths []string, height uint32, hash [32]byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.usable(); err != nil {
+		return err
+	}
+	if err := s.emptyLocked(); err != nil {
+		return err
+	}
+	pending := s.meta
+	pending.Ingesting = true
+	if err := s.setMeta(pending); err != nil {
+		return err
+	}
+	s.invalidReason = "ingest in progress"
+	if len(paths) > 0 {
+		if err := s.db.Ingest(paths); err != nil {
+			return err
+		}
+	}
+	if s.beforeIngest != nil {
+		if err := s.beforeIngest(); err != nil {
+			return err
+		}
+	}
+	meta := s.meta
+	meta.HasTip, meta.TipHeight, meta.TipHash = true, height, hex.EncodeToString(hash[:])
+	meta.BaseHeight, meta.BaseHash = height, meta.TipHash
+	if err := s.setMeta(meta); err != nil {
+		return err
+	}
+	s.meta = meta
+	s.invalidReason = ""
+	return nil
+}
+
+func (s *utxoStore) BindChain(name, genesis string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.usable(); err != nil {
+		return err
+	}
+	if s.meta.ChainName == name && s.meta.GenesisHash == genesis {
+		return nil
+	}
+	if s.meta.ChainName != "" || s.meta.GenesisHash != "" {
+		return fmt.Errorf("%w: index was built for a different chain", errUtxoChainMismatch)
+	}
+	meta := s.meta
+	meta.ChainName, meta.GenesisHash = name, genesis
+	if err := s.setMeta(meta); err != nil {
+		return err
+	}
+	s.meta = meta
+	return nil
+}
+
+// The in-memory flag is set even when persisting fails, so the index stops serving either way.
+func (s *utxoStore) MarkInvalid(reason string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.invalidReason != "" {
+		return nil
+	}
+	s.invalidReason = reason
+	var err error
+	if s.db == nil || s.brokenError() != nil {
+		err = errUtxoBroken
+	} else {
+		meta := s.meta
+		meta.Invalid = reason
+		err = s.setMeta(meta)
+	}
+	s.abandon()
+	return err
 }

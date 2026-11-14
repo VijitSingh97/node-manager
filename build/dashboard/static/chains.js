@@ -99,6 +99,8 @@ function renderNode(id, data) {
   setText(`${id}-last-block`, view.lastBlock);
   setText(`${id}-rpc-exposure`, view.rpcExposure);
   setText(`${id}-updated`, `Updated: ${view.updated}`);
+  const warning=byId(`${id}-eos`);
+  if(warning){warning.textContent=view.warning;warning.hidden=!view.warning;}
   const feeSection=byId(`${id}-fee-section`);
   if(feeSection) feeSection.hidden=data.fees_available!==true;
   const fees=chainFeesView(id,data);

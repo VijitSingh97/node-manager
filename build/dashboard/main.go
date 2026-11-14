@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -53,6 +54,8 @@ type config struct {
 	moneroRPCEndpoint       string
 	moneroZMQEndpoint       string
 	nodes                   map[string]nodeConfig
+	utxoIndexEnabled        bool
+	utxoIndexDir            string
 }
 
 func envConfig() (config, error) {
@@ -99,6 +102,11 @@ func envConfig() (config, error) {
 		if cfg.version == "" {
 			cfg.version = "dev"
 		}
+	}
+	cfg.utxoIndexEnabled = slices.Contains([]string{"1", "true", "yes", "on"}, strings.ToLower(os.Getenv("UTXO_INDEX_ENABLED")))
+	cfg.utxoIndexDir = envOr("UTXO_INDEX_DIR", "/utxo-index")
+	if cfg.utxoIndexEnabled && !filepath.IsAbs(cfg.utxoIndexDir) {
+		return config{}, errors.New("UTXO_INDEX_DIR must be an absolute path")
 	}
 	cfg.moneroEnabled = enabled(os.Getenv("MONERO_ENABLED"))
 	cfg.moneroActive = !explicitlyDisabled(os.Getenv("MONERO_ACTIVE"))

@@ -35,6 +35,8 @@ regenerate them from the pinned bitcoin image, or to re-check the harness
 ```bash
 tests/utxo_regtest.py build/dashboard/testdata/utxo
 UTXO_REGTEST=1 go test -run RegtestLive ./...   # from build/dashboard
+UTXO_REGTEST=1 go test -run UtxoIngestRegtestLive ./...   # ingest vs scantxoutset
+UTXO_INGEST_BENCH=25000000 go test -run UtxoIngestLargeMeasure -v ./...   # large synthetic ingest
 ```
 
 Native daemon checks run separately for Monero, Tari, Litecoin, Dogecoin,

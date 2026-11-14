@@ -122,7 +122,15 @@ export function genericNodeView(data, label = "Node") {
     rpcExposure: data.rpc_exposure_enabled ? `${String(data.rpc_endpoint || "—")} · LAN` : "Disabled",
     nextBlock: heightAvailable ? height + 1 : "",
     updated: formatUpdated(data.updated_at),
+    warning: data.end_of_support_warning === true ? endOfSupportWarning(data, label) : "",
   };
+}
+
+function endOfSupportWarning(data, label) {
+  const cap = Math.floor(Number(data.end_of_support_height)) || 0;
+  const left = Math.floor(Number(data.end_of_support_remaining_blocks)) || 0;
+  const when = left > 0 ? `in ${left.toLocaleString("en-US")} blocks` : "now";
+  return `${label} stops after block ${cap.toLocaleString("en-US")} (${when}). Upgrade node-manager once a newer Zakura is pinned.`;
 }
 
 export function applySelection(doc, node, focus = true) {
