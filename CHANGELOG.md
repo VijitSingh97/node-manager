@@ -26,6 +26,9 @@ All notable changes to this project are documented here. Format follows
 - The Tor image builds again: Alpine 3.24 replaced Tor 0.4.9.15 with 0.4.9.17,
   so the pinned package no longer existed and every image build and CI run
   failed. The pin now names 0.4.9.17-r0.
+- `configure.sh` no longer claims `blockfilterindex` cannot run on a pruned node
+  (Core allows it). It now refuses only to add the index to an already pruned
+  node, which bitcoind cannot start with, and docs state the real rule (#218).
 - The "initial sync complete" alert no longer repeats every few minutes after
   a node has synced. Monero (and Tari) briefly report syncing whenever a new
   block arrives, and each blip re-announced the sync; once a node has synced,
