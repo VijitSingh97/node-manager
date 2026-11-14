@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""FIFO seeding wedge matrix for dumptxoutset on throwaway regtest containers.
-
-Run: python3 -I tests/utxo_fifo_regtest.py [results.json]
-Needs Docker and the pinned bitcoind image from docker-compose.yml. It creates one bitcoind
-container with a named volume and short-lived reader containers mounting that volume read-only,
-and removes all of them (and the volume) on exit. Scenarios S0-S6 are described in
-docs/measurements/utxo-fifo-wedge.md. S3 stalls the reader for 120 s.
-"""
+"""FIFO seeding wedge matrix for dumptxoutset on throwaway regtest containers; see docs/measurements/utxo-fifo-wedge.md."""
 import hashlib
 import importlib.util
 import json
