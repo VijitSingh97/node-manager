@@ -160,7 +160,7 @@ Only the first row separates the two choices, and only the index meets it. Optio
 
 Reasons:
 - The only target the index uniquely meets is a wallet add that waits for a scan, at least 153 s (a lower bound, single-script baseline), once per new wallet. The real wallet-scan time is unmeasured, so this reason is weaker than it looks. The recommendation rests more on the RPC block, the heat and the dependency than on the 153 s.
-- The scan does not block RPC. The seed does, for 5 minutes, with an alert and a heat spike on a box that shares thermal budget with other chains.
+- The scan does not block RPC. The seed does, for about 5 minutes (measured), with an alert and a heat spike on a box that shares thermal budget with other chains.
 - The cost is 11.35 GB of disk, 20.3 GiB at peak, a long-lived subsystem, and 26 modules.
 
 **If the owner builds it,** the design below is the plan. It is opt-in, the Pebble engine, FIFO seeding, a mandatory CPU cap and thermal gate. Every number in it is labelled measured, derived or reasoned. Several items are reasoned (journal size, pause behaviour, the 20% margin).
@@ -255,7 +255,7 @@ Lookup is a prefix scan per wallet script. The derived batch cost is 0.15 s at p
 | --- | --- |
 | Pebble index | Derive scripts (RPC, unmeasured), then 0.15-0.33 s of lookups (derived from #217) |
 | SQLite index | Reasoned: similar once built. No measurement |
-| Defer / watch-list JSON | A full `scantxoutset`: 153 s (measured, #216), no RPC stall. The wallet shows pending meanwhile |
+| Defer / watch-list JSON | A full `scantxoutset`: at least 153 s (single-script baseline, measured, #216; real time unmeasured), no RPC stall. The wallet shows pending meanwhile |
 | Separate service | Same as Pebble plus a local network hop |
 
 ### 3. Opt-in mechanism and upgrade behavior
