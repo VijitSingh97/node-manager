@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { familyAccessView, familyAmount, familyHistoryPoints, familySourceURL, familyWalletPost, familyWalletView } from "./family-watch.js";
+import { familyAccessView, familyAmount, familyRow, familySourceURL, familyWalletPost } from "./family-watch.js";
 
 test("Litecoin and Bitcoin Cash labels are optional", () => {
   assert.deepEqual(familyWalletPost("litecoin", "", " Laddress "), { label: "Litecoin wallet", address: "Laddress" });
@@ -14,26 +14,29 @@ test("family amounts preserve the backend decimal string including verified zero
 });
 
 test("wallet states never present pending or failed scans as zero", () => {
-  assert.equal(familyWalletView({ state: "pending", amount: null }, "litecoin").balance, "Scanning for confirmed funds…");
-  assert.equal(familyWalletView({ state: "waiting", amount: null }, "litecoin").balance, "Waiting for node sync…");
-  assert.equal(familyWalletView({ state: "error", amount: null }, "litecoin").balance, "Scan failed");
-  assert.equal(familyWalletView({ state: "ok", amount: "0.00000000" }, "litecoin").balance, "0.00000000 LTC");
+  for (const [state, text] of [["pending", "Scanning for confirmed funds…"], ["waiting", "Waiting for node sync…"], ["error", "Scan failed"]]) {
+    const row = familyRow({ state, amount: null }, "litecoin");
+    assert.equal(row.amount, "");
+    assert.equal(row.stateText, text);
+    assert.equal(row.fiatAsset, null);
+  }
+  const zero = familyRow({ state: "ok", amount: "0.00000000" }, "litecoin");
+  assert.equal(`${zero.amount} ${zero.unit}`, "0.00000000 LTC");
+  assert.equal(zero.fiatAsset, "litecoin");
 });
 
-test("stale balances remain visible and are marked with their cached snapshot", () => {
-  const view = familyWalletView({ state: "stale", amount: "12.34567890", scan_height: 3_000_000, scan_time: "2026-10-31T12:00:00Z" }, "bitcoincash");
-  assert.equal(view.balance, "12.34567890 BCH");
-  assert.equal(view.stale, true);
-  assert.match(view.note, /Cached balance/);
-  assert.match(view.note, /Block 3000000/);
-  assert.match(view.note, /Scanned 2026-10-31T12:00:00Z/);
+test("stale balances remain visible, grouped, and marked as cached", () => {
+  const row = familyRow({ state: "stale", amount: "1234.34567890", scan_time: "2026-10-31T12:00:00Z" }, "bitcoincash");
+  assert.equal(`${row.amount} ${row.unit}`, "1,234.34567890 BCH");
+  assert.equal(row.fiatAsset, "bitcoin-cash");
+  assert.equal(row.stale, true);
+  assert.match(row.status, /^Cached balance; a fresh scan is unavailable · Scanned /);
 });
 
-test("public examples are clearly excluded from personal assets", () => {
-  const view = familyWalletView({ label: "Linux Mint", address: "Lexample", example: true, state: "ok", amount: "1.00000000" }, "litecoin");
-  assert.equal(view.label, "Linux Mint");
-  assert.equal(view.address, "Lexample");
-  assert.match(view.note, /Public example; excluded from your assets/);
+test("public examples carry their caveat in the tooltip", () => {
+  const row = familyRow({ label: "Linux Mint", address: "Lexample", example: true, state: "ok", amount: "1.00000000" }, "litecoin");
+  assert.equal(row.label, "Linux Mint");
+  assert.match(row.note, /Public example; excluded from your assets/);
 });
 
 test("editing requires a supported active node and trusted configuration access", () => {
@@ -52,15 +55,13 @@ test("source links accept HTTPS only", () => {
   assert.equal(familySourceURL("https://www.linuxmint.com/donors.php"), "https://www.linuxmint.com/donors.php");
 });
 
-test("native Unix scan timestamps stay visible with the confirmed block", () => {
-  const view = familyWalletView({ state: "ok", amount: "1.00000000", scan_height: 123, scan_time: 1793448000 }, "litecoin");
-  assert.match(view.note, /Block 123/);
-  assert.match(view.note, /Scanned /);
+test("native Unix scan timestamps read the same as RFC 3339 ones", () => {
+  const seconds = Date.parse("2026-10-31T12:00:00Z") / 1000;
+  assert.equal(familyRow({ state: "ok", amount: "1.00000000", scan_time: seconds }, "litecoin").status, familyRow({ state: "ok", amount: "1.00000000", scan_time: "2026-10-31T12:00:00Z" }, "litecoin").status);
 });
 
 test("saved balance charts preserve a single atomic-unit change", () => {
-  const chart = familyHistoryPoints([{ amount: "9007199254740993.00000000" }, { amount: "9007199254740993.00000001" }]);
-  assert.equal(chart.length, 2);
-  assert.ok(chart[0].y > chart[1].y);
-  assert.deepEqual(familyHistoryPoints([{ amount: "0.00000000" }]), []);
+  const series = familyRow({ state: "ok", amount: "1.00000000", history: [{ amount: "9007199254740993.00000000" }, { amount: "9007199254740993.00000001" }] }, "litecoin").series;
+  assert.deepEqual(series, [0, 1]);
+  assert.deepEqual(familyRow({ state: "ok", amount: "1.00000000", history: [{ amount: "0.00000000" }] }, "litecoin").series, []);
 });
