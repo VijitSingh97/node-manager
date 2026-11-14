@@ -244,10 +244,11 @@ What happens:
 
 - **Warning, first.** Bitcoin RPC fails for about 5 minutes, then stays
   degraded for about 5 more; allow at least 15 minutes in total. The index
-  volume needs 27 GB free. Node-down alerts are held from the dump request
-  for up to 15 minutes and then resume normally; a successful seed ends the
-  hold early, a failed or cancelled one keeps it to the cap because Core may
-  still be hashing. Pause other heavy chains (for example Tari) first.
+  volume needs 27 GB free. Node-down alerts are held from when the dashboard
+  starts the dump, for up to 15 minutes, and then resume normally; a
+  successful seed ends the hold early, a failed or cancelled one keeps it to
+  the cap because Core may still be hashing. Pause other heavy chains (for
+  example Tari) first.
 - **Checks.** The command refuses if `getrpcinfo` shows a `dumptxoutset` or
   `scantxoutset` already running. The dashboard then lists every failed
   precondition in `refusals` on `/api/utxo-index` and on the dashboard card:
