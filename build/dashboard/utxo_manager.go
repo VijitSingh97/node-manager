@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"math"
 	"net/http"
+	"os"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -27,7 +29,35 @@ const (
 	utxoReadyLag     = 2
 	utxoMinFreeBytes = 2_000_000_000
 	utxoMilestone    = 1000
+
+	utxoPhaseWaiting    = "waiting"
+	utxoPhaseImporting  = "importing"
+	utxoPhaseMerging    = "merging"
+	utxoPhasePaused     = "paused"
+	utxoPhaseCancelling = "cancelling"
+
+	utxoAlertCap = 15 * time.Minute
 )
+
+var errUtxoSeedState = errors.New("index state does not allow a seed or reset")
+
+type utxoSeedResult struct {
+	Outcome         string    `json:"outcome"`
+	FinishedAt      time.Time `json:"finished_at"`
+	DurationSeconds float64   `json:"duration_seconds"`
+}
+
+type utxoSeedState struct {
+	StartedAt   time.Time       `json:"started_at"`
+	AlertsUntil time.Time       `json:"alerts_suppressed_until"`
+	Last        *utxoSeedResult `json:"last_seed"`
+}
+
+type utxoSeedJob struct {
+	ctx  context.Context
+	fn   func(context.Context) error
+	done chan error
+}
 
 type utxoManager struct {
 	dir       string
@@ -42,6 +72,10 @@ type utxoManager struct {
 	lowDisk  atomic.Bool
 	stop     context.CancelFunc
 
+	now      func() time.Time
+	seedJobs chan utxoSeedJob
+	seedPath string
+
 	mu           sync.Mutex
 	state        string
 	reason       string
@@ -49,6 +83,9 @@ type utxoManager struct {
 	indexTip     *uint32
 	seeding      bool
 	seedProgress *float64
+	phase        string
+	refusals     []seedRefusal
+	seed         utxoSeedState
 }
 
 type utxoIndexStatus struct {
@@ -59,6 +96,12 @@ type utxoIndexStatus struct {
 	NodeTip      *int64   `json:"node_tip_height"`
 	Behind       *int64   `json:"blocks_behind"`
 	SeedProgress *float64 `json:"seed_progress"`
+
+	Phase                 string          `json:"phase"`
+	StartedAt             *time.Time      `json:"started_at"`
+	Refusals              []seedRefusal   `json:"refusals"`
+	LastSeed              *utxoSeedResult `json:"last_seed"`
+	AlertsSuppressedUntil *time.Time      `json:"alerts_suppressed_until"`
 }
 
 func newUtxoManager(dir string, fs vfs.FS, rpc utxoRPC, logger *log.Logger) *utxoManager {
@@ -66,38 +109,46 @@ func newUtxoManager(dir string, fs vfs.FS, rpc utxoRPC, logger *log.Logger) *utx
 		fs = vfs.Default
 	}
 	m := &utxoManager{dir: dir, fs: fs, rpc: rpc, log: logger, state: utxoStateNotSeeded,
+		now: time.Now, seedJobs: make(chan utxoSeedJob),
 		freeBytes: func() uint64 {
 			if d := diskUsage(dir); d.Total > 0 {
 				return d.Free
 			}
 			return math.MaxUint64
 		}}
-	if err := fs.MkdirAll(dir, 0o700); err != nil {
+	m.mu.Lock()
+	m.openLocked()
+	m.mu.Unlock()
+	return m
+}
+
+func (m *utxoManager) openLocked() {
+	m.bound, m.indexTip, m.follower = false, nil, nil
+	if err := m.fs.MkdirAll(m.dir, 0o700); err != nil {
 		m.log.Printf("utxo index: cannot create the index directory: %v", err)
 		m.store = &utxoStore{invalidReason: "cannot create the index directory"}
-		m.set(utxoStateInvalid, m.store.invalidReason)
-		return m
+		m.setLocked(utxoStateInvalid, m.store.invalidReason)
+		return
 	}
-	store, err := openUtxoStoreFS(dir, fs)
+	store, err := openUtxoStoreFS(m.dir, m.fs)
 	if err != nil {
 		m.log.Printf("utxo index: cannot open the store: %v", err)
 		m.store = &utxoStore{invalidReason: "cannot open the index store"}
-		m.set(utxoStateInvalid, m.store.invalidReason)
-		return m
+		m.setLocked(utxoStateInvalid, m.store.invalidReason)
+		return
 	}
 	m.store = store
-	m.follower = newUtxoFollower(store, rpc)
+	m.follower = newUtxoFollower(store, m.rpc)
 	m.follower.onBlock = m.progress
 	switch height, _, hasTip, _ := store.Tip(); {
 	case !store.Valid():
-		m.set(utxoStateInvalid, store.InvalidReason())
+		m.setLocked(utxoStateInvalid, store.InvalidReason())
 	case hasTip:
 		m.indexTip = &height
-		m.set(utxoStateCatching, "")
+		m.setLocked(utxoStateCatching, "")
 	default:
-		m.set(utxoStateNotSeeded, "")
+		m.setLocked(utxoStateNotSeeded, "")
 	}
-	return m
 }
 
 func (m *utxoManager) set(state, reason string) {
@@ -131,7 +182,12 @@ func (m *utxoManager) progress(height uint32) {
 	m.setTip(height)
 	if m.freeBytes() < utxoMinFreeBytes {
 		m.lowDisk.Store(true)
-		m.stop()
+		m.mu.Lock()
+		stop := m.stop
+		m.mu.Unlock()
+		if stop != nil {
+			stop()
+		}
 	}
 	if height%utxoMilestone == 0 {
 		m.mu.Lock()
@@ -146,7 +202,19 @@ func (m *utxoManager) Status() utxoIndexStatus {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	st := utxoIndexStatus{Enabled: true, State: m.state, Reason: m.reason, IndexTip: m.indexTip, SeedProgress: m.seedProgress}
+	st := utxoIndexStatus{Enabled: true, State: m.state, Reason: m.reason, IndexTip: m.indexTip, SeedProgress: m.seedProgress,
+		Phase: m.phase, Refusals: slices.Clone(m.refusals), LastSeed: m.seed.Last}
+	if st.Refusals == nil {
+		st.Refusals = []seedRefusal{}
+	}
+	if m.seeding {
+		started := m.seed.StartedAt
+		st.StartedAt = &started
+	}
+	if m.alertsSuppressedLocked() {
+		until := m.alertsEndLocked()
+		st.AlertsSuppressedUntil = &until
+	}
 	if m.nodeTip > 0 {
 		tip := m.nodeTip
 		st.NodeTip = &tip
@@ -197,21 +265,6 @@ func (m *utxoManager) Lookup(scripts [][]byte) (coins []utxoCoin, height uint32,
 	return
 }
 
-func (m *utxoManager) SetSeed(active bool, progress float64) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.seeding = active
-	if active {
-		m.seedProgress = &progress
-		m.setLocked(utxoStateSeeding, "")
-		return
-	}
-	m.seedProgress = nil
-	if m.state == utxoStateSeeding {
-		m.setLocked(utxoStateCatching, "")
-	}
-}
-
 func (m *utxoManager) run(ctx context.Context) {
 	t := time.NewTicker(utxoFollowInterval)
 	defer t.Stop()
@@ -221,11 +274,177 @@ func (m *utxoManager) run(ctx context.Context) {
 		}
 		select {
 		case <-ctx.Done():
-			_ = m.store.Close()
+			_ = m.currentStore().Close()
 			return
 		case <-t.C:
+		case job := <-m.seedJobs:
+			job.done <- m.execSeed(job.ctx, job.fn)
 		}
 	}
+}
+
+// Running fn on the run goroutine is what keeps follower steps out of a seed.
+func (m *utxoManager) runSeed(ctx context.Context, fn func(context.Context) error) error {
+	job := utxoSeedJob{ctx: ctx, fn: fn, done: make(chan error, 1)}
+	select {
+	case m.seedJobs <- job:
+		return <-job.done
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (m *utxoManager) execSeed(ctx context.Context, fn func(context.Context) error) error {
+	if err := m.startSeed(); err != nil {
+		return err
+	}
+	err := fn(ctx)
+	m.finishSeed(err)
+	return err
+}
+
+func (m *utxoManager) startSeed() error {
+	m.mu.Lock()
+	state, busy := m.state, m.seeding
+	m.mu.Unlock()
+	if busy || state != utxoStateNotSeeded && state != utxoStateInvalid {
+		return errUtxoSeedState
+	}
+	if state == utxoStateInvalid {
+		if err := m.resetStore(); err != nil {
+			return err
+		}
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.state != utxoStateNotSeeded {
+		return errUtxoSeedState
+	}
+	zero := 0.0
+	m.seeding, m.phase, m.seedProgress, m.refusals = true, utxoPhaseWaiting, &zero, nil
+	m.seed.StartedAt, m.seed.AlertsUntil = m.now(), time.Time{}
+	m.setLocked(utxoStateSeeding, "")
+	m.persistSeedLocked()
+	return nil
+}
+
+func (m *utxoManager) finishSeed(err error) {
+	m.mu.Lock()
+	outcome := "ok"
+	switch {
+	case errors.Is(err, context.Canceled):
+		outcome = "cancelled"
+	case err != nil:
+		outcome = "failed"
+	}
+	now := m.now()
+	m.seeding, m.phase, m.seedProgress = false, "", nil
+	m.seed.AlertsUntil = time.Time{}
+	m.seed.Last = &utxoSeedResult{Outcome: outcome, FinishedAt: now, DurationSeconds: now.Sub(m.seed.StartedAt).Seconds()}
+	m.persistSeedLocked()
+	m.log.Printf("utxo index: seed outcome=%s duration=%.0fs", outcome, m.seed.Last.DurationSeconds)
+	if err == nil {
+		m.setLocked(utxoStateCatching, "")
+		m.mu.Unlock()
+		return
+	}
+	m.setLocked(utxoStateNotSeeded, "")
+	m.mu.Unlock()
+	_ = m.resetStore()
+}
+
+func (m *utxoManager) setSeedPhase(phase string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.seeding {
+		m.phase = phase
+	}
+}
+
+func (m *utxoManager) setSeedProgress(fraction float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.seeding {
+		m.seedProgress = &fraction
+	}
+}
+
+func (m *utxoManager) setRefusals(refusals []seedRefusal) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.refusals = refusals
+}
+
+func (m *utxoManager) resetStore() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.seeding || m.state != utxoStateNotSeeded && m.state != utxoStateInvalid {
+		return errUtxoSeedState
+	}
+	_ = m.store.Close()
+	if err := clearUtxoDir(m.fs, m.dir); err != nil {
+		m.log.Printf("utxo index: cannot clear the index directory: %v", err)
+		m.store = &utxoStore{invalidReason: "cannot clear the index directory"}
+		m.follower, m.indexTip = nil, nil
+		m.setLocked(utxoStateInvalid, m.store.invalidReason)
+		return err
+	}
+	m.openLocked()
+	return nil
+}
+
+func (m *utxoManager) setSeedStatePath(path string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.seedPath = path
+	if raw, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(raw, &m.seed)
+	}
+}
+
+func (m *utxoManager) persistSeedLocked() {
+	if m.seedPath == "" {
+		return
+	}
+	raw, _ := json.Marshal(m.seed)
+	if err := writePrivateFileAtomic(m.seedPath, raw); err != nil {
+		m.log.Print("utxo index: seed state could not be persisted")
+	}
+}
+
+func (m *utxoManager) suppressAlerts(until time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.seed.StartedAt.IsZero() {
+		m.seed.StartedAt = m.now()
+	}
+	m.seed.AlertsUntil = until
+	m.persistSeedLocked()
+}
+
+func (m *utxoManager) alertsEndLocked() time.Time {
+	if m.seed.AlertsUntil.IsZero() || m.seed.StartedAt.IsZero() {
+		return time.Time{}
+	}
+	end, limit := m.seed.AlertsUntil, m.seed.StartedAt.Add(utxoAlertCap)
+	if limit.Before(end) {
+		end = limit
+	}
+	return end
+}
+
+func (m *utxoManager) alertsSuppressedLocked() bool {
+	end := m.alertsEndLocked()
+	return !end.IsZero() && m.now().Before(end)
+}
+
+func (m *utxoManager) AlertsSuppressed() bool {
+	if m == nil {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.alertsSuppressedLocked()
 }
 
 func (m *utxoManager) tick(ctx context.Context) {
@@ -289,7 +508,9 @@ func (m *utxoManager) tick(ctx context.Context) {
 	}
 	m.lowDisk.Store(false)
 	stepCtx, stop := context.WithCancel(ctx)
+	m.mu.Lock()
 	m.stop = stop
+	m.mu.Unlock()
 	err = m.follower.Step(stepCtx)
 	stop()
 	if ctx.Err() != nil {

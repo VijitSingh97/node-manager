@@ -23,6 +23,7 @@ type prunedScanner struct {
 	mu       sync.Mutex
 	queued   map[string]bool
 	running  bool
+	held     bool
 	failures map[string]int
 	lastTry  map[string]time.Time
 	jobs     chan WatchEntry
@@ -150,7 +151,7 @@ func (s *prunedScanner) enqueue(entry WatchEntry, force bool) bool {
 	now := s.now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.running || s.queued[identity] {
+	if s.running || s.held || s.queued[identity] {
 		return false
 	}
 	elapsed := now.Sub(s.lastTry[identity])
@@ -168,6 +169,23 @@ func (s *prunedScanner) enqueue(entry WatchEntry, force bool) bool {
 		delete(s.waiting, identity)
 		return false
 	}
+}
+
+// A scan must not start mid-seed, so the hold refuses while one runs or is queued.
+func (s *prunedScanner) hold() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.running || s.held || len(s.queued) > 0 {
+		return false
+	}
+	s.held = true
+	return true
+}
+
+func (s *prunedScanner) release() {
+	s.mu.Lock()
+	s.held = false
+	s.mu.Unlock()
 }
 
 func scanRetryDelay(failures int) time.Duration {
@@ -219,7 +237,7 @@ func (s *prunedScanner) rescanIfStale(entry WatchEntry, cache prunedScanCache, c
 // Applies the blocks after a shared cached tip to each wallet's outpoints; false means a full scan is needed instead.
 func (s *prunedScanner) applyBlocks(entries []WatchEntry, base string, chain blockchainInfo) bool {
 	s.mu.Lock()
-	if s.running || len(s.queued) > 0 {
+	if s.running || s.held || len(s.queued) > 0 {
 		s.mu.Unlock()
 		return true
 	}

@@ -157,7 +157,7 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 	a.monitor = NewMonitor(cfg.version, cfg.dataDir, cfg.stateDir)
 	a.monitor.configureNodes(!cfg.bitcoinDisabled, cfg.moneroEnabled, cfg.moneroDataDir)
 	a.monitor.configureAdditionalNodes(cfg.nodes)
-	a.monitor.transitioning = a.nodeTransitioning
+	a.monitor.transitioning = a.monitorTransitioning
 	if a.monitor.settingsErr != nil {
 		a.log.Print("notification settings unavailable; alerts disabled until the state file is repaired and the dashboard restarts")
 	}
@@ -170,6 +170,9 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 		blockRPC := *rpc
 		blockRPC.client, blockRPC.maxBody = &http.Client{Timeout: 2 * time.Minute}, 64<<20
 		a.utxo = newUtxoManager(cfg.utxoIndexDir, nil, &blockRPC, logger)
+		if cfg.stateDir != "" {
+			a.utxo.setSeedStatePath(filepath.Join(cfg.stateDir, "utxo-seed.json"))
+		}
 	}
 	if a.moneroWatch.Err() != nil {
 		a.log.Print("Monero watch-only wallet state unavailable until the state file is repaired and the dashboard restarts")

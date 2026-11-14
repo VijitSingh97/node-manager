@@ -223,7 +223,12 @@ first — a live copy of `chainstate/` is corrupt by construction.
   `blocks_behind` and `seed_progress` (0 to 1). Heights and `blocks_behind`
   are `null` until the index has a tip and the node has answered once;
   `seed_progress` is `null` unless a seed is running. `ready` means the index
-  is valid, idle and within 2 blocks of the node tip.
+  is valid, idle and within 2 blocks of the node tip. Seed status adds `phase`
+  (`waiting`, `importing`, `merging`, `paused` or `cancelling`; empty when no
+  seed runs), `started_at`, `refusals` (a list of `guard` and `detail` for each
+  failed seed precondition), `last_seed` (`outcome`, `finished_at`,
+  `duration_seconds`) and `alerts_suppressed_until`, which is set only while
+  node-down alerts are suppressed for a seed, for at most 15 minutes.
 
 ## Self-healing (a deliberate non-feature)
 

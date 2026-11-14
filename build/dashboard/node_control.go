@@ -110,6 +110,10 @@ func (a *app) nodeTransitioning(id string) bool {
 	return pending && status != nil && status.ID != "" && status.Node == id || a.credentialTransitioning(id)
 }
 
+func (a *app) monitorTransitioning(id string) bool {
+	return a.nodeTransitioning(id) || id == nodeBitcoin && a.utxo.AlertsSuppressed()
+}
+
 func (a *app) nodeActive(id string, fallback bool) bool {
 	if value, ok := a.nodeRuntime()[id]; ok {
 		return value
