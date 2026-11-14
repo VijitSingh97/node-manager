@@ -197,6 +197,7 @@ inbound_onion=$(jq -r 'if ((.bitcoin // {}) | has("inbound_onion")) then if .bit
 [ -n "$inbound_onion" ] || inbound_onion=$(sed -n 's/^BITCOIN_INBOUND_ONION=//p' "$env_file" 2>/dev/null || true)
 [ -n "$inbound_onion" ] || inbound_onion=0
 blockfilterindex=$(flag '.bitcoin.blockfilterindex')
+utxo_index=$(flag '.bitcoin.utxo_index')
 rpc_expose=$(flag '.bitcoin.rpc_expose')
 rpc_bind_ip=$(get '.bitcoin.rpc_bind_ip')
 rpc_port=$(jq -r '.bitcoin.rpc_port // 8332' <<<"$config")
@@ -605,6 +606,15 @@ if [ "$rpc_expose" = "1" ] && [ "$monero_zmq_expose" = "1" ] && [ "$rpc_bind_ip:
   exit 1
 fi
 
+if jq -e '(.bitcoin // {}) | has("utxo_index") and (.utxo_index | type) != "boolean"' >/dev/null <<<"$config"; then
+  echo "bitcoin.utxo_index must be true or false."
+  exit 1
+fi
+if [ "$utxo_index" = "1" ] && [ "$bitcoin_enabled" != "1" ]; then
+  echo "bitcoin.utxo_index requires bitcoin.enabled."
+  exit 1
+fi
+
 compose_file=docker-compose.yml
 [ "$tari_enabled" = "1" ] && compose_file=$compose_file:docker-compose.tari-wallet.yml
 [ "$rpc_expose" = "1" ] && compose_file=$compose_file:docker-compose.rpc.yml
@@ -615,6 +625,10 @@ compose_file=docker-compose.yml
 [ "$dogecoin_rpc_expose" = "1" ] && compose_file=$compose_file:docker-compose.dogecoin-rpc.yml
 [ "$bitcoincash_rpc_expose" = "1" ] && compose_file=$compose_file:docker-compose.bitcoincash-rpc.yml
 [ "$zcash_rpc_expose" = "1" ] && compose_file=$compose_file:docker-compose.zcash-rpc.yml
+if [ "$utxo_index" = "1" ]; then
+  compose_file=$compose_file:docker-compose.utxo-index.yml
+  echo "bitcoin.utxo_index is on: ./stack apply recreates the dashboard with a utxo_index volume, a 1g memory limit and 0.5 CPU. bitcoind is not restarted."
+fi
 compose_profiles=
 append_profile() { [ -z "$compose_profiles" ] || compose_profiles=$compose_profiles,; compose_profiles=${compose_profiles}$1; }
 [ "$bitcoin_enabled:$bitcoin_active" = "1:1" ] && append_profile bitcoin

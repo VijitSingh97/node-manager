@@ -8,14 +8,6 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
-- The dashboard has an internal resolver that turns watch-only keys (address,
-  xpub family, descriptors) into the sorted, deduplicated scriptPubKey set for
-  indexes 0 to 999 of receive and change. Wallets resolve in batches of 20
-  descriptors through bitcoind (`deriveaddresses`) and a stdlib decode of
-  base58check, bech32 and bech32m. Only addr, pkh, wpkh, sh(wpkh), wsh and tr
-  shapes are resolved; anything else (`pk()`, `combo()`, a key bitcoind
-  rejects, a short derivation) is flagged per wallet to keep using
-  `scantxoutset`. `rpcClient` gains JSON-RPC batching. Nothing calls it yet, so runtime behavior is unchanged.
 - The dashboard now links Pebble (a pure Go key-value store) and carries an
   internal UTXO index store: each block is applied in one fsynced batch with
   a 144-block undo journal (checked by a SIGKILL loop and a crash at each of the first
@@ -30,6 +22,14 @@ All notable changes to this project are documented here. Format follows
   or a non-contiguous block, retries after node or network errors, and stops in a "reorg detected"
   state when the stored tip leaves the active chain. It is not wired into the
   dashboard, so runtime behavior is unchanged.
+- The dashboard has an internal resolver that turns watch-only keys (address,
+  xpub family, descriptors) into the sorted, deduplicated scriptPubKey set for
+  indexes 0 to 999 of receive and change. Wallets resolve in batches of 20
+  descriptors through bitcoind (`deriveaddresses`) and a stdlib decode of
+  base58check, bech32 and bech32m. Only addr, pkh, wpkh, sh(wpkh), wsh and tr
+  shapes are resolved; anything else (`pk()`, `combo()`, a key bitcoind
+  rejects, a short derivation) is flagged per wallet to keep using
+  `scantxoutset`. `rpcClient` gains JSON-RPC batching. Nothing calls it yet, so runtime behavior is unchanged.
 - The internal UTXO index store can now load a parsed `dumptxoutset` snapshot
   into an empty store: records are sorted by key in bounded memory (2M-record
   runs spilled to a temp directory inside the index directory), merged into
@@ -37,6 +37,11 @@ All notable changes to this project are documented here. Format follows
   undo record. The index is not served until ingest finishes, and a restart
   after an interruption discards it. Nothing calls it yet, so runtime behavior
   is unchanged.
+- Opt-in `bitcoin.utxo_index` setting that adds the
+  `docker-compose.utxo-index.yml` overlay: a `utxo_index` volume and a 1g
+  memory limit with 0.5 CPU on the dashboard. It is off by default, so
+  existing installs render the same configuration after upgrade, and bitcoind
+  is not restarted when it is enabled.
 
 ### Changed
 
