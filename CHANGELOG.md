@@ -6,6 +6,14 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The Litecoin, Dogecoin and Bitcoin Cash images now build from one shared
+  base in `build/bitcoin-family/`, with one entrypoint and healthcheck, so a
+  base, package or startup fix lands once instead of three times. Binaries,
+  users, paths and settings are unchanged; Litecoin and Dogecoin images now
+  also carry `libatomic1`, which Bitcoin Cash already needed.
+
 ## [1.33.19] - 2026-11-13
 
 ### Changed

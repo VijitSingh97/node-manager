@@ -95,11 +95,11 @@ jobs:
             -f build/tari-wallet/Dockerfile \
             -t "$base-tari-wallet:$v" -t "$base-tari-wallet:latest" --push .
           docker buildx build --platform linux/amd64,linux/arm64 \
-            -t "$base-litecoin:$v" -t "$base-litecoin:latest" --push ./build/litecoin
+            -t "$base-litecoin:$v" -t "$base-litecoin:latest" --push --target litecoin ./build/bitcoin-family
           docker buildx build --platform linux/amd64,linux/arm64 \
-            -t "$base-dogecoin:$v" -t "$base-dogecoin:latest" --push ./build/dogecoin
+            -t "$base-dogecoin:$v" -t "$base-dogecoin:latest" --push --target dogecoin ./build/bitcoin-family
           docker buildx build --platform linux/amd64,linux/arm64 \
-            -t "$base-bitcoincash:$v" -t "$base-bitcoincash:latest" --push ./build/bitcoincash
+            -t "$base-bitcoincash:$v" -t "$base-bitcoincash:latest" --push --target bitcoincash ./build/bitcoin-family
 
   homebrew:
     needs: [publish, images]

@@ -165,7 +165,7 @@ entrypoint_override=
 case "$chain" in
   litecoin | dogecoin | bitcoincash)
     entrypoint_override="$work/$chain-entrypoint.sh"
-    sed "s/172\\.29\\.0/$subnet_prefix/g" "build/$chain/entrypoint.sh" >"$entrypoint_override"
+    sed "s/172\\.29\\.0/$subnet_prefix/g" build/bitcoin-family/entrypoint.sh >"$entrypoint_override"
     chmod 0755 "$entrypoint_override"
     ;;
 esac

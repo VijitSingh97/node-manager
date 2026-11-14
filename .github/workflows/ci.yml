@@ -30,7 +30,7 @@ jobs:
 
       - name: Lint Dockerfiles (hadolint)
         run: docker run --rm -v "$PWD":/repo -w /repo "$(awk '/^FROM.*hadolint/ {print $2}' .github/tool-images/Dockerfile)"
-          hadolint build/tor/Dockerfile build/dashboard/Dockerfile build/monero/Dockerfile build/tari-wallet/Dockerfile build/litecoin/Dockerfile build/dogecoin/Dockerfile build/bitcoincash/Dockerfile
+          hadolint build/tor/Dockerfile build/dashboard/Dockerfile build/monero/Dockerfile build/tari-wallet/Dockerfile build/bitcoin-family/Dockerfile
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:

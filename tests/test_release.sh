@@ -30,9 +30,9 @@ for required in stack configure.sh docker-compose.yml docker-compose.rpc.yml con
   build/dashboard/static/prices.js build/dashboard/static/settings.js build/tor/Dockerfile build/tor/entrypoint.sh build/tor/torrc \
   build/monero/Dockerfile build/monero/entrypoint.sh build/monero/healthcheck.sh \
   build/monero/wallet-entrypoint.sh build/monero/wallet-healthcheck.sh \
-  build/tari/entrypoint.sh build/tari/config.toml build/litecoin/Dockerfile build/dogecoin/Dockerfile \
+  build/tari/entrypoint.sh build/tari/config.toml \
   build/tari-wallet/Dockerfile build/tari-wallet/go.mod build/tari-wallet/launcher.go build/tari-wallet/config.toml \
-  build/bitcoincash/Dockerfile build/bitcoincash/entrypoint.sh build/bitcoincash/healthcheck.sh \
+  build/bitcoin-family/Dockerfile build/bitcoin-family/entrypoint.sh build/bitcoin-family/healthcheck.sh \
   build/zcash/zakurad.toml build/zcash/healthcheck.sh \
   docker-compose.monero-rpc.yml docker-compose.monero-zmq.yml docker-compose.tari-grpc.yml \
   docker-compose.litecoin-rpc.yml docker-compose.dogecoin-rpc.yml docker-compose.bitcoincash-rpc.yml docker-compose.zcash-rpc.yml \

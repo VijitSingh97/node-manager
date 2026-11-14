@@ -235,7 +235,9 @@ services:
 
   litecoin:
     image: ghcr.io/vijitsingh97/node-manager-litecoin:${STACK_VERSION:?Run stack init or configure.sh first}
-    build: ${STACK_ROOT:-.}/build/litecoin
+    build:
+      context: ${STACK_ROOT:-.}/build/bitcoin-family
+      target: litecoin
     profiles: ["litecoin"]
     labels:
       - "io.node-starter-stack.resource-profile=${LITECOIN_RESOURCE_PROFILE:-off}"
@@ -266,7 +268,9 @@ services:
 
   dogecoin:
     image: ghcr.io/vijitsingh97/node-manager-dogecoin:${STACK_VERSION:?Run stack init or configure.sh first}
-    build: ${STACK_ROOT:-.}/build/dogecoin
+    build:
+      context: ${STACK_ROOT:-.}/build/bitcoin-family
+      target: dogecoin
     profiles: ["dogecoin"]
     labels:
       - "io.node-starter-stack.resource-profile=${DOGECOIN_RESOURCE_PROFILE:-off}"
@@ -297,7 +301,9 @@ services:
 
   bitcoincash:
     image: ghcr.io/vijitsingh97/node-manager-bitcoincash:${STACK_VERSION:?Run stack init or configure.sh first}
-    build: ${STACK_ROOT:-.}/build/bitcoincash
+    build:
+      context: ${STACK_ROOT:-.}/build/bitcoin-family
+      target: bitcoincash
     profiles: ["bitcoincash"]
     labels:
       - "io.node-starter-stack.resource-profile=${BITCOINCASH_RESOURCE_PROFILE:-off}"

@@ -174,15 +174,18 @@ def current_version(text, project):
     return match.group(1)
 
 
-def replace_release(text, project, old, new, amd64, arm64):
+def replace_release(text, stage, project, old, new, amd64, arm64):
     if version_tuple(new) < version_tuple(old):
         raise UpdateError(f"refusing to downgrade {project} from {old} to {new}")
-    updated = text.replace(f"{project}-{old}", f"{project}-{new}")
+    match = re.search(rf"^FROM \S+ AS {stage}$.*?(?=^FROM |\Z)", text, re.MULTILINE | re.DOTALL)
+    if not match:
+        raise UpdateError(f"could not find the {stage} build stage")
+    updated = match[0].replace(f"/download/v{old}/", f"/download/v{new}/").replace(f"{project}-{old}", f"{project}-{new}")
     updated, amd_count = re.subn(r"(amd64\) archive=x86_64-linux-gnu; sha=)[0-9a-f]{64}", rf"\g<1>{amd64}", updated)
     updated, arm_count = re.subn(r"(arm64\) archive=aarch64-linux-gnu; sha=)[0-9a-f]{64}", rf"\g<1>{arm64}", updated)
     if amd_count != 1 or arm_count != 1:
         raise UpdateError(f"unexpected {project} checksum layout")
-    return updated
+    return text[: match.start()] + updated + text[match.end() :]
 
 
 def litecoin_update(text, get=fetch, verify=verify_litecoin_checksums):
@@ -198,6 +201,7 @@ def litecoin_update(text, get=fetch, verify=verify_litecoin_checksums):
         raise UpdateError("signed Litecoin checksums are missing a required Linux archive")
     return replace_release(
         text,
+        "litecoin",
         "litecoin",
         current_version(text, "litecoin"),
         version,
@@ -219,6 +223,7 @@ def dogecoin_update(text, get=fetch, verify=verify_dogecoin_checksums):
         raise UpdateError("signed Dogecoin checksums are missing a required Linux archive")
     return replace_release(
         text,
+        "dogecoin",
         "dogecoin",
         current_version(text, "dogecoin"),
         version,
@@ -243,6 +248,7 @@ def bitcoincash_update(text, get=fetch, verify=verify_bitcoincash_checksums):
         raise UpdateError("could not find the current Bitcoin Cash version")
     return replace_release(
         text,
+        "bitcoincash",
         "bitcoin-cash-node",
         current.group(1),
         version,
@@ -402,9 +408,7 @@ def main():
     args = parser.parse_args()
     for relative, transform in (
         ("build/monero/Dockerfile", monero_update),
-        ("build/litecoin/Dockerfile", lambda text: debian_pins_update(litecoin_update(text))),
-        ("build/dogecoin/Dockerfile", lambda text: debian_pins_update(dogecoin_update(text))),
-        ("build/bitcoincash/Dockerfile", lambda text: debian_pins_update(bitcoincash_update(text))),
+        ("build/bitcoin-family/Dockerfile", lambda text: debian_pins_update(bitcoincash_update(dogecoin_update(litecoin_update(text))))),
         ("build/tor/Dockerfile", alpine_pins_update),
     ):
         print(f"{relative}: {'; '.join(update(ROOT / relative, transform, args.apply)) or 'current'}", flush=True)

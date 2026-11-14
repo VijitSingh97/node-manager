@@ -83,11 +83,9 @@ for required in \
   ./usr/lib/node-manager/build/tari-wallet/Dockerfile \
   ./usr/lib/node-manager/build/tari-wallet/launcher.go \
   ./usr/lib/node-manager/build/tari-wallet/config.toml \
-  ./usr/lib/node-manager/build/litecoin/Dockerfile \
-  ./usr/lib/node-manager/build/dogecoin/Dockerfile \
-  ./usr/lib/node-manager/build/bitcoincash/Dockerfile \
-  ./usr/lib/node-manager/build/bitcoincash/entrypoint.sh \
-  ./usr/lib/node-manager/build/bitcoincash/healthcheck.sh \
+  ./usr/lib/node-manager/build/bitcoin-family/Dockerfile \
+  ./usr/lib/node-manager/build/bitcoin-family/entrypoint.sh \
+  ./usr/lib/node-manager/build/bitcoin-family/healthcheck.sh \
   ./usr/lib/node-manager/build/zcash/zakurad.toml \
   ./usr/lib/node-manager/build/zcash/healthcheck.sh \
   ./usr/lib/node-manager/build/tor/torrc \
