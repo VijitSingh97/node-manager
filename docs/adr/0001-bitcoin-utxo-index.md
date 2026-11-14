@@ -21,29 +21,31 @@ Watch-only balances on a pruned Bitcoin node use `scantxoutset`, a full walk of 
 
 PR #215 already changed the picture. A wallet with a cached scan result follows new blocks. `applyBlocks` reads each new block with `getblock` verbosity 2 and updates the cached outpoints. For one block and two wallets this took 0.8 s and 1.5 s (measured, earlier read-only comment on #216). It falls back to a full scan when the cache is more than `prunedDeltaBlocks` (144) blocks behind, or when any step fails.
 
-Facts, all from the reference node:
+Facts, all from the reference node. Rows sourced to the "earlier #216 comment" come from the read-only run before the supervised one; the supervised results record them only as unchanged.
 
 | Fact | Value | Source |
 | --- | --- | --- |
 | UTXO count | 163,325,604 (`coins_written`); `scantxoutset` saw 163,325,996 | measured, #216 |
-| `scantxoutset` full walk (`raw(6a)`, matches nothing) | 153 s | measured, #216 |
+| `scantxoutset` full walk of one script (`raw(6a)`, matches nothing): a single-script baseline and a lower bound for a real wallet scan | 153 s | measured, #216 |
+| Real wallet scan time (a batch of descriptors with range 0-999, thousands of scripts) | not measured. #213 lists #214 to record real scan timings; no result is cited here | unmeasured |
 | RPC during `scantxoutset` | not blocked: 0 of 30 probes failed, p50 212 ms | measured, #216 |
 | `dumptxoutset` wall time | 592 s to a file, 613 s to a FIFO | measured, #216 |
 | Dump file size | 9,319,541,901 bytes (8.68 GiB), 57.1 B per coin, mode 0600, uid 1000 | measured, #216 |
-| RPC during `dumptxoutset` | blocked for about 300 s from the start (33 of 88 probes timed out), then slow for the rest of the dump (p50 206 ms against 72 ms idle) | measured, #216 |
+| RPC during `dumptxoutset` | failing for about 300 s from the start (33 of 88 probes timed out), then degraded but answering for the rest of the dump (p50 206 ms against 72 ms idle) | measured, #216 |
+| Why RPC fails for the first 300 s only | `cs_main` is held through the hash pass and released for the write. #216 says the timings "fit" this; nobody checked the locking | reasoned |
 | Compose health during the dump | bitcoind unhealthy for about 2.5 min, recovered by itself | measured, #216 |
-| Restarts | none: `StartedAt` unchanged, `RestartCount` 0 before and after, no watchdog or `depends_on` action | measured, #216 (one run, two dumps) |
+| Restarts during the run | none: `StartedAt` unchanged, `RestartCount` 0 before and after, no watchdog or `depends_on` action, across two dumps with bitcoind unhealthy about 2.5 min each | measured, #216 (one run, two dumps) |
 | Node-down alert | one "down" and one "recovered" per dump (06:16:49 / 06:18:08 and 06:34:46 / 06:36:06) | measured, #216 |
 | Read of the dump through the dashboard's read-only mount | works as uid 1000; 100 s for a full read (about 93 MB/s) | measured, #216 |
 | FIFO created by the bitcoin container, read by the dashboard through the read-only mount | works end to end: 9,319,542,342 bytes received, Core renamed the FIFO on completion | measured, #216 |
 | Peak host temperature by phase | dump 80 C, uncapped dashboard full read 92 C, FIFO dump 89 C, scan 81 C | measured, #216 |
 | Stack thermal throttle | capped bitcoind to 0.25 CPU and monerod to 0.50 at 91 C (released at 75 C) and again at 88 C (released at 73 C) | measured, #216 |
-| Chain | tip 975705 at the earlier read, pruneheight 970251, 5455 retained blocks at prune_mb 10000 | measured, #216 |
-| `getblock` v3 on oldest and newest retained block | succeeds; 1.8-3.0 s and 17.7-19.4 MB per block including `docker exec` overhead | measured, #216 |
-| Chainstate | 11 GB | measured, #216 |
-| Dashboard can read the datadir and `/sys/class/thermal/thermal_zone0/temp` | yes, uid 1000 | measured, #216 |
+| Chain | tip 975705 at the earlier read (975750 to 975752 during the supervised run), pruneheight 970251, 5455 retained blocks at prune_mb 10000 | measured, earlier #216 comment (read-only run, 2026-11-14); #216 results say "unchanged" |
+| `getblock` v3 on oldest and newest retained block | succeeds; 1.8-3.0 s and 17.7-19.4 MB per block. The time includes `docker exec` overhead, so it is an upper bound for an in-process RPC call | measured, earlier #216 comment |
+| Chainstate | 11 GB | measured, earlier #216 comment |
+| Dashboard can read the datadir and `/sys/class/thermal/thermal_zone0/temp` | yes, uid 1000 | measured, earlier #216 comment (the datadir read is also in #216 results) |
 | Healthcheck time to unhealthy | about 3 min (60 s interval, 3 retries, 15 s timeout) | repo |
-| Restart policy acts on unhealthy | no, only on exit | measured, #216 (matches compose behavior) |
+| Docker's restart policy never acts on an unhealthy container, only on exit | reasoned from Docker semantics. It holds only while no autoheal-style watchdog is present. The run did not test other stacks, and one run does not prove the policy | reasoned |
 | Node-down alert threshold | 3 consecutive minutely RPC failures | repo, `settings.go:22` |
 | Dashboard `mem_limit` and `cpus` | none set | `docker-compose.yml` |
 | Dashboard datadir mount | read-only; `/state` is a writable named volume; no docker socket | `docker-compose.yml` |
@@ -68,9 +70,11 @@ Block cache hit rate at 100M was 66.5%. Keys in the benchmark use an 8-byte pref
 
 ## Sizing and timing (all arithmetic, once)
 
-Per entry at the benchmark's 8-byte prefix: a sort run holds 56 B (44 B key, 12 B value). The final index is 61.5 B (measured). Runs plus SSTs coexist at the peak: 56 + 61.5 = 117.5 B. This matches the measured peak: 10.94 GiB x 1.0737 = 11.75 GB, over 100M entries is 117.5 B. So the formula is checked against the measurement.
+Per entry at the benchmark's 8-byte prefix: a sort run holds 56 B (44 B key plus 12 B value, the logical size). The final index is 61.5 B (measured, 5.72 GiB over 100M). The measured peak is 10.94 GiB x 1.0737 = 11.75 GB, which over 100M entries is 117.5 B. That equals 56 + 61.5, so the working model is: runs and SSTs coexist at the peak.
 
-At the chosen 16-byte prefix (derived): the key grows by 8 B of hash, which does not compress. Run 64 B, index 69.5 B, peak 133.5 B per entry.
+This is a consistency check, not an independent test. The 117.5 B comes from the one measured total. The split between run bytes and SST bytes was not logged by phase, so the model is inferred from the total. #222 should log temp-dir size by phase in its 16 B re-run.
+
+At the chosen 16-byte prefix (derived, and it assumes the extra 8 B of hash bytes do not compress, in both the runs and the SSTs): run 56 + 8 = 64 B, index 61.5 + 8 = 69.5 B, peak 64 + 69.5 = 133.5 B per entry. Nothing at 16 B was run.
 
 Scaled to 163.3M entries (measured count, linear scaling as stated in #217):
 
@@ -86,15 +90,22 @@ Pre-seed free-space threshold, derived from the 16 B column with a 20% margin (j
 
 Seed time at 0.5 CPU (derived). The 100M pipeline took 361 s. Scaled by 1.633 it is 589 s (9.8 min), a floor because sorting is n log n. Of that, run generation is 215 s x 1.633 = 351 s and merge is 146 s x 1.633 = 238 s.
 
-- FIFO: run generation overlaps the part of the dump after the hash pass (613 - 300 = 313 s) and needs 351 s, so it ends about 38 s after the dump. Then the merge. Total about 613 + 38 + 238 = 889 s, about 15 min. This assumes parsing is no slower than the benchmark's synthetic generation, which was not measured.
-- File: 592 s dump, then 100 s read (measured), then 589 s pipeline, about 1281 s, 21 min.
+- FIFO: run generation overlaps the part of the dump after the hash pass (613 - 300 = 313 s) and needs 351 s, so it ends about 38 s after the dump. Then the merge. Total about 613 + 38 + 238 = 889 s, about 15 min.
+- File: 592 s dump, then 100 s read, then 589 s pipeline, about 1281 s, 21 min. The post-hash write phase of a file dump is 592 - 300 = 292 s.
+
+Both totals are floors, and three assumptions sit under them. None was measured.
+1. Parsing the dump is no slower than the benchmark's synthetic run generation.
+2. FIFO: the dump write phase takes the measured 313 s. With a FIFO the writer waits on the reader, and the reader runs at 0.5 CPU, so the dump itself may lengthen. That would also stretch the degraded-RPC period.
+3. File: the 100 s read was uncapped (it hit 92 C). A capped read is slower.
+
+#224 and #236 measure a capped read and parse. Until then no user-facing text promises a duration.
 
 Lookup batch (derived): a wallet window of 1000 external plus 1000 internal scripts is 2000 lookups. At the 100M cold p50, 2000 x 75.6 us = 0.15 s. At the cold p99, 2000 x 163 us = 0.33 s. The single worst lookup was 67 ms.
 
 ## Decision drivers
 
 1. Stay small. `AGENTS.md` and `CONTRIBUTING.md` prefer deleting over adding and stdlib over new dependencies. The dashboard module has only grpc and protobuf as direct dependencies. It builds with `CGO_ENABLED=0` on alpine.
-2. No behavior change for installs that do not opt in: no new volume, memory limit or restart.
+2. No runtime change for installs that do not opt in: no new volume, memory limit or restart. The image and binary are a separate question (see "Dependency ships to everyone"): a dependency compiled in is not runtime-free.
 3. Never wrong silently. Any doubt about the index falls back to `scantxoutset`.
 4. Do not hurt the live node. `cs_main` stalls, heat and disk are shared with the other chains on the box.
 5. Targets from #213: add an indexed wallet under 1 s, cached read under 100 ms, batch registration, incremental blocks, works on pruned nodes.
@@ -106,12 +117,12 @@ The measurements make the existing path better than the draft assumed.
 
 What the scan path gives today, with no new dependency, disk or restart:
 - A wallet that has been scanned once follows each new block in about a second (measured, #216 read-only comment).
-- A first scan takes 153 s (measured, #216) and does not block RPC (measured, #216). The old worry that every scan stalls the node was wrong.
+- A first scan takes at least 153 s (the single-script baseline, measured, #216; the real wallet time is unmeasured) and the baseline does not block RPC (measured, #216). The old worry that every scan stalls the node was wrong.
 - Balances survive restarts through the JSON scan cache.
-- Wallets are scanned in batches, so several wallets cost one 153 s walk.
+- Wallets are scanned in batches, so several wallets cost one walk.
 
 What the full index would still add:
-1. A newly added wallet shows a balance in under 1 s (0.15-0.33 s of lookups, derived) instead of waiting about 2.5 min (the measured 153 s plus queueing).
+1. A newly added wallet shows a balance in under 1 s (0.15-0.33 s of lookups, derived) instead of waiting for a scan. The scan takes at least 153 s (the single-script baseline, measured, #216). A real wallet scan tests every UTXO against thousands of scripts, so it is probably longer. Its time is unmeasured.
 2. No periodic full scan after a reorg deeper than the cache can follow, after a gap of more than 144 blocks, or after a failed delta.
 
 It adds nothing for wallets already tracked. It adds no history. It does not help unpruned nodes.
@@ -123,10 +134,10 @@ What it costs:
 | Steady disk | 11.35 GB (derived, 16 B prefix) |
 | Peak disk while seeding | 21.8 GB, 20.3 GiB (derived); 31.1 GB if a dump file is used |
 | Seed time | about 15 min (derived) |
-| RPC unavailable during a seed | about 300 s, then slow for about 290 s more (measured) |
+| RPC during a seed | failing for about 300 s (measured), then degraded but answering (p50 206 ms) for about 313 s more on a FIFO, 292 s on a file (derived: 613 - 300, 592 - 300) |
 | Node-down alert and unhealthy compose state | one alert, unhealthy about 2.5 min (measured), per seed |
 | Heat | an uncapped consumer reached 92 C and triggered the stack's throttle (measured) |
-| Code | 26 new linked modules, a longer THIRD_PARTY_NOTICES, and roughly 18 child issues (#220-#237) |
+| Code | 26 new linked modules (amd64 only counted), a larger dashboard binary and image for every install (size unmeasured), a longer THIRD_PARTY_NOTICES, and roughly 18 child issues (#220-#237) |
 
 The index's own seed blocks RPC for longer than any scan ever does. Scans are the cheaper way to hold `cs_main`: they do not hold it at all.
 
@@ -134,29 +145,29 @@ The index's own seed blocks RPC for longer than any scan ever does. Scans are th
 
 | #213 target | Defer (scan path plus #215) | Build the Pebble index, opt-in |
 | --- | --- | --- |
-| Add an already-indexed wallet under 1 s | No. 153 s (measured) | Yes. 0.15-0.33 s of lookups (derived), plus derivation time (unmeasured) |
+| Add an already-indexed wallet under 1 s | No. At least 153 s (single-script baseline, measured; real time unmeasured) | Yes. 0.15-0.33 s of lookups (derived), plus derivation time (unmeasured) |
 | Cached read under 100 ms | Reasoned yes: it is a read of the JSON cache. Not benchmarked | Yes (lookups far below 100 ms) |
-| Batch registration | Partly. One scan serves a batch, but each batch costs 153 s | Yes |
+| Batch registration | Partly. One scan serves a batch, but each batch costs at least 153 s. Option E queues adds into one scan | Yes |
 | Incremental blocks | Yes, #215 (measured) | Yes |
 | Pruned nodes | Yes | Yes |
-| Opt-in, no upgrade change, scan fallback | Yes (nothing changes) | Yes, through the overlay |
+| Opt-in, no runtime change on upgrade, scan fallback | Yes | Yes for runtime (overlay). Not for the image: the binary carries Pebble for everyone unless built otherwise (see "Dependency ships to everyone") |
 
-Only the first row separates the two choices, and only the index meets it. A cheaper intermediate option does not exist for that row: option C below meets the same rows as deferring.
+Only the first row separates the two choices, and only the index meets it. Option C below meets the same rows as deferring. Option E below is the concrete content of the defer path. It does not meet the first row, but it shortens the felt wait and improves batch registration at little cost.
 
 ### Decision
 
-**Recommendation: defer the build.** Ship nothing beyond #215. Hold #221-#237 until the owner confirms the first row matters enough.
+**Recommendation: defer the build, and do option E.** Ship #215 plus option E (below). Hold #221-#237 until the owner confirms the first row matters enough.
 
 Reasons:
-- The only target the index uniquely meets is a wallet add that takes 153 s today, once per new wallet.
+- The only target the index uniquely meets is a wallet add that waits for a scan, at least 153 s (a lower bound, single-script baseline), once per new wallet. The real wallet-scan time is unmeasured, so this reason is weaker than it looks. The recommendation rests more on the RPC block, the heat and the dependency than on the 153 s.
 - The scan does not block RPC. The seed does, for 5 minutes, with an alert and a heat spike on a box that shares thermal budget with other chains.
 - The cost is 11.35 GB of disk, 20.3 GiB at peak, a long-lived subsystem, and 26 modules.
 
-**If the owner builds it,** the design below is the plan. It is opt-in, the Pebble engine, FIFO seeding, a mandatory CPU cap and thermal gate. Every number in it is measured or derived.
+**If the owner builds it,** the design below is the plan. It is opt-in, the Pebble engine, FIFO seeding, a mandatory CPU cap and thermal gate. Every number in it is labelled measured, derived or reasoned. Several items are reasoned (journal size, pause behaviour, the 20% margin).
 
-**Reopen triggers for deferring:** the owner reports adding wallets often enough that 2.5 min hurts; the scan time grows past a few minutes as the UTXO set grows (153 s today at 163.3M); or a second feature needs script lookups.
+**Reopen triggers for deferring:** the owner reports adding wallets often enough that the wait hurts; the scan time grows past a few minutes as the UTXO set grows (153 s single-script baseline today at 163.3M); a real wallet scan, measured with a 2000-script `scanobjects` run (range 0-999, as `pruned_scan.go` builds it), takes more than a few minutes; or a second feature needs script lookups. That 2000-script run is the measurement that decides defer versus build, and it comes first.
 
-The gate in the earlier draft was "120 s or less: stop; 10 min or more: build; between is the owner's call". The measured 153 s falls in the owner's band, with no RPC stall. That is why the call is the owner's and the recommendation is to defer.
+The gate in the earlier draft was "120 s or less: stop; 10 min or more: build; between is the owner's call". The measured 153 s falls in the owner's band, with no RPC stall. But it is a floor: the real wallet scan could land higher, possibly in the build band. That is why the call is the owner's, and why the 2000-script run is the first open item.
 
 ## Options considered
 
@@ -201,6 +212,15 @@ Keep #215's model: store each wallet's scriptPubKey set and outpoints in JSON (`
 - Cons: an unknown wallet still needs a full `scantxoutset`. There is no cheap backfill. Reading the 5455 retained blocks at 1.8-3.0 s each is 5455 x 1.8 = 2.7 h to 5455 x 3.0 = 4.5 h (derived) and covers about five weeks of chain, so it would give wrong balances.
 - Status: **this is the deferred state, reasoned and partly measured.** It is also the fallback in every outcome.
 
+### E. Defer plus progress UI and queued-add batching (the defer path, concrete)
+
+Improve the wait instead of removing it. Show scan progress or a time estimate for a pending wallet. Queue wallets added while a scan runs and serve them with one scan.
+
+- Pros: no new dependency, disk, volume or seed. Meets "batch registration" fully, because queued adds share one walk. Makes the wait visible, which is where #215 and the 153 s point. Needs no owner decision on Pebble.
+- Cons: a new wallet still waits for a full scan. It does not meet "add an indexed wallet under 1 s".
+- #213 rows it improves: batch registration (Partly to Yes) and, as felt latency only, the wallet-add wait. It leaves the other rows unchanged.
+- Status: **recommended with the defer.** Reasoned. Not built or measured. It needs its own issue.
+
 ### D. Separate index service (own container)
 
 - Pros: isolates memory and crashes, gives the index its own limits and lifecycle, keeps the dashboard dependency-free.
@@ -217,7 +237,7 @@ Keep #215's model: store each wallet's scriptPubKey set and outpoints in JSON (`
 
 | Topic | Decision | Status |
 | --- | --- | --- |
-| Engine | Pebble v1.1.5, pinned until #222 re-checks upstream. The 100M run is inside every threshold the draft set: peak RSS 0.25 GiB against 600 MiB, final size 9.35 GiB against 15 GB, peak temp 17.9 GiB against 22 GB, cold p99 163 us against 1 ms | Decided (#217) |
+| Engine | Pebble v1.1.5, pinned until #222 re-checks upstream. Measured at 100M (#217): peak RSS 0.25 GiB against the 600 MiB threshold, cold p99 163 us against 1 ms, final size 5.72 GiB (6.14 GB), peak temp 10.94 GiB (11.75 GB). Derived to 163.3M at the chosen 16 B prefix: final 11.35 GB (10.57 GiB) against 15 GB, peak 21.8 GB (20.3 GiB) against 22 GB. The peak is within about 1% of the threshold in GB (21.8 / 22 = 0.991), a near miss | Decided for RSS and lookup (#217). Provisional for size and peak until the 16 B run (#222) |
 | Process placement | Inside the dashboard process, behind a small interface so a separate service stays possible | Decided (#217 memory) |
 | Key | `SHA-256(scriptPubKey)[:16] \|\| txid (32 B) \|\| vout (4 B, big endian)` | Decided |
 | Value | `amount (8 B) \|\| height (4 B)` | Decided |
@@ -246,7 +266,13 @@ With FIFO seeding the overlay no longer touches the bitcoin service. It adds, on
 
 Why not unconditional: the dashboard `mem_limit` and `cpus` would change every install, and cannot be conditional without an overlay. Rejected, reasoned.
 
-What existing installs get on upgrade: nothing. No new volume, no limit, no bitcoind change, no restart. `scantxoutset` and the #215 path stay. An install that enables the option gets the volume and the dashboard limits, and an index in the "not seeded" state until the user starts a seed. bitcoind is not recreated (this is a change from the draft, which needed a writable dump mount).
+What existing installs get on upgrade: no runtime change. No new volume, no limit, no bitcoind change, no restart. `scantxoutset` and the #215 path stay. They do get the image, see below. An install that enables the option gets the volume and the dashboard limits, and an index in the "not seeded" state until the user starts a seed. bitcoind is not recreated (this is a change from the draft, which needed a writable dump mount).
+
+**Dependency ships to everyone.** Pebble and its 26 linked modules compile into the one dashboard binary and image that every install pulls, opted in or not. That means a larger image, a longer THIRD_PARTY_NOTICES and new supply-chain surface for all installs. Binary size is unmeasured. The 26-module count was measured for linux/amd64 only; #222 requires every target architecture, and arm64 is not counted. #213 says a non-opt-in install gets no new behavior. A larger binary is not behavior, but it is a change.
+
+Two ways to handle it. The owner picks one when building:
+- Accepted cost (the ADR's default): one binary for all. The owner signs off on the image growth and notices, after #222 measures size on every architecture.
+- Build tag or separate binary: non-opt-in images stay unchanged. The overlay then also selects the image or binary, which adds a second build to release and test. #222 must state this if chosen.
 
 Touch points, owned by #223:
 - `configure.sh` writes `COMPOSE_FILE` (line 788), and the `stack` script allowlist (`stack:216`) rejects unknown overlay files for package installs.
@@ -278,14 +304,15 @@ Rejected: dumping into the datadir (the dashboard cannot delete it, and it eats 
 
 ### 5. Maintenance window, alerts, thermal and re-seed
 
-- **Trigger: user-started only.** No automatic seeding. The UI says what will happen: bitcoin RPC unavailable for about 5 minutes, slow for about 5 more, a node-down state, 15-20 minutes in total. (Decided.)
+- **Trigger: user-started only.** No automatic seeding. The UI says what will happen: bitcoin RPC failing for about 5 minutes (measured), then degraded for about 5 more, and a node-down state. It says "at least 15 minutes" and gives no other duration until #224 and #236 measure a capped read and parse (see Sizing and timing). (Decided.)
 - **Maintenance-window rule.** The user picks a quiet period. The dashboard does not schedule. It enforces these preconditions, all required: not in initial block download; tip fresh; bitcoind healthy; the pruned scanner idle and held off (its status probe fails the batch if another scan runs, so the seed takes the scanner's lock); free-space check passes (section 7); FIFO exists; thermal gate passes. It recommends pausing other heavy chains. The measured run had the Tari base node paused for the whole window, so the effect of not pausing it is unmeasured. This is a recommendation, not a check. (Decided.)
-- **Node-down alert: suppress during a user-started seed, with a cap.** One user-triggered seed raises exactly one "down" and one "recovered" alert (measured, #216), and the user knows why. The seed writes a "maintenance until" time to `/state` and the alert logic skips node-down and recovered alerts until it passes. The cap is 15 min: 1.5 x the 613 s FIFO dump (derived, 920 s). If RPC is still failing at the cap, the alert fires normally. The UI says alerts are suppressed. Compose will show bitcoind unhealthy for about 2.5 min. It is not restarted (measured, #216). On a stack whose watchdog differs from the reference node's, the seed docs must say to check that first. (Decided.)
+- **Node-down alert: suppress during a user-started seed, with a cap.** One user-triggered seed raises exactly one "down" and one "recovered" alert (measured, #216), and the user knows why. The seed writes a "maintenance until" time to `/state` and the alert logic skips node-down and recovered alerts until it passes. The cap is 15 min: 1.5 x the 613 s FIFO dump (derived, 920 s). The cap covers RPC failing, which ended about 300 s in during #216, not the whole seed, so a consumer pause later does not need it to grow. That is reasoned, since a slow reader's effect on the write phase was not measured. If RPC is still failing at the cap, the alert fires normally. The UI says alerts are suppressed. Compose will show bitcoind unhealthy for about 2.5 min. Nothing restarted it in the measured run (#216). That Docker's restart policy ignores unhealthy is reasoned, and it holds only without an autoheal-style watchdog. The seed docs must say to check for one first. (Decided.)
 - **CPU cap: mandatory.** The seed consumer runs in the dashboard container under `cpus: 0.5` from the overlay and at low priority. This is the quota #217 measured (79 C peak, 0.25 GiB RSS). The uncapped container read of 9.3 GB reached 92 C (measured, #216). A build that cannot confirm the cap refuses to seed. (Decided.)
-- **Thermal gate: mandatory, no override.** Source: `/sys/class/thermal/thermal_zone0/temp`, readable by the dashboard (measured). If the file is missing or unreadable, seeding is refused. This replaces the draft's "proceed after explicit confirmation". On such hosts the fallback scan path keeps working. (Decided.)
-  - Start only at or below 75 C. The measured start was 61 C, and the stack's throttle released at 73-75 C.
+- **Thermal gate: mandatory, no override. Provisional thresholds.** Source: `/sys/class/thermal/thermal_zone0/temp`, readable by the dashboard (measured). If the file is missing or unreadable, seeding is refused. This replaces the draft's "proceed after explicit confirmation". On such hosts the fallback scan path keeps working. (Decided.)
+  - Start only at or below 75 C. The measured start was 61 C, but with the Tari base node paused. With all chains running the idle temperature is unmeasured. It could sit above 75 C, so seeding would never start (open item).
   - Pause the consumer at 85 C, below the 88 C where the stack's throttle acts.
   - Resume at or below 72 C, below the measured release temperatures, so the seed never resumes while bitcoind is still held at 0.25 CPU.
+  - These thresholds are tested only against separate runs: the dump alone peaked at 80 C (#216) and the capped pipeline alone at 79 C with Tari paused and no bitcoind (#217). The two together are likely to exceed 85 C, so the gate may pause the reader during the write phase, and cooling from 85 to 72 C takes minutes each time. The seed time of about 15 min is a no-pause floor. That a pause during the write phase is safe is reasoned and untested. The 85 C threshold must be tied to a combined dump-plus-consumer run (#236).
 - **Throttle interaction.** The stack's thermal throttle caps bitcoind to 0.25 CPU and monerod to 0.50 when the host reaches 88 C, and releases at 73-75 C (measured, #216). Three consequences. The seed gate pauses before the throttle fires, so the seed does not trigger it. A throttle capping bitcoind during the hash pass would lengthen the dump and the RPC block; this is unmeasured, which is one reason the alert cap is 15 min and not 10. The consumer must not resume into a throttled host, which the 72 C resume point prevents. In #216 the throttle was triggered by the uncapped consumer, not by bitcoind, which is capped at 0.5 CPU (measured). The heat of a capped read and parse is unmeasured (open item).
 - **Re-seed policy: manual only.** A re-seed is offered, never forced, when the format version changed, a reorg is deeper than the journal, the store failed its integrity check, or the index fell behind past the retained block window. Until then the fallback serves.
 
@@ -317,7 +344,7 @@ Rejected: dumping into the datadir (the dashboard cannot delete it, and it eats 
 - A version bump, a chain mismatch, or a failed integrity check means the index is **invalid**: `scantxoutset` serves, the UI offers a re-seed, and the user starts it. **No silent migration. No automatic re-seed.** (Decided.)
 - Pebble's own on-disk format version is pinned and recorded. Upgrading Pebble across a format change counts as a schema bump. (Provisional.)
 - A downgrade of the dashboard image that cannot read the store is also invalid, not an error: the index is ignored and the fallback serves.
-- A re-seed takes about 15 min of wall time and the same RPC block as the first seed (derived and measured, Sizing).
+- A re-seed takes at least about 15 min of wall time and the same RPC block as the first seed (derived floor and measured, Sizing).
 
 ### 9. Gap-limit semantics and derivation
 
@@ -343,13 +370,13 @@ Rejected: dumping into the datadir (the dashboard cannot delete it, and it eats 
 ## Consequences
 
 If deferred (recommended):
-- No new dependency, disk, volume, restart or node stall.
-- A newly added wallet waits about 153 s (measured). Everything else stays as #215 shipped it.
+- No new dependency (so no image growth), disk, volume, restart or node stall.
+- A newly added wallet waits for a scan: at least 153 s (single-script baseline, measured; the real time is unmeasured). Option E makes that wait visible and batches queued adds. Everything else stays as #215 shipped it.
 - The design and measurements stay on record, so building later does not start from zero.
 
 If built:
-- Good: a new wallet shows a balance in 0.15-0.33 s of lookups (derived). Full-set walks leave the steady state. No change for installs that do not opt in. The fallback is the default.
-- Bad: 26 more linked modules and a longer THIRD_PARTY_NOTICES. 11.35 GB steady disk and 21.8 GB peak. One 5-minute RPC block with an alert, and a heat load that needs a CPU cap and a thermal gate. A large subsystem to maintain.
+- Good: a new wallet shows a balance in 0.15-0.33 s of lookups (derived). Full-set walks leave the steady state. No runtime change for installs that do not opt in. The fallback is the default.
+- Bad: 26 more linked modules (amd64 counted) and a longer THIRD_PARTY_NOTICES, and a larger image for every install unless a build tag is used. 11.35 GB steady disk and 21.8 GB peak (derived, provisional). One 5-minute RPC block with an alert, and a heat load that needs a CPU cap and a thermal gate. A large subsystem to maintain.
 - Neutral: no transaction history (#240 decides history). Unpruned nodes are unchanged. No bitcoind recreate.
 
 ## Open items
@@ -358,20 +385,24 @@ Everything measured is recorded above. What remains:
 
 | Item | Needed when | What it decides | Owner |
 | --- | --- | --- | --- |
-| Defer or build | now | Whether #221-#237 start. Recommendation: defer | Owner |
+| Defer or build | now | Whether #221-#237 start. Recommendation: defer, with option E | Owner |
+| Real wallet scan time: a 2000-script `scanobjects` run with range 0-999 (or the production scan log, or #214 if it has results) | now | Whether the 153 s floor is the real cost. Decides defer versus build | Owner or #214 |
+| Option E: progress UI and queued-add batching | with the defer | Needs its own issue | none yet |
 
 Only if the owner builds:
 
 | Item | What it decides | If it goes badly | Issue |
 | --- | --- | --- | --- |
 | Reader dies or never opens the FIFO | Whether FIFO is safe | Core wedges or the dump is lost without recovery: revert to the shared volume (9.32 GB file, bitcoind recreate) | #226 |
-| Heat and speed of a capped dashboard reading 9.3 GB and parsing | The 85 C and 72 C thresholds, seed time | Over 85 C within the cap: lower the start limit or require an idle host | #224, #236 |
+| Heat and speed of a capped dashboard reading 9.3 GB and parsing, run together with a real dump | The 85 C and 72 C thresholds, seed time, whether a write-phase pause is safe | Over 85 C within the cap: lower the start limit or require an idle host | #224, #236 |
+| Idle host temperature with all chains running | Whether the 75 C start limit ever passes | Idle above 75 C: raise the start limit or require pausing other chains | #236 |
+| FIFO dump with a reader at 0.5 CPU | Whether the dump and the degraded-RPC period lengthen | Dump over 15 min: raise the alert cap or use the file path | #226, #236 |
 | Effect of the stack throttle on a running dump | The 15 min alert cap | A dump over 15 min: raise the cap | #236 |
 | 16-byte prefix size and lookup latency | The key length and the 27 GB threshold | Size or latency worse than the derived numbers by over 10%: re-decide 16 versus 12 bytes and the threshold | #222 |
 | Derivation time for 2000 scripts | Whether "under 1 s" holds | Over 1 s alone: add a script cache | #231 |
 | Dashboard baseline RSS | The 1g `mem_limit` | Baseline plus 0.25 GiB over 800 MiB: raise to 1.5g | #222 |
 | Deb and Homebrew handling of the overlay, and the `stack` allowlist | Packaging | n/a | #223 |
-| Notice texts, the Pebble version to pin, binary size growth | Release readiness | n/a | #222 |
+| Notice texts, the Pebble version to pin, binary size growth, linked-module count and size on arm64 and every other target | Release readiness, and the accepted-cost versus build-tag call | Size or count unacceptable: build tag or separate binary | #222 |
 | SQLite (modernc) variant | Whether the rejection of option B stands | Only if the owner rejects Pebble's dependency weight | none yet |
 
 When the owner decides, edit this file in place, change Status to Accepted, and record the date.
