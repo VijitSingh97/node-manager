@@ -1,4 +1,4 @@
-FROM debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3
+FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates=20250419~deb12u2 curl=7.88.1-10+deb12u15 libatomic1=12.2.0-14+deb12u1 && rm -rf /var/lib/apt/lists/* && \
