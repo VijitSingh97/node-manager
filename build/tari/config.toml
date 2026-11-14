@@ -32,7 +32,7 @@ external_address = "http://tari:9000"
 public_addresses = []
 
 [base_node.p2p.transport]
-type = "tor"
+type = "tcp_tor"
 
 [base_node.p2p.transport.tor]
 control_address = "/ip4/172.29.0.25/tcp/9051"

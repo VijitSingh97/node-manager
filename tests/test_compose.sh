@@ -232,6 +232,8 @@ for service in tari litecoin dogecoin bitcoincash zcash; do
   echo "$all_nodes" | sed -n "/^  $service:$/,/^  [a-z]/p" | grep -q '127.0.0.1' || fail "$service DNS is not fail-closed"
   echo "$all_nodes" | sed -n "/^  $service:$/,/^  [a-z]/p" | grep -q 'published:' && fail "$service publishes a port by default"
 done
+grep -qx 'proxy_bypass_for_outbound_tcp = false' build/tari/config.toml || fail "Tari can dial clearnet peers without Tor"
+grep -qx 'proxy_bypass_addresses = \[\]' build/tari/config.toml || fail "Tari bypasses Tor for listed addresses"
 tari_wallet_rendered=$(echo "$all_nodes" | sed -n '/^  tari-wallet:$/,/^  [a-z][a-z-]*:$/p')
 echo "$tari_wallet_rendered" | grep -q 'ipv4_address: 172.29.0.37' || fail "Tari wallet fixed internal address changed"
 echo "$tari_wallet_rendered" | grep -q 'read_only: true' || fail "Tari wallet root filesystem is writable"

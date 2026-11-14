@@ -6,7 +6,7 @@ test("view-only incoming funds never claim to be a verified current balance", ()
   const row = moneroRow({ name: "Cold", state: "ready", received_atomic: "1250000000000", balance_atomic: "1250000000000", spending_status: "unknown" });
   assert.equal(row.amount, "1.25");
   assert.equal(row.verified, false);
-  assert.equal(row.fiatAsset, null);
+  assert.equal(row.fiatAsset, "monero");
   assert.match(row.status, /Received funds only · import current key images/);
 });
 
@@ -30,14 +30,14 @@ test("Monero total never mixes incoming-only funds with verified balances", () =
   assert.deepEqual(moneroTotal([wallet, { ...wallet, spending_status: "unknown" }]), { text: "Pending…" });
 });
 
-test("public example shows its total received, grouped, with the caveat in its tooltip and no fiat", () => {
+test("public example shows its total received, grouped and priced, with the caveat in its tooltip", () => {
   const example = { example: true, name: "Monero General Fund", state: "ready", received_atomic: "137131438327228521", balance_atomic: "8000000000000", spending_status: "verified", key_images: { complete: true }, updated_at: 1794598261 };
   const personal = { state: "ready", balance_atomic: "1250000000000", spending_status: "verified", key_images: { complete: true } };
   const row = moneroRow(example);
   assert.equal(row.amount, "137,131.438327228521");
   assert.equal(row.unit, "XMR");
   assert.equal(row.verified, false);
-  assert.equal(row.fiatAsset, null);
+  assert.equal(row.fiatAsset, "monero");
   assert.match(row.note, /total ever received, not a current balance/);
   assert.match(row.status, /^Total received · Scanned /);
   assert.equal(moneroTotal([example, personal]).text, "1.25 XMR");

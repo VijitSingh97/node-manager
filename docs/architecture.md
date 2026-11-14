@@ -53,7 +53,7 @@ flowchart LR
 | `bitcoin` | [`bitcoin/bitcoin`](https://hub.docker.com/r/bitcoin/bitcoin) (official, digest-pinned) | `1000:1000` | Full or pruned node. `-datadir=/data` bind-mounted from the host. Credentials, `dbcache`, and `prune` injected from `.env` at runtime. |
 | `monero` | Pinned, SHA-256 verified upstream Monero binary | `1000:1000` | Optional pruned node. Restricted Digest RPC, separately opt-in LAN RPC and ZMQ. |
 | `monero-wallet` | Same verified Monero image | `1000:1000` | Internal-only watch wallet RPC. Encrypted wallet files use a dedicated volume; no host port or public route. |
-| `tari` | Official digest-pinned `ghcr.io/tari-project/minotari_node` | `1000:1000` | Pruned base node, Tor transport, mining gRPC allowlist, and internal HTTP wallet-query service; no miner. |
+| `tari` | Official digest-pinned `ghcr.io/tari-project/minotari_node` | `1000:1000` | Pruned base node, Tor transport reaching onion and clearnet peers (all through Tor), mining gRPC allowlist, and internal HTTP wallet-query service; no miner. |
 | `tari-wallet` | Official digest-pinned `ghcr.io/tari-project/minotari_console_wallet` plus the local supervisor | `1000:1000` | One native view-only wallet. Authenticated internal gRPC, owner-only native database and archives, no host port. Its separate 0.5 CPU / 512 MiB ceiling is not yet qualified under sustained load. |
 | `litecoin`, `dogecoin`, `bitcoincash` | Pinned upstream binaries, verified against signed release checksums | Non-root image user | Separate pruned nodes with authenticated RPC and Tor proxies. |
 | `zcash` | Official digest-pinned `zakuracore/zakura` | Image entrypoint drops to `10001` | Pruned state, four private Tor bootstrap bridges, and internal native RPC. |

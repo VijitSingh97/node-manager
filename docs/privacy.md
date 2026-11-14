@@ -5,7 +5,10 @@ Zcash through Zakura, and the dashboard have no direct external network route.
 Their Docker network is internal; only the Tor container also joins an external
 network. These services use numeric addresses for local services, and local DNS
 forwarding is disabled. Bitcoin-family nodes and Monero use their native Tor
-proxy settings. Tari uses its native Tor transport. Prices, alerts, and release
+proxy settings. Tari uses its native Tor transport in `tcp_tor` mode: it dials
+onion peers and also peers that advertise clearnet addresses, and with the proxy
+bypass off every one of those connections goes through Tor (clearnet ones leave
+through a Tor exit relay). Prices, alerts, and release
 checks send hostnames to Tor for remote resolution. An unavailable Tor proxy
 causes those requests to fail, without a direct fallback.
 
