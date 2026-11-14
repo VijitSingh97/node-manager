@@ -210,6 +210,17 @@ class NodeDependencyTests(unittest.TestCase):
         for directory in ("monero", "litecoin", "dogecoin", "bitcoincash"):
             self.assertRegex(dependabot, rf"package-ecosystem: docker\s+directory: /build/{directory}\b")
 
+    def test_workflow_tool_images_are_digest_pinned_and_monitored(self):
+        dependabot = (ROOT / ".github/dependabot.yml").read_text()
+        self.assertRegex(dependabot, r"package-ecosystem: docker\s+directory: /\.github/tool-images\b")
+        tools = (ROOT / ".github/tool-images/Dockerfile").read_text()
+        workflows = "".join(p.read_text() for p in (ROOT / ".github/workflows").glob("*.yml"))
+        for image in ("ghcr.io/gitleaks/gitleaks", "hadolint/hadolint", "tonistiigi/binfmt"):
+            self.assertRegex(tools, rf"(?m)^FROM {re.escape(image)}:[^\s]+@sha256:[0-9a-f]{{64}}$")
+            self.assertNotIn(image + ":", workflows)
+        for tool in ("gitleaks", "hadolint", "binfmt"):
+            self.assertIn(f"awk '/^FROM.*{tool}/ {{print $2}}' .github/tool-images/Dockerfile", workflows)
+
 
 if __name__ == "__main__":
     unittest.main()

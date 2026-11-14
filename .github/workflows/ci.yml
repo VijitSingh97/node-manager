@@ -28,11 +28,11 @@ jobs:
         run: shellcheck configure.sh stack build/*/*.sh scripts/*.sh scripts/node-control scripts/node-port-control scripts/node-resource-profile tests/*.sh
 
       - name: Secret scan (gitleaks)
-        run: docker run --rm -v "$PWD":/repo ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+        run: docker run --rm -v "$PWD":/repo "$(awk '/^FROM.*gitleaks/ {print $2}' .github/tool-images/Dockerfile)"
           detect --no-git --source=/repo --config=/repo/.gitleaks.toml --redact --verbose
 
       - name: Lint Dockerfiles (hadolint)
-        run: docker run --rm -v "$PWD":/repo -w /repo hadolint/hadolint:v2.15.1@sha256:32dac94127fd60b7b7e3fbfc65e1383b9b5e25c9bfd7b8536de7a539fe68a12d
+        run: docker run --rm -v "$PWD":/repo -w /repo "$(awk '/^FROM.*hadolint/ {print $2}' .github/tool-images/Dockerfile)"
           hadolint build/tor/Dockerfile build/dashboard/Dockerfile build/monero/Dockerfile build/tari-wallet/Dockerfile build/litecoin/Dockerfile build/dogecoin/Dockerfile build/bitcoincash/Dockerfile
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
