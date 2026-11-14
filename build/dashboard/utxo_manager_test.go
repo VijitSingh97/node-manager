@@ -711,3 +711,35 @@ func TestUtxoIndexConfigRejectsRelativeDir(t *testing.T) {
 		t.Fatalf("default config: %+v %v", cfg, err)
 	}
 }
+
+func TestUtxoManagerLowDiskMidCatchUpPausesWithoutInvalidating(t *testing.T) {
+	ctx := context.Background()
+	c := utxoMgrChain(10, "b")
+	node := newFakeUtxoNode(c)
+	dir := t.TempDir()
+	utxoMgrSeed(t, dir, nil, c)
+	m := utxoMgrNew(t, dir, nil, node, io.Discard)
+	var free atomic.Uint64
+	free.Store(1 << 40)
+	m.freeBytes = free.Load
+	node.hook = func(method string, params any) error {
+		if method == "getblock" && params.([]any)[0] == c.hashes[4] {
+			free.Store(utxoMinFreeBytes - 1)
+		}
+		return nil
+	}
+	m.tick(ctx)
+	st := m.Status()
+	if st.State != utxoStateDegraded || st.IndexTip == nil || *st.IndexTip != 4 {
+		t.Fatalf("status %+v, want degraded at height 4", st)
+	}
+	if !m.store.Valid() {
+		t.Fatal("low disk must not invalidate the store")
+	}
+	node.hook = nil
+	free.Store(1 << 40)
+	m.tick(ctx)
+	if st := m.Status(); st.State != utxoStateReady || *st.IndexTip != 9 {
+		t.Fatalf("after space returned: %+v", st)
+	}
+}

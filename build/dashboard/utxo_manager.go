@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"log"
+	"math"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -36,6 +38,8 @@ type utxoManager struct {
 	store    *utxoStore
 	follower *utxoFollower
 	bound    bool
+	lowDisk  atomic.Bool
+	stop     context.CancelFunc
 
 	mu           sync.Mutex
 	state        string
@@ -61,7 +65,12 @@ func newUtxoManager(dir string, fs vfs.FS, rpc utxoRPC, logger *log.Logger) *utx
 		fs = vfs.Default
 	}
 	m := &utxoManager{dir: dir, fs: fs, rpc: rpc, log: logger, state: utxoStateNotSeeded,
-		freeBytes: func() uint64 { return diskUsage(dir).Free }}
+		freeBytes: func() uint64 {
+			if d := diskUsage(dir); d.Total > 0 {
+				return d.Free
+			}
+			return math.MaxUint64
+		}}
 	if err := fs.MkdirAll(dir, 0o700); err != nil {
 		m.log.Printf("utxo index: cannot create the index directory: %v", err)
 		m.store = &utxoStore{invalidReason: "cannot create the index directory"}
@@ -116,6 +125,10 @@ func (m *utxoManager) setTip(height uint32) {
 
 func (m *utxoManager) progress(height uint32) {
 	m.setTip(height)
+	if m.freeBytes() < utxoMinFreeBytes {
+		m.lowDisk.Store(true)
+		m.stop()
+	}
 	if height%utxoMilestone == 0 {
 		m.mu.Lock()
 		defer m.mu.Unlock()
@@ -219,8 +232,18 @@ func (m *utxoManager) tick(ctx context.Context) {
 	if info.Blocks-int64(height) > utxoReadyLag {
 		m.set(utxoStateCatching, "")
 	}
-	err = m.follower.Step(ctx)
+	m.lowDisk.Store(false)
+	stepCtx, stop := context.WithCancel(ctx)
+	m.stop = stop
+	err = m.follower.Step(stepCtx)
+	stop()
 	if ctx.Err() != nil {
+		return
+	}
+	if m.lowDisk.Load() {
+		height, _, _, _ = m.store.Tip()
+		m.setTip(height)
+		m.set(utxoStateDegraded, "less than 2 GB free on the index filesystem")
 		return
 	}
 	if st := m.follower.Status().State; st == utxoFollowError || st == utxoFollowReorg || errors.Is(err, syscall.ENOSPC) {
