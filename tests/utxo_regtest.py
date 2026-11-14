@@ -49,7 +49,7 @@ class Node:
         raise RuntimeError("bitcoind did not start")
 
     def stop(self):
-        subprocess.run(["docker", "rm", "-f", self.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        subprocess.run(["docker", "rm", "-f", "-v", self.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 
     def cli(self, *args, check=True):
         args = [a if isinstance(a, str) else json.dumps(a) for a in args]

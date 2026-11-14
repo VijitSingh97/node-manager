@@ -36,7 +36,7 @@ func startRegtestNode(t *testing.T) *rpcClient {
 	if err != nil {
 		t.Fatalf("docker run: %v\n%s", err, out)
 	}
-	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", name).Run() })
+	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", "-v", name).Run() })
 	portOut, err := exec.Command("docker", "port", name, "18443/tcp").Output()
 	if err != nil {
 		t.Fatal(err)

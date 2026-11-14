@@ -78,7 +78,7 @@ func TestUtxoSeedRegtestLive(t *testing.T) {
 
 	seedLiveDocker(t, "exec", "-u", "bitcoin", n.name, "mkfifo", "-m", "600", seedLiveDatadir+seedLiveNetDir+"/"+seedIncompleteName)
 	name := n.name + "-reader"
-	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", name).Run() })
+	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", "-v", name).Run() })
 	out, err := exec.Command("docker", "run", "--rm", "--name", name, "--user", uid, "--network", "container:"+n.name,
 		"-v", vol+":"+seedLiveMount+":ro", "-v", bin+":/t:ro",
 		"-e", "UTXO_SEED_IN_CONTAINER=1", "-e", "SEED_SCRIPTS="+strings.Join(scripts, ","), "-e", "SEED_MINE="+mine,

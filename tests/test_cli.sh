@@ -496,8 +496,12 @@ case "$args" in
     if [ "$rn" -gt 1 ] && [ -n "${FAKE_RPCINFO_LATE:-}" ]; then printf '%s\n' "$FAKE_RPCINFO_LATE"; else printf '%s\n' "${FAKE_RPCINFO:-$rpcinfo}"; fi
     ;;
   *'.utxo-seed.request.tmp'*) cat >"$FAKE_UTXO/request.json" ;;
+  *'/state/utxo-seed.cancel'*) : >"$FAKE_UTXO/cancelled" ;;
   *' exec -T -u 1000 dashboard cat /state/utxo-seed.json '*)
-    if [ "${FAKE_DASH_SEEDING:-0}" = 1 ]; then echo '{"seed_state":"seeding"}'; exit 0; fi
+    if [ "${FAKE_DASH_SEEDING:-0}" = 1 ]; then
+      if [ -f "$FAKE_UTXO/cancelled" ] && [ "${FAKE_DASH_STUCK:-0}" != 1 ]; then echo '{"seed_state":"cancelled"}'; else echo '{"seed_state":"seeding"}'; fi
+      exit 0
+    fi
     [ -f "$FAKE_UTXO/request.json" ] || exit 1
     n=$(($(cat "$FAKE_UTXO/n" 2>/dev/null || echo 0) + 1))
     echo "$n" >"$FAKE_UTXO/n"
@@ -529,10 +533,10 @@ esac
 exit 0
 EOS
 chmod +x "$utxo_stub/docker"
-useed() { (cd "$utxo_dir" && HOME="$tmp" BITCOIN_STACK_UTXO_SEED_POLL_SECONDS=1 BITCOIN_STACK_UTXO_SEED_ACK_SECONDS=2 PATH="$utxo_stub:$stub:$PATH" ./stack "$@"); }
+useed() { (cd "$utxo_dir" && HOME="$tmp" BITCOIN_STACK_UTXO_SEED_POLL_SECONDS=1 BITCOIN_STACK_UTXO_SEED_ACK_SECONDS=2 BITCOIN_STACK_UTXO_SEED_CANCEL_SECONDS=2 PATH="$utxo_stub:$stub:$PATH" ./stack "$@"); }
 reset_useed() {
-  rm -f "$FAKE_UTXO/request.json" "$FAKE_UTXO/n" "$FAKE_UTXO/rpc_n" "$FAKE_LOG"
-  unset FAKE_RPCINFO_LATE FAKE_RPCINFO FAKE_RPC_FAIL FAKE_DASH_SEEDING FAKE_SEED_SCENARIO FAKE_BITCOIN_DOWN
+  rm -f "$FAKE_UTXO/request.json" "$FAKE_UTXO/n" "$FAKE_UTXO/rpc_n" "$FAKE_UTXO/cancelled" "$FAKE_LOG"
+  unset FAKE_RPCINFO_LATE FAKE_RPCINFO FAKE_RPC_FAIL FAKE_DASH_SEEDING FAKE_DASH_STUCK FAKE_SEED_SCENARIO FAKE_BITCOIN_DOWN
 }
 pipe_removals() { grep -c ' rm -f /data/utxo-seed.dat /data/utxo-seed.dat.incomplete' "$FAKE_LOG" || true; }
 
@@ -644,7 +648,7 @@ useed stop >/dev/null
 grep -q 'timeout 5 cat' "$FAKE_LOG" && fail "stop unparked a dump without the overlay"
 mv "$utxo_dir/.env.keep" "$utxo_dir/.env"
 
-# stop, down and restart open a parked dump once, but never while the dashboard is seeding.
+# stop, down and restart open a parked dump once; a running seed is cancelled first.
 for action in stop down restart; do
   reset_useed
   export FAKE_RPCINFO='{"active_commands":[{"method":"getrpcinfo"},{"method":"dumptxoutset"}]}'
@@ -654,11 +658,18 @@ for action in stop down restart; do
   reset_useed
   export FAKE_RPCINFO='{"active_commands":[{"method":"getrpcinfo"},{"method":"dumptxoutset"}]}' FAKE_DASH_SEEDING=1
   useed "$action" >/dev/null || fail "$action failed while seeding"
-  grep -q 'timeout 5 cat' "$FAKE_LOG" && fail "$action unparked a dump the dashboard is seeding"
+  awk -v action="$action" '/utxo-seed.cancel/ { c=NR } /timeout 5 cat \/data\/utxo-seed.dat.incomplete/ { u=NR } $0 ~ ("docker compose .* " action) { a=NR } END { exit !(c && u && a && c < u && u < a) }' "$FAKE_LOG" ||
+    fail "$action did not cancel the seed and unpark the dump before stopping bitcoind"
   reset_useed
   useed "$action" >/dev/null || fail "$action failed with no dump"
   grep -q 'timeout 5 cat' "$FAKE_LOG" && fail "$action opened the FIFO with no dump running"
 done
+reset_useed
+export FAKE_RPCINFO='{"active_commands":[{"method":"dumptxoutset"}]}' FAKE_DASH_SEEDING=1 FAKE_DASH_STUCK=1
+started=$SECONDS
+useed stop >/dev/null || fail "stop failed while the dashboard ignored the cancel"
+[ $((SECONDS - started)) -lt 30 ] || fail "stop waited too long for a stuck seed to cancel"
+grep -q 'timeout 5 cat' "$FAKE_LOG" || fail "stop did not unpark the dump after the cancel wait ran out"
 reset_useed
 export FAKE_RPCINFO='{"active_commands":[{"method":"dumptxoutset"}]}'
 useed stop -t 5 >/dev/null

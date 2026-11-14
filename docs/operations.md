@@ -244,8 +244,10 @@ What happens:
 
 - **Warning, first.** Bitcoin RPC fails for about 5 minutes, then stays
   degraded for about 5 more; allow at least 15 minutes in total. The index
-  volume needs 27 GB free. Node-down alerts are held for up to 15 minutes and
-  then resume normally. Pause other heavy chains (for example Tari) first.
+  volume needs 27 GB free. Node-down alerts are held from the dump request
+  for up to 15 minutes and then resume normally; a successful seed ends the
+  hold early, a failed or cancelled one keeps it to the cap because Core may
+  still be hashing. Pause other heavy chains (for example Tari) first.
 - **Checks.** The command refuses if `getrpcinfo` shows a `dumptxoutset` or
   `scantxoutset` already running. The dashboard then lists every failed
   precondition in `refusals` on `/api/utxo-index` and on the dashboard card:
@@ -280,10 +282,11 @@ Recovery:
   anything; a cancel in that window ends the seed in the dashboard at once,
   but Core only stops when the hash pass is done, so RPC stays slow until
   then.
-- **`./stack stop`, `down` and `restart`** open a parked dump once
-  (`timeout 5 cat` on the FIFO) before stopping bitcoind, when `getrpcinfo`
-  shows a dump and the dashboard is not seeding. Without that, `bitcoin-cli
-  stop` hangs while Core waits for a reader. If you stop bitcoind another way
+- **`./stack stop`, `down` and `restart`** of bitcoind, when `getrpcinfo`
+  shows a dump, first cancel a running seed (waiting up to 15 seconds for the
+  dashboard to let go of the FIFO) and then open the FIFO once (`timeout 5
+  cat`). Without that, `bitcoin-cli stop` hangs while Core waits for a reader
+  or is blocked writing to a paused one. If you stop bitcoind another way
   and it will not exit, run `docker compose exec -T bitcoin sh -c 'timeout 5
   cat /data/utxo-seed.dat.incomplete >/dev/null'` once.
 - If the FIFO is replaced or removed before Core opens it, Core writes a

@@ -454,6 +454,9 @@ func TestSeedFromDumpSucceeds(t *testing.T) {
 	if st.State != utxoStateCatching || st.LastSeed == nil || st.LastSeed.Outcome != "ok" || st.LastSeed.Reason != "" || st.Phase != "" {
 		t.Fatalf("status %+v", st)
 	}
+	if fx.m.AlertsSuppressed() {
+		t.Fatal("alerts still held after a successful seed")
+	}
 	h, hash, ok, err := fx.m.currentStore().Tip()
 	if err != nil || !ok || h != 7 || hash != ([32]byte{}) {
 		t.Fatalf("tip %d %v %v", h, ok, err)
@@ -487,6 +490,9 @@ func TestSeedFromDumpMismatchDiscardsIndex(t *testing.T) {
 			fx.assertEmptyStore(t)
 			if st := fx.m.Status(); st.LastSeed.Outcome != "failed" || st.LastSeed.Reason != errSeedMismatch.Error() {
 				t.Fatalf("last seed %+v", st.LastSeed)
+			}
+			if !fx.m.AlertsSuppressed() {
+				t.Fatal("a failed seed released the alert hold while Core may still be dumping")
 			}
 			if fx.release.Load() != 1 {
 				t.Fatal("scanner not released")
@@ -664,6 +670,9 @@ func TestSeedThermalRecheckBeforeDump(t *testing.T) {
 	if core.calls != 0 {
 		t.Fatal("dump issued on a hot host")
 	}
+	if fx.m.AlertsSuppressed() {
+		t.Fatal("alerts held for a seed that never sent the dump")
+	}
 	if st := fx.m.Status(); st.LastSeed == nil || st.LastSeed.Reason != errSeedThermal.Error() {
 		t.Fatalf("last seed %+v", st.LastSeed)
 	}
@@ -689,7 +698,7 @@ func TestSeedBootRecovery(t *testing.T) {
 			}
 			m.setSeedStatePath(path)
 			st := m.Status()
-			if m.AlertsSuppressed() || st.Phase != "" || st.SeedProgress != nil {
+			if !m.AlertsSuppressed() || st.Phase != "" || st.SeedProgress != nil {
 				t.Fatalf("status %+v", st)
 			}
 			var doc map[string]any
@@ -754,7 +763,7 @@ func seedUnparkWriter(t *testing.T, dir string) {
 	}
 }
 
-func TestSeedWaitsThroughSilentHashPass(t *testing.T) {
+func TestSeedSilenceBeforeFirstByteDoesNotAbort(t *testing.T) {
 	core := newFakeCore(t)
 	fx := newSeedFixture(t, core)
 	core.onCall = func() { time.Sleep(200 * fx.m.checkEvery) }
@@ -763,6 +772,32 @@ func TestSeedWaitsThroughSilentHashPass(t *testing.T) {
 	if st := fx.m.Status(); st.LastSeed == nil || st.LastSeed.Outcome != "ok" {
 		t.Fatalf("last seed %+v", st.LastSeed)
 	}
+}
+
+func TestSeedAbortsOnLowDiskBeforeFirstByte(t *testing.T) {
+	core := newFakeCore(t)
+	gate := make(chan struct{})
+	var low atomic.Bool
+	fx := newSeedFixture(t, core)
+	fx.m.freeBytes = func() uint64 {
+		if low.Load() {
+			return utxoMinFreeBytes - 1
+		}
+		return 1 << 40
+	}
+	core.onCall = func() {
+		low.Store(true)
+		<-gate
+	}
+	fx.request(t, seedTestRequestID(22), time.Now())
+	fx.m.pollSeed(t.Context())
+	fx.assertEmptyStore(t)
+	if st := fx.m.Status(); st.LastSeed.Outcome != "failed" || st.LastSeed.Reason != errSeedLowDisk.Error() {
+		t.Fatalf("last seed %+v", st.LastSeed)
+	}
+	core.skip = true
+	close(gate)
+	<-core.done
 }
 
 func TestSeedAbortsWhenPipeIsReplacedBeforeFirstByte(t *testing.T) {

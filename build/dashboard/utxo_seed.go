@@ -368,7 +368,6 @@ func (m *utxoManager) seedFromDump(parent context.Context, network [4]byte) erro
 	h := m.host
 	ctx, cancel := context.WithCancelCause(parent)
 	defer cancel(nil)
-	m.suppressAlerts(m.now().Add(utxoAlertCap))
 	go m.watchSeedCancel(ctx, cancel)
 
 	fifo, err := openSeedFIFO(h.dataDir, func() { m.setSeedPhase(utxoPhaseImporting) })
@@ -382,6 +381,7 @@ func (m *utxoManager) seedFromDump(parent context.Context, network [4]byte) erro
 		return errSeedThermal
 	}
 
+	m.suppressAlerts(m.now().Add(utxoAlertCap))
 	dumped := make(chan seedDumpOutcome, 1)
 	go func() {
 		var res seedDumpResult

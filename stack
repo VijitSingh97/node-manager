@@ -294,6 +294,14 @@ utxo_seed_status() {
   compose exec -T -u 1000 dashboard cat /state/utxo-seed.json 2>/dev/null
 }
 
+utxo_seed_state() {
+  utxo_seed_status | jq -r '.seed_state // ""' 2>/dev/null || true
+}
+
+utxo_seed_request_cancel() {
+  compose exec -T -u 1000 dashboard sh -c 'umask 077; : > /state/utxo-seed.cancel'
+}
+
 utxo_seed_remove_pipe() {
   compose exec -T bitcoin rm -f /data/utxo-seed.dat /data/utxo-seed.dat.incomplete >/dev/null 2>&1 || true
 }
@@ -318,7 +326,7 @@ utxo_seed_cancel() {
     echo "The UTXO index overlay is not enabled or the dashboard is not running." >&2
     return 1
   fi
-  compose exec -T -u 1000 dashboard sh -c 'umask 077; : > /state/utxo-seed.cancel' || return 1
+  utxo_seed_request_cancel || return 1
   echo "Cancel requested. The dashboard stops the seed within a few seconds and discards the partial index."
 }
 
@@ -382,7 +390,7 @@ EOF
     echo "A UTXO dump or scan is already running in bitcoind; nothing was changed." >&2
     return 1
   fi
-  case "$(utxo_seed_status 2>/dev/null | jq -r '.seed_state // ""' 2>/dev/null || true)" in
+  case "$(utxo_seed_state)" in
     checking | seeding)
       echo "The dashboard is already seeding the index; nothing was changed." >&2
       return 1
@@ -487,10 +495,15 @@ utxo_unpark_dump() {
   utxo_seed_running bitcoin || return 0
   methods=$(utxo_seed_rpc_methods) || return 0
   printf '%s\n' "$methods" | grep -qx dumptxoutset || return 0
-  if utxo_seed_running dashboard && [ "$(utxo_seed_status | jq -r '.seed_state // ""' 2>/dev/null || true)" = seeding ]; then
-    return 0
+  if utxo_seed_running dashboard && [ "$(utxo_seed_state)" = seeding ]; then
+    echo "Cancelling the running UTXO seed so bitcoind can stop."
+    utxo_seed_request_cancel >/dev/null 2>&1 || true
+    local deadline=$((SECONDS + $(utxo_seed_interval BITCOIN_STACK_UTXO_SEED_CANCEL_SECONDS 15)))
+    while [ "$SECONDS" -lt "$deadline" ] && [ "$(utxo_seed_state)" = seeding ]; do
+      sleep 1
+    done
   fi
-  echo "A UTXO dump is waiting for a reader; opening the pipe once so bitcoind can stop."
+  echo "A UTXO dump is running; opening its pipe once so bitcoind can stop."
   utxo_seed_unpark
 }
 

@@ -70,7 +70,8 @@ All notable changes to this project are documented here. Format follows
   dashboard reads `dumptxoutset` from it under the thermal, disk and CPU
   guards (pause at 85 C, resume at 72 C, abort below 2 GB free), checks the
   dump against the RPC result and holds node-down alerts for up to 15 minutes.
-  `stop`, `down` and `restart` unpark a waiting dump first, and the dashboard
+  `stop`, `down` and `restart` cancel a running seed and unpark the dump
+  before stopping bitcoind, and the dashboard
   shows the index state, progress, refusals and the host command.
 - Opt-in `bitcoin.utxo_index` setting that adds the
   `docker-compose.utxo-index.yml` overlay: a `utxo_index` volume and a 1g

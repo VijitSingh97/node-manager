@@ -367,7 +367,10 @@ func (m *utxoManager) finishSeed(err error) {
 	now := m.now()
 	m.seeding, m.phase, m.seedProgress = false, "", nil
 	m.seed.SeedState, m.seed.Phase, m.seed.Progress = outcome, "", nil
-	m.seed.AlertsUntil = time.Time{}
+	// After a failure Core may still be hashing with RPC stalled, so only success ends the hold early.
+	if err == nil {
+		m.seed.AlertsUntil = time.Time{}
+	}
 	m.seed.Last = &utxoSeedResult{Outcome: outcome, Reason: seedErrorClass(err), FinishedAt: now, DurationSeconds: now.Sub(m.seed.StartedAt).Seconds()}
 	m.persistSeedLocked()
 	m.log.Printf("utxo index: seed outcome=%s duration=%.0fs", outcome, m.seed.Last.DurationSeconds)
@@ -444,7 +447,7 @@ func (m *utxoManager) setSeedStatePath(path string) {
 	}
 	interrupted := m.seed.SeedState == utxoSeedRunning
 	now := m.now()
-	m.seed.SeedState, m.seed.Phase, m.seed.Progress, m.seed.AlertsUntil = utxoOutcomeFailed, "", nil, time.Time{}
+	m.seed.SeedState, m.seed.Phase, m.seed.Progress = utxoOutcomeFailed, "", nil
 	if interrupted {
 		m.seed.Last = &utxoSeedResult{Outcome: utxoOutcomeFailed, Reason: errSeedInterrupted.Error(), FinishedAt: now, DurationSeconds: now.Sub(m.seed.StartedAt).Seconds()}
 		_ = m.wipeLocked()
