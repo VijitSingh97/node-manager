@@ -230,6 +230,62 @@ first — a live copy of `chainstate/` is corrupt by construction.
   `duration_seconds`) and `alerts_suppressed_until`, which is set only while
   node-down alerts are suppressed for a seed, for at most 15 minutes.
 
+## Seeding the Bitcoin balance index
+
+With `bitcoin.utxo_index` enabled the index starts empty. Seed it from the
+host, with the stack running and the node synced:
+
+```
+./stack utxo-seed        # asks for y; -y skips the question
+./stack utxo-seed cancel # from another terminal
+```
+
+What happens:
+
+- **Warning, first.** Bitcoin RPC fails for about 5 minutes, then stays
+  degraded for about 5 more; allow at least 15 minutes in total. The index
+  volume needs 27 GB free. Node-down alerts are held for up to 15 minutes and
+  then resume normally. Pause other heavy chains (for example Tari) first.
+- **Checks.** The command refuses if `getrpcinfo` shows a `dumptxoutset` or
+  `scantxoutset` already running. The dashboard then lists every failed
+  precondition in `refusals` on `/api/utxo-index` and on the dashboard card:
+  index state, hottest thermal zone at or below 75 C (an unreadable sensor
+  refuses), a 0.5 CPU cap on the dashboard, 27 GB free, a synced and fresh
+  node, no other dump or scan, no running watch scan, and a bitcoin data
+  directory owned by the dashboard user (both containers run as uid 1000). The
+  seed runs on Linux only.
+- **Dump.** The command removes any stale `utxo-seed.dat*` in the bitcoin data
+  directory, creates the FIFO `utxo-seed.dat.incomplete` there, and writes a
+  single-use request into the dashboard state volume (stale after 120
+  seconds). The dashboard acknowledges it within 60 seconds or the command
+  removes the request and the FIFO and exits non-zero. The dashboard reads
+  `dumptxoutset` straight from the FIFO, so no 9 GB dump file lands on disk.
+  The command prints the phase (`waiting`, `importing`, `merging`, `paused`,
+  `cancelling`) and progress until the seed ends, then removes the FIFO names.
+  Ctrl-C only detaches; the seed keeps running and the FIFO names stay until
+  the next run or a stop.
+- **Heat and disk.** The dashboard pauses reading at 85 C and resumes at 72 C,
+  and aborts below 2 GB free. Pausing stalls only the dump write.
+- **Result.** On success the index sits at the dump's base block and follows
+  new blocks from there. A cancel, an error, a dump that does not match the
+  `dumptxoutset` result, or a dashboard restart during the seed discards the
+  partial index and records `last_seed`; start again with the same command.
+
+Recovery:
+
+- **Cancel** closes the dashboard's end of the FIFO. Core ends the dump with
+  an RPC error (`AutoFile::write: write failed`) and keeps running.
+- **`./stack stop`, `down` and `restart`** open a parked dump once
+  (`timeout 5 cat` on the FIFO) before stopping bitcoind, when `getrpcinfo`
+  shows a dump and the dashboard is not seeding. Without that, `bitcoin-cli
+  stop` hangs while Core waits for a reader. If you stop bitcoind another way
+  and it will not exit, run `docker compose exec -T bitcoin sh -c 'timeout 5
+  cat /data/utxo-seed.dat.incomplete >/dev/null'` once.
+- If a seed ever leaves `utxo-seed.dat` or `utxo-seed.dat.incomplete` behind,
+  the next `./stack utxo-seed` removes both. The status file
+  (`utxo-seed.json` in the state volume) and logs carry phases, counts and
+  error classes only, never addresses, descriptors or script hashes.
+
 ## Self-healing (a deliberate non-feature)
 
 Fresh installs use `on-failure:5` to retry a crashed container up to five times.

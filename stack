@@ -273,6 +273,196 @@ guard_package_containers() {
     fi
   done
 }
+utxo_seed_overlay_enabled() {
+  case ":$(env_get COMPOSE_FILE):" in
+    *:docker-compose.utxo-index.yml:*) return 0 ;;
+  esac
+  return 1
+}
+
+utxo_seed_running() {
+  local id
+  id=$(container_id "$1" 2>/dev/null) || return 1
+  [ -n "$id" ] && [ "$(docker inspect --format '{{.State.Running}}' "$id" 2>/dev/null || true)" = true ]
+}
+
+utxo_seed_rpc_methods() {
+  compose exec -T bitcoin bitcoin-cli -datadir=/data getrpcinfo 2>/dev/null | jq -r '.active_commands[].method'
+}
+
+utxo_seed_status() {
+  compose exec -T -u 1000 dashboard cat /state/utxo-seed.json 2>/dev/null
+}
+
+utxo_seed_remove_pipe() {
+  compose exec -T bitcoin rm -f /data/utxo-seed.dat /data/utxo-seed.dat.incomplete >/dev/null 2>&1 || true
+}
+
+utxo_seed_interval() {
+  local value=${!1:-} fallback=$2
+  if [[ "$value" =~ ^[0-9]+$ ]] && [ "$value" -ge 1 ]; then printf '%s' "$value"; else printf '%s' "$fallback"; fi
+}
+
+utxo_seed_cancel() {
+  if ! utxo_seed_overlay_enabled || ! utxo_seed_running dashboard; then
+    echo "The UTXO index overlay is not enabled or the dashboard is not running." >&2
+    return 1
+  fi
+  compose exec -T -u 1000 dashboard sh -c 'umask 077; : > /state/utxo-seed.cancel' || return 1
+  echo "Cancel requested. The dashboard stops the seed within a few seconds and discards the partial index."
+}
+
+utxo_seed() {
+  if [ "${1:-}" = cancel ] && [ $# = 1 ]; then
+    utxo_seed_cancel
+    return
+  fi
+  local assume_yes=0
+  if [ "${1:-}" = -y ] && [ $# = 1 ]; then
+    assume_yes=1
+  elif [ $# != 0 ]; then
+    echo "Usage: $stack_command utxo-seed [-y | cancel]" >&2
+    return 1
+  fi
+  command -v jq >/dev/null || {
+    echo "jq is required; install it with your host package manager." >&2
+    return 1
+  }
+  utxo_seed_overlay_enabled || {
+    echo "The UTXO index is not enabled. Set bitcoin.utxo_index to true in config.json and run $stack_command apply." >&2
+    return 1
+  }
+  local service
+  for service in bitcoin dashboard; do
+    utxo_seed_running "$service" || {
+      echo "The $service container is not running." >&2
+      return 1
+    }
+  done
+  cat <<EOF
+Seeding the Bitcoin balance index
+  - Bitcoin RPC fails for about 5 minutes, then stays degraded for about 5 more; allow at least 15 minutes in total.
+  - 27 GB of free space is needed for the index.
+  - Node-down alerts are held for up to 15 minutes; the dashboard shows when they resume.
+  - Pause other heavy chains (for example Tari) first.
+  - Cancel with: $stack_command utxo-seed cancel
+EOF
+  if [ "$assume_yes" != 1 ]; then
+    [ -t 0 ] || [ "${BITCOIN_STACK_INTERACTIVE:-0}" = 1 ] || {
+      echo "Run this on a terminal, or pass -y." >&2
+      return 1
+    }
+    local reply
+    printf 'Start the seed? [y/N] '
+    read -r reply || true
+    case "$reply" in
+      y | Y) ;;
+      *)
+        echo "Not started."
+        return 1
+        ;;
+    esac
+  fi
+  local methods
+  methods=$(utxo_seed_rpc_methods) || {
+    echo "Bitcoin RPC did not answer; nothing was changed." >&2
+    return 1
+  }
+  if printf '%s\n' "$methods" | grep -Eqx 'dumptxoutset|scantxoutset'; then
+    echo "A UTXO dump or scan is already running in bitcoind; nothing was changed." >&2
+    return 1
+  fi
+  utxo_seed_remove_pipe
+  compose exec -T bitcoin mkfifo -m 600 /data/utxo-seed.dat.incomplete || {
+    echo "Could not create the seed pipe in the bitcoin container." >&2
+    return 1
+  }
+  local id
+  id=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
+  if ! jq -nc --arg id "$id" --argjson at "$(date +%s)" '{id:$id,requested_at:$at}' |
+    compose exec -T -u 1000 dashboard sh -c \
+      'umask 077; cat > /state/.utxo-seed.request.tmp; mv /state/.utxo-seed.request.tmp /state/utxo-seed.request' >/dev/null; then
+    utxo_seed_remove_pipe
+    echo "Could not write the seed request into the dashboard state." >&2
+    return 1
+  fi
+  local poll ack_deadline status acked=0
+  poll=$(utxo_seed_interval BITCOIN_STACK_UTXO_SEED_POLL_SECONDS 2)
+  ack_deadline=$((SECONDS + $(utxo_seed_interval BITCOIN_STACK_UTXO_SEED_ACK_SECONDS 60)))
+  while [ "$SECONDS" -lt "$ack_deadline" ]; do
+    status=$(utxo_seed_status || true)
+    if [ "$(jq -r '.request_id // ""' <<<"$status" 2>/dev/null || true)" = "$id" ]; then
+      acked=1
+      break
+    fi
+    sleep "$poll"
+  done
+  if [ "$acked" != 1 ]; then
+    compose exec -T -u 1000 dashboard rm -f /state/utxo-seed.request >/dev/null 2>&1 || true
+    utxo_seed_remove_pipe
+    echo "The dashboard did not acknowledge the request. Check that it is healthy and has the UTXO index enabled." >&2
+    return 1
+  fi
+  trap 'echo; echo "Detached. The seed keeps running; cancel with: $stack_command utxo-seed cancel"; exit 130' INT
+  local line last='' state='' phase='' pct=0
+  while true; do
+    status=$(utxo_seed_status || true)
+    if [ "$(jq -r '.request_id // ""' <<<"$status" 2>/dev/null || true)" = "$id" ]; then
+      state=$(jq -r '.seed_state // ""' <<<"$status")
+      phase=$(jq -r '.phase // ""' <<<"$status")
+      pct=$(jq -r '((.progress // 0) * 100) | floor' <<<"$status")
+      line="$state ${phase:+$phase }${pct}%"
+      [ "$line" = "$last" ] || echo "$line"
+      last=$line
+      case "$state" in
+        ok | failed | cancelled | refused) break ;;
+      esac
+    fi
+    sleep "$poll"
+  done
+  trap - INT
+  utxo_seed_remove_pipe
+  jq -r '.refusals[]? | "refused: \(.guard): \(.detail)"' <<<"$status"
+  case "$state" in
+    ok)
+      echo "Seed finished. The index now follows new blocks."
+      ;;
+    failed)
+      echo "Seed failed: $(jq -r '.last_seed.reason // "unknown"' <<<"$status"). The partial index was discarded." >&2
+      return 1
+      ;;
+    cancelled)
+      echo "Seed cancelled. The partial index was discarded." >&2
+      return 1
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+utxo_unpark_dump() {
+  utxo_seed_overlay_enabled || return 0
+  local arg hit=1 methods
+  for arg in "$@"; do
+    case "$arg" in
+      -*) ;;
+      bitcoin)
+        hit=1
+        break
+        ;;
+      *) hit=0 ;;
+    esac
+  done
+  [ "$hit" = 1 ] || return 0
+  guard_package_containers >/dev/null 2>&1 || return 0
+  utxo_seed_running bitcoin || return 0
+  methods=$(utxo_seed_rpc_methods) || return 0
+  printf '%s\n' "$methods" | grep -qx dumptxoutset || return 0
+  if utxo_seed_running dashboard && [ "$(utxo_seed_status | jq -r '.seed_state // ""' 2>/dev/null || true)" = seeding ]; then
+    return 0
+  fi
+  echo "A UTXO dump is waiting for a reader; opening the pipe once so bitcoind can stop."
+  compose exec -T bitcoin sh -c 'timeout 5 cat /data/utxo-seed.dat.incomplete >/dev/null' || true
+}
 
 usage() {
   cat <<EOF
@@ -291,6 +481,7 @@ Usage: $stack_command <command> [args]
   doctor                     Read-only health report (deps, disk, sync, tor)
   backup                     Save config, credentials, and onion keys to backups/
   restore [-y] <archive>     Restore a backup archive (prompts before overwrite)
+  utxo-seed [-y | cancel]    Seed or cancel the Bitcoin balance index (needs bitcoin.utxo_index)
   help                       This text
 EOF
 }
@@ -1161,11 +1352,12 @@ case "$cmd" in
     ensure_agent
     ;;
   init) init ;;
-  down) guard_package_containers && compose down "$@" ;;
-  stop) guard_package_containers && compose stop "$@" ;;
+  down) guard_package_containers && utxo_unpark_dump "$@" && compose down "$@" ;;
+  stop) guard_package_containers && utxo_unpark_dump "$@" && compose stop "$@" ;;
   restart)
     lock_config
     prepare_config_for_start
+    utxo_unpark_dump "$@"
     if [ "$config_was_applied" = 1 ]; then
       offline_up "$@"
     else
@@ -1330,6 +1522,7 @@ case "$cmd" in
   doctor) doctor ;;
   backup) guard_package_containers && do_backup ;;
   restore) guard_package_containers && do_restore "$@" ;;
+  utxo-seed) guard_package_containers && utxo_seed "$@" ;;
   help | --help | -h) usage ;;
   *)
     echo "Unknown command: $cmd"

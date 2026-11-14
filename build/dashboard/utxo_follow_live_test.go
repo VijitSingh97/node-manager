@@ -14,11 +14,17 @@ import (
 )
 
 type liveNode struct {
-	t   *testing.T
-	rpc *rpcClient
+	t    *testing.T
+	rpc  *rpcClient
+	name string
+	port string
 }
 
 func startLiveNode(t *testing.T) *liveNode {
+	return startLiveNodeWith(t)
+}
+
+func startLiveNodeWith(t *testing.T, dockerArgs ...string) *liveNode {
 	t.Helper()
 	if os.Getenv("UTXO_REGTEST") != "1" {
 		t.Skip("set UTXO_REGTEST=1 to run against the pinned regtest bitcoind")
@@ -35,9 +41,10 @@ func startLiveNode(t *testing.T) *liveNode {
 	}
 	image := regexp.MustCompile(`image: (bitcoin/bitcoin:\S+)`).FindStringSubmatch(string(compose))[1]
 	name := fmt.Sprintf("utxo-follow-%d", time.Now().UnixNano())
-	out, err := exec.Command("docker", "run", "-d", "--rm", "--name", name, "-p", "127.0.0.1::18443", image,
-		"bitcoind", "-regtest", "-acceptnonstdtxn=1", "-fallbackfee=0.0001", "-printtoconsole=0",
-		"-rpcuser=test", "-rpcpassword=test", "-rpcbind=0.0.0.0", "-rpcallowip=0.0.0.0/0").CombinedOutput()
+	args := append([]string{"run", "-d", "--rm", "--name", name, "-p", "127.0.0.1::18443"}, dockerArgs...)
+	args = append(args, image, "bitcoind", "-regtest", "-acceptnonstdtxn=1", "-fallbackfee=0.0001", "-printtoconsole=0",
+		"-rpcuser=test", "-rpcpassword=test", "-rpcbind=0.0.0.0", "-rpcallowip=0.0.0.0/0")
+	out, err := exec.Command("docker", args...).CombinedOutput()
 	if err != nil {
 		t.Fatalf("docker run: %v\n%s", err, out)
 	}
@@ -47,7 +54,7 @@ func startLiveNode(t *testing.T) *liveNode {
 		t.Fatal(err)
 	}
 	hostPort := strings.TrimSpace(strings.Split(string(port), "\n")[0])
-	n := &liveNode{t: t, rpc: &rpcClient{url: "http://" + hostPort, user: "test", password: "test",
+	n := &liveNode{t: t, name: name, port: hostPort, rpc: &rpcClient{url: "http://" + hostPort, user: "test", password: "test",
 		client: &http.Client{Timeout: 60 * time.Second}, maxBody: 64 << 20}}
 	for i := 0; ; i++ {
 		var count int
