@@ -111,6 +111,9 @@ func (s *familyWatchStore) walletsDue(now int64) []familyWatchEntry {
 	defer s.mu.RUnlock()
 	wallets := make([]familyWatchEntry, 0, len(s.wallets))
 	for _, wallet := range s.wallets {
+		if wallet.Example && s.skipExample {
+			continue
+		}
 		balance, cached := s.balances[wallet.ID]
 		state := s.states[wallet.ID]
 		if !cached || state == "error" || state == "stale" || state == "rescanning" || balance.ScanTime > now || now-balance.ScanTime >= int64(familyWatchInterval/time.Second) {
@@ -124,6 +127,9 @@ func (s *familyWatchStore) markWaiting() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, wallet := range s.wallets {
+		if wallet.Example && s.skipExample {
+			continue
+		}
 		if _, ok := s.balances[wallet.ID]; ok {
 			s.states[wallet.ID] = "stale"
 		} else if s.importing != "" {

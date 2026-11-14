@@ -20,6 +20,7 @@ export function familyRow(wallet, node) {
   const shown = (ready || stale) && Boolean(amount);
   let stateText = "Scanning for confirmed funds…";
   if (state === "waiting" || state === "waiting_sync") stateText = "Waiting for node sync…";
+  else if (state === "unscanned") stateText = "Example only; not scanned";
   else if (state === "rescanning") stateText = "Rescanning the chain; this can take hours…";
   else if (ready || stale) stateText = "Balance unavailable";
   else if (state === "error") stateText = "Scan failed";

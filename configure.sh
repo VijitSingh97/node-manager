@@ -755,8 +755,10 @@ fi
 prev_dogecoin_enabled=$(sed -n 's/^DOGECOIN_ENABLED=//p' "$env_file" 2>/dev/null || true)
 prev_dogecoin_prune=$(sed -n 's/^DOGECOIN_PRUNE=//p' "$env_file" 2>/dev/null || true)
 prev_dogecoin_dir=$(sed -n 's/^DOGECOIN_DATA_DIR=//p' "$env_file" 2>/dev/null || true)
-if [ "$dogecoin_prune" = "0" ] && [ "$prev_dogecoin_enabled" = "1" ] && [ -n "$prev_dogecoin_prune" ] && [ "$prev_dogecoin_prune" != "0" ] && [ "$prev_dogecoin_dir" = "$dogecoin_data_dir" ]; then
-  echo "The previous configuration shows Dogecoin running pruned, and a pruned node cannot become archival or rescan for a"
+dogecoin_dir_pruned=0
+if [ -e "$dogecoin_data_dir/blocks/index" ] && [ ! -e "$dogecoin_data_dir/blocks/blk00000.dat" ]; then dogecoin_dir_pruned=1; fi
+if [ "$dogecoin_prune" = "0" ] && { [ "$dogecoin_dir_pruned" = 1 ] || { [ "$prev_dogecoin_enabled" = "1" ] && [ -n "$prev_dogecoin_prune" ] && [ "$prev_dogecoin_prune" != "0" ] && [ "$prev_dogecoin_dir" = "$dogecoin_data_dir" ]; }; }; then
+  echo "The Dogecoin data directory holds a pruned chain, and a pruned node cannot become archival or rescan for a"
   echo "watch-only wallet. Point dogecoin.data_dir at a fresh directory to download the full chain with dogecoin.prune_mb set to 0."
   exit 1
 fi

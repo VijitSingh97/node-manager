@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -12,6 +14,7 @@ import (
 const (
 	dogecoinMaxSupply     = 180_000_000_000 * 100_000_000
 	dogecoinRescanTimeout = 72 * time.Hour
+	dogecoinImportRetry   = 6 * time.Hour
 )
 
 func dogecoinFamilyWatchBackend() familyWatchBackend {
@@ -28,13 +31,15 @@ func dogecoinFamilyWatchBackend() familyWatchBackend {
 				return familyWatchResult{}, "rescanning"
 			}
 			var known struct {
-				IsValid     bool `json:"isvalid"`
-				IsWatchOnly bool `json:"iswatchonly"`
+				IsValid bool `json:"isvalid"`
 			}
 			if s.rpc.call(ctx, "validateaddress", []any{address}, &known) != nil || !known.IsValid {
 				return familyWatchResult{}, "failed"
 			}
-			if !known.IsWatchOnly {
+			if !s.isImported(address) {
+				if s.retryPending(address) {
+					return familyWatchResult{}, "failed"
+				}
 				s.startRescan(address)
 				return familyWatchResult{}, "rescanning"
 			}
@@ -103,10 +108,65 @@ func (s *familyWatchStore) importAddress(address string) {
 	s.mu.Lock()
 	s.importing = ""
 	s.mu.Unlock()
+	id := familyWatchID(address)
 	if err != nil {
-		s.markFailed(familyWatchID(address))
-		s.logf("dogecoin watch import failed: %v", err)
+		s.mu.Lock()
+		s.retryAt[id] = s.now().Add(dogecoinImportRetry).Unix()
+		s.mu.Unlock()
+		s.markFailed(id)
+		s.logf("dogecoin watch import failed, retrying after %s: %v", dogecoinImportRetry, err)
 		return
 	}
+	s.mu.Lock()
+	s.imported[id] = true
+	delete(s.retryAt, id)
+	saved := s.saveImportedLocked()
+	s.mu.Unlock()
+	if saved != nil {
+		s.logf("dogecoin watch import marker not saved: %v", saved)
+	}
 	s.requestScan()
+}
+
+func (s *familyWatchStore) isImported(address string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.imported[familyWatchID(address)]
+}
+
+func (s *familyWatchStore) retryPending(address string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.retryAt[familyWatchID(address)] > s.now().Unix()
+}
+
+func (s *familyWatchStore) loadImported() {
+	data, err := os.ReadFile(s.importedPath)
+	if err != nil {
+		return
+	}
+	var stored struct {
+		Imported []string `json:"imported"`
+	}
+	if !decodeStrictBytes(data, &stored) {
+		return
+	}
+	for _, id := range stored.Imported {
+		if validFamilyWatchID(id) {
+			s.imported[id] = true
+		}
+	}
+}
+
+func (s *familyWatchStore) saveImportedLocked() error {
+	ids := make([]string, 0, len(s.imported))
+	for id := range s.imported {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	data, err := json.Marshal(map[string][]string{"imported": ids})
+	if err != nil {
+		return err
+	}
+	return writePrivateFileAtomic(s.importedPath, data)
 }

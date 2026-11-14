@@ -266,11 +266,14 @@ How it works:
   Only one rescan runs at a time; other addresses wait, and the dashboard refuses
   to add a new one meanwhile. The node's RPC can be slow or unresponsive during a
   rescan, which also pauses balance refreshes.
-- Once the address is watched, the balance is the sum of `listunspent 1 9999999 [address]`
+- The dashboard records a completed import per address on its state volume and
+  shows a balance only after that. If the import fails or is interrupted (node or
+  dashboard restart), no balance is shown and the import repeats after six hours.
+- Once the import is recorded, the balance is the sum of `listunspent 1 9999999 [address]`
   (confirmed outputs) and is cached for an hour like the other chains.
 - The roster is stored by the dashboard, so a restart does not lose it. If the
-  dashboard restarts mid-rescan the node finishes it anyway and the row recovers
-  on a later scan.
+  dashboard restarts mid-rescan the import is repeated, because only a completed
+  import counts.
 - The wallet file lives on the Dogecoin data volume and holds watch-only
   addresses only, never a private key or seed. Removing an address from the
   dashboard does not remove it from the wallet. Back up the data volume if you
@@ -285,15 +288,17 @@ Limits to accept before enabling it:
   measured it; plan well above that on an expandable volume.
 - Rescans can take hours, longer on small boxes.
 - A pruned database cannot be converted. `configure.sh` refuses `prune_mb: 0` and
-  `watch_wallet` when the previous `.env` shows Dogecoin running pruned in the same
-  `data_dir`; point `dogecoin.data_dir` at a new directory. It also refuses
+  `watch_wallet` when the data directory has a pruned chain (block index present,
+  `blk00000.dat` missing) or the previous `.env` shows Dogecoin running pruned in
+  the same `data_dir`; point `dogecoin.data_dir` at a new directory. It also refuses
   `watch_wallet` unless `prune_mb` is `0`.
 - Node traffic stays Tor-only; address lookups are local RPC calls and no
   explorer is queried.
 
 With the option on, the dashboard seeds the Dogecoin Foundation address from the
 [Foundation's About page](https://foundation.dogecoin.com/about/) as a public
-example, excluded from personal totals. Without it, Dogecoin has no example.
+example, excluded from personal totals and never imported or scanned, so it does
+not delay your own addresses. Without the option, Dogecoin has no example.
 
 ## Zcash transparent addresses (opt-in)
 

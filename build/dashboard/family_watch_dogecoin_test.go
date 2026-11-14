@@ -125,6 +125,12 @@ func dogecoinWalletView(t *testing.T, store *familyWatchStore, address string) f
 	return familyWatchWalletView{}
 }
 
+func markDogecoinImported(store *familyWatchStore, address string) {
+	store.mu.Lock()
+	store.imported[familyWatchID(address)] = true
+	store.mu.Unlock()
+}
+
 func waitImports(t *testing.T, f *dogecoinWatchFixture, want int) {
 	t.Helper()
 	for i := 0; i < 500; i++ {
@@ -175,7 +181,7 @@ func TestDogecoinWatchRescansNewAddressThenSumsUnspent(t *testing.T) {
 		t.Fatalf("second scan started another import: %d", fixture.imports)
 	}
 	encoded, _ := json.Marshal(fixture.importParam)
-	if string(encoded) != `["`+dogecoinSeedAddress+`","",true]` {
+	if string(encoded) != `["`+dogecoinUserAddress+`","",true]` {
 		t.Fatalf("importaddress params = %s", encoded)
 	}
 	fixture.unblock()
@@ -193,7 +199,7 @@ func TestDogecoinWatchRescansNewAddressThenSumsUnspent(t *testing.T) {
 
 func TestDogecoinWatchSkipsRescanForAlreadyWatchedAddress(t *testing.T) {
 	manager, store, fixture := newDogecoinWatchTest(t)
-	fixture.watching = true
+	markDogecoinImported(store, dogecoinUserAddress)
 	manager.scanNode(t.Context(), nodeDogecoin, store)
 	view := dogecoinWalletView(t, store, dogecoinUserAddress)
 	if view.State != "ok" || *view.Amount != "0.00000000" || fixture.imports != 0 {
@@ -206,10 +212,8 @@ func TestDogecoinWatchOnlyOneRescanAtATime(t *testing.T) {
 	blockImports(t, fixture)
 	manager.scanNode(t.Context(), nodeDogecoin, store)
 	waitImports(t, fixture, 1)
-	for _, address := range []string{dogecoinSeedAddress, dogecoinUserAddress} {
-		if view := dogecoinWalletView(t, store, address); view.State != "rescanning" {
-			t.Fatalf("%s state = %s", address, view.State)
-		}
+	if view := dogecoinWalletView(t, store, dogecoinUserAddress); view.State != "rescanning" {
+		t.Fatalf("state = %s", view.State)
 	}
 	if _, err := store.backend.validate(t.Context(), store, "DThird"); err == nil || !strings.Contains(err.Error(), "rescanning") {
 		t.Fatalf("validate during rescan = %v", err)
@@ -218,22 +222,71 @@ func TestDogecoinWatchOnlyOneRescanAtATime(t *testing.T) {
 	waitRescanDone(t, store)
 }
 
-func TestDogecoinWatchImportFailureShowsError(t *testing.T) {
+func TestDogecoinWatchImportFailureShowsErrorAndBacksOff(t *testing.T) {
 	manager, store, fixture := newDogecoinWatchTest(t)
 	fixture.importErr = true
 	manager.scanNode(t.Context(), nodeDogecoin, store)
 	waitRescanDone(t, store)
-	for i := 0; i < 200 && dogecoinWalletView(t, store, dogecoinSeedAddress).State != "error"; i++ {
+	for i := 0; i < 200 && !store.retryPending(dogecoinUserAddress); i++ {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if view := dogecoinWalletView(t, store, dogecoinSeedAddress); view.State != "error" || view.Amount != nil {
-		t.Fatalf("view = %+v", view)
+	fixture.importErr = false
+	fixture.unspent = []string{"7"}
+	manager.scanNode(t.Context(), nodeDogecoin, store)
+	if view := dogecoinWalletView(t, store, dogecoinUserAddress); view.State != "error" || view.Amount != nil || fixture.imports != 1 {
+		t.Fatalf("view = %+v imports=%d", view, fixture.imports)
+	}
+	if store.isImported(dogecoinUserAddress) {
+		t.Fatal("failed import was marked complete")
+	}
+	store.mu.Lock()
+	store.retryAt = map[string]int64{}
+	store.mu.Unlock()
+	manager.scanNode(t.Context(), nodeDogecoin, store)
+	waitImports(t, fixture, 2)
+	waitRescanDone(t, store)
+	manager.scanNode(t.Context(), nodeDogecoin, store)
+	if view := dogecoinWalletView(t, store, dogecoinUserAddress); view.State != "ok" || *view.Amount != "7.00000000" {
+		t.Fatalf("after retry = %+v", view)
+	}
+}
+
+func TestDogecoinWatchPartialRescanIsNotReportedAsBalance(t *testing.T) {
+	manager, store, fixture := newDogecoinWatchTest(t)
+	fixture.watching = true
+	fixture.unspent = []string{"1"}
+	blockImports(t, fixture)
+	manager.scanNode(t.Context(), nodeDogecoin, store)
+	waitImports(t, fixture, 1)
+	if view := dogecoinWalletView(t, store, dogecoinUserAddress); view.State != "rescanning" || view.Amount != nil {
+		t.Fatalf("watch-only flag treated as finished rescan: %+v", view)
+	}
+	fixture.unblock()
+	waitRescanDone(t, store)
+	restarted := &app{cfg: manager.app.cfg, log: manager.app.log}
+	restarted.familyWatch = newFamilyWatchManager(restarted)
+	again := restarted.familyWatch.stores[nodeDogecoin]
+	if !again.isImported(dogecoinUserAddress) {
+		t.Fatal("completed import marker not persisted")
+	}
+	other := familyWatchID("DOtherAddress1")
+	if again.isImported("DOtherAddress1") || again.imported[other] {
+		t.Fatal("unimported address treated as imported")
+	}
+}
+
+func TestDogecoinWatchExampleIsNeverScanned(t *testing.T) {
+	manager, store, fixture := newDogecoinWatchTest(t)
+	markDogecoinImported(store, dogecoinUserAddress)
+	manager.scanNode(t.Context(), nodeDogecoin, store)
+	if view := dogecoinWalletView(t, store, dogecoinSeedAddress); view.State != "unscanned" || view.Amount != nil || fixture.imports != 0 {
+		t.Fatalf("example view = %+v imports=%d", view, fixture.imports)
 	}
 }
 
 func TestDogecoinWatchListunspentErrorAndBadAmounts(t *testing.T) {
 	manager, store, fixture := newDogecoinWatchTest(t)
-	fixture.watching = true
+	markDogecoinImported(store, dogecoinUserAddress)
 	fixture.unspentErr = true
 	manager.scanNode(t.Context(), nodeDogecoin, store)
 	if view := dogecoinWalletView(t, store, dogecoinUserAddress); view.State != "error" || view.Amount != nil {
@@ -251,7 +304,7 @@ func TestDogecoinWatchListunspentErrorAndBadAmounts(t *testing.T) {
 
 func TestDogecoinWatchSumsNearSupplyLimit(t *testing.T) {
 	manager, store, fixture := newDogecoinWatchTest(t)
-	fixture.watching = true
+	markDogecoinImported(store, dogecoinUserAddress)
 	fixture.unspent = []string{"150000000000.12345678", "29999999999.87654321"}
 	manager.scanNode(t.Context(), nodeDogecoin, store)
 	view := dogecoinWalletView(t, store, dogecoinUserAddress)
@@ -280,7 +333,7 @@ func TestDogecoinWatchRejectsInvalidAddress(t *testing.T) {
 
 func TestDogecoinWatchRosterSurvivesRestart(t *testing.T) {
 	manager, store, fixture := newDogecoinWatchTest(t)
-	fixture.watching = true
+	markDogecoinImported(store, dogecoinUserAddress)
 	fixture.unspent = []string{"5"}
 	manager.scanNode(t.Context(), nodeDogecoin, store)
 	restarted := &app{cfg: manager.app.cfg, log: manager.app.log}

@@ -404,6 +404,14 @@ dogecoin_config false 0 ./data/dogecoin-fresh
 dogecoin_config false 100 ./data/dogecoin-fresh
 (cd "$dg" && ./configure.sh) >/dev/null 2>&1 && fail "a tiny non-zero Dogecoin prune_mb was accepted"
 rm -rf "$dg"
+mkdir -p "$dg/data/pruned/blocks" "$dg/data/full/blocks"
+cp configure.sh "$dg/"
+touch "$dg/data/pruned/blocks/index" "$dg/data/pruned/blocks/blk00007.dat" "$dg/data/full/blocks/index" "$dg/data/full/blocks/blk00000.dat"
+dogecoin_config true 0 "$dg/data/pruned"
+(cd "$dg" && ./configure.sh) >/dev/null 2>&1 && fail "archival watch_wallet was accepted on a pruned data directory without a previous .env"
+dogecoin_config true 0 "$dg/data/full"
+(cd "$dg" && ./configure.sh) >/dev/null 2>&1 || fail "archival watch_wallet was refused on a full data directory"
+rm -rf "$dg"
 mkdir -p "$dg"
 cp configure.sh "$dg/"
 dogecoin_config true 0 ./data/dogecoin
