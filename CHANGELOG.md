@@ -22,6 +22,12 @@ All notable changes to this project are documented here. Format follows
   or a non-contiguous block, retries after node or network errors, and stops in a "reorg detected"
   state when the stored tip leaves the active chain. It is not wired into the
   dashboard, so runtime behavior is unchanged.
+- The internal UTXO index tip follower now survives reorgs: when the stored tip
+  leaves the active chain it rolls back through its per-block undo records
+  (144 blocks deep) to the common ancestor and applies the new branch in the
+  same step. A fork older than the journal or at or below the snapshot base
+  latches the follower in the error state with a reorg-too-deep reason. It is
+  not wired into the dashboard, so runtime behavior is unchanged.
 - The dashboard has an internal resolver that turns watch-only keys (address,
   xpub family, descriptors) into the sorted, deduplicated scriptPubKey set for
   indexes 0 to 999 of receive and change. Wallets resolve in batches of 20
