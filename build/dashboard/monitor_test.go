@@ -218,6 +218,61 @@ func TestMultiNodeSyncAndDiskAlertsIdentifyMonero(t *testing.T) {
 	}
 }
 
+func TestSyncCompleteIgnoresBriefSyncFlapsAfterSync(t *testing.T) {
+	var messages []string
+	m := configuredMonitor(t, func(r *http.Request) (*http.Response, error) {
+		var payload struct {
+			Text string `json:"text"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		messages = append(messages, payload.Text)
+		return response(http.StatusOK, `{"ok":true}`), nil
+	})
+	m.configureNodes(true, true, t.TempDir())
+	m.settings.AlertNewBlock = false
+	m.healthTicks = 1
+	m.diskFreeGB = func(string) (float64, error) { return 1000, nil }
+	bitcoin := map[string]any{"initialblockdownload": false, "blocks": float64(900000)}
+	monero := func(ibd bool, height int) map[string]any {
+		return map[string]any{"initialblockdownload": ibd, "blocks": float64(height)}
+	}
+	flap := func(height int) {
+		m.tickNodes(t.Context(), bitcoin, monero(true, height))
+		m.tickNodes(t.Context(), bitcoin, monero(false, height))
+	}
+
+	m.tickNodes(t.Context(), bitcoin, monero(true, 100))
+	m.tickNodes(t.Context(), bitcoin, monero(false, 200))
+	flap(201)
+	flap(202)
+
+	encoded, err := json.Marshal(persistedNodeFromState(m.moneroState))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved persistedNodeState
+	if err := json.Unmarshal(encoded, &saved); err != nil {
+		t.Fatal(err)
+	}
+	m.moneroState = monitorState{}
+	applyPersistedNodeState(&m.moneroState, saved)
+	flap(203)
+
+	for height := 300; height < 300+resyncAlertTicks; height++ {
+		m.tickNodes(t.Context(), bitcoin, monero(true, height))
+	}
+	m.tickNodes(t.Context(), bitcoin, monero(false, 500))
+	flap(501)
+
+	want := []string{
+		"[alice] Monero: ✅ initial sync complete at height 200",
+		"[alice] Monero: ✅ initial sync complete at height 500",
+	}
+	if strings.Join(messages, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("messages = %#v, want %#v", messages, want)
+	}
+}
+
 func TestMultiNodeOperationalStatePersistsAcrossRestart(t *testing.T) {
 	stateDir := t.TempDir()
 	bitcoinDir, moneroDir := t.TempDir(), t.TempDir()
@@ -651,7 +706,9 @@ func TestGlobalAlertClassesSuppressEpisodesAndReenable(t *testing.T) {
 	m.tick(t.Context(), nil, nil)
 	m.tick(t.Context(), nil, nil)
 	m.tick(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)}, nil)
-	m.tick(t.Context(), map[string]any{"initialblockdownload": true, "blocks": float64(100)}, nil)
+	for range resyncAlertTicks {
+		m.tick(t.Context(), map[string]any{"initialblockdownload": true, "blocks": float64(100)}, nil)
+	}
 	m.tick(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)}, nil)
 	m.diskFreeGB = func(string) (float64, error) { return 20, nil }
 	m.tick(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)}, nil)
@@ -668,7 +725,9 @@ func TestGlobalAlertClassesSuppressEpisodesAndReenable(t *testing.T) {
 	m.tick(t.Context(), nil, nil)
 	m.tick(t.Context(), nil, nil)
 	m.tick(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)}, nil)
-	m.tick(t.Context(), map[string]any{"initialblockdownload": true, "blocks": float64(100)}, nil)
+	for range resyncAlertTicks {
+		m.tick(t.Context(), map[string]any{"initialblockdownload": true, "blocks": float64(100)}, nil)
+	}
 	m.tick(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)}, nil)
 	m.diskFreeGB = func(string) (float64, error) { return 20, nil }
 	m.tick(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)}, nil)

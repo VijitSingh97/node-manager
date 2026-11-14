@@ -23,6 +23,8 @@ const (
 	downAfterTicks       = 3
 	updateCheckEveryTick = 1440
 	eventLogCap          = 1_000_000
+	// Monero and Tari report syncing for a moment on new blocks, so only a sustained relapse re-announces sync.
+	resyncAlertTicks = 10
 )
 
 var (
@@ -35,6 +37,8 @@ type monitorState struct {
 	downAlerted   bool
 	chainKnown    bool
 	ibd           bool
+	ibdTicks      int
+	synced        bool
 	syncPending   bool
 	lastBlock     int64
 	hasLastBlock  bool
@@ -58,6 +62,8 @@ type persistedNodeState struct {
 	DownAlerted  bool  `json:"down_alerted"`
 	ChainKnown   bool  `json:"chain_known"`
 	IBD          bool  `json:"initial_block_download"`
+	IBDTicks     int   `json:"ibd_ticks,omitempty"`
+	Synced       bool  `json:"synced,omitempty"`
 	SyncPending  bool  `json:"sync_pending"`
 	LastBlock    int64 `json:"last_block"`
 	HasLastBlock bool  `json:"has_last_block"`
@@ -489,12 +495,17 @@ func (m *Monitor) tickNode(ctx context.Context, state *monitorState, chain, data
 	ibd, hasIBD := false, false
 	if healthy {
 		ibd, hasIBD = info["initialblockdownload"].(bool)
-		if state.ibd && hasIBD && !ibd {
+		if state.ibd && hasIBD && !ibd && (!state.synced || state.ibdTicks >= resyncAlertTicks) {
 			state.syncPending = true
 		}
 		if hasIBD {
 			state.chainKnown = true
 			state.ibd = ibd
+			if ibd {
+				state.ibdTicks++
+			} else {
+				state.ibdTicks, state.synced = 0, true
+			}
 		}
 		if state.downAlerted && hasIBD && !ibd {
 			if m.sendOperationalAlert(ctx, settings.AlertNodeRecovered, chainAlert(chain, "🟢 node recovered — RPC is answering again")) {
