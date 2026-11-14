@@ -721,9 +721,13 @@ if [ "$thermal_limit_c" != 0 ]; then
   fi
 fi
 
-# blockfilterindex needs the full chain — bitcoind refuses to start with pruning
-if [ "$blockfilterindex" = "1" ] && [ "$prune" != "0" ]; then
-  echo "blockfilterindex requires a full node (prune_mb: 0) — it can't run on a pruned node."
+# Core refuses to add a block filter index once blocks are pruned (init.cpp, v32.1).
+prev_prune=$(sed -n 's/^BITCOIN_PRUNE=//p' "$env_file" 2>/dev/null || true)
+prev_filter=$(sed -n 's/^BITCOIN_BLOCKFILTERINDEX=//p' "$env_file" 2>/dev/null || true)
+if [ "$blockfilterindex" = "1" ] && [ "$prune" != "0" ] && [ -n "$prev_prune" ] && [ "$prev_prune" != "0" ] && [ "$prev_filter" != "1" ]; then
+  echo "The previous configuration shows a pruned node without blockfilterindex, and Bitcoin Core cannot add"
+  echo "a block filter index to an already pruned node. Enable it before the first prune, or re-download the"
+  echo "chain into a new data directory with blockfilterindex set from the start."
   exit 1
 fi
 
