@@ -23,6 +23,7 @@ type rpcFixture struct {
 	invalid              bool
 	initialBlockDownload bool
 	unpruned             bool
+	idleSynced           bool
 }
 
 type lifecycleRPC struct {
@@ -168,7 +169,14 @@ func (f *rpcFixture) handler(w http.ResponseWriter, r *http.Request) {
 		"getmempoolinfo":    map[string]any{"size": 4200, "bytes": 12 * 1024 * 1024},
 		"estimatesmartfee":  map[string]any{"feerate": 0.0001},
 	}
-	_ = json.NewEncoder(w).Encode(map[string]any{"result": results[request.Method], "error": nil, "id": "go-dashboard"})
+	var rpcError any
+	if f.idleSynced {
+		results["getblockchaininfo"] = map[string]any{"blocks": 900000, "headers": 900000, "verificationprogress": 0.99999, "initialblockdownload": false, "pruned": false, "size_on_disk": 0}
+		if request.Method == "uptime" {
+			rpcError = map[string]any{"code": -32601, "message": "unavailable"}
+		}
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"result": results[request.Method], "error": rpcError, "id": "go-dashboard"})
 }
 
 func (f *rpcFixture) count() int {
@@ -292,7 +300,7 @@ func TestIndexAuthRPCParityAndEscaping(t *testing.T) {
 	}
 	body := got.Body.String()
 	assertBitcoinPersistentMounts(t, body, true)
-	for _, want := range []string{"900000 / 900001", "4200 tx", "10 / 10 / 10", "Pruned", `id="btc-price"`, `/static/prices.js`, "192.168.1.50:8332 · LAN", "Configured LAN access", `class="node-set-title">mini-1 &lt;node&gt; Node Set</h1>`} {
+	for _, want := range []string{"900000 / 900001", "4200 tx", "10 / 10 / 10", ">Pruned</span>", `Version:</span>`, `RPC:</span>`, `id="btc-price"`, `/static/prices.js`, "192.168.1.50:8332 · LAN", "Configured LAN access", `class="node-set-title">mini-1 &lt;node&gt; Node Set</h1>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body missing %q", want)
 		}
@@ -322,6 +330,16 @@ func TestInvalidRPCRendersLoading(t *testing.T) {
 	}
 	if !strings.Contains(got.Body.String(), `class="node-set-title">mini-1 Node Set</h1>`) {
 		t.Fatal("loading overview omitted the node set title")
+	}
+}
+
+func TestIndexSyncedFullNodeShowsSharedPanelDefaults(t *testing.T) {
+	_, handler := testApp(t, &rpcFixture{idleSynced: true}, "")
+	body := request(t, handler, http.MethodGet, "/", "").Body.String()
+	for _, want := range []string{">Full</span>", "Sync Progress:</span> <span>100.0000%", "Node Data Size:</span> <span>—</span>", "Uptime:</span> <span>—</span>"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body missing %q", want)
+		}
 	}
 }
 

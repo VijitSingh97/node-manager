@@ -26,7 +26,6 @@ type blockchainInfo struct {
 	VerificationProgress float64 `json:"verificationprogress"`
 	InitialBlockDownload bool    `json:"initialblockdownload"`
 	Pruned               bool    `json:"pruned"`
-	PruneTargetSize      int64   `json:"prune_target_size"`
 	SizeOnDisk           int64   `json:"size_on_disk"`
 	Chain                string  `json:"chain"`
 	PruneHeight          int64   `json:"pruneheight"`
@@ -73,7 +72,6 @@ type pageData struct {
 	Inbound              int
 	Outbound             int
 	Pruned               bool
-	PruneTargetGB        float64
 	NodeGB               float64
 	NodeSizeBytes        int64
 	ShowMempool          bool
@@ -217,7 +215,7 @@ func (a *app) index(w http.ResponseWriter, r *http.Request) {
 	uptimeErr := a.rpc.call(ctx, "uptime", []any{}, &uptime)
 	uptimeLabel := formatUptime(uptime)
 	if uptimeErr != nil {
-		uptimeLabel = "N/A"
+		uptimeLabel = "—"
 	}
 	if network.Subversion == "" {
 		network.Subversion = "Unknown"
@@ -235,10 +233,13 @@ func (a *app) index(w http.ResponseWriter, r *http.Request) {
 		Version:              versionLabel(a.cfg.version), CoreVersion: network.Subversion, Uptime: uptimeLabel,
 		Blocks: chain.Blocks, Headers: chain.Headers, Progress: chain.VerificationProgress * 100,
 		Inbound: inbound, Outbound: len(peers) - inbound,
-		Pruned: chain.Pruned, PruneTargetGB: gib(chain.PruneTargetSize), NodeGB: gib(chain.SizeOnDisk), NodeSizeBytes: chain.SizeOnDisk,
+		Pruned: chain.Pruned, NodeGB: gib(chain.SizeOnDisk), NodeSizeBytes: chain.SizeOnDisk,
 		NextBlock: chain.Blocks + 1, LastUpdate: time.Now().Format("15:04:05"),
 		FeeNext: "—", Fee30m: "—", FeeHour: "—",
 		BitcoinRPCEndpoint: a.cfg.bitcoinRPCEndpoint,
+	}
+	if !chain.InitialBlockDownload && chain.Blocks == chain.Headers {
+		data.Progress = 100
 	}
 	if !chain.InitialBlockDownload {
 		var mempool mempoolInfo
@@ -323,7 +324,10 @@ func formatUptime(seconds float64) string {
 	if days > 0 {
 		return fmt.Sprintf("%dd %dh %dm", days, hours, minutes)
 	}
-	return fmt.Sprintf("%dh %dm", hours, minutes)
+	if hours > 0 {
+		return fmt.Sprintf("%dh %dm", hours, minutes)
+	}
+	return fmt.Sprintf("%dm", minutes)
 }
 
 func versionLabel(version string) string {

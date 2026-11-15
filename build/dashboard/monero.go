@@ -70,7 +70,6 @@ type moneroInfo struct {
 	StartTime                uint64  `json:"start_time"`
 	IncomingConnectionsCount uint64  `json:"incoming_connections_count"`
 	OutgoingConnectionsCount uint64  `json:"outgoing_connections_count"`
-	PruningSeed              uint64  `json:"pruning_seed"`
 	DatabaseSize             uint64  `json:"database_size"`
 	Difficulty               uint64  `json:"difficulty"`
 	Target                   uint64  `json:"target"`
@@ -141,7 +140,7 @@ func (a *app) apiMonero(w http.ResponseWriter, r *http.Request) {
 	status.Version = info.Version
 	status.IncomingConnections = info.IncomingConnectionsCount
 	status.OutgoingConnections = info.OutgoingConnectionsCount
-	status.Pruned = info.PruningSeed != 0
+	status.Pruned = true
 	status.DatabaseSizeBytes = info.DatabaseSize
 	status.DatabaseSizeAvailable = info.DatabaseSize > 0
 	if info.TxPoolSize != nil {

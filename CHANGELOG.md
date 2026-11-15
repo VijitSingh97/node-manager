@@ -26,8 +26,17 @@ All notable changes to this project are documented here. Format follows
 - Operator docs for the measured seed budget, the "Needs a new seed" causes,
   upgrades, and removing the index and its volume by hand.
 
+### Changed
+
+- All seven Node Status panels use the same pruning badge ("Pruned" or "Full"),
+  the same row labels ("Version:", "RPC:", "gRPC:" for Tari), and the same
+  uptime, connection, size, sync progress and mempool formats. The Bitcoin badge
+  no longer shows the prune target, and Monero's footer shows the stack version.
+
 ### Fixed
 
+- Monero no longer shows "Full" on a pruned node, and Tari no longer shows
+  "Pruning unknown" before its first prune; both always run pruned and now say so.
 - The balance index directory is restricted to 0700 even when it is an existing
   Docker volume mount point; on a package install it was left at 0755. Its
   contents are public chain data, but the docs promised 0700.

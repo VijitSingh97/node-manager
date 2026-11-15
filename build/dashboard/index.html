@@ -113,17 +113,17 @@
         <p>Downloading and validating the blockchain. Pruning saves disk space as the sync continues.</p>
       </section>{{end}}
       <div class="card">
-        <h2>Bitcoin Node Status<span class="badge">{{if .Pruned}}Pruned · {{printf "%.1f" .PruneTargetGB}} GB{{else}}Full{{end}}</span></h2>
-        <div class="row"><span class="label">Bitcoin Core:</span> <span>{{.CoreVersion}}</span></div>
+        <h2>Bitcoin Node Status<span class="badge">{{if .Pruned}}Pruned{{else}}Full{{end}}</span></h2>
+        <div class="row"><span class="label">Version:</span> <span>{{.CoreVersion}}</span></div>
         <div class="row"><span class="label">Uptime:</span> <span>{{.Uptime}}</span></div>
         <div class="row"><span class="label">Connections:</span> <span>{{.Inbound}} in · {{.Outbound}} out</span></div>
         <hr>
         <div class="row"><span class="label">Blocks:</span> <span>{{.Blocks}} / {{.Headers}}</span></div>
         <div class="progress-bg"><div class="progress-fill" style="width: {{printf "%.4f" .Progress}}%"></div></div>
         <div class="row"><span class="label">Sync Progress:</span> <span>{{printf "%.4f" .Progress}}%</span></div>
-        <div class="row"><span class="label">Node Data Size:</span> <span>{{printf "%.2f" .NodeGB}} GiB</span></div>
+        <div class="row"><span class="label">Node Data Size:</span> <span>{{if .NodeSizeBytes}}{{printf "%.2f" .NodeGB}} GiB{{else}}—{{end}}</span></div>
         {{if .ShowMempool}}<hr>
-        <div class="row"><span class="label">Mempool:</span> <span>{{.MempoolTxs}} tx · {{printf "%.1f" .MempoolMB}} MB</span></div>
+        <div class="row"><span class="label">Mempool:</span> <span>{{.MempoolTxs}} tx · {{printf "%.1f" .MempoolMB}} MiB</span></div>
         <div class="row"><span class="label">Fee sat/vB (next/30m/1h):</span> <span>{{.FeeNext}} / {{.Fee30m}} / {{.FeeHour}}</span></div>
         <div class="spark-row"><span class="label">Fee (24h)</span><canvas class="spark" id="spark-fee"></canvas></div>{{end}}
         <section id="btc-price" data-price-asset="bitcoin" hidden>
@@ -137,7 +137,7 @@
         </section>
         <hr>
         <div class="row"><span class="label">Open ports:</span> <span></span></div>
-        <div class="row"><span class="label">Bitcoin RPC:</span> <span>{{if .BitcoinRPCEndpoint}}{{.BitcoinRPCEndpoint}} · LAN{{else}}Disabled{{end}}</span></div>
+        <div class="row"><span class="label">RPC:</span> <span>{{if .BitcoinRPCEndpoint}}{{.BitcoinRPCEndpoint}} · LAN{{else}}Disabled{{end}}</span></div>
         <p class="node-state">Configured LAN access. Use your Bitcoin RPC login.</p>
         <div class="footer"><span>Updated: {{.LastUpdate}}</span><span>{{.Version}}</span><span>Auto-refresh: 30s</span></div>
       </div>
@@ -158,7 +158,7 @@
       <h2>Monero Node Status<span id="monero-badge" class="badge monero-badge">Loading</span></h2>
       <p id="monero-state" class="node-state">Connecting...</p>
       <div id="monero-details" hidden>
-        <div class="row"><span class="label">Monero:</span> <span id="monero-version">—</span></div>
+        <div class="row"><span class="label">Version:</span> <span id="monero-version">—</span></div>
         <div class="row"><span class="label">Uptime:</span> <span id="monero-uptime">—</span></div>
         <div class="row"><span class="label">Connections:</span> <span id="monero-connections">—</span></div>
         <hr>
@@ -187,7 +187,7 @@
         <div class="row"><span class="label">RPC:</span> <span id="monero-rpc-exposure">Disabled</span></div>
         <div class="row"><span class="label">ZMQ:</span> <span id="monero-zmq-exposure">Disabled</span></div>
         <p class="node-state">Configured LAN access. RPC is restricted and requires your Monero login. ZMQ is for a trusted LAN.</p>
-        <div class="footer"><span id="monero-updated">Updated: —</span><span>Monero</span><span>Auto-refresh: 30s</span></div>
+        <div class="footer"><span id="monero-updated">Updated: —</span><span>{{.Version}}</span><span>Auto-refresh: 30s</span></div>
       </div>
     </section>
     <section id="monero-watch" class="card watch-card monero-wallets" hidden></section>
@@ -219,7 +219,7 @@
         <div id="tari-fee-section" hidden><div class="row"><span id="tari-fee-unit" class="label">Fee estimates:</span><span id="tari-fees">—</span></div><div class="spark-row"><span class="label">Fee (24h)</span><canvas class="spark" id="spark-tari-fee"></canvas></div></div>
         <section data-price-asset="tari" hidden><hr><div class="price-row"><span class="price-label">Tari price</span><strong class="price-value" data-price-value>—</strong><select class="price-currency" data-price-currency aria-label="Tari price currency"></select><span class="price-status" data-price-status>Price unavailable</span></div></section>
         <hr>
-        <div class="row"><span class="label">LAN gRPC:</span><span id="tari-rpc-exposure">—</span></div>
+        <div class="row"><span class="label">gRPC:</span><span id="tari-rpc-exposure">—</span></div>
         <p class="node-state">For Pithead on a trusted LAN. This mining endpoint has no password support.</p>
         <div class="footer"><span id="tari-updated">Updated: —</span><span>{{.Version}}</span><span>Auto-refresh: 30s</span></div>
       </div>
@@ -253,7 +253,7 @@
         <div id="litecoin-fee-section" hidden><div class="row"><span id="litecoin-fee-unit" class="label">Fee estimates:</span><span id="litecoin-fees">—</span></div><div class="spark-row"><span class="label">Fee (24h)</span><canvas class="spark" id="spark-litecoin-fee"></canvas></div></div>
         <section data-price-asset="litecoin" hidden><hr><div class="price-row"><span class="price-label">Litecoin price</span><strong class="price-value" data-price-value>—</strong><select class="price-currency" data-price-currency aria-label="Litecoin price currency"></select><span class="price-status" data-price-status>Price unavailable</span></div></section>
         <hr>
-        <div class="row"><span class="label">LAN RPC:</span><span id="litecoin-rpc-exposure">—</span></div>
+        <div class="row"><span class="label">RPC:</span><span id="litecoin-rpc-exposure">—</span></div>
         <p class="node-state">LAN access is optional and uses a separate node login.</p>
         <div class="footer"><span id="litecoin-updated">Updated: —</span><span>{{.Version}}</span><span>Auto-refresh: 30s</span></div>
       </div>
@@ -287,7 +287,7 @@
         <div id="dogecoin-fee-section" hidden><div class="row"><span id="dogecoin-fee-unit" class="label">Fee estimates:</span><span id="dogecoin-fees">—</span></div><div class="spark-row"><span class="label">Fee (24h)</span><canvas class="spark" id="spark-dogecoin-fee"></canvas></div></div>
         <section data-price-asset="dogecoin" hidden><hr><div class="price-row"><span class="price-label">Dogecoin price</span><strong class="price-value" data-price-value>—</strong><select class="price-currency" data-price-currency aria-label="Dogecoin price currency"></select><span class="price-status" data-price-status>Price unavailable</span></div></section>
         <hr>
-        <div class="row"><span class="label">LAN RPC:</span><span id="dogecoin-rpc-exposure">—</span></div>
+        <div class="row"><span class="label">RPC:</span><span id="dogecoin-rpc-exposure">—</span></div>
         <p class="node-state">LAN access is optional and uses a separate node login.</p>
         <div class="footer"><span id="dogecoin-updated">Updated: —</span><span>{{.Version}}</span><span>Auto-refresh: 30s</span></div>
       </div>
@@ -321,7 +321,7 @@
         <div id="bitcoincash-fee-section" hidden><div class="row"><span id="bitcoincash-fee-unit" class="label">Fee estimates:</span><span id="bitcoincash-fees">—</span></div><div class="spark-row"><span class="label">Fee (24h)</span><canvas class="spark" id="spark-bitcoincash-fee"></canvas></div></div>
         <section data-price-asset="bitcoin-cash" hidden><hr><div class="price-row"><span class="price-label">Bitcoin Cash price</span><strong class="price-value" data-price-value>—</strong><select class="price-currency" data-price-currency aria-label="Bitcoin Cash price currency"></select><span class="price-status" data-price-status>Price unavailable</span></div></section>
         <hr>
-        <div class="row"><span class="label">LAN RPC:</span><span id="bitcoincash-rpc-exposure">—</span></div>
+        <div class="row"><span class="label">RPC:</span><span id="bitcoincash-rpc-exposure">—</span></div>
         <p class="node-state">LAN access is optional and uses a separate node login.</p>
         <div class="footer"><span id="bitcoincash-updated">Updated: —</span><span>{{.Version}}</span><span>Auto-refresh: 30s</span></div>
       </div>
@@ -356,7 +356,7 @@
         <div id="zcash-fee-section" hidden><div class="row"><span id="zcash-fee-unit" class="label">Fee estimates:</span><span id="zcash-fees">—</span></div><div class="spark-row"><span class="label">Fee (24h)</span><canvas class="spark" id="spark-zcash-fee"></canvas></div></div>
         <section data-price-asset="zcash" hidden><hr><div class="price-row"><span class="price-label">Zcash price</span><strong class="price-value" data-price-value>—</strong><select class="price-currency" data-price-currency aria-label="Zcash price currency"></select><span class="price-status" data-price-status>Price unavailable</span></div></section>
         <hr>
-        <div class="row"><span class="label">LAN RPC:</span><span id="zcash-rpc-exposure">—</span></div>
+        <div class="row"><span class="label">RPC:</span><span id="zcash-rpc-exposure">—</span></div>
         <p class="node-state">LAN access is optional and uses a separate node login.</p>
         <div class="footer"><span id="zcash-updated">Updated: —</span><span>{{.Version}}</span><span>Auto-refresh: 30s</span></div>
       </div>

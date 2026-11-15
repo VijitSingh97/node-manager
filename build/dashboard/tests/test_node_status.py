@@ -35,11 +35,11 @@ def test_main_starts_background_tasks_and_production_server(monkeypatch):
 # --- format_uptime ---
 
 def test_uptime_none():
-    assert node_status.format_uptime(None) == "N/A"
+    assert node_status.format_uptime(None) == "—"
 
 
 def test_uptime_not_a_number():
-    assert node_status.format_uptime("soon") == "N/A"
+    assert node_status.format_uptime("soon") == "—"
 
 
 def test_uptime_with_days():
@@ -48,6 +48,10 @@ def test_uptime_with_days():
 
 def test_uptime_under_a_day():
     assert node_status.format_uptime(3660) == "1h 1m"
+
+
+def test_uptime_under_an_hour():
+    assert node_status.format_uptime(300) == "5m"
 
 
 # --- get_rpc_data ---
@@ -174,7 +178,7 @@ def test_index_renders_node_stats(monkeypatch):
     assert "900000 / 900000" in body
     assert "/Satoshi:28.0.0/" in body
     assert "1d 1h 1m" in body
-    assert "100.0" in body  # sync progress
+    assert "100%" in body  # sync progress
     assert ">1</span>" in body  # 1 inbound peer
     assert "800.0 GB" in body  # size on disk
     assert "Pruned" not in body  # full node: no badge
@@ -230,7 +234,7 @@ def test_index_shows_mempool_and_fees(monkeypatch):
     body = render_index(monkeypatch).data.decode()
     assert "Mempool:" in body
     assert "4200 tx" in body
-    assert "12.0 MB" in body
+    assert "12.0 MiB" in body
     assert "10 / 10 / 10" in body  # 0.0001 BTC/kvB -> 10 sat/vB (whole -> no ".0")
 
 
@@ -347,6 +351,15 @@ def test_static_css_and_js_are_served():
     assert b"nextTheme" in js.data
 
 
+def test_index_panel_shared_labels_and_formats(monkeypatch):
+    rpc = dict(FAKE_RPC)
+    rpc["getblockchaininfo"] = dict(FAKE_RPC["getblockchaininfo"], size_on_disk=0, verificationprogress=0.99999, blocks=900000, headers=900000)
+    body = render_index(monkeypatch, rpc=rpc).data.decode()
+    assert "Version:</span>" in body and "Bitcoin Core:" not in body
+    assert "Node Data Size:</span> <span>—</span>" in body
+    assert "Sync Progress:</span> <span>100%</span>" in body
+
+
 def test_static_assets_respect_auth(monkeypatch):
     monkeypatch.setattr(node_status, "DASHBOARD_PASSWORD", "hunter2")
     assert node_status.app.test_client().get("/static/dashboard.css").status_code == 401
@@ -362,7 +375,7 @@ def test_index_shows_pruned_badge(monkeypatch):
     )
     body = render_index(monkeypatch, rpc=rpc).data.decode()
     assert "Pruned" in body
-    assert "10.0 GB" in body  # prune target in the badge
+    assert ">Pruned<" in body  # bare badge, no prune target
     assert ">Full<" not in body  # pruned and full badges are exclusive
 
 

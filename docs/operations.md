@@ -259,6 +259,11 @@ What happens:
   node, no other dump or scan, no running watch scan, and a bitcoin data
   directory owned by the dashboard user (both containers run as uid 1000). The
   seed runs on Linux only.
+- **No watchdog.** Before you start, make sure nothing on the host restarts
+  unhealthy containers on its own, such as an autoheal-style watchdog. Compose
+  marks bitcoind unhealthy for about 2.5 minutes during the dump, and a restart
+  ends the seed. The stack itself never does this (see
+  [Self-healing](#self-healing-a-deliberate-non-feature)).
 - **Dump.** The command removes any stale `utxo-seed.dat*` in the bitcoin data
   directory, creates the FIFO `utxo-seed.dat.incomplete` there, and writes a
   single-use request into the dashboard state volume (stale after 120
@@ -292,9 +297,11 @@ capped at 0.5 CPU and the Tari base node stopped (see
   fills the 1 GiB limit during the import and is reclaimed; that is expected
   and nothing is killed. While following blocks the dashboard used 13 MiB
   anonymous and 31 MiB in total.
-- **Not measured.** A seed with every chain running. That host idles at 73 C
-  with every chain running, above the 72 C resume point, so a paused seed may
-  not resume until other chains are stopped.
+- **Not measured.** A seed with every chain running. With every chain running
+  that host read 73 C, above the 72 C resume point. After its thermal paste
+  was renewed it reads a median of 66 C, with short spikes to 87 C. On a host
+  that stays above 72 C, a paused seed may not resume until other chains are
+  stopped.
 
 When the card says "Needs a new seed" (`invalid`), balances come from the scan
 and nothing re-seeds on its own. Run `./stack utxo-seed`; it resets the store
