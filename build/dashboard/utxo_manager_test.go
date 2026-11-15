@@ -239,6 +239,45 @@ func TestUtxoManagerStateMachine(t *testing.T) {
 	}
 }
 
+func TestUtxoSeedProgressMilestonesLoggedOncePerStep(t *testing.T) {
+	logs := &bytes.Buffer{}
+	m := utxoMgrNew(t, t.TempDir(), nil, newFakeUtxoNode(utxoMgrChain(10, "b")), logs)
+	seed := func() {
+		if err := m.startSeed(); err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range []float64{0.05, 0.12, 0.15, 0.31, 0.31, 1.0} {
+			m.setSeedProgress(f)
+		}
+	}
+	seed()
+	want := "utxo index: state=not_seeded\nutxo index: state=seeding\nutxo index: seed progress=10%\nutxo index: seed progress=30%\nutxo index: seed progress=100%\n"
+	if logs.String() != want {
+		t.Fatalf("log %q, want %q", logs.String(), want)
+	}
+	m.finishSeed(context.Canceled)
+	logs.Reset()
+	m.set(utxoStateNotSeeded, "")
+	seed()
+	if got := strings.Count(logs.String(), "seed progress="); got != 3 {
+		t.Fatalf("second seed logged %d milestones: %q", got, logs.String())
+	}
+}
+
+func TestUtxoFollowingLogsOnlyAtMilestoneWithoutScriptData(t *testing.T) {
+	logs := &bytes.Buffer{}
+	m := utxoMgrNew(t, t.TempDir(), nil, newFakeUtxoNode(utxoMgrChain(3, "a")), logs)
+	m.nodeTip = 3000
+	logs.Reset()
+	for _, h := range []uint32{utxoMilestone - 1, utxoMilestone, utxoMilestone + 1, 2 * utxoMilestone} {
+		m.progress(h)
+	}
+	want := "utxo index: following height=1000 node_tip=3000\nutxo index: following height=2000 node_tip=3000\n"
+	if logs.String() != want {
+		t.Fatalf("log %q, want %q", logs.String(), want)
+	}
+}
+
 func TestUtxoManagerRestartMidCatchUpResumesWithoutReseed(t *testing.T) {
 	ctx := context.Background()
 	c := utxoMgrChain(30, "b")

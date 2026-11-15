@@ -36,7 +36,9 @@ test("an unseeded index shows the host command, the warning and every refusal", 
   });
   assert.equal(view.command, SEED_COMMAND);
   assert.equal(view.warning, SEED_WARNING);
-  assert.match(view.warning, /at least 15 minutes/);
+  assert.match(view.warning, /about 20 minutes/);
+  assert.match(view.warning, /stops answering for about 5 minutes/);
+  assert.match(view.warning, /7\.5 GiB.*17 GiB/);
   assert.match(view.warning, /27 GB/);
   assert.deepEqual(view.refusals, ["thermal: hottest zone 80 C is above 75 C", "free_space: 3.0 GB free, 27 GB needed"]);
   assert.equal(view.progress, null);

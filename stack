@@ -359,8 +359,9 @@ utxo_seed() {
   done
   cat <<EOF
 Seeding the Bitcoin balance index
-  - Bitcoin RPC fails for about 5 minutes, then stays degraded for about 5 more; allow at least 15 minutes in total.
-  - 27 GB of free space is needed for the index.
+  - Takes about 20 minutes, longer if heat pauses it.
+  - Bitcoin RPC stops answering for about 5 minutes, then answers slowly until the seed ends.
+  - The index takes about 7.5 GiB afterwards and up to about 17 GiB while it runs; 27 GB of free space is needed.
   - Node-down alerts are held for up to 15 minutes; the dashboard shows when they resume.
   - Pause other heavy chains (for example Tari) first.
   - Cancel with: $stack_command utxo-seed cancel

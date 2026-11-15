@@ -172,6 +172,9 @@ node-manager down
 brew uninstall node-manager
 ```
 
+If `bitcoin.utxo_index` was on, its Docker volume stays too; see
+[Operations](operations.md#seeding-the-bitcoin-balance-index) to remove it.
+
 ## Test a local release artifact
 
 An unreleased branch uses image tags that do not exist in GHCR. Before testing

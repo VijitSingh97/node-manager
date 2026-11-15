@@ -414,7 +414,8 @@ the coin set, so a watched wallet's balance comes from a lookup instead of a
 `scantxoutset` walk. It starts empty: seed it once with `./stack utxo-seed`, as
 [Operations](operations.md#seeding-the-bitcoin-balance-index) describes. The
 design and its measurements are in
-[ADR 0001](adr/0001-bitcoin-utxo-index.md).
+[ADR 0001](adr/0001-bitcoin-utxo-index.md). Operations also covers the
+measured seed budget, a "Needs a new seed" card, upgrades and removal.
 
 - **When the index answers.** Only while it is `ready` and level with the node
   tip, and only for a wallet whose scripts it can derive. Every other wallet, and
@@ -432,13 +433,15 @@ design and its measurements are in
 - **What is stored.** The `utxo_index` volume holds public chain data: hashed
   script prefixes, txids, output numbers, amounts and heights. It does not say
   who owns what. Each wallet's derived scripts are cached in `utxo_scripts.json`
-  in the private state directory (mode 0600), next to the scan cache. Logs carry
+  in the private state directory (mode 0600), next to the scan cache. The index
+  directory is 0700; the dashboard sets that when it opens the index. Logs carry
   counts, heights and durations only.
 - **No new network path.** The index reads only from your own bitcoind on the
-  internal network. It calls no external service.
+  internal network. It calls no external service, and the Compose network
+  configuration is unchanged (`tests/test_compose.sh` asserts this).
 - **Turning it off.** Set `bitcoin.utxo_index` to false and run `./stack apply`.
   The scan serves again and the volume is kept; see
-  [Configuration](configuration.md) for removing it.
+  [Operations](operations.md#seeding-the-bitcoin-balance-index) for removing it.
 
 ## Bitcoin public example and seeding from config.json
 

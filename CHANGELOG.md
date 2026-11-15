@@ -11,7 +11,14 @@ All notable changes to this project are documented here. Format follows
 - With the Bitcoin balance index on, a wallet row whose balance came from the
   index says "From the balance index", the index card says balances are
   confirmed only, and each seed phase change is logged once.
-- The balance index logs its state once at startup, not only on later changes.
+- The balance index logs its state once at startup, not only on later changes,
+  and logs seed progress once per 10 percent step.
+- The seed warning (`./stack utxo-seed`, the dashboard card and `configure.sh`)
+  gives the measured duration of about 20 minutes, that Bitcoin RPC stops
+  answering for about 5 minutes and then answers slowly, and the disk use of
+  about 7.5 GiB, up to about 17 GiB while seeding.
+- Operator docs for the measured seed budget, the "Needs a new seed" causes,
+  upgrades, and removing the index and its volume by hand.
 
 ### Fixed
 
