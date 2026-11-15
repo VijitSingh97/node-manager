@@ -107,7 +107,7 @@ Lookup batch (derived): a wallet window of 1000 external plus 1000 internal scri
 ## Decision drivers
 
 1. Stay small. `AGENTS.md` and `CONTRIBUTING.md` prefer deleting over adding and stdlib over new dependencies. The dashboard module has only grpc and protobuf as direct dependencies. It builds with `CGO_ENABLED=0` on alpine.
-2. No runtime change for installs that do not opt in: no new volume, memory limit or restart. The image and binary are a separate question (see "Dependency ships to everyone"): a dependency compiled in is not runtime-free.
+2. No runtime change for installs that do not opt in, apart from the #234 hint: no new volume, memory limit or restart. The image and binary are a separate question (see "Dependency ships to everyone"): a dependency compiled in is not runtime-free.
 3. Never wrong silently. Any doubt about the index falls back to `scantxoutset`.
 4. Do not hurt the live node. `cs_main` stalls, heat and disk are shared with the other chains on the box.
 5. Targets from #213: add an indexed wallet under 1 s, cached read under 100 ms, batch registration, incremental blocks, works on pruned nodes.
@@ -265,9 +265,11 @@ With FIFO seeding the overlay no longer touches the bitcoin service. It adds, on
 
 Why not unconditional: the dashboard `mem_limit` and `cpus` would change every install, and cannot be conditional without an overlay. Rejected, reasoned.
 
+Owner decision (2026-11-15, #234): the one change a non-opt-in install sees is a one-line dashboard hint, shown only when the index is off and the Bitcoin node is pruned, naming `bitcoin.utxo_index` and linking `docs/watch-only.md` on GitHub. Nothing else changes for installs that do not opt in.
+
 What existing installs get on upgrade: no runtime change. No new volume, no limit, no bitcoind change, no restart. `scantxoutset` and the #215 path stay. They do get the image, see below. An install that enables the option gets the volume and the dashboard limits, and an index in the "not seeded" state until the user starts a seed. bitcoind is not recreated (this is a change from the draft, which needed a writable dump mount).
 
-**Dependency ships to everyone.** Pebble and its 23 new modules compile into the one dashboard binary and image that every install pulls, opted in or not. That means a larger image, a longer THIRD_PARTY_NOTICES and new supply-chain surface for all installs. Measured in #268 on amd64 and arm64: linked modules went from 7 to 30, and the binary from 14.11 to 20.04 MB on amd64 (+42%) and from 13.17 to 18.61 MB on arm64 (+41%). #213 says a non-opt-in install gets no new behavior. A larger binary is not behavior, but it is a change.
+**Dependency ships to everyone.** Pebble and its 23 new modules compile into the one dashboard binary and image that every install pulls, opted in or not. That means a larger image, a longer THIRD_PARTY_NOTICES and new supply-chain surface for all installs. Measured in #268 on amd64 and arm64: linked modules went from 7 to 30, and the binary from 14.11 to 20.04 MB on amd64 (+42%) and from 13.17 to 18.61 MB on arm64 (+41%). #213 says a non-opt-in install gets no new behavior. A larger binary is not behavior, but it is a change; the #234 hint is user-visible behavior that the owner accepted.
 
 Two ways to handle it. The default is the first, revisited if the owner finds the measured growth unacceptable:
 - Accepted cost (the ADR's default): one binary for all. The owner signs off on the image growth and notices, measured on amd64 and arm64 in #268.
@@ -369,7 +371,7 @@ Rejected: dumping into the datadir (the dashboard cannot delete it, and it eats 
 
 ## Consequences
 
-- Good: a new wallet shows a balance in 0.15-0.33 s of lookups (derived). Full-set walks leave the steady state. No runtime change for installs that do not opt in. The fallback is the default.
+- Good: a new wallet shows a balance in 0.15-0.33 s of lookups (derived). Full-set walks leave the steady state. No runtime change for installs that do not opt in, apart from the #234 hint. The fallback is the default.
 - Bad: 23 more linked modules (7 to 30, measured on amd64 and arm64, #268), a dashboard binary about 42% larger (+5.9 MB on amd64, +5.4 MB on arm64, measured, #268), a THIRD_PARTY_NOTICES that grew from 602 to 3382 lines, and a larger image for every install unless a build tag is used. 11.35 GB steady disk and 21.8 GB peak (derived, provisional). One 5-minute RPC block with an alert, and a heat load that needs a CPU cap and a thermal gate. A large subsystem to maintain.
 - Neutral: no transaction history of spent coins (owner decision). The balance sparkline still works, from the index. Unpruned nodes are unchanged. No bitcoind recreate.
 
