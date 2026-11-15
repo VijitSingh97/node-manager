@@ -176,7 +176,7 @@ func TestDashboardNodePageTransitionsFromSyncedToInitializing(t *testing.T) {
 		t.Fatalf("synced page status = %d", resp.StatusCode)
 	}
 	for _, want := range []string{
-		"Bitcoin Node Status", "900000 / 900001", "42 tx · 2.0 MB", "1.2 / 1.2 / 1.2",
+		"Bitcoin Node Status", "900000 / 900001", "42 tx · 2.0 MiB", "1.2 / 1.2 / 1.2",
 		`id="btc-price"`, `id="watch"`, `/static/prices.js`, `/static/watch.js`,
 	} {
 		if !strings.Contains(body, want) {
