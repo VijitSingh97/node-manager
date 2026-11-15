@@ -66,9 +66,28 @@ Before the seed, the scan cache held the same two wallets at height 975,861, wit
 5. **The dashboard's page cache fills the 1 GiB cgroup limit during the import.** Anon memory stays under 300 MiB, and the kernel reclaimed the cache; nothing failed.
 6. **The index directory was 0755, not 0700.** A Docker volume mount point already exists, so `MkdirAll` left its mode alone. The dashboard now sets 0700 when it opens the index.
 
+## After the seed
+
+Measured on the same host on 2026-11-15, after the seed.
+
+- **Memory while following blocks.** At 05:30Z the dashboard cgroup held 13 MiB anon and 31 MiB in total.
+- **Restart.** The host was powered off from 05:36 to 06:29Z to renew its thermal paste.
+  - bitcoind shut down cleanly in 7 s.
+  - After boot, bitcoind finished loading 17 s after it started, with no reindex.
+  - The index logged `catching_up` and then `ready` 21 s after the dashboard started, with no re-seed.
+- **New block to wallet refresh.** This covers the 96 blocks from 06:31 to 19:00Z, measured from bitcoind's `UpdateTip` time to the first wallet refresh at that height.
+  - The median was 19 s and the p90 was 63 s.
+  - The index answered first for 46 blocks: median 20 s, max 30 s, with lookups taking a median of 0.197 s.
+  - The other 50 fell back to the scan cache's block update: median 13 s, max 126 s, with updates taking a median of 4.2 s.
+  - The likely cause, inferred from the timing and not yet confirmed: the fallback happens when the wallet refresh runs before the index's 10 s follow poll has applied the block.
+- **Temperature after the repaste.** At 18:53Z, with Bitcoin, Monero and Tari all running (Tari at 25% CPU, load average 0.3 to 1.0), the hottest zone was sampled 30 times over 5 minutes.
+  - Readings ranged from 63 to 87 C, with a mean of 68.2 C and a median of 66 C.
+  - 26 of the 30 were at or below the 72 C resume point.
+  - Before the repaste, ADR section 5 records 73 C at a load average of 0.5.
+
 ## Not tested
 
-- The seed with all chains running. Tari was stopped, so whether a paused seed resumes while mini-1 idles at 73 C is still open.
+- The seed with all chains running. Tari was stopped, so whether a paused seed resumes with every chain running is still open. With every chain running, mini-1 read 73 C before its repaste. After it, the median was 66 C, with short spikes to 87 C.
 - A cancel or a stop during a real paused write.
 - The stack throttle firing during a dump.
 - Any host other than mini-1.
