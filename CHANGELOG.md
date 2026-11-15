@@ -26,6 +26,9 @@ All notable changes to this project are documented here. Format follows
   the same row labels ("Version:", "RPC:", "gRPC:" for Tari), and the same
   uptime, connection, size, sync progress and mempool formats. The Bitcoin badge
   no longer shows the prune target, and Monero's footer shows the stack version.
+- Zcash runs Zakura 1.8.8 (from 1.8.6). It keeps the same end-of-support
+  height, block 3,643,309 (around 2026-12-03), so a later Zakura is still needed
+  before then.
 
 ### Fixed
 
