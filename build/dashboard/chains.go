@@ -192,7 +192,6 @@ type zcashBlockchainInfo struct {
 	EstimatedHeight      int64   `json:"estimatedheight"`
 	BestBlockHash        string  `json:"bestblockhash"`
 	VerificationProgress float64 `json:"verificationprogress"`
-	Pruned               bool    `json:"pruned"`
 	SizeOnDisk           int64   `json:"size_on_disk"`
 }
 

@@ -24,7 +24,7 @@ func TestHardCodedPrunedModesMatchProductConfig(t *testing.T) {
 			t.Fatalf("%s must use pruned storage: dashboard reports Zcash as pruned", name)
 		}
 	}
-	if !strings.Contains(read("configure.sh"), "'' | 0 | *[!0-9]*) echo \"tari.pruning_horizon must be a positive whole number.\"") {
+	if !strings.Contains(read("configure.sh"), "case \"$tari_pruning_horizon\" in '' | 0 | *[!0-9]*)") {
 		t.Fatal("configure.sh must reject tari.pruning_horizon 0: dashboard reports Tari as pruned")
 	}
 }
