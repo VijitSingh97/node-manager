@@ -20,6 +20,12 @@ All notable changes to this project are documented here. Format follows
 - Operator docs for the measured seed budget, the "Needs a new seed" causes,
   upgrades, and removing the index and its volume by hand.
 
+### Changed
+
+- Zcash runs Zakura 1.8.8 (from 1.8.6). It keeps the same end-of-support
+  height, block 3,643,309 (around 2026-12-03), so a later Zakura is still needed
+  before then.
+
 ### Fixed
 
 - The balance index directory is restricted to 0700 even when it is an existing
