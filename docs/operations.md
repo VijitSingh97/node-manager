@@ -341,7 +341,8 @@ Removing the index:
    `sudo node-manager utxo-index remove` on APT. It prints the volume name and
    asks for `y`; pass `-y` to skip the prompt. It refuses while the option is
    still on or a container still mounts the volume, and says so when there is
-   nothing to remove.
+   nothing to remove. On Linux, `df -h /var/lib/docker` before and after shows
+   the space it frees.
 
 By hand, the volume is `docker volume rm <project>_utxo_index`, where the
 project is `COMPOSE_PROJECT_NAME` in the state directory's `.env`
