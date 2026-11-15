@@ -89,6 +89,11 @@ a later scan fails, a prior confirmed amount remains visible as **Stale** or
 **Error**; an unverified failure is never displayed as a zero balance. Saved
 snapshot charts and watch lists survive dashboard restarts.
 
+A Bitcoin Cash balance index is not planned, by the owner's decision on
+2026-11-15 (#239). A pruned Bitcoin Cash node keeps answering with
+`scantxoutset`. There is no archival resync, and no parse of a stopped
+chainstate copy.
+
 Fresh state includes two sourced public examples:
 
 - **Linux Mint** for Litecoin, from its
