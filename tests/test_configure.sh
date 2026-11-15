@@ -758,6 +758,7 @@ cmp -s "$utxo/baseline.env" "$utxo/.env" || fail "utxo_index=false changed the r
 printf '%s\n' '{"dashboard":{"password":"configuretest12"},"bitcoin":{"utxo_index":true}}' >"$utxo/config.json"
 (cd "$utxo" && ./configure.sh) >"$utxo/out.log" || fail "utxo_index=true failed"
 grep -q 'bitcoind is not restarted' "$utxo/out.log" || fail "enabling utxo_index did not tell the user what apply changes"
+grep -q 'about 20 minutes.*7.5 GiB.*17 GiB' "$utxo/out.log" || fail "enabling utxo_index did not print the seed time and disk use"
 base_compose=$(sed -n 's/^COMPOSE_FILE=//p' "$utxo/baseline.env")
 grep -qx "COMPOSE_FILE=$base_compose:docker-compose.utxo-index.yml" "$utxo/.env" || fail "utxo_index=true did not add only the overlay"
 [ "$(diff "$utxo/baseline.env" "$utxo/.env" | grep -c '^>')" = 1 ] || fail "utxo_index=true changed more than COMPOSE_FILE"

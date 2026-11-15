@@ -359,8 +359,9 @@ utxo_seed() {
   done
   cat <<EOF
 Seeding the Bitcoin balance index
-  - Bitcoin RPC fails for about 5 minutes, then stays degraded for about 5 more; allow at least 15 minutes in total.
-  - 27 GB of free space is needed for the index.
+  - Takes about 20 minutes, longer if heat pauses it.
+  - Bitcoin RPC stops answering for about 5 minutes, then answers slowly until the seed ends.
+  - The index takes about 7.5 GiB afterwards and up to about 17 GiB while it runs; 27 GB of free space is needed.
   - Node-down alerts are held for up to 15 minutes; the dashboard shows when they resume.
   - Pause other heavy chains (for example Tari) first.
   - Cancel with: $stack_command utxo-seed cancel
@@ -477,6 +478,53 @@ EOF
   esac
 }
 
+utxo_index_remove() {
+  local assume_yes=0
+  if [ "${1:-}" = -y ] && [ $# = 1 ]; then
+    assume_yes=1
+  elif [ $# != 0 ]; then
+    echo "Usage: $stack_command utxo-index remove [-y]" >&2
+    return 1
+  fi
+  if utxo_seed_overlay_enabled; then
+    echo "bitcoin.utxo_index is still on. Set it to false in config.json and run $stack_command apply first." >&2
+    return 1
+  fi
+  local volume=${project_name}_utxo_index
+  local listed
+  listed=$(docker volume ls -q --filter "name=$volume") || {
+    echo "Could not list Docker volumes. Is Docker running?" >&2
+    return 1
+  }
+  printf '%s\n' "$listed" | grep -qxF "$volume" || {
+    echo "Nothing to remove: volume $volume does not exist."
+    return 0
+  }
+  if [ -n "$(docker ps -aq --filter "volume=$volume" 2>/dev/null)" ]; then
+    echo "A container still mounts $volume. Run $stack_command apply so the dashboard is recreated without it." >&2
+    return 1
+  fi
+  echo "This permanently removes the balance index volume $volume."
+  if [ "$assume_yes" != 1 ]; then
+    [ -t 0 ] || [ "${BITCOIN_STACK_INTERACTIVE:-0}" = 1 ] || {
+      echo "Run this on a terminal, or pass -y." >&2
+      return 1
+    }
+    local reply
+    printf 'Remove it? [y/N] '
+    read -r reply || true
+    case "$reply" in
+      y | Y) ;;
+      *)
+        echo "Not removed."
+        return 1
+        ;;
+    esac
+  fi
+  docker volume rm "$volume" >/dev/null || return 1
+  echo "Removed $volume. Turning bitcoin.utxo_index on again starts not_seeded and needs a new $stack_command utxo-seed."
+}
+
 utxo_unpark_dump() {
   utxo_seed_overlay_enabled || return 0
   local arg hit=1 methods
@@ -525,6 +573,7 @@ Usage: $stack_command <command> [args]
   backup                     Save config, credentials, and onion keys to backups/
   restore [-y] <archive>     Restore a backup archive (prompts before overwrite)
   utxo-seed [-y | cancel]    Seed or cancel the Bitcoin balance index (needs bitcoin.utxo_index)
+  utxo-index remove [-y]     Delete the balance index volume (needs bitcoin.utxo_index off and applied)
   help                       This text
 EOF
 }
@@ -1566,6 +1615,14 @@ case "$cmd" in
   backup) guard_package_containers && do_backup ;;
   restore) guard_package_containers && do_restore "$@" ;;
   utxo-seed) guard_package_containers && utxo_seed "$@" ;;
+  utxo-index)
+    [ "${1:-}" = remove ] || {
+      echo "Usage: $stack_command utxo-index remove [-y]" >&2
+      exit 1
+    }
+    shift
+    guard_package_containers && utxo_index_remove "$@"
+    ;;
   help | --help | -h) usage ;;
   *)
     echo "Unknown command: $cmd"

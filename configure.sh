@@ -639,7 +639,7 @@ compose_file=docker-compose.yml
 [ "$zcash_rpc_expose" = "1" ] && compose_file=$compose_file:docker-compose.zcash-rpc.yml
 if [ "$utxo_index" = "1" ]; then
   compose_file=$compose_file:docker-compose.utxo-index.yml
-  echo "bitcoin.utxo_index is on: ./stack apply recreates the dashboard with a utxo_index volume, a 1g memory limit and 0.5 CPU. bitcoind is not restarted."
+  echo "bitcoin.utxo_index is on: ./stack apply recreates the dashboard with a utxo_index volume, a 1g memory limit and 0.5 CPU. bitcoind is not restarted. The first seed takes about 20 minutes and the index uses about 7.5 GiB, up to about 17 GiB while it seeds."
 fi
 compose_profiles=
 append_profile() { [ -z "$compose_profiles" ] || compose_profiles=$compose_profiles,; compose_profiles=${compose_profiles}$1; }

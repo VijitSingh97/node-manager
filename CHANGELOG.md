@@ -13,10 +13,33 @@ All notable changes to this project are documented here. Format follows
   connections over Tor**. Each saves `config.json` (`network.clearnet_over_tor`,
   `network.inbound_connections`) and restarts the affected nodes, rolling back
   if the restart fails.
+- `./stack utxo-index remove [-y]` deletes the balance index volume after
+  `bitcoin.utxo_index` is off and applied. It asks first, and refuses while the
+  option is on or a container still mounts the volume.
+- With the balance index off on a pruned Bitcoin node, the dashboard shows a
+  one-line hint naming `bitcoin.utxo_index` and `docs/watch-only.md`. Unpruned
+  nodes see nothing.
 - With the Bitcoin balance index on, a wallet row whose balance came from the
   index says "From the balance index", the index card says balances are
   confirmed only, and each seed phase change is logged once.
-- The balance index logs its state once at startup, not only on later changes.
+- The balance index logs its state once at startup, not only on later changes,
+  and logs seed progress once per 10 percent step.
+- The seed warning (`./stack utxo-seed`, the dashboard card and `configure.sh`)
+  gives the measured duration of about 20 minutes, that Bitcoin RPC stops
+  answering for about 5 minutes and then answers slowly, and the disk use of
+  about 7.5 GiB, up to about 17 GiB while seeding.
+- Operator docs for the measured seed budget, the "Needs a new seed" causes,
+  upgrades, and removing the index and its volume by hand.
+
+### Changed
+
+- All seven Node Status panels use the same pruning badge ("Pruned" or "Full"),
+  the same row labels ("Version:", "RPC:", "gRPC:" for Tari), and the same
+  uptime, connection, size, sync progress and mempool formats. The Bitcoin badge
+  no longer shows the prune target, and Monero's footer shows the stack version.
+- Zcash runs Zakura 1.8.8 (from 1.8.6). It keeps the same end-of-support
+  height, block 3,643,309 (around 2026-12-03), so a later Zakura is still needed
+  before then.
 
 ### Changed
 
@@ -50,6 +73,8 @@ All notable changes to this project are documented here. Format follows
 
 ### Fixed
 
+- Monero no longer shows "Full" on a pruned node, and Tari no longer shows
+  "Pruning unknown" before its first prune; both always run pruned and now say so.
 - The balance index directory is restricted to 0700 even when it is an existing
   Docker volume mount point; on a package install it was left at 0755. Its
   contents are public chain data, but the docs promised 0700.

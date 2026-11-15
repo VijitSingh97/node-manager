@@ -213,7 +213,7 @@ grep -q "Sync Progress" <<<"$body" || fail "dashboard never rendered live stats"
 grep -q "Pruned" <<<"$body" || fail "dashboard missing pruned badge on a pruned node"
 dashboard_monero=$(curl --noproxy '*' -sf -u admin:e2eDashboardSharedPassword123 "$dashboard_url/api/monero") ||
   fail "dashboard Monero health API was unavailable"
-printf '%s' "$dashboard_monero" | jq -e '.enabled == true and .available == true and (.version | length > 0) and .uptime_seconds > 0 and (.pruned | type == "boolean")' >/dev/null ||
+printf '%s' "$dashboard_monero" | jq -e '.enabled == true and .available == true and (.version | length > 0) and .uptime_seconds > 0 and .pruned == true' >/dev/null ||
   fail "dashboard Monero health API omitted unrestricted node fields"
 
 wallet_fail() {

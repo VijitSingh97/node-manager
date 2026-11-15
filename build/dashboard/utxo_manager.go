@@ -94,6 +94,7 @@ type utxoManager struct {
 	indexTip     *uint32
 	seeding      bool
 	seedProgress *float64
+	seedLogged   int
 	phase        string
 	refusals     []seedRefusal
 	seed         utxoSeedState
@@ -113,6 +114,7 @@ type utxoIndexStatus struct {
 	Refusals              []seedRefusal   `json:"refusals"`
 	LastSeed              *utxoSeedResult `json:"last_seed"`
 	AlertsSuppressedUntil *time.Time      `json:"alerts_suppressed_until"`
+	NodePruned            *bool           `json:"node_pruned"`
 }
 
 func newUtxoManager(dir string, fs vfs.FS, rpc utxoRPC, logger *log.Logger) *utxoManager {
@@ -354,6 +356,7 @@ func (m *utxoManager) startSeed() error {
 	}
 	zero := 0.0
 	m.seeding, m.phase, m.seedProgress, m.refusals = true, utxoPhaseWaiting, &zero, nil
+	m.seedLogged = 0
 	m.seed.SeedState, m.seed.Phase, m.seed.Progress = utxoSeedRunning, utxoPhaseWaiting, &zero
 	m.seed.StartedAt, m.seed.AlertsUntil = m.now(), time.Time{}
 	m.setLocked(utxoStateSeeding, "")
@@ -409,6 +412,10 @@ func (m *utxoManager) setSeedProgress(fraction float64) {
 		return
 	}
 	m.seedProgress = &fraction
+	if step := int(fraction*10) * 10; step > m.seedLogged {
+		m.seedLogged = step
+		m.log.Printf("utxo index: seed progress=%d%%", step)
+	}
 	if m.seed.Progress == nil || int(fraction*100) != int(*m.seed.Progress*100) {
 		m.seed.Progress = &fraction
 		m.persistSeedLocked()
@@ -639,6 +646,15 @@ func (m *utxoManager) invalidate(reason string) {
 	m.set(utxoStateInvalid, reason)
 }
 
-func (a *app) apiUtxoIndex(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, a.utxo.Status())
+func (a *app) apiUtxoIndex(w http.ResponseWriter, r *http.Request) {
+	st := a.utxo.Status()
+	if st.State == utxoStateOff && !a.cfg.bitcoinDisabled {
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+		var chain blockchainInfo
+		if a.rpc.call(ctx, "getblockchaininfo", nil, &chain) == nil {
+			st.NodePruned = &chain.Pruned
+		}
+	}
+	writeJSON(w, st)
 }

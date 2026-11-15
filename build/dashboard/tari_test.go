@@ -76,7 +76,7 @@ func TestTariCanonicalGRPCStatusAndFreshSyncMarker(t *testing.T) {
 	node := nodeConfig{ID: nodeTari, Name: "Tari", Enabled: true, Supported: true, Protocol: "tari-grpc", RPCURL: "http://" + listener.Addr().String(), DataDir: dir}
 	a := &app{cfg: config{stateDir: dir}}
 	status, err := a.fetchTariStatus(t.Context(), node, genericNodeStatus{Enabled: true, Active: true, Supported: true})
-	if err != nil || !status.Available || !status.Synced || !status.Pruned || !status.PrunedAvailable || status.Height != 123 || status.Version != "6.0.1-pre.0" || status.Connections != 4 || !status.ConnectionsAvailable || status.MempoolTxs != 2 || !status.MempoolTxsAvailable || status.MempoolBytesAvailable {
+	if err != nil || !status.Available || !status.Synced || !status.Pruned || !status.PrunedAvailable || status.Height != 123 || status.Version != "6.0.1-pre.0" || status.Connections != 4 || !status.ConnectionsAvailable || status.ConnectionsSplitAvailable || status.MempoolTxs != 2 || !status.MempoolTxsAvailable || status.MempoolBytesAvailable {
 		t.Fatalf("Tari status = %#v, %v", status, err)
 	}
 	if b, err := os.ReadFile(filepath.Join(dir, "tari.synced")); err != nil || string(b) != "ready\n" {
@@ -139,7 +139,7 @@ func TestTariDoesNotInventConnectionsWhenNetworkRPCFails(t *testing.T) {
 	}
 }
 
-func TestTariDoesNotInferArchiveModeFromZeroPrunedHeight(t *testing.T) {
+func TestTariReportsPrunedModeBeforeAnythingIsPruned(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -152,7 +152,7 @@ func TestTariDoesNotInferArchiveModeFromZeroPrunedHeight(t *testing.T) {
 	node := nodeConfig{ID: nodeTari, Enabled: true, Supported: true, RPCURL: "http://" + listener.Addr().String(), DataDir: dir}
 	a := &app{cfg: config{stateDir: dir}}
 	status, err := a.fetchTariStatus(t.Context(), node, genericNodeStatus{Enabled: true, Active: true, Supported: true})
-	if err != nil || status.Pruned || status.PrunedAvailable {
+	if err != nil || !status.Pruned || !status.PrunedAvailable {
 		t.Fatalf("zero-pruned-height Tari status = %#v, %v", status, err)
 	}
 }

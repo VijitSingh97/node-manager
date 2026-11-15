@@ -73,8 +73,10 @@ required. The key cannot spend, but it reveals wallet funds and history.
 Panels share sync progress, block height, peers, disk space,
 endpoint status, and price fields. A value the native daemon cannot supply is
 shown as unavailable rather than estimated or copied from another chain. Tari
-does not report an uptime or fee estimate through its status API; a zero pruned
-height leaves its pruning status unknown until pruning has occurred.
+does not report an uptime or fee estimate through its status API. Every panel
+shows the same badge, "Pruned" or "Full", for the mode the node runs in. Monero,
+Tari and Zcash always run pruned, so they always read "Pruned"; Bitcoin,
+Litecoin, Dogecoin and Bitcoin Cash show what the daemon reports.
 
 Fee estimates retain their native units: Litecoin uses litoshi/vB, Dogecoin uses
 DOGE/kB, and Bitcoin Cash uses sat/B. Bitcoin Cash reports one general estimate;
@@ -114,7 +116,7 @@ back to an external block explorer.
 ### Zakura end of support
 
 Every Zakura release halts on Mainnet once the chain tip passes a fixed last
-supported height. Zakura 1.8.6 and 1.8.7 stop above block 3,643,309, about
+supported height. Zakura 1.8.6 to 1.8.8 stop above block 3,643,309, about
 2026-12-03 to 2026-12-05 because the halt follows block height. The container
 then stays down after its five restarts until the image is upgraded; the data
 directory is not touched.

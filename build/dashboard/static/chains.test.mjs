@@ -34,12 +34,17 @@ test('the first active catalog result refreshes node status',()=>{
 });
 test('new chain panels distinguish unavailable data from real zero values',()=>{
   for(const id of ['tari','litecoin','dogecoin','bitcoincash','zcash']) assert.equal(normalizeNode(id),id);
-  const view=genericNodeView({enabled:true,available:true,height:100,target_height:200,sync_percent:50,connections_available:false,pruned_available:false,mempool_txs_available:false},'Tari');
+  const view=genericNodeView({enabled:true,available:true,height:100,target_height:200,sync_percent:50,connections_available:false,mempool_txs_available:false},'Tari');
   assert.equal(view.blocks,'100 / 200');
   assert.equal(view.progress,50);
   assert.equal(view.connections,'—');
-  assert.equal(view.badge,'Pruning unknown');
+  assert.equal(view.badge,'Full');
   assert.equal(view.mempool,'—');
+  const peers=(extra)=>genericNodeView({enabled:true,available:true,connections_available:true,...extra},'Tari').connections;
+  assert.equal(peers({connections:5}),'5 total');
+  assert.equal(peers({connections:0,connections_split_available:true}),'0 in · 0 out');
+  assert.equal(peers({connections:3,connections_split_available:true,incoming_connections:1,outgoing_connections:2}),'1 in · 2 out');
+  assert.equal(genericNodeView({enabled:true,available:true,pruned:true},'Tari').badge,'Pruned');
   assert.equal(genericNodeView({enabled:true,available:true,mempool_txs:0,mempool_txs_available:true},'Litecoin').mempool,'0 tx');
 });
 test('the bouquet fits its canvas and staggers node heights instead of lining them up',()=>{

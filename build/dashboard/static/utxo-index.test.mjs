@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { indexView, SEED_COMMAND, SEED_WARNING, CONFIRMED_ONLY } from "./utxo-index.js";
+import { indexView, offHint, OFF_HINT, OFF_HINT_DOCS, SEED_COMMAND, SEED_WARNING, CONFIRMED_ONLY } from "./utxo-index.js";
 
 test("every endpoint state renders its label, and the confirmed-only row is always present", () => {
   const cases = [
@@ -36,7 +36,9 @@ test("an unseeded index shows the host command, the warning and every refusal", 
   });
   assert.equal(view.command, SEED_COMMAND);
   assert.equal(view.warning, SEED_WARNING);
-  assert.match(view.warning, /at least 15 minutes/);
+  assert.match(view.warning, /about 20 minutes/);
+  assert.match(view.warning, /stops answering for about 5 minutes/);
+  assert.match(view.warning, /7\.5 GiB.*17 GiB/);
   assert.match(view.warning, /27 GB/);
   assert.deepEqual(view.refusals, ["thermal: hottest zone 80 C is above 75 C", "free_space: 3.0 GB free, 27 GB needed"]);
   assert.equal(view.progress, null);
@@ -64,4 +66,17 @@ test("a failed or cancelled last seed is reported; a ready index shows no comman
   assert.deepEqual(ready.rows, ["Index: Ready", CONFIRMED_ONLY]);
   assert.equal(ready.command, "");
   assert.equal(ready.warning, "");
+});
+
+test("the off hint shows only for an off index on a pruned node", () => {
+  assert.equal(offHint({ enabled: false, state: "off", node_pruned: true }), OFF_HINT);
+  assert.match(OFF_HINT, /bitcoin\.utxo_index/);
+  assert.match(OFF_HINT_DOCS, /^https:\/\/github\.com\/.*docs\/watch-only\.md$/);
+  assert.equal(offHint({ enabled: false, state: "off", node_pruned: false }), "");
+  assert.equal(offHint({ enabled: false, state: "off", node_pruned: null }), "");
+  assert.equal(offHint({ enabled: false, state: "off" }), "");
+  assert.equal(offHint(null), "");
+  assert.equal(offHint({ enabled: true, state: "ready", node_pruned: true }), "");
+  assert.equal(indexView({ enabled: false, state: "off", node_pruned: true }), null);
+  assert.equal(indexView({ enabled: true, state: "ready" }).rows[0], "Index: Ready");
 });

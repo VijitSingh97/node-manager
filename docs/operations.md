@@ -243,13 +243,14 @@ host, with the stack running and the node synced:
 
 What happens:
 
-- **Warning, first.** Bitcoin RPC fails for about 5 minutes, then stays
-  degraded for about 5 more; allow at least 15 minutes in total. The index
-  volume needs 27 GB free. Node-down alerts are held from when the dashboard
-  starts the dump, for up to 15 minutes, and then resume normally; a
-  successful seed ends the hold early, a failed or cancelled one keeps it to
-  the cap because Core may still be hashing. Pause other heavy chains (for
-  example Tari) first.
+- **Warning, first.** The seed takes about 20 minutes, longer if heat pauses
+  it. Bitcoin RPC stops answering for about 5 minutes, then answers slowly
+  until the seed ends. The index takes about 7.5 GiB afterwards and up to about
+  17 GiB while it runs; the volume needs 27 GB free. Node-down alerts are held
+  from when the dashboard starts the dump, for up to 15 minutes, and then
+  resume normally; a successful seed ends the hold early, a failed or cancelled
+  one keeps it to the cap because Core may still be hashing. Pause other heavy
+  chains (for example Tari) first.
 - **Checks.** The command refuses if `getrpcinfo` shows a `dumptxoutset` or
   `scantxoutset` already running. The dashboard then lists every failed
   precondition in `refusals` on `/api/utxo-index` and on the dashboard card:
@@ -258,6 +259,11 @@ What happens:
   node, no other dump or scan, no running watch scan, and a bitcoin data
   directory owned by the dashboard user (both containers run as uid 1000). The
   seed runs on Linux only.
+- **No watchdog.** Before you start, make sure nothing on the host restarts
+  unhealthy containers on its own, such as an autoheal-style watchdog. Compose
+  marks bitcoind unhealthy for about 2.5 minutes during the dump, and a restart
+  ends the seed. The stack itself never does this (see
+  [Self-healing](#self-healing-a-deliberate-non-feature)).
 - **Dump.** The command removes any stale `utxo-seed.dat*` in the bitcoin data
   directory, creates the FIFO `utxo-seed.dat.incomplete` there, and writes a
   single-use request into the dashboard state volume (stale after 120
@@ -275,6 +281,77 @@ What happens:
   new blocks from there. A cancel, an error, a dump that does not match the
   `dumptxoutset` result, or a dashboard restart during the seed discards the
   partial index and records `last_seed`; start again with the same command.
+
+Measured budget, from the first mainnet seed on a 2018 Mac mini with bitcoind
+capped at 0.5 CPU and the Tari base node stopped (see
+[the measurement](measurements/utxo-seed-mainnet.md)):
+
+- **Time.** 1179 s (19.7 minutes), including 8 heat pauses during the write
+  phase; each resumed. The peak was 86 C and the 88 C stack throttle never
+  fired. The index was ready 10 seconds after the seed.
+- **Bitcoin RPC.** Failed for about 306 s, then answered every sample at a mean
+  of 106 ms against about 70 ms before the seed.
+- **Disk.** 7.5 GiB (7,635 MiB) at the end and at least 16.7 GiB (17,117 MiB)
+  at the peak, during the merge. The 27 GB free check is unchanged.
+- **Dashboard memory.** Anonymous memory peaked at 289 MiB. The page cache
+  fills the 1 GiB limit during the import and is reclaimed; that is expected
+  and nothing is killed. While following blocks the dashboard used 13 MiB
+  anonymous and 31 MiB in total.
+- **Not measured.** A seed with every chain running. With every chain running
+  that host read 73 C, above the 72 C resume point. After its thermal paste
+  was renewed it reads a median of 66 C, with short spikes to 87 C. On a host
+  that stays above 72 C, a paused seed may not resume until other chains are
+  stopped.
+
+When the card says "Needs a new seed" (`invalid`), balances come from the scan
+and nothing re-seeds on its own. Run `./stack utxo-seed`; it resets the store
+first. The reason is on the card and in `reason` on `/api/utxo-index`. The
+causes are:
+
+- the index format version changed (schema or Pebble format), or its metadata
+  or tip cannot be read;
+- the index was built for a different chain;
+- a block does not fit the index, a spent coin is missing, or another integrity
+  or follower error;
+- a reorg deeper than the undo journal;
+- the write failed because the disk is full while following; below 2 GB free
+  the index only pauses and reports `degraded`;
+- the index fell behind the blocks the pruned node still retains;
+- the index directory cannot be created or the store cannot be opened.
+
+Upgrades:
+
+- With the option off, nothing changes at runtime.
+- Turning it on adds the volume and the dashboard limits, and the index starts
+  `not_seeded`.
+- A later release that changes the index format makes the index invalid on
+  start. There is no silent migration; re-seed.
+- Rolling the dashboard back to an older image may find an index it cannot
+  read. The dashboard then reports `invalid` ("cannot open the index store" or
+  a format version reason), the scan answers, and a new seed resets the store.
+
+Removing the index:
+
+1. Set `bitcoin.utxo_index` to false in `config.json`.
+2. Apply it: `./stack apply` from source, `node-manager apply` on Homebrew,
+   `sudo node-manager apply` on APT. This recreates the dashboard without the
+   volume; bitcoind is not restarted.
+3. Remove the volume: `./stack utxo-index remove` from source,
+   `node-manager utxo-index remove` on Homebrew,
+   `sudo node-manager utxo-index remove` on APT. It prints the volume name and
+   asks for `y`; pass `-y` to skip the prompt. It refuses while the option is
+   still on or a container still mounts the volume, and says so when there is
+   nothing to remove. On Linux, `df -h /var/lib/docker` before and after shows
+   the space it frees.
+
+By hand, the volume is `docker volume rm <project>_utxo_index`, where the
+project is `COMPOSE_PROJECT_NAME` in the state directory's `.env`
+(`/var/lib/node-manager/.env` on APT).
+
+Removing the volume cannot be undone. If you turn the option on again over a
+kept volume, the index resumes following from its stored tip, or becomes
+invalid if it fell behind the node's retained blocks. After the volume is
+removed it starts `not_seeded`.
 
 Recovery:
 

@@ -109,11 +109,11 @@ export function genericNodeView(data, label = "Node") {
   const connections = Math.max(0, Math.floor(Number(data.connections) || incoming + outgoing));
   return {
     state: data.synced ? "Synced" : `Synchronizing the ${label} blockchain...`,
-    badge: data.pruned_available === false ? "Pruning unknown" : data.pruned ? "Pruned" : "Full",
+    badge: data.pruned ? "Pruned" : "Full",
     details: true,
     version: String(data.version || "—"),
     uptime: data.uptime_available ? formatUptime(data.uptime_seconds) : "—",
-    connections: data.connections_available === false ? "—" : incoming || outgoing ? `${incoming} in · ${outgoing} out` : String(connections),
+    connections: data.connections_available === false ? "—" : data.connections_split_available === true ? `${incoming} in · ${outgoing} out` : `${connections} total`,
     blocks: `${height} / ${target}`,
     progress,
     size: data.database_size_available ? formatBytes(data.database_size_bytes) : "—",

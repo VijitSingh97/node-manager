@@ -125,50 +125,51 @@ func internalNodeHost(host string) bool {
 }
 
 type genericNodeStatus struct {
-	Enabled               bool     `json:"enabled"`
-	Active                bool     `json:"active"`
-	Supported             bool     `json:"supported"`
-	Available             bool     `json:"available"`
-	Synced                bool     `json:"synced"`
-	Height                int64    `json:"height"`
-	TargetHeight          int64    `json:"target_height"`
-	SyncPercent           float64  `json:"sync_percent"`
-	Version               string   `json:"version"`
-	UptimeSeconds         int64    `json:"uptime_seconds"`
-	UptimeAvailable       bool     `json:"uptime_available"`
-	Connections           int64    `json:"connections"`
-	ConnectionsAvailable  bool     `json:"connections_available"`
-	IncomingConnections   int64    `json:"incoming_connections"`
-	OutgoingConnections   int64    `json:"outgoing_connections"`
-	Pruned                bool     `json:"pruned"`
-	PrunedAvailable       bool     `json:"pruned_available"`
-	DatabaseSizeBytes     int64    `json:"database_size_bytes"`
-	DatabaseSizeAvailable bool     `json:"database_size_available"`
-	MempoolTxs            int64    `json:"mempool_txs"`
-	MempoolTxsAvailable   bool     `json:"mempool_txs_available"`
-	MempoolBytes          int64    `json:"mempool_bytes"`
-	MempoolBytesAvailable bool     `json:"mempool_bytes_available"`
-	LatestBlockTimestamp  int64    `json:"latest_block_timestamp"`
-	LatestBlockAgeSeconds int64    `json:"latest_block_age_seconds"`
-	LatestBlockAvailable  bool     `json:"latest_block_available"`
-	EndOfSupportHeight    int64    `json:"end_of_support_height,omitempty"`
-	EndOfSupportRemaining int64    `json:"end_of_support_remaining_blocks,omitempty"`
-	EndOfSupportWarning   bool     `json:"end_of_support_warning,omitempty"`
-	FeeEstimates          []string `json:"fee_estimates,omitempty"`
-	FeeUnit               string   `json:"fee_unit,omitempty"`
-	FeesAvailable         bool     `json:"fees_available"`
-	DiskTotalBytes        uint64   `json:"disk_total_bytes"`
-	DiskFreeBytes         uint64   `json:"disk_free_bytes"`
-	DiskAvailable         bool     `json:"disk_available"`
-	RPCExposureEnabled    bool     `json:"rpc_exposure_enabled"`
-	RPCEndpoint           string   `json:"rpc_endpoint"`
-	WalletViewSupported   bool     `json:"wallet_view_supported"`
-	WalletViewReason      string   `json:"wallet_view_reason,omitempty"`
-	SteadyCPUs            float64  `json:"steady_cpus"`
-	SteadyMemLimitMB      int64    `json:"steady_mem_limit_mb"`
-	ResourceProfile       string   `json:"resource_profile"`
-	Error                 string   `json:"error"`
-	UpdatedAt             int64    `json:"updated_at"`
+	Enabled                   bool     `json:"enabled"`
+	Active                    bool     `json:"active"`
+	Supported                 bool     `json:"supported"`
+	Available                 bool     `json:"available"`
+	Synced                    bool     `json:"synced"`
+	Height                    int64    `json:"height"`
+	TargetHeight              int64    `json:"target_height"`
+	SyncPercent               float64  `json:"sync_percent"`
+	Version                   string   `json:"version"`
+	UptimeSeconds             int64    `json:"uptime_seconds"`
+	UptimeAvailable           bool     `json:"uptime_available"`
+	Connections               int64    `json:"connections"`
+	ConnectionsAvailable      bool     `json:"connections_available"`
+	IncomingConnections       int64    `json:"incoming_connections"`
+	OutgoingConnections       int64    `json:"outgoing_connections"`
+	ConnectionsSplitAvailable bool     `json:"connections_split_available"`
+	Pruned                    bool     `json:"pruned"`
+	PrunedAvailable           bool     `json:"pruned_available"`
+	DatabaseSizeBytes         int64    `json:"database_size_bytes"`
+	DatabaseSizeAvailable     bool     `json:"database_size_available"`
+	MempoolTxs                int64    `json:"mempool_txs"`
+	MempoolTxsAvailable       bool     `json:"mempool_txs_available"`
+	MempoolBytes              int64    `json:"mempool_bytes"`
+	MempoolBytesAvailable     bool     `json:"mempool_bytes_available"`
+	LatestBlockTimestamp      int64    `json:"latest_block_timestamp"`
+	LatestBlockAgeSeconds     int64    `json:"latest_block_age_seconds"`
+	LatestBlockAvailable      bool     `json:"latest_block_available"`
+	EndOfSupportHeight        int64    `json:"end_of_support_height,omitempty"`
+	EndOfSupportRemaining     int64    `json:"end_of_support_remaining_blocks,omitempty"`
+	EndOfSupportWarning       bool     `json:"end_of_support_warning,omitempty"`
+	FeeEstimates              []string `json:"fee_estimates,omitempty"`
+	FeeUnit                   string   `json:"fee_unit,omitempty"`
+	FeesAvailable             bool     `json:"fees_available"`
+	DiskTotalBytes            uint64   `json:"disk_total_bytes"`
+	DiskFreeBytes             uint64   `json:"disk_free_bytes"`
+	DiskAvailable             bool     `json:"disk_available"`
+	RPCExposureEnabled        bool     `json:"rpc_exposure_enabled"`
+	RPCEndpoint               string   `json:"rpc_endpoint"`
+	WalletViewSupported       bool     `json:"wallet_view_supported"`
+	WalletViewReason          string   `json:"wallet_view_reason,omitempty"`
+	SteadyCPUs                float64  `json:"steady_cpus"`
+	SteadyMemLimitMB          int64    `json:"steady_mem_limit_mb"`
+	ResourceProfile           string   `json:"resource_profile"`
+	Error                     string   `json:"error"`
+	UpdatedAt                 int64    `json:"updated_at"`
 }
 
 type familyBlockchainInfo struct {
@@ -191,7 +192,6 @@ type zcashBlockchainInfo struct {
 	EstimatedHeight      int64   `json:"estimatedheight"`
 	BestBlockHash        string  `json:"bestblockhash"`
 	VerificationProgress float64 `json:"verificationprogress"`
-	Pruned               bool    `json:"pruned"`
 	SizeOnDisk           int64   `json:"size_on_disk"`
 }
 
@@ -265,7 +265,7 @@ func (a *app) fetchZcashStatus(ctx context.Context, node nodeConfig, status gene
 	} else if status.TargetHeight > 0 {
 		status.SyncPercent = min(100, float64(status.Height)/float64(status.TargetHeight)*100)
 	}
-	status.Pruned, status.PrunedAvailable = chain.Pruned, true
+	status.Pruned, status.PrunedAvailable = true, true
 	status.DatabaseSizeBytes, status.DatabaseSizeAvailable = chain.SizeOnDisk, chain.SizeOnDisk > 0
 	var network networkInfo
 	if rpc.call(ctx, "getnetworkinfo", nil, &network) == nil {
@@ -274,6 +274,7 @@ func (a *app) fetchZcashStatus(ctx context.Context, node nodeConfig, status gene
 	var peers []peerInfo
 	if rpc.call(ctx, "getpeerinfo", nil, &peers) == nil {
 		status.ConnectionsAvailable = true
+		status.ConnectionsSplitAvailable = true
 		for _, peer := range peers {
 			if peer.Inbound {
 				status.IncomingConnections++
@@ -365,6 +366,7 @@ func (a *app) writeBitcoinFamilyStatus(w http.ResponseWriter, r *http.Request, n
 	var peers []peerInfo
 	if rpc.call(ctx, "getpeerinfo", nil, &peers) == nil {
 		status.ConnectionsAvailable = true
+		status.ConnectionsSplitAvailable = true
 		for _, peer := range peers {
 			if peer.Inbound {
 				status.IncomingConnections++

@@ -495,6 +495,11 @@ case "$args" in
     echo "$rn" >"$FAKE_UTXO/rpc_n"
     if [ "$rn" -gt 1 ] && [ -n "${FAKE_RPCINFO_LATE:-}" ]; then printf '%s\n' "$FAKE_RPCINFO_LATE"; else printf '%s\n' "${FAKE_RPCINFO:-$rpcinfo}"; fi
     ;;
+  *' volume ls '*)
+    [ "${FAKE_DOCKER_FAIL:-0}" != 1 ] || exit 1
+    [ "${FAKE_VOL_MISSING:-0}" = 1 ] || echo "${args##*name=}" | tr -d ' '
+    ;;
+  *' ps -aq --filter volume='*) [ "${FAKE_VOL_MOUNTED:-0}" != 1 ] || echo dashboard-id ;;
   *'.utxo-seed.request.tmp'*) cat >"$FAKE_UTXO/request.json" ;;
   *'/state/utxo-seed.cancel'*) : >"$FAKE_UTXO/cancelled" ;;
   *' exec -T -u 1000 dashboard cat /state/utxo-seed.json '*)
@@ -536,7 +541,7 @@ chmod +x "$utxo_stub/docker"
 useed() { (cd "$utxo_dir" && HOME="$tmp" BITCOIN_STACK_UTXO_SEED_POLL_SECONDS=1 BITCOIN_STACK_UTXO_SEED_ACK_SECONDS=2 BITCOIN_STACK_UTXO_SEED_CANCEL_SECONDS=2 PATH="$utxo_stub:$stub:$PATH" ./stack "$@"); }
 reset_useed() {
   rm -f "$FAKE_UTXO/request.json" "$FAKE_UTXO/n" "$FAKE_UTXO/rpc_n" "$FAKE_UTXO/cancelled" "$FAKE_LOG"
-  unset FAKE_RPCINFO_LATE FAKE_RPCINFO FAKE_RPC_FAIL FAKE_DASH_SEEDING FAKE_DASH_STUCK FAKE_SEED_SCENARIO FAKE_BITCOIN_DOWN
+  unset FAKE_RPCINFO_LATE FAKE_RPCINFO FAKE_RPC_FAIL FAKE_DASH_SEEDING FAKE_DASH_STUCK FAKE_SEED_SCENARIO FAKE_BITCOIN_DOWN FAKE_VOL_MISSING FAKE_VOL_MOUNTED
 }
 pipe_removals() { grep -c ' rm -f /data/utxo-seed.dat /data/utxo-seed.dat.incomplete' "$FAKE_LOG" || true; }
 
@@ -545,8 +550,9 @@ useed utxo-seed -y </dev/null >"$tmp/useed.out" 2>&1 || {
   cat "$tmp/useed.out"
   fail "utxo-seed failed on the happy path"
 }
-grep -q 'at least 15 minutes' "$tmp/useed.out" || fail "utxo-seed did not print the duration warning"
-grep -q '27 GB' "$tmp/useed.out" || fail "utxo-seed did not print the disk warning"
+grep -q 'about 20 minutes' "$tmp/useed.out" || fail "utxo-seed did not print the duration warning"
+grep -q 'stops answering for about 5 minutes' "$tmp/useed.out" || fail "utxo-seed did not print the RPC warning"
+grep -q '7.5 GiB.*17 GiB.*27 GB' "$tmp/useed.out" || fail "utxo-seed did not print the disk warning"
 grep -q 'alerts are held for up to 15 minutes' "$tmp/useed.out" || fail "utxo-seed did not print the alert warning"
 grep -q 'importing 40%' "$tmp/useed.out" || fail "utxo-seed did not follow the progress"
 grep -q 'Seed finished' "$tmp/useed.out" || fail "utxo-seed did not report success"
@@ -646,6 +652,39 @@ export FAKE_RPCINFO='{"active_commands":[{"method":"dumptxoutset"}]}'
 : >"$FAKE_LOG"
 useed stop >/dev/null
 grep -q 'timeout 5 cat' "$FAKE_LOG" && fail "stop unparked a dump without the overlay"
+mv "$utxo_dir/.env.keep" "$utxo_dir/.env"
+
+# utxo-index remove: refuses while the option is on or a container mounts the volume.
+vol=$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' "$utxo_dir/.env" | tail -n 1)_utxo_index
+reset_useed
+useed utxo-index remove -y >"$tmp/useed.out" 2>&1 && fail "utxo-index remove ran with the option on"
+grep -q 'still on' "$tmp/useed.out" || fail "utxo-index remove did not explain the option is on"
+grep -q 'volume rm' "$FAKE_LOG" && fail "utxo-index remove removed the volume with the option on"
+cp "$utxo_dir/.env" "$utxo_dir/.env.keep"
+grep -v '^COMPOSE_FILE=' "$utxo_dir/.env.keep" >"$utxo_dir/.env"
+reset_useed
+FAKE_VOL_MOUNTED=1 useed utxo-index remove -y >"$tmp/useed.out" 2>&1 && fail "utxo-index remove ran while a container mounts the volume"
+grep -q 'still mounts' "$tmp/useed.out" || fail "utxo-index remove did not explain the mount"
+grep -q 'volume rm' "$FAKE_LOG" && fail "utxo-index remove removed a mounted volume"
+reset_useed
+FAKE_VOL_MISSING=1 useed utxo-index remove -y >"$tmp/useed.out" 2>&1 || fail "utxo-index remove failed with no volume"
+grep -q 'Nothing to remove' "$tmp/useed.out" || fail "utxo-index remove did not report nothing to remove"
+grep -q 'volume rm' "$FAKE_LOG" && fail "utxo-index remove removed a missing volume"
+reset_useed
+FAKE_DOCKER_FAIL=1 useed utxo-index remove -y >"$tmp/useed.out" 2>&1 && fail "utxo-index remove succeeded with docker failing"
+grep -q 'Nothing to remove' "$tmp/useed.out" && fail "utxo-index remove reported a docker failure as a missing volume"
+reset_useed
+printf 'n\n' | BITCOIN_STACK_INTERACTIVE=1 useed utxo-index remove >/dev/null 2>&1 && fail "utxo-index remove ignored a no answer"
+useed utxo-index remove </dev/null >/dev/null 2>&1 && fail "utxo-index remove ran without a terminal or -y"
+grep -q 'volume rm' "$FAKE_LOG" && fail "declined utxo-index remove removed the volume"
+useed utxo-index bogus >/dev/null 2>&1 && fail "utxo-index accepted an unknown subcommand"
+reset_useed
+useed utxo-index remove -y >"$tmp/useed.out" 2>&1 || fail "utxo-index remove -y failed"
+grep -qx "docker volume rm $vol" "$FAKE_LOG" || fail "utxo-index remove did not remove $vol"
+grep -q 'needs a new' "$tmp/useed.out" || fail "utxo-index remove did not mention re-seeding"
+reset_useed
+printf 'y\n' | BITCOIN_STACK_INTERACTIVE=1 useed utxo-index remove >/dev/null 2>&1 || fail "utxo-index remove failed after y"
+grep -qx "docker volume rm $vol" "$FAKE_LOG" || fail "utxo-index remove did not remove after y"
 mv "$utxo_dir/.env.keep" "$utxo_dir/.env"
 
 # stop, down and restart open a parked dump once; a running seed is cancelled first.

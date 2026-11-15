@@ -113,11 +113,13 @@ def fee_sat_vb(blocks):
 
 def format_uptime(seconds):
     if seconds is None or not isinstance(seconds, (int, float)):
-        return "N/A"
+        return "—"
     days, rem = divmod(int(seconds), 86400)
     hours, rem = divmod(rem, 3600)
     minutes, _ = divmod(rem, 60)
-    return f"{days}d {hours}h {minutes}m" if days > 0 else f"{hours}h {minutes}m"
+    if days > 0:
+        return f"{days}d {hours}h {minutes}m"
+    return f"{hours}h {minutes}m" if hours > 0 else f"{minutes}m"
 
 def fee_sampler_loop():
     import time
@@ -330,14 +332,13 @@ def index():
         "uptime": format_uptime(uptime_seconds),
         "blocks": blockchain.get("blocks", "N/A"),
         "headers": blockchain.get("headers", "N/A"),
-        "progress": round(blockchain.get("verificationprogress", 0) * 100, 4),
+        "progress": 100 if not blockchain.get("initialblockdownload", False) and blockchain.get("blocks") == blockchain.get("headers") else round(blockchain.get("verificationprogress", 0) * 100, 4),
         "total_peers": network.get("connections", 0) if network else 0,
         "inbound": inbound,
         "outbound": outbound,
         "pruned": blockchain.get("pruned", False),
-        "prune_target_gb": round(blockchain.get("prune_target_size", 0) / (1024**3), 1),
         "stack_version": version_label(),
-        "node_gb": round(node_bytes / (1024**3), 2),
+        "node_gb": round(node_bytes / (1024**3), 2) if node_bytes else None,
         "total_gb": round(total / (1024**3), 2),
         "free_gb": free_gb,
         "disk_warn": free_gb < DISK_WARN_FREE_GB,
@@ -374,8 +375,8 @@ def index():
         <div id="tower-stats" class="tower-stats" hidden></div>
         <div id="live" data-blocks="{{stats.blocks}}" data-next-block="{{stats.next_block}}">
         <div class="card">
-            <h2>Bitcoin Node Status<span class="badge">{% if stats.pruned %}Pruned &middot; {{stats.prune_target_gb}} GB{% else %}Full{% endif %}</span></h2>
-            <div class="row"><span class="label">Bitcoin Core:</span> <span>{{stats.version}}</span></div>
+            <h2>Bitcoin Node Status<span class="badge">{% if stats.pruned %}Pruned{% else %}Full{% endif %}</span></h2>
+            <div class="row"><span class="label">Version:</span> <span>{{stats.version}}</span></div>
             <div class="row"><span class="label">Uptime:</span> <span>{{stats.uptime}}</span></div>
             <div class="row"><span class="label">Total Connections:</span> <span>{{stats.total_peers}}</span></div>
             <div class="peer-box">
@@ -387,13 +388,13 @@ def index():
             <div class="progress-bg"><div class="progress-fill" style="width: {{stats.progress}}%"></div></div>
             <div class="row"><span class="label">Sync Progress:</span> <span>{{stats.progress}}%</span></div>
             <hr>
-            <div class="row"><span class="label">Node Data Size:</span> <span>{{stats.node_gb}} GB</span></div>
+            <div class="row"><span class="label">Node Data Size:</span> <span>{% if stats.node_gb %}{{stats.node_gb}} GB{% else %}—{% endif %}</span></div>
             <div class="row"><span class="label">Disk Capacity:</span> <span>{{stats.total_gb}} GB</span></div>
             <div class="row"><span class="label">Disk Usage:</span> <span>{{stats.disk_percent}}%</span></div>
             <div class="row"><span class="label">Disk Free:</span> <span {% if stats.disk_warn %}class="warn"{% endif %}>{{stats.free_gb}} GB{% if stats.disk_warn %} &#9888; LOW{% endif %}</span></div>
             {% if stats.show_mempool %}
             <hr>
-            <div class="row"><span class="label">Mempool:</span> <span>{{stats.mempool_txs}} tx &middot; {{stats.mempool_mb}} MB</span></div>
+            <div class="row"><span class="label">Mempool:</span> <span>{{stats.mempool_txs}} tx &middot; {{stats.mempool_mb}} MiB</span></div>
             <div class="row"><span class="label">Fee sat/vB (next/30m/1h):</span> <span>{{ stats.fee_next if stats.fee_next is not none else '—' }} / {{ stats.fee_30m if stats.fee_30m is not none else '—' }} / {{ stats.fee_hour if stats.fee_hour is not none else '—' }}</span></div>
             <div class="spark-row"><span class="label">Fee (24h)</span><canvas class="spark" id="spark-fee"></canvas></div>
             {% endif %}
