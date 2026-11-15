@@ -11,9 +11,10 @@ Please don't open public issues for security problems.
 **Protects:**
 
 - **Your IP from the Bitcoin network.** All P2P traffic goes through Tor
-  (`onlynet=onion`, `proxy=` to the tor container). No clearnet P2P
-  connections are ever made. Inbound onion service is opt-in (`inbound_onion`), disabled by default.
-  Enabling it serves peers without publishing a host P2P port.
+  (`proxy=` to the tor container). Clearnet peers are reached through Tor exit
+  relays, and `network.clearnet_over_tor: false` restricts nodes to onion peers.
+  Inbound connections (`network.inbound_connections`, on by default) arrive
+  through an onion service without publishing a host P2P port.
 - **RPC from the outside.** Node RPC ports remain internal by default. Optional LAN
   relays bind only to private host addresses; authenticated interfaces retain
   separate generated node credentials. Public and wildcard binds are rejected.

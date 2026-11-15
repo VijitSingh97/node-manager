@@ -66,7 +66,7 @@ services:
     mem_limit: ${BITCOIN_MEM_LIMIT:-0}
     cpus: ${BITCOIN_CPUS:-0}
     # tor's group (gid 101 in the tor image) — lets bitcoind read the
-    # control-auth cookie for the optional inbound onion service
+    # control-auth cookie for the inbound onion service
     group_add:
       - "101"
     environment:
@@ -75,7 +75,8 @@ services:
       RPCAUTH_HASH: ${BITCOIN_RPCAUTH_HASH:?run ./configure.sh first}
       DBCACHE: ${BITCOIN_DBCACHE:-3000}
       PRUNE: ${BITCOIN_PRUNE:-0}
-      INBOUND_ONION: ${BITCOIN_INBOUND_ONION:-0}
+      TOR_CLEARNET: ${TOR_CLEARNET:-1}
+      TOR_INBOUND: ${TOR_INBOUND:-1}
       BLOCKFILTERINDEX: ${BITCOIN_BLOCKFILTERINDEX:-0}
     volumes:
       - ${BITCOIN_DATA_DIR:-./data/bitcoin}:/data
@@ -88,6 +89,8 @@ services:
     # tor for its SOCKS listener, gets 0.0.0.0:9050, rewrites it to
     # 127.0.0.1:9050 (dead in this container), and silently overrides a
     # non-explicit onion proxy — killing all outbound onion connections.
+    # The onion bind must be this container's address: tor runs elsewhere and
+    # forwards inbound onion traffic to the ADD_ONION target.
     # The exec line must stay a single line: a YAML line break here becomes a
     # shell line break, silently dropping every flag after it (see tests/test_e2e.sh).
     entrypoint:
@@ -98,8 +101,9 @@ services:
         find /data -name 'LOCK' -delete
         RPCAUTH=$$(printf '%s:%s$$%s' "$$RPC_USER" "$$RPCAUTH_SALT" "$$RPCAUTH_HASH")
         ONION_ARGS=""
-        if [ "$$INBOUND_ONION" = "1" ]; then ONION_ARGS="-listen=1 -listenonion=1 -torcontrol=172.29.0.25:9051"; fi
-        NET_ARGS="-proxy=172.29.0.25:9050 -onion=172.29.0.25:9050 -onlynet=onion"
+        if [ "$$TOR_INBOUND" = "1" ]; then ONION_ARGS="-listen=1 -listenonion=1 -torcontrol=172.29.0.25:9051 -bind=172.29.0.26:8334=onion"; fi
+        NET_ARGS="-proxy=172.29.0.25:9050 -onion=172.29.0.25:9050"
+        if [ "$$TOR_CLEARNET" != "1" ]; then NET_ARGS="$$NET_ARGS -onlynet=onion"; fi
         exec bitcoind -datadir=/data -conf=/data/bitcoin.conf -rpcauth="$$RPCAUTH" -dbcache="$$DBCACHE" -prune="$$PRUNE" -blockfilterindex="$$BLOCKFILTERINDEX" -maxconnections=125 -inboundrelaypercent=100 $$NET_ARGS $$ONION_ARGS
     stop_signal: SIGTERM
     stop_grace_period: 5m
@@ -214,6 +218,7 @@ services:
     environment:
       WAIT_FOR_TOR: "1"
       TARI_PRUNING_HORIZON: ${TARI_PRUNING_HORIZON:-10000}
+      TOR_CLEARNET: ${TOR_CLEARNET:-1}
     volumes:
       - ${TARI_DATA_DIR:-./data/tari}:/var/tari/node
       - ${STACK_ASSET_ROOT:-.}/build/tari:/var/tari/config:ro
@@ -250,8 +255,12 @@ services:
       LITECOIN_RPC_USER: ${LITECOIN_RPC_USER:?run ./configure.sh first}
       LITECOIN_RPC_PASSWORD: ${LITECOIN_RPC_PASSWORD:?run ./configure.sh first}
       LITECOIN_PRUNE: ${LITECOIN_PRUNE:-10000}
+      TOR_CLEARNET: ${TOR_CLEARNET:-1}
+      TOR_INBOUND: ${TOR_INBOUND:-1}
+      ONION_BIND: 172.29.0.33:9334
       TOR_PROXY: 172.29.0.25:9050
-    volumes: ["${LITECOIN_DATA_DIR:-./data/litecoin}:/data"]
+    group_add: ["101"]
+    volumes: ["${LITECOIN_DATA_DIR:-./data/litecoin}:/data", "tor_data:/var/lib/tor:ro"]
     stop_grace_period: 5m
     restart: ${STACK_RESTART_POLICY:-on-failure:5}
     logging: *logging
@@ -283,6 +292,7 @@ services:
       DOGECOIN_RPC_USER: ${DOGECOIN_RPC_USER:?run ./configure.sh first}
       DOGECOIN_RPC_PASSWORD: ${DOGECOIN_RPC_PASSWORD:?run ./configure.sh first}
       DOGECOIN_PRUNE: ${DOGECOIN_PRUNE:-10000}
+      TOR_CLEARNET: ${TOR_CLEARNET:-1}
       DOGECOIN_WATCH_WALLET: ${DOGECOIN_WATCH_WALLET:-0}
       TOR_PROXY: 172.29.0.25:9050
     volumes: ["${DOGECOIN_DATA_DIR:-./data/dogecoin}:/data"]
@@ -313,7 +323,8 @@ services:
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
     cpus: ${BITCOINCASH_CPUS:-0}
-    volumes: ["${BITCOINCASH_DATA_DIR:-./data/bitcoincash}:/data"]
+    group_add: ["101"]
+    volumes: ["${BITCOINCASH_DATA_DIR:-./data/bitcoincash}:/data", "tor_data:/var/lib/tor:ro"]
     stop_grace_period: 5m
     restart: ${STACK_RESTART_POLICY:-on-failure:5}
     logging: *logging
@@ -327,6 +338,9 @@ services:
       BITCOINCASH_RPC_USER: ${BITCOINCASH_RPC_USER:?run ./configure.sh first}
       BITCOINCASH_RPC_PASSWORD: ${BITCOINCASH_RPC_PASSWORD:?run ./configure.sh first}
       BITCOINCASH_PRUNE: ${BITCOINCASH_PRUNE:-10000}
+      TOR_CLEARNET: ${TOR_CLEARNET:-1}
+      TOR_INBOUND: ${TOR_INBOUND:-1}
+      ONION_BIND: 172.29.0.35:8334
       TOR_PROXY: 172.29.0.25:9050
     networks:
       btc_net:

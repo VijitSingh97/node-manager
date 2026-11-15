@@ -1122,7 +1122,7 @@ doctor() {
   if [ "$(env_get DASHBOARD_ONION)" = "1" ]; then
     echo "      dashboard onion: $(compose exec -T tor cat /var/lib/tor/dashboard_onion/hostname 2>/dev/null || echo 'not provisioned yet')"
   fi
-  if [ "$(env_get BITCOIN_ENABLED)" != "0" ] && [ "$(env_get BITCOIN_INBOUND_ONION)" = "1" ]; then
+  if [ "$(env_get BITCOIN_ENABLED)" != "0" ] && [ "$(env_get TOR_INBOUND)" != "0" ]; then
     echo "      node onion: $(compose exec -T bitcoin bitcoin-cli -datadir=/data getnetworkinfo 2>/dev/null | jq -r '.localaddresses[0].address // "not registered yet"')"
   fi
 }

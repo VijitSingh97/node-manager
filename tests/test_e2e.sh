@@ -89,8 +89,7 @@ jq -n --arg bitcoin_data "$BITCOIN_DATA_DIR" --arg monero_data "$MONERO_DATA_DIR
       node_password: "e2eBitcoinRpcPassword123456789",
       data_dir: $bitcoin_data,
       dbcache_mb: 300,
-      prune_mb: 1000,
-      inbound_onion: true
+      prune_mb: 1000
     },
     monero: {
       enabled: true,

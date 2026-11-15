@@ -8,16 +8,43 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
+- Settings → Network has two switches that apply at any time, like the LAN
+  port toggles: **Reach clearnet peers through Tor** and **Accept incoming
+  connections over Tor**. Each saves `config.json` (`network.clearnet_over_tor`,
+  `network.inbound_connections`) and restarts the affected nodes, rolling back
+  if the restart fails.
 - With the Bitcoin balance index on, a wallet row whose balance came from the
   index says "From the balance index", the index card says balances are
   confirmed only, and each seed phase change is logged once.
 - The balance index logs its state once at startup, not only on later changes.
+
+### Changed
+
+- Nodes now reach clearnet peers through Tor by default. Bitcoin, Litecoin,
+  Dogecoin and Bitcoin Cash drop `onlynet=onion` and keep their Tor proxy, so
+  clearnet dials leave through a Tor exit relay; the family nodes also query
+  their DNS seeds through Tor. Tari keeps `tcp_tor`. Every node still sits on
+  the internal network with no route around Tor. Set
+  `network.clearnet_over_tor` to `false` for onion peers only (Tari then uses
+  its onion-only `tor` transport). Monero and Zcash already reached clearnet
+  peers through Tor and have no onion-only mode.
+- Incoming connections over Tor are on by default and now cover Litecoin and
+  Bitcoin Cash as well as Bitcoin. `network.inbound_connections` replaces
+  `bitcoin.inbound_onion`, which is no longer read: an install that had
+  `"inbound_onion": false` (the old example default) starts accepting incoming
+  onion connections after upgrading. Turn it off in Settings → Network or with
+  `"network": {"inbound_connections": false}`. Dogecoin 1.14 can only create the
+  retired v2 onion services, so it stays outbound-only.
 
 ### Fixed
 
 - The balance index directory is restricted to 0700 even when it is an existing
   Docker volume mount point; on a package install it was left at 0755. Its
   contents are public chain data, but the docs promised 0700.
+- Bitcoin's inbound onion service now reaches bitcoind. bitcoind told Tor to
+  forward incoming onion connections to `127.0.0.1:8334`, which is Tor's own
+  container, so the onion address registered but every incoming connection
+  failed. The onion service now targets bitcoind's internal address.
 
 ## [1.34.0] - 2026-11-14
 

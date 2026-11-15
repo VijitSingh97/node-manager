@@ -22,6 +22,8 @@ type hostControlCapability struct {
 	MigrateSupported bool              `json:"migrate_supported,omitempty"`
 	BootSupported    bool              `json:"boot_supported"`
 	BootEnabled      bool              `json:"boot_enabled"`
+	ClearnetOverTor  bool              `json:"clearnet_over_tor"`
+	InboundTor       bool              `json:"inbound_connections"`
 	ConfigPending    bool              `json:"config_pending"`
 	ConfigRevision   string            `json:"config_revision"`
 	ConfigPath       string            `json:"config_path,omitempty"`
@@ -83,6 +85,8 @@ type hostControlView struct {
 	BootSupported    bool               `json:"boot_supported"`
 	BootEnabled      bool               `json:"boot_enabled"`
 	BootKind         string             `json:"boot_kind"`
+	ClearnetOverTor  bool               `json:"clearnet_over_tor"`
+	InboundTor       bool               `json:"inbound_connections"`
 	ConfigPending    bool               `json:"config_pending"`
 	ConfigRevision   string             `json:"config_revision,omitempty"`
 	ConfigPath       string             `json:"config_path,omitempty"`
@@ -206,13 +210,21 @@ func hostControlPendingMessage(action string) string {
 }
 
 func validHostAction(action string) bool {
-	return action == "install" || action == "migrate" || action == "launch_at_boot" || action == "apply_config"
+	return action == "install" || action == "migrate" || action == "launch_at_boot" || action == "apply_config" || networkHostAction(action)
+}
+
+func networkHostAction(action string) bool {
+	return action == "clearnet_over_tor" || action == "inbound_connections"
+}
+
+func toggleHostAction(action string) bool {
+	return action == "launch_at_boot" || networkHostAction(action)
 }
 
 func validHostControlShape(action, node string, enabled *bool, dataDir string, interfaces []hostInstallInterface) bool {
 	return action == "install" && normalizeNodeID(node) != "" && enabled == nil && (dataDir == "" && interfaces == nil || validInstallOptions(node, dataDir, interfaces)) ||
 		action == "migrate" && normalizeNodeID(node) != "" && enabled == nil && safeHostPath(dataDir) && interfaces == nil ||
-		action == "launch_at_boot" && node == "" && enabled != nil && dataDir == "" && interfaces == nil ||
+		toggleHostAction(action) && node == "" && enabled != nil && dataDir == "" && interfaces == nil ||
 		action == "apply_config" && node == "" && enabled == nil && dataDir == "" && interfaces == nil
 }
 
@@ -232,6 +244,16 @@ func canonicalHostStatusMessage(status hostControlStatus) string {
 				return "Automatic launch enabled."
 			}
 			return "Automatic launch disabled."
+		case "clearnet_over_tor":
+			if status.Enabled != nil && !*status.Enabled {
+				return "Nodes now use onion peers only."
+			}
+			return "Nodes now also reach clearnet peers through Tor."
+		case "inbound_connections":
+			if status.Enabled != nil && !*status.Enabled {
+				return "Incoming Tor connections disabled."
+			}
+			return "Incoming Tor connections enabled."
 		case "migrate":
 			if normalizeNodeID(status.Node) == "" {
 				return "Node data migrated."
@@ -321,7 +343,7 @@ func (a *app) hostControlView() hostControlView {
 		interfaces := append([]hostInstallInterface(nil), catalog.Interfaces...)
 		nodes = append(nodes, hostControlNode{ID: id, Name: nodeDisplayName(id), Installed: configured, DataDir: capability.DataPaths[id], DiskEstimate: catalog.DiskEstimate, DiskNote: catalog.DiskNote, Interfaces: interfaces})
 	}
-	return hostControlView{Available: available, InstallSupported: available && capability.InstallSupported, MigrateSupported: available && capability.MigrateSupported, BootSupported: available && capability.BootSupported, BootEnabled: capability.BootEnabled, BootKind: capability.BootKind, ConfigPending: capability.ConfigPending, ConfigRevision: capability.ConfigRevision, ConfigPath: capability.ConfigPath, Nodes: nodes, Status: status}
+	return hostControlView{Available: available, InstallSupported: available && capability.InstallSupported, MigrateSupported: available && capability.MigrateSupported, BootSupported: available && capability.BootSupported, BootEnabled: capability.BootEnabled, BootKind: capability.BootKind, ClearnetOverTor: capability.ClearnetOverTor, InboundTor: capability.InboundTor, ConfigPending: capability.ConfigPending, ConfigRevision: capability.ConfigRevision, ConfigPath: capability.ConfigPath, Nodes: nodes, Status: status}
 }
 
 func (a *app) apiHostControlGet(w http.ResponseWriter, r *http.Request) {
@@ -344,7 +366,7 @@ func decodeHostControlInput(w http.ResponseWriter, r *http.Request) (hostControl
 	legacyInstall := input.Action == "install" && input.DataDir == "" && input.Interfaces == nil
 	configuredInstall := input.Action == "install" && validInstallOptions(normalizeNodeID(input.Node), input.DataDir, input.Interfaces)
 	valid := (legacyInstall || configuredInstall) && normalizeNodeID(input.Node) != "" && input.Enabled == nil && input.Revision == "" ||
-		input.Action == "migrate" && normalizeNodeID(input.Node) != "" && input.Enabled == nil && input.Revision == "" && safeHostPath(input.DataDir) && input.Interfaces == nil || input.Action == "launch_at_boot" && input.Node == "" && input.Enabled != nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil || input.Action == "apply_config" && input.Node == "" && input.Enabled == nil && validRevision && input.DataDir == "" && input.Interfaces == nil
+		input.Action == "migrate" && normalizeNodeID(input.Node) != "" && input.Enabled == nil && input.Revision == "" && safeHostPath(input.DataDir) && input.Interfaces == nil || toggleHostAction(input.Action) && input.Node == "" && input.Enabled != nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil || input.Action == "apply_config" && input.Node == "" && input.Enabled == nil && validRevision && input.DataDir == "" && input.Interfaces == nil
 	if !valid {
 		return input, errors.New("invalid host control request")
 	}

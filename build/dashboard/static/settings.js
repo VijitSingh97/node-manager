@@ -62,6 +62,9 @@ export function configurationAccess(data) {
   return data?.can_configure === true;
 }
 
+const networkActions = ["clearnet_over_tor", "inbound_connections"];
+const toggleFields = { launch_at_boot: "boot_enabled", clearnet_over_tor: "clearnet_over_tor", inbound_connections: "inbound_connections" };
+
 export function hostControlModel(data = {}) {
   const nodes = Object.fromEntries(allNodes.map((id) => [id, { id, name: id, installed: false, data_dir: "", disk_estimate: "", disk_note: "", interfaces: [] }]));
   for (const node of Array.isArray(data.nodes) ? data.nodes : []) {
@@ -81,7 +84,7 @@ export function hostControlModel(data = {}) {
       interfaces,
     };
   }
-  const action = ["install", "migrate", "launch_at_boot", "apply_config"].includes(data?.status?.action) ? data.status.action : "";
+  const action = ["install", "migrate", "launch_at_boot", "apply_config", ...networkActions].includes(data?.status?.action) ? data.status.action : "";
   const state = ["pending", "applied", "rejected", "failed"].includes(data?.status?.state) ? data.status.state : "";
   const bootKind = ["boot", "login", "unsupported"].includes(data.boot_kind) ? data.boot_kind : "unsupported";
   const revision = data.config_pending === true && /^[0-9a-f]{64}$/.test(String(data.config_revision || "")) ? data.config_revision : "";
@@ -92,6 +95,8 @@ export function hostControlModel(data = {}) {
     boot_supported: data.boot_supported === true && bootKind !== "unsupported",
     boot_enabled: data.boot_enabled === true,
     boot_kind: bootKind,
+    clearnet_over_tor: data.clearnet_over_tor === true,
+    inbound_connections: data.inbound_connections === true,
     config_pending: !!revision,
     config_revision: revision,
     config_path: typeof data.config_path === "string" && data.config_path.startsWith("/") ? data.config_path : "",
@@ -142,7 +147,7 @@ export function hostActionPayload(action, value, options) {
     if (!dataDir.startsWith("/") || dataDir.length < 2 || dataDir.includes("\n") || dataDir.includes("\r")) return undefined;
     return { action, node: value, data_dir: dataDir };
   }
-  if (action === "launch_at_boot" && typeof value === "boolean") return { action, enabled: value };
+  if (toggleFields[action] && typeof value === "boolean") return { action, enabled: value };
   if (action === "apply_config" && /^[0-9a-f]{64}$/.test(String(value || ""))) return { action, config_revision: value };
   return undefined;
 }
@@ -346,6 +351,10 @@ if (typeof document !== "undefined") {
   const configChange = byId("config-change");
   const applyConfig = byId("apply-config");
   const hostStatus = byId("host-status");
+  const clearnetOverTor = byId("clearnet-over-tor");
+  const inboundConnections = byId("inbound-connections");
+  const networkStatus = byId("network-status");
+  const hostStatusTarget = (action) => networkActions.includes(action) ? networkStatus : hostStatus;
   const configPath = byId("config-path");
   const installDialog = byId("install-dialog");
   const installForm = byId("install-form");
@@ -402,7 +411,7 @@ if (typeof document !== "undefined") {
   let hostPoll;
   let hostView = hostControlModel();
   let hostLoaded = false;
-  let pendingBootEnabled;
+  let pendingToggle;
   const hostRequests = latestRequestGate();
   let installNode = "";
   try { portRequestID = localStorage.getItem("nodeStackPortRequest") || ""; } catch {}
@@ -517,12 +526,13 @@ if (typeof document !== "undefined") {
 
   const renderHost = (data) => {
     const nextHostView = hostControlModel(data);
-    if (pendingBootEnabled !== undefined) {
-      const failed = nextHostView.status.action === "launch_at_boot" && ["rejected", "failed"].includes(nextHostView.status.state);
-      if (failed || nextHostView.boot_enabled === pendingBootEnabled) pendingBootEnabled = undefined;
+    if (pendingToggle) {
+      const field = toggleFields[pendingToggle.action];
+      const failed = nextHostView.status.action === pendingToggle.action && ["rejected", "failed"].includes(nextHostView.status.state);
+      if (failed || nextHostView[field] === pendingToggle.enabled) pendingToggle = undefined;
       else {
-        nextHostView.boot_enabled = pendingBootEnabled;
-        nextHostView.status = { action: "launch_at_boot", state: "pending", message: hostView.status.message || "Applying host change…" };
+        nextHostView[field] = pendingToggle.enabled;
+        nextHostView.status = { action: pendingToggle.action, state: "pending", message: hostView.status.message || "Applying host change…" };
       }
     }
     const installed = hostLoaded ? newlyInstalledNodes(hostView, nextHostView) : [];
@@ -560,9 +570,14 @@ if (typeof document !== "undefined") {
     launchAtStart.disabled = !hostView.available || !hostView.boot_supported || hostView.config_pending || busy;
     launchAtStartLabel.querySelector("span").textContent = bootControlLabel(hostView.boot_kind);
     launchAtStartLabel.hidden = hostView.boot_kind === "unsupported";
+    clearnetOverTor.checked = hostView.clearnet_over_tor;
+    inboundConnections.checked = hostView.inbound_connections;
+    clearnetOverTor.disabled = inboundConnections.disabled = !hostView.available || hostView.config_pending || busy;
     configChange.hidden = !hostView.config_pending;
     applyConfig.disabled = !hostView.available || busy;
-    hostStatus.textContent = hostView.status.message || (!hostView.available ? "Host controls require the installed helper." : "");
+    const networkMessage = networkActions.includes(hostView.status.action);
+    networkStatus.textContent = networkMessage ? hostView.status.message : "";
+    hostStatus.textContent = networkMessage ? "" : hostView.status.message || (!hostView.available ? "Host controls require the installed helper." : "");
     configPath.textContent = hostView.config_path || "Unavailable until the installed helper reports it.";
     clearTimeout(hostPoll);
     if (shouldPollHost(hostView)) hostPoll = setTimeout(loadHost, 2000);
@@ -632,18 +647,19 @@ if (typeof document !== "undefined") {
     if (!payload) return;
     hostRequests.invalidate();
     clearTimeout(hostPoll);
-    hostStatus.textContent = "Applying…";
+    const status = hostStatusTarget(payload.action);
+    status.textContent = "Applying…";
     for (const button of hostNodes.querySelectorAll("button")) button.disabled = true;
-    launchAtStart.disabled = applyConfig.disabled = true;
-    if (payload.action === "launch_at_boot") pendingBootEnabled = payload.enabled;
+    launchAtStart.disabled = applyConfig.disabled = clearnetOverTor.disabled = inboundConnections.disabled = true;
+    if (toggleFields[payload.action]) pendingToggle = { action: payload.action, enabled: payload.enabled };
     try {
       const statusView = await requestHost(payload);
       hostView.status = { action: payload.action, state: "pending", message: statusView.message || "Applying host change…" };
-      hostStatus.textContent = hostView.status.message;
+      status.textContent = hostView.status.message;
       hostPoll = setTimeout(loadHost, 1000);
     } catch (error) {
-      if (payload.action === "launch_at_boot") pendingBootEnabled = undefined;
-      hostStatus.textContent = error.message;
+      pendingToggle = undefined;
+      status.textContent = error.message;
       await loadHost();
     }
   }
@@ -799,6 +815,8 @@ if (typeof document !== "undefined") {
   telegramEnabled.addEventListener("change", updateInputs);
   healthchecksEnabled.addEventListener("change", updateInputs);
   launchAtStart.addEventListener("change", () => submitHost(hostActionPayload("launch_at_boot", launchAtStart.checked)));
+  clearnetOverTor.addEventListener("change", () => submitHost(hostActionPayload("clearnet_over_tor", clearnetOverTor.checked)));
+  inboundConnections.addEventListener("change", () => submitHost(hostActionPayload("inbound_connections", inboundConnections.checked)));
   applyConfig.addEventListener("click", () => submitHost(hostActionPayload("apply_config", hostView.config_revision)));
   for (const row of Object.values(portRows)) {
     for (const input of row.querySelectorAll("input")) input.addEventListener("input", () => updatePortPlan(true));

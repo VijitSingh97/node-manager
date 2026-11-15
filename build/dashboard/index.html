@@ -393,6 +393,13 @@
         </div>
         <p id="settings-host-status" class="settings-note" role="status" aria-live="polite"></p>
       </fieldset>
+      <fieldset id="settings-network">
+        <legend>Network</legend>
+        <label class="settings-check"><input id="settings-clearnet-over-tor" type="checkbox"> Reach clearnet peers through Tor</label>
+        <label class="settings-check"><input id="settings-inbound-connections" type="checkbox"> Accept incoming connections over Tor</label>
+        <p class="settings-note">All traffic stays on Tor and your IP stays hidden. Changes restart the nodes. Monero and Zcash always reach clearnet peers through Tor; incoming connections apply to Bitcoin, Litecoin and Bitcoin Cash.</p>
+        <p id="settings-network-status" class="settings-note" role="status" aria-live="polite"></p>
+      </fieldset>
       <fieldset id="settings-dashboard-password">
         <legend>Dashboard password</legend>
         <label id="settings-password-old-label">Current password<input id="settings-password-old" type="password" autocomplete="current-password" maxlength="256"></label>

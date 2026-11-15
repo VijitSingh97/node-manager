@@ -46,7 +46,8 @@ grep -q '^BITCOIN_RPC_BIND_IP=$' "$tmp/.env" || fail "LAN RPC bind default is no
 grep -q '^BITCOIN_RPC_PORT=8332$' "$tmp/.env" || fail "LAN RPC port default not applied"
 grep -q '^BITCOIN_DBCACHE=128$' "$tmp/.env" || fail "fresh install dbcache default is not 128 MB"
 grep -q '^BITCOIN_PRUNE=10000$' "$tmp/.env" || fail "fresh install prune default is not 10000 MB"
-grep -q '^BITCOIN_INBOUND_ONION=0$' "$tmp/.env" || fail "fresh install inbound onion default is not off"
+grep -q '^TOR_INBOUND=1$' "$tmp/.env" || fail "fresh install does not accept inbound Tor connections"
+grep -q '^TOR_CLEARNET=1$' "$tmp/.env" || fail "fresh install does not reach clearnet peers through Tor"
 grep -q '^BITCOIN_STEADY_CPUS=1$' "$tmp/.env" || fail "Bitcoin steady CPU default is not 1"
 grep -q '^BITCOIN_STEADY_MEM_LIMIT_MB=2048$' "$tmp/.env" || fail "Bitcoin steady memory default is not 2048 MB"
 grep -q '^MONERO_STEADY_CPUS=1$' "$tmp/.env" || fail "Monero steady CPU default is not 1"
@@ -112,7 +113,7 @@ grep -q '^BITCOIN_RPC_PASSWORD=oldrpc$' "$legacy/.env" || fail "existing RPC pas
 grep -q '^DASHBOARD_PASSWORD=olddashboard$' "$legacy/.env" || fail "existing dashboard password was forced to match RPC"
 grep -q '^BITCOIN_DBCACHE=3000$' "$legacy/.env" || fail "existing dbcache was replaced by the fresh-install default"
 grep -q '^BITCOIN_PRUNE=0$' "$legacy/.env" || fail "existing archival node was converted to pruning"
-grep -q '^BITCOIN_INBOUND_ONION=1$' "$legacy/.env" || fail "existing inbound onion setting was disabled"
+grep -q '^TOR_INBOUND=1$' "$legacy/.env" || fail "existing install does not accept inbound Tor connections"
 grep -q '^DASHBOARD_ONION=1$' "$legacy/.env" || fail "existing dashboard onion setting was disabled"
 grep -q '^STACK_RESTART_POLICY=unless-stopped$' "$legacy/.env" || fail "legacy install had launch at boot disabled"
 grep -q '^COMPOSE_PROJECT_NAME=bitcoin-starter-stack$' "$legacy/.env" || fail "legacy source install changed its Compose project"
@@ -142,11 +143,11 @@ grep -q '^BITCOIN_STEADY_MEM_LIMIT_MB=1536$' "$legacy_limits/.env" || fail "exis
 grep -q '^MONERO_STEADY_CPUS=1.25$' "$legacy_limits/.env" || fail "existing Monero steady CPU limit was replaced"
 grep -q '^MONERO_STEADY_MEM_LIMIT_MB=3072$' "$legacy_limits/.env" || fail "existing Monero steady memory limit was replaced"
 
-echo '{"bitcoin":{"dbcache_mb":"256","prune_mb":0,"inbound_onion":false},"dashboard":{"onion":false}}' >"$legacy/config.json"
+echo '{"bitcoin":{"dbcache_mb":"256","prune_mb":0},"network":{"inbound_connections":false},"dashboard":{"onion":false}}' >"$legacy/config.json"
 (cd "$legacy" && ./configure.sh) >/dev/null
 grep -q '^BITCOIN_DBCACHE=256$' "$legacy/.env" || fail "explicit dbcache did not override the existing rendered value"
 grep -q '^BITCOIN_PRUNE=0$' "$legacy/.env" || fail "explicit prune_mb=0 was not preserved"
-grep -q '^BITCOIN_INBOUND_ONION=0$' "$legacy/.env" || fail "explicit inbound_onion=false was ignored"
+grep -q '^TOR_INBOUND=0$' "$legacy/.env" || fail "explicit network.inbound_connections=false was ignored"
 grep -q '^DASHBOARD_ONION=0$' "$legacy/.env" || fail "explicit dashboard.onion=false was ignored"
 
 echo '{"dashboard":{"password":""}}' >"$legacy/config.json"
@@ -211,7 +212,7 @@ grep -q '^BITCOIN_RPC_PASSWORD=mypass123$' "$tmp/.env" || fail "password not ren
 grep -q '^BITCOIN_DATA_DIR=./data/bitcoin$' "$tmp/.env" || fail "data_dir default not applied"
 grep -q '^BITCOIN_DBCACHE=128$' "$tmp/.env" || fail "dbcache default not applied"
 grep -q '^BITCOIN_PRUNE=10000$' "$tmp/.env" || fail "prune default not applied"
-grep -q '^BITCOIN_INBOUND_ONION=0$' "$tmp/.env" || fail "inbound_onion should default off"
+grep -q '^TOR_INBOUND=1$' "$tmp/.env" || fail "inbound Tor connections should default on"
 grep -q '^BITCOIN_BLOCKFILTERINDEX=0$' "$tmp/.env" || fail "blockfilterindex default not applied"
 grep -q '^BITCOIN_RPC_EXPOSE=0$' "$tmp/.env" || fail "LAN RPC exposure default not applied"
 grep -q '^COMPOSE_FILE=docker-compose.yml$' "$tmp/.env" || fail "default compose file selection is wrong"
@@ -274,7 +275,8 @@ perms=$(ls -l "$tmp/.env" | cut -c1-10)
 
 # 10. Custom values are honored
 cat >"$tmp/config.json" <<'EOF'
-{"bitcoin": {"node_username": "u", "node_password": "longrpcpassword1234567890", "data_dir": "./elsewhere", "dbcache_mb": 512, "prune_mb": 550, "inbound_onion": true, "rpc_expose": true, "rpc_bind_ip": "192.168.1.118", "rpc_port": 18332},
+{"bitcoin": {"node_username": "u", "node_password": "longrpcpassword1234567890", "data_dir": "./elsewhere", "dbcache_mb": 512, "prune_mb": 550, "rpc_expose": true, "rpc_bind_ip": "192.168.1.118", "rpc_port": 18332},
+ "network": {"clearnet_over_tor": false, "inbound_connections": true},
  "dashboard": {"password": "dashpassword12", "onion": true, "bind_ip": "192.168.1.117", "launch_at_boot": true},
  "notifications": {"telegram_bot_token": "123:abc-DEF", "telegram_chat_id": "-10042", "healthchecks_url": "https://hc-ping.com/uuid", "alert_new_block": true, "alert_new_block_monero": true, "alert_new_block_tari": true, "alert_new_block_litecoin": true, "alert_new_block_dogecoin": true, "alert_new_block_bitcoincash": true, "alert_new_block_zcash": true},
  "wallets": [{"name": "Cold storage", "key": "34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo", "birthday": "2021-01-01"}]}
@@ -283,7 +285,8 @@ EOF
 grep -q '^BITCOIN_DATA_DIR=./elsewhere$' "$tmp/.env" || fail "custom data_dir not rendered"
 grep -q '^BITCOIN_DBCACHE=512$' "$tmp/.env" || fail "custom dbcache not rendered"
 grep -q '^BITCOIN_PRUNE=550$' "$tmp/.env" || fail "custom prune not rendered"
-grep -q '^BITCOIN_INBOUND_ONION=1$' "$tmp/.env" || fail "inbound_onion=true not rendered as 1"
+grep -q '^TOR_INBOUND=1$' "$tmp/.env" || fail "network.inbound_connections=true not rendered as 1"
+grep -q '^TOR_CLEARNET=0$' "$tmp/.env" || fail "network.clearnet_over_tor=false not rendered as 0"
 grep -q '^BITCOIN_RPC_EXPOSE=1$' "$tmp/.env" || fail "rpc_expose=true not rendered as 1"
 grep -q '^BITCOIN_RPC_BIND_IP=192.168.1.118$' "$tmp/.env" || fail "RPC LAN bind not rendered"
 grep -q '^BITCOIN_RPC_PORT=18332$' "$tmp/.env" || fail "RPC host port not rendered"
@@ -476,13 +479,18 @@ done
 jq -n '{bitcoin:{rpc_expose:true,rpc_bind_ip:"192.168.1.117",rpc_port:80},dashboard:{bind_ip:"192.168.1.117",password:"fixturepassword12"}}' >"$tmp/config.json"
 (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "RPC/dashboard host port conflict was accepted"
 
-# inbound_onion defaults off; explicit true opts in
+# network settings default on; false opts out and non-booleans are rejected
 echo '{"bitcoin": {"inbound_onion": false}}' >"$tmp/config.json"
 (cd "$tmp" && ./configure.sh) >/dev/null
-grep -q '^BITCOIN_INBOUND_ONION=0$' "$tmp/.env" || fail "inbound_onion: false should render 0"
-echo '{"bitcoin": {"inbound_onion": true}}' >"$tmp/config.json"
+grep -q '^TOR_INBOUND=1$' "$tmp/.env" || fail "legacy bitcoin.inbound_onion overrode the inbound default"
+echo '{"network": {"clearnet_over_tor": false, "inbound_connections": false}}' >"$tmp/config.json"
 (cd "$tmp" && ./configure.sh) >/dev/null
-grep -q '^BITCOIN_INBOUND_ONION=1$' "$tmp/.env" || fail "inbound_onion: true should render 1"
+grep -q '^TOR_CLEARNET=0$' "$tmp/.env" || fail "network.clearnet_over_tor: false should render 0"
+grep -q '^TOR_INBOUND=0$' "$tmp/.env" || fail "network.inbound_connections: false should render 0"
+echo '{"network": {"inbound_connections": "no"}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "non-boolean network setting was accepted"
+echo '{"network": false}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "non-object network section was accepted"
 
 # mem_limit_mb: default 0 -> unlimited; a set value renders as "<n>m"; a value
 # not above dbcache warns; non-numeric is rejected

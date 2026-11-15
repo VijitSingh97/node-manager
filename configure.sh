@@ -197,9 +197,12 @@ monero_cpus=$(jq -r '.monero.cpus // 0' <<<"$config")
 monero_mem_limit_mb=$(jq -r '.monero.mem_limit_mb // 0' <<<"$config")
 thermal_limit_c=$(jq -r '.host.thermal_limit_c // 0' <<<"$config")
 thermal_resume_c=$(jq -r '.host.thermal_resume_c // 0' <<<"$config")
-inbound_onion=$(jq -r 'if ((.bitcoin // {}) | has("inbound_onion")) then if .bitcoin.inbound_onion == true then 1 else 0 end else empty end' <<<"$config")
-[ -n "$inbound_onion" ] || inbound_onion=$(sed -n 's/^BITCOIN_INBOUND_ONION=//p' "$env_file" 2>/dev/null || true)
-[ -n "$inbound_onion" ] || inbound_onion=0
+jq -e '(.network == null or (.network | type == "object")) and all(.network.clearnet_over_tor, .network.inbound_connections; . == null or type == "boolean")' <<<"$config" >/dev/null || {
+  echo "network.clearnet_over_tor and network.inbound_connections must be true or false."
+  exit 1
+}
+tor_clearnet=$(jq -r 'if .network.clearnet_over_tor == false then 0 else 1 end' <<<"$config")
+tor_inbound=$(jq -r 'if .network.inbound_connections == false then 0 else 1 end' <<<"$config")
 blockfilterindex=$(flag '.bitcoin.blockfilterindex')
 utxo_index=$(flag '.bitcoin.utxo_index')
 rpc_expose=$(flag '.bitcoin.rpc_expose')
@@ -833,6 +836,8 @@ cat >"$env_tmp" <<EOF
 COMPOSE_PROJECT_NAME=$compose_project_name
 COMPOSE_FILE=$compose_file
 COMPOSE_PROFILES=$compose_profiles
+TOR_CLEARNET=$tor_clearnet
+TOR_INBOUND=$tor_inbound
 BITCOIN_ENABLED=$bitcoin_enabled
 BITCOIN_ACTIVE=$bitcoin_active
 BITCOIN_RPC_USER=$rpc_user
@@ -845,7 +850,6 @@ BITCOIN_RPC_PORT=$rpc_port
 BITCOIN_DATA_DIR=$data_dir
 BITCOIN_DBCACHE=$dbcache
 BITCOIN_PRUNE=$prune
-BITCOIN_INBOUND_ONION=$inbound_onion
 BITCOIN_BLOCKFILTERINDEX=$blockfilterindex
 BITCOIN_MEM_LIMIT=$bitcoin_mem_limit
 BITCOIN_CPUS=$bitcoin_cpus

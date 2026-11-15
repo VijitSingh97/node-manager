@@ -302,8 +302,9 @@ assert_runtime_config() {
 
 case "$chain" in
   litecoin | dogecoin | bitcoincash)
-    assert_runtime_config "$chain runtime config allows non-onion discovery" \
-      docker exec "$node_container" sh -c 'grep -qx "onlynet=onion" /tmp/*.conf && grep -qx "dnsseed=0" /tmp/*.conf && grep -qx "discover=0" /tmp/*.conf'
+    # shellcheck disable=SC2016
+    assert_runtime_config "$chain runtime config does not route every peer through Tor" \
+      docker exec "$node_container" sh -c 'grep -qx "proxy=$TOR_PROXY" /tmp/*.conf && grep -qx "onion=$TOR_PROXY" /tmp/*.conf && grep -qx "discover=0" /tmp/*.conf'
     ;;
   monero)
     # shellcheck disable=SC2016
@@ -312,7 +313,7 @@ case "$chain" in
     ;;
   tari)
     assert_runtime_config "Tari runtime config allows a proxy bypass" \
-      docker exec "$node_container" sh -c 'grep -qx "proxy_bypass_for_outbound_tcp = false" /var/tari/node/runtime-config.toml && grep -qx "proxy_bypass_addresses = \[\]" /var/tari/node/runtime-config.toml && grep -qx "pruning_horizon = 10000" /var/tari/node/runtime-config.toml'
+      docker exec "$node_container" sh -c 'grep -qx "proxy_bypass_for_outbound_tcp = false" /var/tari/node/runtime-config.toml && grep -qx "proxy_bypass_addresses = \[\]" /var/tari/node/runtime-config.toml && grep -qx "pruning_horizon = 10000" /var/tari/node/runtime-config.toml && grep -qx "type = \"tcp_tor\"" /var/tari/node/runtime-config.toml'
     ;;
   zcash)
     # shellcheck disable=SC2016
