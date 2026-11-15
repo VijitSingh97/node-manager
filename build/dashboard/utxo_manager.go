@@ -388,6 +388,9 @@ func (m *utxoManager) setSeedPhase(phase string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.seeding {
+		if m.phase != phase {
+			m.log.Printf("utxo index: seed phase=%s", phase)
+		}
 		m.phase, m.seed.Phase = phase, phase
 		m.persistSeedLocked()
 	}

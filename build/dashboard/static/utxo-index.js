@@ -5,6 +5,8 @@ const POLL_MS = 15000;
 export const SEED_COMMAND = "./stack utxo-seed";
 export const SEED_WARNING = "Seeding makes Bitcoin RPC fail for about 5 minutes and run degraded for about 5 more (at least 15 minutes in total). It needs 27 GB free and holds node-down alerts for up to 15 minutes. Pause other heavy chains first.";
 
+export const CONFIRMED_ONLY = "Balances are confirmed only; unconfirmed and mempool activity is not included.";
+
 const STATE_TEXT = {
   not_seeded: "Not seeded",
   seeding: "Seeding",
@@ -19,6 +21,7 @@ export function indexView(status) {
   const seeding = status.state === "seeding";
   const idle = status.state === "not_seeded" || status.state === "invalid";
   const rows = [`Index: ${STATE_TEXT[status.state] || status.state}${status.reason ? ` (${status.reason})` : ""}`];
+  rows.push(CONFIRMED_ONLY);
   if (seeding) {
     const pct = status.seed_progress == null ? "" : ` ${Math.floor(status.seed_progress * 100)}%`;
     rows.push(`Seed: ${status.phase || "waiting"}${pct}`);

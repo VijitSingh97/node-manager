@@ -6,6 +6,12 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- With the Bitcoin balance index on, a wallet row whose balance came from the
+  index says "From the balance index", the index card says balances are
+  confirmed only, and each seed phase change is logged once.
+
 ## [1.34.0] - 2026-11-14
 
 ### Added

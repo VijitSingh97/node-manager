@@ -1,6 +1,25 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { indexView, SEED_COMMAND, SEED_WARNING } from "./utxo-index.js";
+import { indexView, SEED_COMMAND, SEED_WARNING, CONFIRMED_ONLY } from "./utxo-index.js";
+
+test("every endpoint state renders its label, and the confirmed-only row is always present", () => {
+  const cases = [
+    [{ enabled: true, state: "not_seeded" }, "Index: Not seeded", SEED_COMMAND],
+    [{ enabled: true, state: "catching_up" }, "Index: Catching up", ""],
+    [{ enabled: true, state: "ready" }, "Index: Ready", ""],
+    [{ enabled: true, state: "degraded", reason: "node unreachable" }, "Index: Degraded (node unreachable)", ""],
+    [{ enabled: true, state: "invalid", reason: "chain reorganised" }, "Index: Needs a new seed (chain reorganised)", SEED_COMMAND],
+    [{ enabled: true, state: "seeding", phase: "merging", seed_progress: 0.5 }, "Index: Seeding", ""],
+  ];
+  for (const [status, first, command] of cases) {
+    const view = indexView(status);
+    assert.equal(view.rows[0], first);
+    assert.equal(view.rows[1], CONFIRMED_ONLY);
+    assert.equal(view.command, command);
+  }
+  assert.match(CONFIRMED_ONLY, /confirmed only/);
+  assert.match(CONFIRMED_ONLY, /mempool/);
+});
 
 test("hidden when the index is off or the status is missing", () => {
   assert.equal(indexView(null), null);
@@ -28,12 +47,13 @@ test("seeding shows phase, progress and the alert hold, and no command", () => {
     enabled: true, state: "seeding", phase: "importing", seed_progress: 0.425,
     alerts_suppressed_until: "2026-11-14T12:15:00Z",
   });
-  assert.equal(view.rows[1], "Seed: importing 42%");
-  assert.match(view.rows[2], /Node-down alerts are held until/);
+  assert.equal(view.rows[1], CONFIRMED_ONLY);
+  assert.equal(view.rows[2], "Seed: importing 42%");
+  assert.match(view.rows[3], /Node-down alerts are held until/);
   assert.equal(view.progress, 0.425);
   assert.equal(view.command, "");
   assert.equal(view.warning, SEED_WARNING);
-  assert.equal(indexView({ enabled: true, state: "seeding" }).rows[1], "Seed: waiting");
+  assert.equal(indexView({ enabled: true, state: "seeding" }).rows[2], "Seed: waiting");
 });
 
 test("a failed or cancelled last seed is reported; a ready index shows no command", () => {
@@ -41,7 +61,7 @@ test("a failed or cancelled last seed is reported; a ready index shows no comman
   assert.match(failed.rows.at(-1), /Last seed failed: less than 2 GB free/);
   assert.match(indexView({ enabled: true, state: "invalid", reason: "x", last_seed: { outcome: "cancelled" } }).rows.at(-1), /Last seed cancelled\./);
   const ready = indexView({ enabled: true, state: "ready", last_seed: { outcome: "ok" } });
-  assert.equal(ready.rows.length, 1);
+  assert.deepEqual(ready.rows, ["Index: Ready", CONFIRMED_ONLY]);
   assert.equal(ready.command, "");
   assert.equal(ready.warning, "");
 });

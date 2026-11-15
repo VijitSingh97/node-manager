@@ -315,5 +315,10 @@ echo "$utxo_dashboard" | grep -q 'cpus: 0.5' || fail "UTXO index overlay did not
 echo "$utxo_dashboard" | grep -B2 -A2 'target: /utxo-index' | grep -q 'source: utxo_index' || fail "dashboard is missing the utxo_index volume"
 echo "$utxo_render" | sed -n '/^  bitcoin:$/,/^  [a-z][a-z-]*:$/p' | grep -q 'utxo' && fail "UTXO index overlay changed the bitcoin service"
 diff <(echo "$base_render" | grep -v '^  dashboard:$') <(echo "$utxo_render" | grep -v '^  dashboard:$') | grep '^<' | grep -q . && fail "UTXO index overlay removed existing configuration"
+for key in networks ports extra_hosts dns; do
+  base_count=$(echo "$base_render" | grep -Ec "^ +$key:" || true)
+  utxo_count=$(echo "$utxo_render" | grep -Ec "^ +$key:" || true)
+  [ "$base_count" = "$utxo_count" ] || fail "UTXO index overlay changed $key settings"
+done
 
 echo "PASS: test_compose.sh"
