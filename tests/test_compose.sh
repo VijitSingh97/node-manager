@@ -232,6 +232,15 @@ echo "$monero_lan" | sed -n '/^  dashboard:$/,/^  monero:$/p' | grep -q 'MONERO_
 [ "$(echo "$monero_lan" | grep -c 'published:' || true)" = "3" ] || fail "Monero overrides published an unexpected port"
 
 all_nodes=$(COMPOSE_PROFILES=bitcoin,monero,tari,litecoin,dogecoin,bitcoincash,zcash TARI_ENABLED=1 TARI_WALLET_ENABLED=1 LITECOIN_ENABLED=1 DOGECOIN_ENABLED=1 BITCOINCASH_ENABLED=1 ZCASH_ENABLED=1 docker compose --env-file /dev/null -f docker-compose.yml -f docker-compose.tari-wallet.yml config)
+all_nodes_json=$(COMPOSE_PROFILES=bitcoin,monero,tari,litecoin,dogecoin,bitcoincash,zcash TARI_ENABLED=1 TARI_WALLET_ENABLED=1 LITECOIN_ENABLED=1 DOGECOIN_ENABLED=1 BITCOINCASH_ENABLED=1 ZCASH_ENABLED=1 docker compose --env-file /dev/null -f docker-compose.yml -f docker-compose.tari-wallet.yml config --format json)
+# Only Tor may reach the outside: every other service is internal-only, with loopback DNS and no published port.
+echo "$all_nodes_json" | jq -e '[.services | to_entries[] | select(.key != "tor") | .value.networks | keys] | length == 10 and all(. == ["btc_net"])' >/dev/null ||
+  fail "a service other than Tor joins a network with an external route"
+echo "$all_nodes_json" | jq -e '[.services | to_entries[] | select(.key != "tor") | .value.dns] | all(. == ["127.0.0.1"])' >/dev/null ||
+  fail "a service other than Tor can resolve DNS directly"
+echo "$all_nodes_json" | jq -e '[.services | to_entries[] | select(.key != "tor") | .value.ports // []] | all(length == 0)' >/dev/null ||
+  fail "a service other than Tor publishes a host port"
+echo "$all_nodes_json" | jq -e '.networks.btc_net.internal == true' >/dev/null || fail "btc_net is not internal"
 for service in tari litecoin dogecoin bitcoincash zcash; do
   echo "$all_nodes" | grep -q "^  $service:" || fail "$service profile did not render"
   echo "$all_nodes" | sed -n "/^  $service:$/,/^  [a-z]/p" | grep -q '127.0.0.1' || fail "$service DNS is not fail-closed"

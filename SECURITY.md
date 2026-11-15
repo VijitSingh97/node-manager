@@ -58,5 +58,9 @@ Please don't open public issues for security problems.
 - **Anyone with Docker access on the host can read the dashboard's RPC
   password** via `docker inspect dashboard`. Docker access is
   root-equivalent on the host anyway, so this is not treated as a boundary.
-- **Initial block download trusts onion peers** and is subject to the usual
-  eclipse-attack tradeoffs of a Tor-only node with a small peer count.
+- **Initial block download trusts the peers reached through Tor.** Clearnet
+  peers are reached through Tor exit relays, and a malicious exit can see the
+  unencrypted P2P traffic it carries or withhold blocks. Proof of work still
+  stops a forged chain, but a node with few peers is open to the usual
+  eclipse-attack tradeoffs. Set `network.clearnet_over_tor` to `false` to use
+  onion peers only.

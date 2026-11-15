@@ -351,6 +351,13 @@ if (typeof document !== "undefined") {
   const configChange = byId("config-change");
   const applyConfig = byId("apply-config");
   const hostStatus = byId("host-status");
+  byId("host").insertAdjacentHTML("afterend", `<fieldset id="settings-network" hidden>
+    <legend>Network</legend>
+    <label class="settings-check"><input id="settings-clearnet-over-tor" type="checkbox"> Reach clearnet peers through Tor</label>
+    <label class="settings-check"><input id="settings-inbound-connections" type="checkbox"> Accept incoming connections over Tor</label>
+    <p class="settings-note">All traffic stays on Tor and your IP stays hidden. Changes restart the nodes. Monero and Zcash always reach clearnet peers through Tor; incoming connections apply to Bitcoin, Litecoin and Bitcoin Cash.</p>
+    <p id="settings-network-status" class="settings-note" role="status" aria-live="polite"></p>
+  </fieldset>`);
   const clearnetOverTor = byId("clearnet-over-tor");
   const inboundConnections = byId("inbound-connections");
   const networkStatus = byId("network-status");
