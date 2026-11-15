@@ -53,6 +53,7 @@ printf '%s\n' "$*" >>"$FAKE_STACK_LOG"
     exit 1
   fi
 }
+[ "${FAKE_STACK_FAIL_APPLY:-0}" != 1 ] || [ "${1:-}" != apply ] || exit 1
 [ "${FAKE_STACK_FAIL:-0}" != 1 ]
 if [ "${1:-}" = apply ] || [ "${1:-}" = approve-rendered-config ]; then
   jq -S . "$BITCOIN_STACK_CONFIG_DIR/config.json" >"$BITCOIN_STACK_STATE_DIR/.approved-config.tmp"
@@ -242,6 +243,31 @@ BITCOIN_STACK_PACKAGE_MANAGED=brew NODE_CONTROL_OS=Darwin "$root/scripts/node-co
 jq -e '.boot_kind=="login" and (.boot_enabled|not)' "$dashboard_state/node-control.capability" >/dev/null || fail "disabled launch state was stale after save"
 BITCOIN_STACK_PACKAGE_MANAGED=brew NODE_CONTROL_OS=Darwin "$root/scripts/node-control"
 jq -e '.boot_kind=="login" and (.boot_enabled|not)' "$dashboard_state/node-control.capability" >/dev/null || fail "disabled launch state changed when reopened"
+
+jq -e '.clearnet_over_tor and .inbound_connections' "$dashboard_state/node-control.capability" >/dev/null || fail "network settings did not default on"
+request '{"action":"inbound_connections","enabled":true,"id":"71717171717171717171717171717171","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .error_code)" = unchanged ] || fail "unchanged network setting was applied"
+rm -f "$FAKE_STACK_FAIL_MARKER"
+request '{"action":"inbound_connections","enabled":false,"id":"70707070707070707070707070707070","requested_at":1000}'
+FAKE_STACK_FAIL_APPLY_ONCE=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .error_code)" = apply_failed ] || fail "failed network apply lacked typed status"
+jq -e '.network.inbound_connections == null' "$config/config.json" >/dev/null || fail "failed network apply changed config"
+[ "$(grep -c '^apply$' "$tmp/stack.log")" -ge 2 ] || fail "failed network apply did not re-apply the prior config"
+request '{"action":"inbound_connections","enabled":false,"id":"6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d","requested_at":1000}'
+FAKE_STACK_FAIL_APPLY=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .error_code)" = rollback_failed ] || fail "failed network rollback lacked typed status"
+jq -e '.network.inbound_connections == null' "$config/config.json" >/dev/null || fail "failed network rollback changed config"
+: >"$tmp/stack.log"
+request '{"action":"clearnet_over_tor","enabled":false,"id":"6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state):$(status .enabled)" = applied:false ] || fail "clearnet setting was not applied"
+[ "$(jq -r .network.clearnet_over_tor "$config/config.json")" = false ] || fail "clearnet setting was not saved"
+grep -qx apply "$tmp/stack.log" || fail "network setting did not re-apply the stack"
+jq -e '(.clearnet_over_tor|not) and .inbound_connections' "$dashboard_state/node-control.capability" >/dev/null || fail "network capability was stale after save"
+request '{"action":"clearnet_over_tor","enabled":"no","id":"6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .error_code)" = invalid_request ] || fail "malformed network request was not rejected"
 
 
 approved_before=$(shasum -a 256 "$state/.approved-config.json" "$state/.approved.env")

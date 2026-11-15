@@ -46,6 +46,13 @@ test("host controls expose installed nodes, platform startup wording, and revisi
   assert.equal(hostActionPayload("install", "monero", { data_dir: "../monero", interfaces: [] }), undefined);
   assert.equal(hostActionPayload("install", "monero", { data_dir: "/srv/monero", interfaces: [{ id: "bitcoin_rpc", enabled: true, host_port: 8332 }] }), undefined);
   assert.deepEqual(hostActionPayload("launch_at_boot", false), { action: "launch_at_boot", enabled: false });
+  assert.deepEqual(hostActionPayload("clearnet_over_tor", false), { action: "clearnet_over_tor", enabled: false });
+  assert.deepEqual(hostActionPayload("inbound_connections", true), { action: "inbound_connections", enabled: true });
+  assert.equal(hostActionPayload("inbound_connections", "yes"), undefined);
+  const network = hostControlModel({ clearnet_over_tor: true, inbound_connections: "true", status: { action: "inbound_connections", state: "applied", message: "Incoming Tor connections enabled." } });
+  assert.equal(network.clearnet_over_tor, true);
+  assert.equal(network.inbound_connections, false);
+  assert.equal(network.status.action, "inbound_connections");
   assert.deepEqual(hostActionPayload("apply_config", revision), { action: "apply_config", config_revision: revision });
   assert.equal(hostActionPayload("install", "unknown"), undefined);
   assert.equal(hostActionPayload("apply_config", "bad"), undefined);

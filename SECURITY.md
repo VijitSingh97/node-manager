@@ -11,9 +11,12 @@ Please don't open public issues for security problems.
 **Protects:**
 
 - **Your IP from the Bitcoin network.** All P2P traffic goes through Tor
-  (`onlynet=onion`, `proxy=` to the tor container). No clearnet P2P
-  connections are ever made. Inbound onion service is opt-in (`inbound_onion`), disabled by default.
-  Enabling it serves peers without publishing a host P2P port.
+  (`proxy=` to the tor container). Clearnet peers are reached through Tor exit
+  relays, and `network.clearnet_over_tor: false` restricts nodes to onion peers.
+  Inbound connections (`network.inbound_connections`, on by default) arrive
+  through an onion service without publishing a host P2P port. The Tor
+  container publishes those onion services itself and opens no control port;
+  node containers get only their public onion hostname, never Tor's keys.
 - **RPC from the outside.** Node RPC ports remain internal by default. Optional LAN
   relays bind only to private host addresses; authenticated interfaces retain
   separate generated node credentials. Public and wildcard binds are rejected.
@@ -57,5 +60,9 @@ Please don't open public issues for security problems.
 - **Anyone with Docker access on the host can read the dashboard's RPC
   password** via `docker inspect dashboard`. Docker access is
   root-equivalent on the host anyway, so this is not treated as a boundary.
-- **Initial block download trusts onion peers** and is subject to the usual
-  eclipse-attack tradeoffs of a Tor-only node with a small peer count.
+- **Initial block download trusts the peers reached through Tor.** Clearnet
+  peers are reached through Tor exit relays, and a malicious exit can see the
+  unencrypted P2P traffic it carries or withhold blocks. Proof of work still
+  stops a forged chain, but a node with few peers is open to the usual
+  eclipse-attack tradeoffs. Set `network.clearnet_over_tor` to `false` to use
+  onion peers only.

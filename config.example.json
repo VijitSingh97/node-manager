@@ -6,7 +6,6 @@
         "data_dir": "./data/bitcoin",
         "dbcache_mb": 128,
         "prune_mb": 10000,
-        "inbound_onion": false,
         "blockfilterindex": false,
         "utxo_index": false,
         "mem_limit_mb": 0,
@@ -104,6 +103,10 @@
         "rpc_expose": false,
         "rpc_bind_ip": "",
         "rpc_port": 8232
+    },
+    "network": {
+        "clearnet_over_tor": true,
+        "inbound_connections": true
     },
     "dashboard": {
         "password": "",

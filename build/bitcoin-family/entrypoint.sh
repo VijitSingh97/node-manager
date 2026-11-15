@@ -10,7 +10,17 @@ setting() {
 rpc_user=$(setting RPC_USER)
 rpc_password=$(setting RPC_PASSWORD)
 prune=$(setting PRUNE)
-cat >"/tmp/$NODE_BIN.conf" <<CONF
+onion_address() {
+  waited=0
+  while [ ! -s "${ONION_HOSTNAME:-}" ]; do
+    [ "$waited" -lt 120 ] || return 1
+    waited=$((waited + 1))
+    sleep 1
+  done
+  grep -Eqx '[a-z2-7]{56}\.onion' "$ONION_HOSTNAME" && cat "$ONION_HOSTNAME"
+}
+{
+  cat <<CONF
 server=1
 disablewallet=1
 rpcbind=0.0.0.0
@@ -20,11 +30,24 @@ rpcpassword=$rpc_password
 prune=$prune
 proxy=$TOR_PROXY
 onion=$TOR_PROXY
-onlynet=onion
-listen=0
-dnsseed=0
 discover=0
 CONF
+  if [ "${TOR_CLEARNET:-1}" = 1 ]; then
+    echo dnsseed=1
+  else
+    printf 'onlynet=onion\ndnsseed=0\n'
+  fi
+  if [ "${TOR_INBOUND:-0}" = 1 ] && [ -n "${ONION_BIND:-}" ]; then
+    printf 'listen=1\nlistenonion=0\nbind=127.0.0.1\nbind=%s=onion\n' "$ONION_BIND"
+    if onion=$(onion_address); then
+      echo "externalip=$onion"
+    else
+      echo "Tor has not published this node's onion address; not advertising it." >&2
+    fi
+  else
+    echo listen=0
+  fi
+} >"/tmp/$NODE_BIN.conf"
 if [ "$(printenv "${NODE_ENV_PREFIX}_WATCH_WALLET" || true)" = 1 ]; then
   grep -v '^disablewallet=1$' "/tmp/$NODE_BIN.conf" >"/tmp/$NODE_BIN.conf.new"
   mv "/tmp/$NODE_BIN.conf.new" "/tmp/$NODE_BIN.conf"

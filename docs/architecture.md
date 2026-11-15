@@ -66,11 +66,11 @@ that makes `tor_egress` Tor's deterministic default route.
 
 ## Privacy model
 
-- **`-onlynet=onion` + `-proxy=…`**, set by the bitcoin entrypoint in
-  [docker-compose.yml](../docker-compose.yml), plus **`listen=0`** in
-  [bitcoin.conf](../build/bitcoin/bitcoin.conf): every P2P connection is
-  routed to onion peers through the Tor container. The node never dials
-  clearnet; inbound peers use the optional onion service, disabled by default.
+- **`-proxy=…`**, set by the bitcoin entrypoint in
+  [docker-compose.yml](../docker-compose.yml): every P2P connection is routed
+  through the Tor container. Clearnet peers are reached through Tor exit relays;
+  `network.clearnet_over_tor: false` adds `-onlynet=onion`. Inbound peers use the
+  onion service described below.
 - **The application network is internal.** Bitcoin and dashboard have no
   external route and use loopback-only DNS, so a proxy bug fails closed.
   Tor alone joins `tor_egress`; its gateway has explicit priority. The host
@@ -96,12 +96,14 @@ that makes `tor_egress` Tor's deterministic default route.
   Tari v6.1 stores the private view key inside its native SQLite database. The
   owner-only volume is not encryption at rest; use encrypted host storage when
   required. No seed or private spend key is accepted.
-- **Inbound onion service** (`inbound_onion` in `config.json`, opt-in):
-  bitcoind registers an onion address over tor's cookie-authed control
-  port and serves blocks to the network — still no clearnet, no host port,
-  no IP exposure. The tor data volume is mounted read-only into the
-  bitcoin container (whose process joins tor's group) so it can read the
-  control-auth cookie.
+- **Inbound onion service** (`network.inbound_connections`, on by default):
+  Bitcoin, Litecoin and Bitcoin Cash serve blocks to the network with no host
+  port and no IP exposure. The tor container publishes each node's onion
+  service from its own `HiddenServiceDir` (`/var/lib/tor/<node>_onion` in the
+  `tor_data` volume), targeting the node's internal address, and copies only the
+  public hostname to the `tor_onions` volume. The nodes mount that volume
+  read-only and advertise the address with `externalip`. Tor opens no control
+  port, and no node can read Tor's keys or reconfigure it.
 - **RPC auth is a salted hash.** bitcoind is started with `rpcauth=`; the
   plaintext password exists only in the dashboard container and `.env`.
   The bitcoin health check authenticates with Core's `.cookie` file.
@@ -110,7 +112,7 @@ that makes `tor_egress` Tor's deterministic default route.
   address; public and wildcard bindings are rejected. `bitcoin.rpc_expose` can publish
   authenticated RPC on a private host address through Tor's TCP relay;
   `rpcallowip` still restricts Core to Docker's address space. SOCKS (`9050`)
-  and the Tor control port (`9051`) are not published to the host. The optional
+  is not published to the host, and Tor has no control port. The optional
   dashboard onion service adds reachability through Tor without another host port.
 - **Notification egress rides Tor too.** Telegram messages and
   Healthchecks.io pings (both opt-in) go through the tor container's SOCKS

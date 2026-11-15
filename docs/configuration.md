@@ -80,7 +80,6 @@ shows the overridable settings with their defaults:
         "data_dir": "./data/bitcoin",
         "dbcache_mb": 128,
         "prune_mb": 10000,
-        "inbound_onion": false,
         "blockfilterindex": false,
         "utxo_index": false,
         "mem_limit_mb": 0,
@@ -179,6 +178,10 @@ shows the overridable settings with their defaults:
         "rpc_bind_ip": "",
         "rpc_port": 8232
     },
+    "network": {
+        "clearnet_over_tor": true,
+        "inbound_connections": true
+    },
     "dashboard": {
         "password": "",
         "onion": false,
@@ -220,7 +223,6 @@ shows the overridable settings with their defaults:
 | `bitcoin.data_dir` | `./data/bitcoin` (source), managed data directory for APT/Homebrew | Where the blockchain lives on the host. APT uses `/var/lib/node-manager/data/bitcoin`; Homebrew uses the platform data path above. Relative source paths resolve from the repo root. |
 | `bitcoin.dbcache_mb` | `128` | Bitcoin Core's UTXO cache size in MB. Size it to your RAM — see [Hardware](hardware.md#ram). Existing installs keep their rendered cache setting when this key is omitted; the Compose fallback remains 3000 for older `.env` files that predate this setting. |
 | `bitcoin.prune_mb` | `10000` | Keeps 10,000 MiB of recent block files after full validation. Existing explicit configuration and rendered state remain unchanged. `0` remains an advanced manual archival setting; any nonzero value must be ≥ `550`. See [Pruned node](#pruned-node). |
-| `bitcoin.inbound_onion` | `false` | `true` publishes a Tor onion service so your node accepts inbound connections and serves available blocks with no IP exposure. See [Inbound onion service](#inbound-onion-service). |
 | `bitcoin.blockfilterindex` | `false` | Advanced archival-node compatibility setting. It works with pruning only if enabled before the first prune (Core refuses to add it to an already pruned datadir); it is not needed for the default pruned watch-only balance scan. |
 | `bitcoin.utxo_index` | `false` | Opt-in. `true` adds the `docker-compose.utxo-index.yml` overlay: a `utxo_index` volume and a 1g memory limit with 0.5 CPU on the dashboard container, plus `UTXO_INDEX_ENABLED` and `UTXO_INDEX_DIR` in its environment. `./stack apply` recreates the dashboard only; bitcoind is not restarted. With the key absent or false, the rendered `.env` and Compose file set are unchanged. Requires `bitcoin.enabled`. Removing the key drops the overlay but keeps the volume; `./stack utxo-index remove` deletes it (the APT purge and Homebrew uninstall do not remove Docker volumes); the steps are in [Operations](operations.md#seeding-the-bitcoin-balance-index). |
 | `bitcoin.mem_limit_mb` | `0` (unlimited) | Optional memory cap on the bitcoin container, in MB. `0` = no limit (Docker's default). A cap turns a bitcoind memory blowup into a contained container restart instead of a whole-host OOM. **Size it above `dbcache_mb`** and leave additional room for Core's workload-dependent memory outside the cache. There is no universal fixed margin; monitor actual usage because a low cap can make bitcoind restart-loop. `configure.sh` warns if the cap is not above `dbcache_mb`. |
@@ -518,7 +520,7 @@ images. All examples are excluded from personal totals. Dogecoin and Zcash show
 one view-only wallet and has no bundled example.
 
 Keep the following in the server file: Bitcoin storage paths, pruning, indexes,
-cache and memory limits, RPC credentials and LAN exposure, `inbound_onion`, and dashboard
+cache and memory limits, RPC credentials and LAN exposure, and dashboard
 password, bind address, and onion publication. They change storage, process
 limits, access, or host privileges and require an explicit server-side apply.
 
@@ -558,26 +560,37 @@ Know the trade-offs before enabling:
 Apply like any other change: edit `config.json`, `./configure.sh`,
 `./stack apply`.
 
-## Inbound onion service
+## Tor networking
 
-The node is outbound-only by default. Set `inbound_onion: true` to accept
-inbound connections over a Tor onion service. bitcoind
-registers an onion service over Tor's control port, so other nodes
-can fetch blocks from you **without your IP ever being visible** — you
-contribute to the network from behind Tor. The cost is extra outbound bandwidth
-serving the blocks retained by the node.
+Every node reaches the network only through the Tor container, and two settings
+choose how. Both default to `true` and can be changed at any time under
+**Settings → Network** in the dashboard, which saves `config.json` and restarts
+the affected nodes, or in the `network` section of `config.json` followed by
+`./configure.sh` and `./stack apply`.
 
-Mechanics (already wired, just flip the flag): tor exposes a cookie-authed
-control port on the internal network; the tor data volume is mounted
-read-only into the bitcoin container, whose process joins tor's group to
-read the cookie; bitcoind gets `-listen=1 -listenonion=1 -torcontrol=...`.
-Confirm it worked with:
+| Setting | Default | Effect |
+|---|---|---|
+| `network.clearnet_over_tor` | `true` | Nodes also connect to peers with clearnet addresses. Those connections leave through a Tor exit relay, so peers see the exit's IP, never yours. This finds far more peers than onion-only and syncs faster. `false` keeps Bitcoin, Litecoin, Dogecoin, Bitcoin Cash and Tari on onion peers only. |
+| `network.inbound_connections` | `true` | Bitcoin, Litecoin and Bitcoin Cash each publish a Tor onion service, so other nodes can connect to you and fetch blocks without learning your IP. The cost is outbound bandwidth for the blocks your node keeps. `false` makes them outbound-only. |
+
+Some nodes cannot follow both settings. Monero syncs blocks only from clearnet
+peers, so it always reaches them through Tor and has no onion-only mode. Zcash
+reaches its four bootstrap seeds through Tor exits either way. Dogecoin 1.14
+only understands the retired v2 onion addresses, so it stays outbound-only. Tari
+creates its onion address with its own built-in Tor, which has no route out of
+the internal network, so that address is never published and Tari takes no
+incoming connections.
+
+No host port is opened for incoming connections; they arrive through Tor only.
+The Tor container publishes each node's onion service and keeps its keys in the
+`tor_data` volume (`/var/lib/tor/<node>_onion`), so a node keeps its address
+across restarts. The nodes see only their public onion hostname. Upgrading from
+a release where bitcoind created its own onion service gives Bitcoin a new onion
+address once. To see Bitcoin's onion address:
 
 ```bash
-./stack logs bitcoin 2>&1 | grep "tor: Got service ID"
+./stack doctor
 ```
-
-No host port is opened — inbound arrives through the Tor network only.
 
 ## LAN wallet RPC (opt-in)
 
@@ -631,4 +644,5 @@ stats.
 Static node settings apply to every deployment. Internal RPC bind/allow ranges live in
 [build/bitcoin/bitcoin.conf](../build/bitcoin/bitcoin.conf). Tor-only
 networking is enforced by an internal application network with only the Tor
-container attached to an external bridge. There is no clearnet bypass.
+container attached to an external bridge. There is no bypass around Tor: even
+clearnet peers are reached through a Tor exit relay.

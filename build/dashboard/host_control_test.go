@@ -119,6 +119,39 @@ func TestHostControlRequiresTrustedLANAndRevisionBoundApproval(t *testing.T) {
 	}
 }
 
+func TestHostControlQueuesNetworkToggles(t *testing.T) {
+	a, _ := testApp(t, &rpcFixture{}, "")
+	b, _ := json.Marshal(hostControlCapability{Timestamp: time.Now().Unix(), Platform: "source", BootKind: "unsupported", ClearnetOverTor: true, InboundTor: false})
+	if err := os.WriteFile(a.nodeControlPath("capability"), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var view hostControlView
+	response := hostControlHTTP(a, http.MethodGet, "", false, "192.168.1.20:4321")
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &view) != nil || !view.Available || !view.ClearnetOverTor || view.InboundTor {
+		t.Fatalf("network view = %d %s", response.Code, response.Body.String())
+	}
+	for _, body := range []string{`{"action":"inbound_connections"}`, `{"action":"clearnet_over_tor","enabled":true,"node":"bitcoin"}`, `{"action":"clearnet_over_tor","enabled":"yes"}`} {
+		if got := hostControlHTTP(a, http.MethodPost, body, true, "192.168.1.20:4321"); got.Code != http.StatusBadRequest {
+			t.Fatalf("%s = %d", body, got.Code)
+		}
+	}
+	response = hostControlHTTP(a, http.MethodPost, `{"action":"inbound_connections","enabled":true}`, true, "192.168.1.20:4321")
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("inbound toggle = %d %s", response.Code, response.Body.String())
+	}
+	b, err := os.ReadFile(a.nodeControlPath("request"))
+	var request map[string]any
+	if err != nil || json.Unmarshal(b, &request) != nil || request["action"] != "inbound_connections" || request["enabled"] != true || len(request) != 4 {
+		t.Fatalf("request = %s, %v", b, err)
+	}
+	disabled := false
+	for action, want := range map[string]string{"clearnet_over_tor": "Nodes now use onion peers only.", "inbound_connections": "Incoming Tor connections disabled."} {
+		if got := canonicalHostStatusMessage(hostControlStatus{Action: action, Enabled: &disabled, State: "applied"}); got != want {
+			t.Fatalf("%s message = %q", action, got)
+		}
+	}
+}
+
 func TestHostStatusCanonicalizesHelperErrors(t *testing.T) {
 	enabled := true
 	status := hostControlStatus{Action: "launch_at_boot", Enabled: &enabled, State: "failed", Message: "untrusted host output", ErrorCode: "ownership_conflict"}
