@@ -174,10 +174,12 @@ prefix=$(printf '%s' "$chain" | tr '[:lower:]' '[:upper:]')
 if [ "$chain" = bitcoincash ]; then prefix=BITCOINCASH; fi
 exposure=RPC
 if [ "$chain" = tari ]; then exposure=GRPC; fi
+onion_nodes=
+case "$chain" in litecoin | bitcoincash) onion_nodes=$chain ;; esac
 
 env \
   COMPOSE_FILE="docker-compose.yml:$override" COMPOSE_PROFILES="$chain" \
-  STACK_VERSION=native-smoke \
+  STACK_VERSION=native-smoke TOR_ONION_NODES="$onion_nodes" \
   STACK_ROOT="$PWD" STACK_ASSET_ROOT="$PWD" \
   BITCOIN_ENABLED=0 BITCOIN_RPC_USER=unused BITCOIN_RPC_PASSWORD=unused \
   BITCOIN_RPCAUTH_SALT=00000000000000000000000000000000 BITCOIN_RPCAUTH_HASH=00 \
@@ -305,6 +307,17 @@ case "$chain" in
     # shellcheck disable=SC2016
     assert_runtime_config "$chain runtime config does not route every peer through Tor" \
       docker exec "$node_container" sh -c 'grep -qx "proxy=$TOR_PROXY" /tmp/*.conf && grep -qx "onion=$TOR_PROXY" /tmp/*.conf && grep -qx "discover=0" /tmp/*.conf'
+    if [ -n "$onion_nodes" ]; then
+      onion_advertised=0
+      for _ in $(seq 1 30); do
+        if docker exec "$node_container" sh -c 'grep -Eqx "externalip=[a-z2-7]{56}\.onion" /tmp/*.conf'; then
+          onion_advertised=1
+          break
+        fi
+        sleep 2
+      done
+      [ "$onion_advertised" = 1 ] || fail "$chain does not advertise the onion address Tor published"
+    fi
     ;;
   monero)
     # shellcheck disable=SC2016

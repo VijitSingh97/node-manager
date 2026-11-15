@@ -650,6 +650,12 @@ append_profile() { [ -z "$compose_profiles" ] || compose_profiles=$compose_profi
 [ "$dogecoin_enabled:$dogecoin_active" = "1:1" ] && append_profile dogecoin
 [ "$bitcoincash_enabled:$bitcoincash_active" = "1:1" ] && append_profile bitcoincash
 [ "$zcash_enabled:$zcash_active" = "1:1" ] && append_profile zcash
+tor_onion_nodes=
+if [ "$tor_inbound" = "1" ]; then
+  for node in bitcoin litecoin bitcoincash; do
+    case ",$compose_profiles," in *",$node,"*) tor_onion_nodes=${tor_onion_nodes:+$tor_onion_nodes,}$node ;; esac
+  done
+fi
 
 if jq -e '.bitcoin.sync_over_clearnet == true' >/dev/null <<<"$config"; then
   echo "bitcoin.sync_over_clearnet is no longer supported; all public internet traffic must use Tor."
@@ -838,6 +844,7 @@ COMPOSE_FILE=$compose_file
 COMPOSE_PROFILES=$compose_profiles
 TOR_CLEARNET=$tor_clearnet
 TOR_INBOUND=$tor_inbound
+TOR_ONION_NODES=$tor_onion_nodes
 BITCOIN_ENABLED=$bitcoin_enabled
 BITCOIN_ACTIVE=$bitcoin_active
 BITCOIN_RPC_USER=$rpc_user

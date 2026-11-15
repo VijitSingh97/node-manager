@@ -98,12 +98,21 @@ echo "$rendered" | grep -qF 'if [ "$$TOR_CLEARNET" != "1" ]; then NET_ARGS="$$NE
   fail "onion-only opt-out missing from the entrypoint"
 echo "$rendered" | grep -q 'SYNC_OVER_CLEARNET' && fail "clearnet sync bypass remains in compose"
 
-# inbound-onion branch, pinned verbatim: regressing this once silently killed
-# outbound onion sync (commit 0654ac0), and without the container-address onion
-# bind tor forwards inbound peers to its own loopback.
+# inbound-onion branch, pinned verbatim: without the container-address onion
+# bind tor forwards inbound peers to its own loopback, and bitcoind must never
+# reach tor's control port.
 # shellcheck disable=SC2016 # matching the literal $$-escaped text is the point
-echo "$rendered" | grep -qF -- 'if [ "$$TOR_INBOUND" = "1" ]; then ONION_ARGS="-listen=1 -listenonion=1 -torcontrol=172.29.0.25:9051 -bind=172.29.0.26:8334=onion"; fi' ||
+echo "$rendered" | grep -qF -- 'if [ "$$TOR_INBOUND" = "1" ]; then ONION_ARGS="-listen=1 -listenonion=0 -bind=172.29.0.26:8334=onion"; fi' ||
   fail "inbound onion branch line changed — check the inbound onion-service flags in the entrypoint"
+# shellcheck disable=SC2016 # matching the literal $$-escaped text is the point
+echo "$rendered" | grep -qF -- "grep -Eqx '[a-z2-7]{56}\\.onion' /var/lib/tor-onions/bitcoin; then ONION_ARGS=\"\$\$ONION_ARGS -externalip=\$\$(cat /var/lib/tor-onions/bitcoin)\"" ||
+  fail "bitcoind does not advertise a validated onion address from Tor"
+echo "$rendered" | grep -q 'torcontrol' && fail "bitcoind still uses tor's control port"
+grep -qi '^ControlPort' build/tor/torrc && fail "Tor still opens a control port"
+grep -q 'control_address' build/tari/config.toml && fail "Tari points at a Tor control port"
+for service in "8333 172.29.0.26:8334" "9333 172.29.0.33:9334" "8333 172.29.0.35:8334"; do
+  grep -qF "service=\"$service\"" build/tor/entrypoint.sh || fail "Tor does not publish the onion service $service"
+done
 
 # Bitcoin and dashboard cannot use Docker's external DNS forwarding, and only
 # Tor has a deterministic external default gateway.
@@ -241,6 +250,12 @@ echo "$all_nodes_json" | jq -e '[.services | to_entries[] | select(.key != "tor"
 echo "$all_nodes_json" | jq -e '[.services | to_entries[] | select(.key != "tor") | .value.ports // []] | all(length == 0)' >/dev/null ||
   fail "a service other than Tor publishes a host port"
 echo "$all_nodes_json" | jq -e '.networks.btc_net.internal == true' >/dev/null || fail "btc_net is not internal"
+echo "$all_nodes_json" | jq -e '[.services | to_entries[] | select(.key != "tor") | .value.volumes // [] | .[] | select(.source == "tor_data")] | length == 0' >/dev/null ||
+  fail "a service other than Tor can read Tor's keys"
+echo "$all_nodes_json" | jq -e '[.services[] | .group_add // []] | all(length == 0)' >/dev/null || fail "a service joins another container's group"
+echo "$all_nodes_json" | jq -e '[.services | to_entries[] | select(.key != "tor") | .value.volumes // [] | .[] | select(.source == "tor_onions") | .read_only] | length == 3 and all(. == true)' >/dev/null ||
+  fail "onion hostnames are not shared read-only with exactly the three inbound nodes"
+echo "$all_nodes" | sed -n '/^  tor:$/,/^  [a-z][a-z-]*:$/p' | grep -q 'TOR_ONION_NODES' || fail "Tor does not receive the inbound onion node list"
 for service in tari litecoin dogecoin bitcoincash zcash; do
   echo "$all_nodes" | grep -q "^  $service:" || fail "$service profile did not render"
   echo "$all_nodes" | sed -n "/^  $service:$/,/^  [a-z]/p" | grep -q '127.0.0.1' || fail "$service DNS is not fail-closed"
@@ -267,7 +282,7 @@ for service in litecoin:172.29.0.33:9334 bitcoincash:172.29.0.35:8334; do
   rendered_service=$(echo "$all_nodes" | sed -n "/^  ${service%%:*}:$/,/^  [a-z][a-z-]*:$/p")
   echo "$rendered_service" | grep -q "ONION_BIND: ${service#*:}" || fail "${service%%:*} onion target is not its container address"
   echo "$rendered_service" | grep -q 'TOR_INBOUND: "1"' || fail "${service%%:*} inbound Tor connections do not default on"
-  echo "$rendered_service" | grep -q 'source: tor_data' || fail "${service%%:*} cannot read the Tor control cookie"
+  echo "$rendered_service" | grep -q "ONION_HOSTNAME: /var/lib/tor-onions/${service%%:*}" || fail "${service%%:*} does not read its own onion hostname"
 done
 echo "$all_nodes" | sed -n '/^  dogecoin:$/,/^  [a-z][a-z-]*:$/p' | grep -q 'TOR_INBOUND' && fail "Dogecoin cannot publish a v3 onion service"
 grep -qx 'type = "__TRANSPORT__"' build/tari/config.toml || fail "Tari transport is not chosen at runtime"
@@ -306,10 +321,15 @@ onion_conf=$(entry_conf 0 TOR_CLEARNET=0)
 echo "$onion_conf" | grep -q '^onlynet=onion$' || fail "onion-only opt-out does not restrict peers"
 echo "$onion_conf" | grep -q '^dnsseed=0$' || fail "onion-only opt-out still queries DNS seeds"
 entry_conf 0 TOR_INBOUND=1 | grep -q '^listen=0$' || fail "a node without an onion target listened"
-inbound_conf=$(entry_conf 0 TOR_INBOUND=1 ONION_BIND=10.0.0.5:9334)
-for line in listen=1 listenonion=1 torcontrol=t:9051 bind=127.0.0.1 bind=10.0.0.5:9334=onion; do
+echo abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz2345.onion >"$entry_dir/onion"
+inbound_conf=$(entry_conf 0 TOR_INBOUND=1 ONION_BIND=10.0.0.5:9334 ONION_HOSTNAME="$entry_dir/onion")
+for line in listen=1 listenonion=0 bind=127.0.0.1 bind=10.0.0.5:9334=onion externalip=abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz2345.onion; do
   echo "$inbound_conf" | grep -qx "$line" || fail "inbound config lacks $line"
 done
+echo "$inbound_conf" | grep -q 'torcontrol' && fail "family nodes still use tor's control port"
+printf 'evil.onion\nrpcallowip=0.0.0.0/0\n' >"$entry_dir/onion"
+entry_conf 0 TOR_INBOUND=1 ONION_BIND=10.0.0.5:9334 ONION_HOSTNAME="$entry_dir/onion" 2>/dev/null | grep -Eq '^(externalip|rpcallowip=0)' &&
+  fail "family nodes trusted a malformed onion hostname"
 [ "$(entry_conf 10000 | grep -vc '^disablewallet=1$')" = "$(echo "$watch_conf" | grep -c '')" ] || fail "watch wallet changed more than disablewallet"
 rm -rf "$entry_dir"
 

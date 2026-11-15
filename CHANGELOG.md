@@ -33,8 +33,20 @@ All notable changes to this project are documented here. Format follows
   `bitcoin.inbound_onion`, which is no longer read: an install that had
   `"inbound_onion": false` (the old example default) starts accepting incoming
   onion connections after upgrading. Turn it off in Settings → Network or with
-  `"network": {"inbound_connections": false}`. Dogecoin 1.14 can only create the
-  retired v2 onion services, so it stays outbound-only.
+  `"network": {"inbound_connections": false}`. Dogecoin 1.14 only understands
+  the retired v2 onion addresses, so it stays outbound-only.
+- The Tor container now publishes each node's incoming onion service from a
+  static `HiddenServiceDir` (`/var/lib/tor/<node>_onion` in the `tor_data`
+  volume) and passes the node only its public hostname, through a new read-only
+  `tor_onions` volume. Bitcoin gets a new onion address once after upgrading;
+  the old `onion_v3_private_key` in its data directory is no longer used.
+
+### Security
+
+- Tor no longer opens a control port. Before, a node accepting incoming
+  connections joined Tor's group and mounted its data volume to read the control
+  cookie, so a compromised node daemon could reconfigure Tor for every node. No
+  node container can now read Tor's keys or change its configuration.
 
 ### Fixed
 

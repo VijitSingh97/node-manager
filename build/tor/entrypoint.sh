@@ -1,7 +1,8 @@
 #!/bin/sh
 # Render the runtime torrc — the unprivileged tor user can't write /etc/tor,
 # so the effective config goes to /tmp, regenerated each start. The dashboard
-# hidden service is appended only when dashboard.onion is enabled.
+# hidden service is appended only when dashboard.onion is enabled, and each
+# node in TOR_ONION_NODES gets its own static onion service.
 set -eu
 
 cat /etc/tor/torrc >/tmp/torrc
@@ -15,8 +16,33 @@ HiddenServicePort 80 172.29.0.27:8001
 EOF
 fi
 
+onion_nodes=$(printf '%s' "${TOR_ONION_NODES:-}" | tr ',' ' ')
+for node in $onion_nodes; do
+  case $node in
+  bitcoin) service="8333 172.29.0.26:8334" ;;
+  litecoin) service="9333 172.29.0.33:9334" ;;
+  bitcoincash) service="8333 172.29.0.35:8334" ;;
+  *)
+    echo "unknown onion node: $node" >&2
+    exit 1
+    ;;
+  esac
+  printf '\nHiddenServiceDir /var/lib/tor/%s_onion/\nHiddenServicePort %s\n' "$node" "$service" >>/tmp/torrc
+done
+rm -f /var/lib/tor-onions/*
+
 tor -f /tmp/torrc &
 tor_pid=$!
+# Nodes read only these public hostnames, never the onion keys.
+for node in $onion_nodes; do
+  until [ -s "/var/lib/tor/${node}_onion/hostname" ]; do
+    kill -0 "$tor_pid" 2>/dev/null || exit 1
+    sleep 1
+  done
+  cat "/var/lib/tor/${node}_onion/hostname" >"/var/lib/tor-onions/.$node"
+  chmod 0644 "/var/lib/tor-onions/.$node"
+  mv "/var/lib/tor-onions/.$node" "/var/lib/tor-onions/$node"
+done
 socat TCP4-LISTEN:8000,reuseaddr,fork,max-children=32 TCP4:172.29.0.27:8000 &
 socat_pid=$!
 rpc_pid=

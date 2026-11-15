@@ -39,6 +39,7 @@ grep -q '^TARI_WALLET_GRPC_URL=http://172.29.0.37:18143$' "$tmp/.env" || fail "T
 grep -q '^TARI_WALLET_ENABLED=0$' "$tmp/.env" || fail "Tari wallet integration did not follow the Tari default"
 grep -q '^COMPOSE_FILE=docker-compose.yml$' "$tmp/.env" || fail "zero-config install enabled an optional compose override"
 grep -q '^COMPOSE_PROFILES=bitcoin$' "$tmp/.env" || fail "zero-config install did not select only Bitcoin"
+grep -q '^TOR_ONION_NODES=bitcoin$' "$tmp/.env" || fail "zero-config install does not publish Bitcoin's onion service"
 grep -q '^BITCOIN_ENABLED=1$' "$tmp/.env" || fail "Bitcoin default is not enabled"
 grep -q '^MONERO_ENABLED=0$' "$tmp/.env" || fail "Monero default is not disabled"
 grep -q '^BITCOIN_RPC_EXPOSE=0$' "$tmp/.env" || fail "LAN RPC exposure default is not off"
@@ -487,6 +488,10 @@ echo '{"network": {"clearnet_over_tor": false, "inbound_connections": false}}' >
 (cd "$tmp" && ./configure.sh) >/dev/null
 grep -q '^TOR_CLEARNET=0$' "$tmp/.env" || fail "network.clearnet_over_tor: false should render 0"
 grep -q '^TOR_INBOUND=0$' "$tmp/.env" || fail "network.inbound_connections: false should render 0"
+grep -q '^TOR_ONION_NODES=$' "$tmp/.env" || fail "outbound-only nodes still publish onion services"
+echo '{"litecoin": {"enabled": true}, "dogecoin": {"enabled": true}, "bitcoincash": {"enabled": true, "active": false}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null
+grep -q '^TOR_ONION_NODES=bitcoin,litecoin$' "$tmp/.env" || fail "onion services do not follow the running inbound-capable nodes"
 echo '{"network": {"inbound_connections": "no"}}' >"$tmp/config.json"
 (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "non-boolean network setting was accepted"
 echo '{"network": false}' >"$tmp/config.json"

@@ -10,6 +10,15 @@ setting() {
 rpc_user=$(setting RPC_USER)
 rpc_password=$(setting RPC_PASSWORD)
 prune=$(setting PRUNE)
+onion_address() {
+  waited=0
+  while [ ! -s "${ONION_HOSTNAME:-}" ]; do
+    [ "$waited" -lt 120 ] || return 1
+    waited=$((waited + 1))
+    sleep 1
+  done
+  grep -Eqx '[a-z2-7]{56}\.onion' "$ONION_HOSTNAME" && cat "$ONION_HOSTNAME"
+}
 {
   cat <<CONF
 server=1
@@ -29,7 +38,12 @@ CONF
     printf 'onlynet=onion\ndnsseed=0\n'
   fi
   if [ "${TOR_INBOUND:-0}" = 1 ] && [ -n "${ONION_BIND:-}" ]; then
-    printf 'listen=1\nlistenonion=1\ntorcontrol=%s:9051\nbind=127.0.0.1\nbind=%s=onion\n' "${TOR_PROXY%:*}" "$ONION_BIND"
+    printf 'listen=1\nlistenonion=0\nbind=127.0.0.1\nbind=%s=onion\n' "$ONION_BIND"
+    if onion=$(onion_address); then
+      echo "externalip=$onion"
+    else
+      echo "Tor has not published this node's onion address; not advertising it." >&2
+    fi
   else
     echo listen=0
   fi

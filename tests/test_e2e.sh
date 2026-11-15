@@ -294,9 +294,8 @@ code=$(curl --noproxy '*' -s -o /dev/null -w '%{http_code}' -u admin:e2eDashboar
 [ "$code" = 200 ] || wallet_fail "throwaway watch-only row could not be removed"
 unset watch_add unsafe create_request create_response open_response height_response watch_response watch_list restarted_watch source_view_key source_address fixture_password
 
-# The inbound onion service registers with tor's control port: once
-# ADD_ONION succeeds, the .onion address appears in localaddresses.
-# (Core's "tor: Got service ID" log line only exists with -debug=tor.)
+# Tor publishes bitcoind's onion service from a static HiddenServiceDir and
+# bitcoind advertises it with -externalip, so it appears in localaddresses.
 onion_ok=""
 for _ in $(seq 1 24); do
   if docker compose exec -T bitcoin bitcoin-cli -datadir=/data getnetworkinfo | grep -q '\.onion'; then
@@ -305,7 +304,8 @@ for _ in $(seq 1 24); do
   fi
   sleep 10
 done
-[ -n "$onion_ok" ] || fail "bitcoind never registered an onion service with tor"
+[ -n "$onion_ok" ] || fail "bitcoind never advertised the onion address Tor published"
+docker compose exec -T tor nc -z 127.0.0.1 9051 && fail "Tor still listens on a control port"
 
 # The dashboard hidden service is provisioned (keys + hostname generated)
 docker compose exec -T tor cat /var/lib/tor/dashboard_onion/hostname | grep -q '\.onion$' ||

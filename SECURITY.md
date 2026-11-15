@@ -14,7 +14,9 @@ Please don't open public issues for security problems.
   (`proxy=` to the tor container). Clearnet peers are reached through Tor exit
   relays, and `network.clearnet_over_tor: false` restricts nodes to onion peers.
   Inbound connections (`network.inbound_connections`, on by default) arrive
-  through an onion service without publishing a host P2P port.
+  through an onion service without publishing a host P2P port. The Tor
+  container publishes those onion services itself and opens no control port;
+  node containers get only their public onion hostname, never Tor's keys.
 - **RPC from the outside.** Node RPC ports remain internal by default. Optional LAN
   relays bind only to private host addresses; authenticated interfaces retain
   separate generated node credentials. Public and wildcard binds are rejected.

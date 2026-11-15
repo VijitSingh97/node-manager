@@ -204,15 +204,20 @@ See [Tor networking](configuration.md#tor-networking).
 
 | Node | Outbound peers | Incoming | Off switch |
 |---|---|---|---|
-| Bitcoin | Onion and clearnet through the Tor SOCKS proxy; DNS seeds resolved by Tor | Onion service to bitcoind's internal address | `-onlynet=onion` / outbound-only |
-| Litecoin, Bitcoin Cash | Same, with `dnsseed=1` through the proxy | Onion service; the plain P2P listener binds loopback only | `onlynet=onion`, `dnsseed=0` / outbound-only |
-| Dogecoin | Same as Litecoin | None: Dogecoin 1.14 can only create retired v2 onion services | `onlynet=onion`, `dnsseed=0` |
-| Tari | `tcp_tor` transport: onion and clearnet peers, proxy bypass off | Its transport's own onion address | `tor` transport (onion only) |
+| Bitcoin | Onion and clearnet through the Tor SOCKS proxy; DNS seeds resolved by Tor | Onion service published by the Tor container to bitcoind's internal address | `-onlynet=onion` / outbound-only |
+| Litecoin, Bitcoin Cash | Same, with `dnsseed=1` through the proxy | Same; the plain P2P listener binds loopback only | `onlynet=onion`, `dnsseed=0` / outbound-only |
+| Dogecoin | Same as Litecoin | None: Dogecoin 1.14 cannot advertise current (v3) onion addresses | `onlynet=onion`, `dnsseed=0` |
+| Tari | `tcp_tor` transport: onion and clearnet peers, proxy bypass off | None: its onion is created by Tari's built-in Tor, which has no route out, so it is never published | `tor` transport (onion only) |
 | Monero | Clearnet peers through `proxy=socks5://`; transactions relay over Tor (`tx-proxy`) | None (`in-peers=0`) | None: Monero syncs blocks only from clearnet peers |
 | Zcash (Zakura) | Four bootstrap seeds, each through a Tor SOCKS4A bridge in the Tor container; peers it discovers are unreachable | None | None: Zakura has no SOCKS proxy support |
 
 Dogecoin currently finds few or no peers: its DNS seeds do not resolve through
 Tor and many of its built-in seed addresses refuse connections.
+
+The Tor container publishes the incoming onion services itself, from a static
+directory per node, and has no control port. The nodes get only their public
+onion hostname through a read-only volume, so a compromised node cannot read
+Tor's keys or reconfigure Tor for the other nodes.
 
 ## Private-LAN endpoints
 

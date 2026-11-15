@@ -575,13 +575,18 @@ the affected nodes, or in the `network` section of `config.json` followed by
 
 Some nodes cannot follow both settings. Monero syncs blocks only from clearnet
 peers, so it always reaches them through Tor and has no onion-only mode. Zcash
-reaches its four bootstrap seeds through Tor exits either way. Dogecoin 1.14 can
-only create the retired v2 onion services, so it stays outbound-only. Tari
-always keeps the onion address its Tor transport needs.
+reaches its four bootstrap seeds through Tor exits either way. Dogecoin 1.14
+only understands the retired v2 onion addresses, so it stays outbound-only. Tari
+creates its onion address with its own built-in Tor, which has no route out of
+the internal network, so that address is never published and Tari takes no
+incoming connections.
 
 No host port is opened for incoming connections; they arrive through Tor only.
-The onion keys live in each node's data directory (`onion_v3_private_key`), so a
-node keeps its address across restarts. To see Bitcoin's onion address:
+The Tor container publishes each node's onion service and keeps its keys in the
+`tor_data` volume (`/var/lib/tor/<node>_onion`), so a node keeps its address
+across restarts. The nodes see only their public onion hostname. Upgrading from
+a release where bitcoind created its own onion service gives Bitcoin a new onion
+address once. To see Bitcoin's onion address:
 
 ```bash
 ./stack doctor
