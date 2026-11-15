@@ -94,6 +94,7 @@ type utxoManager struct {
 	indexTip     *uint32
 	seeding      bool
 	seedProgress *float64
+	seedLogged   int
 	phase        string
 	refusals     []seedRefusal
 	seed         utxoSeedState
@@ -354,6 +355,7 @@ func (m *utxoManager) startSeed() error {
 	}
 	zero := 0.0
 	m.seeding, m.phase, m.seedProgress, m.refusals = true, utxoPhaseWaiting, &zero, nil
+	m.seedLogged = 0
 	m.seed.SeedState, m.seed.Phase, m.seed.Progress = utxoSeedRunning, utxoPhaseWaiting, &zero
 	m.seed.StartedAt, m.seed.AlertsUntil = m.now(), time.Time{}
 	m.setLocked(utxoStateSeeding, "")
@@ -409,6 +411,10 @@ func (m *utxoManager) setSeedProgress(fraction float64) {
 		return
 	}
 	m.seedProgress = &fraction
+	if step := int(fraction*10) * 10; step > m.seedLogged {
+		m.seedLogged = step
+		m.log.Printf("utxo index: seed progress=%d%%", step)
+	}
 	if m.seed.Progress == nil || int(fraction*100) != int(*m.seed.Progress*100) {
 		m.seed.Progress = &fraction
 		m.persistSeedLocked()

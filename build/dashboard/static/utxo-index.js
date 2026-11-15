@@ -3,7 +3,7 @@ import { el } from "./wallet-ui.js";
 
 const POLL_MS = 15000;
 export const SEED_COMMAND = "./stack utxo-seed";
-export const SEED_WARNING = "Seeding makes Bitcoin RPC fail for about 5 minutes and run degraded for about 5 more (at least 15 minutes in total). It needs 27 GB free and holds node-down alerts for up to 15 minutes. Pause other heavy chains first.";
+export const SEED_WARNING = "Seeding takes about 20 minutes, longer if heat pauses it. Bitcoin RPC stops answering for about 5 minutes, then answers slowly until the seed ends. The index takes about 7.5 GiB afterwards and up to about 17 GiB while it runs; 27 GB must be free. Node-down alerts are held for up to 15 minutes. Pause other heavy chains first.";
 
 export const CONFIRMED_ONLY = "Balances are confirmed only; unconfirmed and mempool activity is not included.";
 

@@ -545,8 +545,9 @@ useed utxo-seed -y </dev/null >"$tmp/useed.out" 2>&1 || {
   cat "$tmp/useed.out"
   fail "utxo-seed failed on the happy path"
 }
-grep -q 'at least 15 minutes' "$tmp/useed.out" || fail "utxo-seed did not print the duration warning"
-grep -q '27 GB' "$tmp/useed.out" || fail "utxo-seed did not print the disk warning"
+grep -q 'about 20 minutes' "$tmp/useed.out" || fail "utxo-seed did not print the duration warning"
+grep -q 'stops answering for about 5 minutes' "$tmp/useed.out" || fail "utxo-seed did not print the RPC warning"
+grep -q '7.5 GiB.*17 GiB.*27 GB' "$tmp/useed.out" || fail "utxo-seed did not print the disk warning"
 grep -q 'alerts are held for up to 15 minutes' "$tmp/useed.out" || fail "utxo-seed did not print the alert warning"
 grep -q 'importing 40%' "$tmp/useed.out" || fail "utxo-seed did not follow the progress"
 grep -q 'Seed finished' "$tmp/useed.out" || fail "utxo-seed did not report success"
