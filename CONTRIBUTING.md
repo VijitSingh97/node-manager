@@ -36,6 +36,7 @@ regenerate them from the pinned bitcoin image, or to re-check the harness
 tests/utxo_regtest.py build/dashboard/testdata/utxo
 UTXO_REGTEST=1 go test -run RegtestLive ./...   # from build/dashboard
 UTXO_REGTEST=1 go test -run UtxoIngestRegtestLive ./...   # ingest vs scantxoutset
+UTXO_REGTEST=1 go test -run UtxoStorageFullTmpfsLive ./...   # real full tmpfs: ENOSPC and low-disk handling
 UTXO_INGEST_BENCH=25000000 go test -run UtxoIngestLargeMeasure -v ./...   # large synthetic ingest
 ```
 
