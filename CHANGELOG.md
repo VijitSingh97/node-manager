@@ -11,6 +11,13 @@ All notable changes to this project are documented here. Format follows
 - With the Bitcoin balance index on, a wallet row whose balance came from the
   index says "From the balance index", the index card says balances are
   confirmed only, and each seed phase change is logged once.
+- The balance index logs its state once at startup, not only on later changes.
+
+### Fixed
+
+- The balance index directory is restricted to 0700 even when it is an existing
+  Docker volume mount point; on a package install it was left at 0755. Its
+  contents are public chain data, but the docs promised 0700.
 
 ## [1.34.0] - 2026-11-14
 
