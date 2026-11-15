@@ -1095,3 +1095,22 @@ func TestUtxoStartSeedRefusesWhenReopenFails(t *testing.T) {
 		t.Fatalf("%+v seeding=%v", st, m.seeding)
 	}
 }
+
+func TestUtxoManagerRestrictsExistingIndexDirAndLogsStartState(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	utxoMgrNew(t, dir, nil, newFakeUtxoNode(utxoMgrChain(3, "a")), &logs)
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := info.Mode().Perm(); mode != 0o700 {
+		t.Fatalf("index directory mode = %o, want 700", mode)
+	}
+	if !strings.Contains(logs.String(), "utxo index: state=not_seeded") {
+		t.Fatalf("start state not logged: %q", logs.String())
+	}
+}

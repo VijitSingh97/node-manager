@@ -119,7 +119,7 @@ func newUtxoManager(dir string, fs vfs.FS, rpc utxoRPC, logger *log.Logger) *utx
 	if fs == nil {
 		fs = vfs.Default
 	}
-	m := &utxoManager{dir: dir, fs: fs, rpc: rpc, log: logger, state: utxoStateNotSeeded,
+	m := &utxoManager{dir: dir, fs: fs, rpc: rpc, log: logger,
 		now: time.Now, seedJobs: make(chan utxoSeedJob), checkEvery: seedCheckEvery,
 		temp: func() (float64, error) { return hottestThermalC(seedThermalGlob) },
 		freeBytes: func() uint64 {
@@ -142,6 +142,12 @@ func (m *utxoManager) openLocked() {
 		m.store = &utxoStore{invalidReason: "cannot create the index directory"}
 		m.setLocked(utxoStateInvalid, m.store.invalidReason)
 		return
+	}
+	if m.fs == vfs.Default {
+		// A Docker volume mount point already exists, so MkdirAll leaves its mode alone.
+		if err := os.Chmod(m.dir, 0o700); err != nil {
+			m.log.Printf("utxo index: cannot restrict the index directory: %v", err)
+		}
 	}
 	store, err := openUtxoStoreFS(m.dir, m.fs)
 	if err != nil {
