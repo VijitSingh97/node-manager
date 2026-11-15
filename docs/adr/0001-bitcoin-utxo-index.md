@@ -364,7 +364,7 @@ Rejected: dumping into the datadir (the dashboard cannot delete it, and it eats 
 - **Opt-in default: off.**
 - The index holds confirmed coins only. Unconfirmed and mempool activity are out of scope, as for the scan.
 - The index serves a balance only when it is enabled, valid, seeded, not seeding, healthy, and its tip is the node's best block. The index reports `ready` within 2 blocks of the tip, but a wallet balance is taken from it only at 0 blocks behind with the same tip hash, and only for a wallet whose scripts derived without fallback (`fromIndex`, `pruned_index.go`).
-- In every other state (off, not_seeded, seeding, catching_up, degraded, invalid, or ready but not at the node tip) the existing `scantxoutset` and #215 path serve, unchanged. Each watch row in the API reports `balance_source` as `index` or `scan`. The dashboard page does not show it yet.
+- In every other state (off, not_seeded, seeding, catching_up, degraded, invalid, or ready but not at the node tip) the existing `scantxoutset` and #215 path serve, unchanged. Each watch row in the API reports `balance_source` as `index` or `scan`, and a row served from the index says "From the balance index" (#286).
 - If registering a wallet's scripts fails, that wallet falls back to scan.
 
 ## Consequences

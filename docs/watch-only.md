@@ -420,7 +420,8 @@ design and its measurements are in
   tip, and only for a wallet whose scripts it can derive. Every other wallet, and
   every wallet while the index is seeding, catching up, degraded or invalid,
   uses the scan above. Each wallet in `/api/watch` reports `balance_source` as
-  `index` or `scan`.
+  `index` or `scan`, and its row says "From the balance index" when the index
+  answered.
 - **Same limits as the scan.** Confirmed unspent balance only: no transaction
   history, no spent outputs, no mempool or unconfirmed activity. Indexes 0 to
   999 of receive and change per descriptor, so a wallet that used a higher index
