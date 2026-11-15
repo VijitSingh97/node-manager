@@ -22,6 +22,7 @@ type rpcFixture struct {
 	calls                []string
 	invalid              bool
 	initialBlockDownload bool
+	unpruned             bool
 	idleSynced           bool
 }
 
@@ -161,7 +162,7 @@ func (f *rpcFixture) handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	results := map[string]any{
-		"getblockchaininfo": map[string]any{"blocks": 900000, "headers": 900001, "verificationprogress": 0.9999, "initialblockdownload": f.initialBlockDownload, "pruned": true, "prune_target_size": 10 * 1024 * 1024 * 1024, "size_on_disk": 11 * 1024 * 1024 * 1024},
+		"getblockchaininfo": map[string]any{"blocks": 900000, "headers": 900001, "verificationprogress": 0.9999, "initialblockdownload": f.initialBlockDownload, "pruned": !f.unpruned, "prune_target_size": 10 * 1024 * 1024 * 1024, "size_on_disk": 11 * 1024 * 1024 * 1024},
 		"getnetworkinfo":    map[string]any{"subversion": `<script>alert("x")</script>`, "connections": 10},
 		"getpeerinfo":       []any{map[string]any{"inbound": true}, map[string]any{"inbound": false}},
 		"uptime":            90061,

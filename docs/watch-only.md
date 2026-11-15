@@ -440,8 +440,9 @@ measured seed budget, a "Needs a new seed" card, upgrades and removal.
   internal network. It calls no external service, and the Compose network
   configuration is unchanged (`tests/test_compose.sh` asserts this).
 - **Turning it off.** Set `bitcoin.utxo_index` to false and run `./stack apply`.
-  The scan serves again and the volume is kept; see
-  [Operations](operations.md#seeding-the-bitcoin-balance-index) for removing it.
+  The scan serves again and the volume is kept; `./stack utxo-index remove`
+  deletes it, see
+  [Operations](operations.md#seeding-the-bitcoin-balance-index).
 
 ## Bitcoin public example and seeding from config.json
 

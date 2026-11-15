@@ -900,6 +900,7 @@ type utxoAPIStatus struct {
 	Refusals              []seedRefusal             `json:"refusals"`
 	LastSeed              *struct{ Outcome string } `json:"last_seed"`
 	AlertsSuppressedUntil *string                   `json:"alerts_suppressed_until"`
+	NodePruned            *bool                     `json:"node_pruned"`
 }
 
 func TestUtxoIndexAPIPerState(t *testing.T) {
@@ -1151,5 +1152,45 @@ func TestUtxoManagerRestrictsExistingIndexDirAndLogsStartState(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "utxo index: state=not_seeded") {
 		t.Fatalf("start state not logged: %q", logs.String())
+	}
+}
+
+func TestUtxoIndexOffReportsPrunedNode(t *testing.T) {
+	yes, no := true, false
+	cases := []struct {
+		name    string
+		fixture *rpcFixture
+		want    *bool
+	}{
+		{"pruned", &rpcFixture{}, &yes},
+		{"unpruned", &rpcFixture{unpruned: true}, &no},
+		{"unknown", &rpcFixture{invalid: true}, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, handler := testApp(t, tc.fixture, "dashboard-secret")
+			var st utxoAPIStatus
+			if err := json.Unmarshal(request(t, handler, http.MethodGet, "/api/utxo-index", "").Body.Bytes(), &st); err != nil {
+				t.Fatal(err)
+			}
+			if st.State != utxoStateOff || (st.NodePruned == nil) != (tc.want == nil) || (tc.want != nil && *st.NodePruned != *tc.want) {
+				t.Fatalf("off status %+v, want node_pruned %v", st, tc.want)
+			}
+		})
+	}
+}
+
+func TestUtxoIndexOffSkipsPrunedLookupWhenBitcoinDisabled(t *testing.T) {
+	fixture := &rpcFixture{}
+	a, handler := testApp(t, fixture, "dashboard-secret")
+	a.cfg.bitcoinDisabled = true
+	var st utxoAPIStatus
+	if err := json.Unmarshal(request(t, handler, http.MethodGet, "/api/utxo-index", "").Body.Bytes(), &st); err != nil {
+		t.Fatal(err)
+	}
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if st.NodePruned != nil || len(fixture.calls) != 0 {
+		t.Fatalf("node_pruned %v, rpc calls %v", st.NodePruned, fixture.calls)
 	}
 }

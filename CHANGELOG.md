@@ -8,6 +8,12 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
+- `./stack utxo-index remove [-y]` deletes the balance index volume after
+  `bitcoin.utxo_index` is off and applied. It asks first, and refuses while the
+  option is on or a container still mounts the volume.
+- With the balance index off on a pruned Bitcoin node, the dashboard shows a
+  one-line hint naming `bitcoin.utxo_index` and `docs/watch-only.md`. Unpruned
+  nodes see nothing.
 - With the Bitcoin balance index on, a wallet row whose balance came from the
   index says "From the balance index", the index card says balances are
   confirmed only, and each seed phase change is logged once.

@@ -16,6 +16,13 @@ const STATE_TEXT = {
   invalid: "Needs a new seed",
 };
 
+export const OFF_HINT = "Instant balances: set bitcoin.utxo_index to true in config.json. See ";
+export const OFF_HINT_DOCS = "https://github.com/VijitSingh97/node-manager/blob/main/docs/watch-only.md";
+
+export function offHint(status) {
+  return status && status.state === "off" && status.node_pruned === true ? OFF_HINT : "";
+}
+
 export function indexView(status) {
   if (!status || !status.enabled || status.state === "off") return null;
   const seeding = status.state === "seeding";
@@ -47,9 +54,21 @@ if (typeof document !== "undefined") {
   if (card) {
     const render = (status) => {
       const view = indexView(status);
-      card.hidden = !view;
-      if (!view) return;
+      const hint = offHint(status);
+      card.hidden = !view && !hint;
       card.textContent = "";
+      if (!view) {
+        if (hint) {
+          const line = el("div", "watch-hint", hint);
+          const link = el("a", null, "the docs");
+          link.href = OFF_HINT_DOCS;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          line.append(link, ".");
+          card.append(line);
+        }
+        return;
+      }
       card.append(el("h2", null, "Bitcoin balance index"));
       for (const row of view.rows) card.append(el("div", "watch-msg", row));
       if (view.progress != null) {

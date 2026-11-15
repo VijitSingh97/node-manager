@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { indexView, SEED_COMMAND, SEED_WARNING, CONFIRMED_ONLY } from "./utxo-index.js";
+import { indexView, offHint, OFF_HINT, OFF_HINT_DOCS, SEED_COMMAND, SEED_WARNING, CONFIRMED_ONLY } from "./utxo-index.js";
 
 test("every endpoint state renders its label, and the confirmed-only row is always present", () => {
   const cases = [
@@ -66,4 +66,17 @@ test("a failed or cancelled last seed is reported; a ready index shows no comman
   assert.deepEqual(ready.rows, ["Index: Ready", CONFIRMED_ONLY]);
   assert.equal(ready.command, "");
   assert.equal(ready.warning, "");
+});
+
+test("the off hint shows only for an off index on a pruned node", () => {
+  assert.equal(offHint({ enabled: false, state: "off", node_pruned: true }), OFF_HINT);
+  assert.match(OFF_HINT, /bitcoin\.utxo_index/);
+  assert.match(OFF_HINT_DOCS, /^https:\/\/github\.com\/.*docs\/watch-only\.md$/);
+  assert.equal(offHint({ enabled: false, state: "off", node_pruned: false }), "");
+  assert.equal(offHint({ enabled: false, state: "off", node_pruned: null }), "");
+  assert.equal(offHint({ enabled: false, state: "off" }), "");
+  assert.equal(offHint(null), "");
+  assert.equal(offHint({ enabled: true, state: "ready", node_pruned: true }), "");
+  assert.equal(indexView({ enabled: false, state: "off", node_pruned: true }), null);
+  assert.equal(indexView({ enabled: true, state: "ready" }).rows[0], "Index: Ready");
 });

@@ -330,24 +330,23 @@ Upgrades:
   read. The dashboard then reports `invalid` ("cannot open the index store" or
   a format version reason), the scan answers, and a new seed resets the store.
 
-Removing the index, by hand:
+Removing the index:
 
 1. Set `bitcoin.utxo_index` to false in `config.json`.
 2. Apply it: `./stack apply` from source, `node-manager apply` on Homebrew,
    `sudo node-manager apply` on APT. This recreates the dashboard without the
    volume; bitcoind is not restarted.
-3. Find the volume with `docker volume ls --filter name=utxo_index`. Its name
-   is the Compose project name followed by `_utxo_index`; the project is
-   `COMPOSE_PROJECT_NAME` in the state directory's `.env`
-   (`/var/lib/node-manager/.env` on APT).
-4. Check the space, remove the volume and check again:
+3. Remove the volume: `./stack utxo-index remove` from source,
+   `node-manager utxo-index remove` on Homebrew,
+   `sudo node-manager utxo-index remove` on APT. It prints the volume name and
+   asks for `y`; pass `-y` to skip the prompt. It refuses while the option is
+   still on or a container still mounts the volume, and says so when there is
+   nothing to remove. On Linux, `df -h /var/lib/docker` before and after shows
+   the space it frees.
 
-```
-df -h /var/lib/docker                 # Linux: free space before
-docker system df -v | grep utxo_index # the volume's size
-docker volume rm <project>_utxo_index
-df -h /var/lib/docker                 # free space after
-```
+By hand, the volume is `docker volume rm <project>_utxo_index`, where the
+project is `COMPOSE_PROJECT_NAME` in the state directory's `.env`
+(`/var/lib/node-manager/.env` on APT).
 
 Removing the volume cannot be undone. If you turn the option on again over a
 kept volume, the index resumes following from its stored tip, or becomes

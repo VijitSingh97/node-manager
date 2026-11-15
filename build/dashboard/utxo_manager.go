@@ -114,6 +114,7 @@ type utxoIndexStatus struct {
 	Refusals              []seedRefusal   `json:"refusals"`
 	LastSeed              *utxoSeedResult `json:"last_seed"`
 	AlertsSuppressedUntil *time.Time      `json:"alerts_suppressed_until"`
+	NodePruned            *bool           `json:"node_pruned"`
 }
 
 func newUtxoManager(dir string, fs vfs.FS, rpc utxoRPC, logger *log.Logger) *utxoManager {
@@ -645,6 +646,15 @@ func (m *utxoManager) invalidate(reason string) {
 	m.set(utxoStateInvalid, reason)
 }
 
-func (a *app) apiUtxoIndex(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, a.utxo.Status())
+func (a *app) apiUtxoIndex(w http.ResponseWriter, r *http.Request) {
+	st := a.utxo.Status()
+	if st.State == utxoStateOff && !a.cfg.bitcoinDisabled {
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+		var chain blockchainInfo
+		if a.rpc.call(ctx, "getblockchaininfo", nil, &chain) == nil {
+			st.NodePruned = &chain.Pruned
+		}
+	}
+	writeJSON(w, st)
 }
