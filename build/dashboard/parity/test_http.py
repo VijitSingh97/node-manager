@@ -413,7 +413,7 @@ class DashboardContracts(unittest.TestCase):
         self.assertEqual(status,200)
         bitcoin = self.bitcoin_panel(body)
         self.assertIn('Unknown',bitcoin)
-        self.assertIn('N/A',bitcoin)
+        self.assertIn('Uptime:</span> <span>—</span>',bitcoin)
         self.assertNotIn('Mempool:',bitcoin)
 
     def test_node_version_escaped(self):

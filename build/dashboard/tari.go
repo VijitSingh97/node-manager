@@ -64,8 +64,7 @@ func (a *app) fetchTariStatus(ctx context.Context, node nodeConfig, status gener
 	} else if status.TargetHeight > 0 {
 		status.SyncPercent = min(100, float64(status.Height)/float64(status.TargetHeight)*100)
 	}
-	status.Pruned = tip.Metadata.PrunedHeight > 0
-	status.PrunedAvailable = status.Pruned
+	status.Pruned, status.PrunedAvailable = true, true
 	now := time.Now().Unix()
 	if tip.Metadata.Timestamp > 0 && tip.Metadata.Timestamp <= uint64(now) {
 		status.LatestBlockTimestamp, status.LatestBlockAvailable = int64(tip.Metadata.Timestamp), true
