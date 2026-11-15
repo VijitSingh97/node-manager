@@ -73,8 +73,10 @@ required. The key cannot spend, but it reveals wallet funds and history.
 Panels share sync progress, block height, peers, disk space,
 endpoint status, and price fields. A value the native daemon cannot supply is
 shown as unavailable rather than estimated or copied from another chain. Tari
-does not report an uptime or fee estimate through its status API; a zero pruned
-height leaves its pruning status unknown until pruning has occurred.
+does not report an uptime or fee estimate through its status API. Every panel
+shows the same badge, "Pruned" or "Full", for the mode the node runs in. Monero,
+Tari and Zcash always run pruned, so they always read "Pruned"; Bitcoin,
+Litecoin, Dogecoin and Bitcoin Cash show what the daemon reports.
 
 Fee estimates retain their native units: Litecoin uses litoshi/vB, Dogecoin uses
 DOGE/kB, and Bitcoin Cash uses sat/B. Bitcoin Cash reports one general estimate;

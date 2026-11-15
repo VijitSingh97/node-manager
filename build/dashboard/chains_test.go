@@ -170,7 +170,7 @@ func TestBitcoinFamilyStatusUsesOnlyPublicNodeRPC(t *testing.T) {
 				t.Fatalf("status response = %d %s", response.Code, response.Body.String())
 			}
 			walletViewSupported := tc.id == nodeLitecoin || tc.id == nodeBitcoinCash
-			if !status.Available || status.Synced || status.Height != 100 || status.TargetHeight != 120 || status.SyncPercent != 50 || !status.Pruned || !status.PrunedAvailable || status.Version != tc.version || !status.ConnectionsAvailable || status.IncomingConnections != 1 || status.OutgoingConnections != 1 || !status.MempoolBytesAvailable || !status.FeesAvailable || status.FeeUnit != tc.unit || status.FeeEstimates[0] != tc.fee || status.WalletViewSupported != walletViewSupported || status.SteadyCPUs != 1 || status.SteadyMemLimitMB != 4096 || status.ResourceProfile != "compact" {
+			if !status.Available || status.Synced || status.Height != 100 || status.TargetHeight != 120 || status.SyncPercent != 50 || !status.Pruned || !status.PrunedAvailable || status.Version != tc.version || !status.ConnectionsAvailable || !status.ConnectionsSplitAvailable || status.IncomingConnections != 1 || status.OutgoingConnections != 1 || !status.MempoolBytesAvailable || !status.FeesAvailable || status.FeeUnit != tc.unit || status.FeeEstimates[0] != tc.fee || status.WalletViewSupported != walletViewSupported || status.SteadyCPUs != 1 || status.SteadyMemLimitMB != 4096 || status.ResourceProfile != "compact" {
 				t.Fatalf("status = %#v", status)
 			}
 		})
@@ -237,7 +237,7 @@ func TestZcashStatusUsesNativeShapeWithoutBitcoinIBDOrAuth(t *testing.T) {
 		var result any
 		switch request.Method {
 		case "getblockchaininfo":
-			result = map[string]any{"blocks": 3_500_000, "headers": 3_500_000, "estimatedheight": 3_500_000, "bestblockhash": "tip", "verificationprogress": 1.0, "pruned": true, "size_on_disk": 11 << 30}
+			result = map[string]any{"blocks": 3_500_000, "headers": 3_500_000, "estimatedheight": 3_500_000, "bestblockhash": "tip", "verificationprogress": 1.0, "pruned": false, "size_on_disk": 11 << 30}
 		case "getnetworkinfo":
 			result = map[string]any{"subversion": "/Zakura:1.7.0/", "connections": 2}
 		case "getpeerinfo":
@@ -264,7 +264,7 @@ func TestZcashStatusUsesNativeShapeWithoutBitcoinIBDOrAuth(t *testing.T) {
 	response := httptest.NewRecorder()
 	a.apiAdditionalNode(response, request)
 	var status genericNodeStatus
-	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &status) != nil || !status.Supported || !status.Available || !status.Synced || status.Height != 3_500_000 || status.TargetHeight != 3_500_000 || !status.Pruned || !status.LatestBlockAvailable || !status.FeesAvailable || status.FeeUnit != "zats/action" || len(status.FeeEstimates) != 1 || status.FeeEstimates[0] != "400" || status.WalletViewSupported {
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &status) != nil || !status.Supported || !status.Available || !status.Synced || status.Height != 3_500_000 || status.TargetHeight != 3_500_000 || !status.Pruned || !status.ConnectionsSplitAvailable || !status.LatestBlockAvailable || !status.FeesAvailable || status.FeeUnit != "zats/action" || len(status.FeeEstimates) != 1 || status.FeeEstimates[0] != "400" || status.WalletViewSupported {
 		t.Fatalf("Zcash status = %d %#v", response.Code, status)
 	}
 }
