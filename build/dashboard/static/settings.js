@@ -354,6 +354,7 @@ if (typeof document !== "undefined") {
   const clearnetOverTor = byId("clearnet-over-tor");
   const inboundConnections = byId("inbound-connections");
   const networkStatus = byId("network-status");
+  const networkSettings = byId("network");
   const hostStatusTarget = (action) => networkActions.includes(action) ? networkStatus : hostStatus;
   const configPath = byId("config-path");
   const installDialog = byId("install-dialog");
@@ -570,6 +571,7 @@ if (typeof document !== "undefined") {
     launchAtStart.disabled = !hostView.available || !hostView.boot_supported || hostView.config_pending || busy;
     launchAtStartLabel.querySelector("span").textContent = bootControlLabel(hostView.boot_kind);
     launchAtStartLabel.hidden = hostView.boot_kind === "unsupported";
+    networkSettings.hidden = !hostView.available;
     clearnetOverTor.checked = hostView.clearnet_over_tor;
     inboundConnections.checked = hostView.inbound_connections;
     clearnetOverTor.disabled = inboundConnections.disabled = !hostView.available || hostView.config_pending || busy;
