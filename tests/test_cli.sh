@@ -59,6 +59,49 @@ perms=$(ls -l config.json | cut -c1-10)
 # restore without -y aborts on anything but yes
 echo n | ./stack restore "$archive" >/dev/null 2>&1 && fail "restore proceeded without confirmation"
 
+# backup/restore round-trips each node's onion keys through the tor volume
+onion_stub=$tmp/onion-stubs
+fake_tor=$tmp/fake-tor
+mkdir -p "$onion_stub" "$fake_tor/bitcoin_onion" "$fake_tor/litecoin_onion"
+for node in bitcoin litecoin; do
+  printf '%s-secret' "$node" >"$fake_tor/${node}_onion/hs_ed25519_secret_key"
+done
+cat >"$onion_stub/docker" <<'EOS'
+#!/usr/bin/env bash
+echo "docker $*" >>"$FAKE_ONION_LOG"
+args=("$@")
+for i in "${!args[@]}"; do
+  [ "${args[$i]}" = cp ] || continue
+  src=${args[$((i + 1))]} dst=${args[$((i + 2))]}
+  case $src in
+    tor:/var/lib/tor/*) [ -d "$FAKE_TOR/${src#tor:/var/lib/tor/}" ] && cp -R "$FAKE_TOR/${src#tor:/var/lib/tor/}" "$dst"; exit ;;
+    *:*) exit 1 ;;
+  esac
+  [ "$dst" = tor:/var/lib/tor/ ] && cp -R "$src" "$FAKE_TOR/"
+  exit
+done
+exit 0
+EOS
+chmod +x "$onion_stub/docker"
+export FAKE_TOR=$fake_tor FAKE_ONION_LOG=$tmp/onion-calls.log
+onion_archive=$(PATH="$onion_stub:$PATH" ./stack backup | sed -n 's/^Wrote \([^ ]*\) .*/\1/p')
+[ -f "$onion_archive" ] || fail "onion backup did not report its archive"
+for node in bitcoin litecoin; do
+  tar tzf "$onion_archive" | grep -q "${node}_onion/hs_ed25519_secret_key" || fail "backup missing the $node onion key"
+done
+tar tzf "$onion_archive" | grep -q bitcoincash_onion && fail "backup invented an onion directory Tor did not have"
+mv "$fake_tor" "$tmp/fake-tor-lost"
+mkdir "$fake_tor"
+onion_restore=$(PATH="$onion_stub:$PATH" ./stack restore -y "$onion_archive")
+printf '%s\n' "$onion_restore" | grep -qx 'Restored onion keys: bitcoin_onion litecoin_onion (tor restarted)' ||
+  fail "restore did not report the node onion keys"
+for node in bitcoin litecoin; do
+  [ "$(cat "$fake_tor/${node}_onion/hs_ed25519_secret_key")" = "$node-secret" ] || fail "restore lost the $node onion key"
+  grep -q "exec -u root tor chown -R tor:tor /var/lib/tor/${node}_onion$" "$FAKE_ONION_LOG" || fail "restore did not hand the $node onion key to tor"
+  grep -q " restart $node$" "$FAKE_ONION_LOG" || fail "restore did not restart $node to advertise its onion"
+done
+[ "$(grep -c ' restart tor$' "$FAKE_ONION_LOG")" = 1 ] || fail "restore did not restart tor exactly once"
+
 package_root=$tmp/package-root
 package_state=$tmp/package-state
 package_config=$tmp/package-config

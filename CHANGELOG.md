@@ -63,6 +63,9 @@ All notable changes to this project are documented here. Format follows
   volume) and passes the node only its public hostname, through a new read-only
   `tor_onions` volume. Bitcoin gets a new onion address once after upgrading;
   the old `onion_v3_private_key` in its data directory is no longer used.
+  `./stack backup` and `restore` now carry each node's onion keys from the Tor
+  volume, and restore restarts those nodes so they advertise the restored
+  addresses.
 
 ### Security
 

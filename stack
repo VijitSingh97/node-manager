@@ -1183,15 +1183,15 @@ do_backup() {
   trap 'rm -rf "$tmp"' EXIT
   [ -f "$config_file" ] && cp "$config_file" "$tmp/config.json"
   [ -f "$env_file" ] && cp "$env_file" "$tmp/.env"
-  # bitcoind stores its inbound-onion key in the datadir
-  data_dir=$(env_get BITCOIN_DATA_DIR)
-  if [ -n "$data_dir" ] && [ -f "$data_dir/onion_v3_private_key" ]; then
-    cp "$data_dir/onion_v3_private_key" "$tmp/" 2>/dev/null ||
-      echo "WARN: node onion key not captured (unreadable — run backup as the node's user, uid 1000)"
-  fi
-  # the dashboard onion keys live in the tor volume
+  # the dashboard and node onion keys live in the tor volume
   compose cp tor:/var/lib/tor/dashboard_onion "$tmp/dashboard_onion" >/dev/null 2>&1 ||
     echo "WARN: dashboard onion keys not captured (is the tor container up?)"
+  for node in bitcoin litecoin bitcoincash; do
+    compose cp "tor:/var/lib/tor/${node}_onion" "$tmp/${node}_onion" >/dev/null 2>&1 ||
+      case ",$(env_get TOR_ONION_NODES)," in
+      *",$node,"*) echo "WARN: $node onion keys not captured (is the tor container up?)" ;;
+      esac
+  done
   # UI-managed dashboard state is not otherwise re-derivable.
   compose cp dashboard:/state "$tmp/dashboard_state" >/dev/null 2>&1 ||
     echo "WARN: dashboard state not captured (is the dashboard container up?)"
@@ -1233,18 +1233,26 @@ do_restore() {
     chmod 600 "$env_file" 2>/dev/null || true
     cp "$tmp/.env" "$env_file" && chmod 600 "$env_file" && echo "Restored .env"
   fi
-  data_dir=$(env_get BITCOIN_DATA_DIR)
-  if [ -f "$tmp/onion_v3_private_key" ] && [ -n "$data_dir" ]; then
-    cp "$tmp/onion_v3_private_key" "$data_dir/" && echo "Restored node onion key"
+  if [ -f "$tmp/onion_v3_private_key" ]; then
+    echo "Skipped onion_v3_private_key: Tor now keeps the node onion keys"
   fi
-  if [ -d "$tmp/dashboard_onion" ]; then
-    if compose cp "$tmp/dashboard_onion" tor:/var/lib/tor/ >/dev/null 2>&1 &&
-      compose exec -u root tor chown -R tor:tor /var/lib/tor/dashboard_onion >/dev/null 2>&1; then
-      compose restart tor >/dev/null
-      echo "Restored dashboard onion keys (tor restarted)"
+  restored=
+  for dir in dashboard_onion bitcoin_onion litecoin_onion bitcoincash_onion; do
+    [ -d "$tmp/$dir" ] || continue
+    if compose cp "$tmp/$dir" tor:/var/lib/tor/ >/dev/null 2>&1 &&
+      compose exec -u root tor chown -R tor:tor "/var/lib/tor/$dir" >/dev/null 2>&1; then
+      restored="$restored $dir"
     else
-      echo "WARN: could not restore dashboard onion keys (is the tor container up?)"
+      echo "WARN: could not restore $dir keys (is the tor container up?)"
     fi
+  done
+  if [ -n "$restored" ]; then
+    compose restart tor >/dev/null
+    # Running nodes advertise the onion address they read at startup.
+    for dir in $restored; do
+      [ "$dir" = dashboard_onion ] || compose restart "${dir%_onion}" >/dev/null 2>&1 || true
+    done
+    echo "Restored onion keys:$restored (tor restarted)"
   fi
   if [ -d "$tmp/dashboard_state" ]; then
     # Extract as the dashboard user so private files keep the correct owner.

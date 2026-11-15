@@ -180,8 +180,11 @@ A backup holds the stack configuration and dashboard state, but excludes chain
 data and encrypted Monero wallet files:
 
 - `config.json` and `.env` (settings + credentials)
-- the node's inbound-onion key (`onion_v3_private_key`, if enabled)
-- the dashboard onion keys (from the tor volume, if enabled)
+- the onion keys from the tor volume: the dashboard's (if enabled) and each
+  Bitcoin, Litecoin and Bitcoin Cash onion service (`/var/lib/tor/<node>_onion`).
+  Restore puts them back, restarts Tor, and restarts those nodes so they
+  advertise the restored addresses. An `onion_v3_private_key` in an older
+  archive is skipped, because bitcoind no longer creates its own onion service.
 - the full `dashboard_state` volume: watch-only wallet roster and balance
   history (including entries that still need a rescan), event log, and
   dashboard-saved notification settings
@@ -195,7 +198,7 @@ and private view key. Release archives and Debian packages never contain this
 runtime volume.
 
 Losing the onion keys means new `.onion` addresses, so back up after
-enabling either onion feature. The chain itself is re-derivable from the
+enabling the dashboard onion or incoming connections. The chain itself is re-derivable from the
 network — backing up roughly 900 GB is only worth it if a multi-day Tor resync
 hurts more than the storage does. If you do copy it: `./stack down`
 first — a live copy of `chainstate/` is corrupt by construction.
