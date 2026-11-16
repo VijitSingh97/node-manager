@@ -39,12 +39,15 @@ var (
 	errSeedPipeGone    = errors.New("the seed pipe was replaced during the seed")
 )
 
+// prefix names the request and cancel files per chain; lock is shared by every index so two seeds never overlap.
 type utxoSeedHost struct {
+	prefix   string
 	stateDir string
 	dataDir  string
 	dump     utxoRPC
 	hold     func() bool
 	release  func()
+	lock     *sync.Mutex
 }
 
 type seedRequest struct {
@@ -192,7 +195,7 @@ func validSeedRequest(raw []byte, now time.Time) (seedRequest, *seedRefusal) {
 }
 
 func (m *utxoManager) takeSeedRequest() (req seedRequest, present bool, refusal *seedRefusal) {
-	path := filepath.Join(m.host.stateDir, seedRequestName)
+	path := filepath.Join(m.host.stateDir, m.host.prefix+seedRequestName)
 	f, err := os.Open(path)
 	if err != nil {
 		return req, false, nil
@@ -224,7 +227,7 @@ func (m *utxoManager) pollSeed(ctx context.Context) {
 	h := m.host
 	req, present, refusal := m.takeSeedRequest()
 	if !present {
-		_ = os.Remove(filepath.Join(h.stateDir, seedCancelName))
+		_ = os.Remove(filepath.Join(h.stateDir, h.prefix+seedCancelName))
 		return
 	}
 	if refusal != nil {
@@ -234,7 +237,7 @@ func (m *utxoManager) pollSeed(ctx context.Context) {
 	if req.ID == m.lastSeedRequest() {
 		return
 	}
-	_ = os.Remove(filepath.Join(h.stateDir, seedCancelName))
+	_ = os.Remove(filepath.Join(h.stateDir, h.prefix+seedCancelName))
 	m.markSeedRequest(req.ID, utxoSeedChecking, nil)
 	in := m.guards(ctx)
 	refusals := evaluateSeedGuards(in)
@@ -244,6 +247,13 @@ func (m *utxoManager) pollSeed(ctx context.Context) {
 	}
 	if r := seedFIFOGuard(h.dataDir); r != nil {
 		refusals = append(refusals, *r)
+	}
+	if len(refusals) == 0 && h.lock != nil {
+		if h.lock.TryLock() {
+			defer h.lock.Unlock()
+		} else {
+			refusals = append(refusals, seedRefusal{"lock", "another balance index is seeding"})
+		}
 	}
 	if len(refusals) == 0 {
 		if h.hold() {
@@ -262,7 +272,7 @@ func (m *utxoManager) pollSeed(ctx context.Context) {
 }
 
 func (m *utxoManager) watchSeedCancel(ctx context.Context, cancel context.CancelCauseFunc) {
-	path := filepath.Join(m.host.stateDir, seedCancelName)
+	path := filepath.Join(m.host.stateDir, m.host.prefix+seedCancelName)
 	t := time.NewTicker(m.checkEvery)
 	defer t.Stop()
 	for {

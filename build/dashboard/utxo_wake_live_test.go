@@ -28,7 +28,7 @@ func TestUtxoManagerAppliesNewBlocksAtOnceRegtestLive(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m := newUtxoManager(dir, nil, n.rpc, log.New(io.Discard, "", 0))
+	m := newUtxoManager(dir, nil, n.rpc, log.New(io.Discard, "", 0), utxoBitcoin)
 	m.freeBytes = func() uint64 { return 1 << 40 }
 	waitRPC := *n.rpc
 	waitRPC.client = &http.Client{Timeout: 2 * time.Minute}

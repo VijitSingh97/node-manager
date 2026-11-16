@@ -112,7 +112,7 @@ func (a *app) nodeTransitioning(id string) bool {
 }
 
 func (a *app) monitorTransitioning(id string) bool {
-	return a.nodeTransitioning(id) || id == nodeBitcoin && a.utxo.AlertsSuppressed()
+	return a.nodeTransitioning(id) || id == nodeBitcoin && a.utxo.AlertsSuppressed() || a.chainUtxo[id].AlertsSuppressed()
 }
 
 func (a *app) nodeActive(id string, fallback bool) bool {

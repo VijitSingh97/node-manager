@@ -33,6 +33,9 @@ var (
 	}
 )
 
+// utxoChains lists the chains besides Bitcoin that can keep a balance index, by node id.
+var utxoChains = map[string]*utxoChainParams{nodeLitecoin: utxoLitecoin}
+
 func (c *utxoChainParams) dumpArgs(path string) []any {
 	if c.DumpLatest {
 		return []any{path, "latest"}

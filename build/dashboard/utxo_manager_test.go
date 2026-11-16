@@ -121,7 +121,12 @@ func utxoMgrSeed(t testing.TB, dir string, fs vfs.FS, c *fakeUtxoChain) {
 
 func utxoMgrNew(t testing.TB, dir string, fs vfs.FS, node utxoRPC, logs io.Writer) *utxoManager {
 	t.Helper()
-	m := newUtxoManager(dir, fs, node, log.New(logs, "", 0))
+	return utxoMgrNewChain(t, dir, fs, node, logs, utxoBitcoin)
+}
+
+func utxoMgrNewChain(t testing.TB, dir string, fs vfs.FS, node utxoRPC, logs io.Writer, chain *utxoChainParams) *utxoManager {
+	t.Helper()
+	m := newUtxoManager(dir, fs, node, log.New(logs, "", 0), chain)
 	m.freeBytes = func() uint64 { return 1 << 40 }
 	t.Cleanup(func() { _ = m.store.Close() })
 	return m
@@ -877,7 +882,7 @@ func TestUtxoManagerKillHelper(t *testing.T) {
 	if !has {
 		utxoMgrSeed(t, dir, nil, c)
 	}
-	m := newUtxoManager(dir, nil, newFakeUtxoNode(c), log.New(io.Discard, "", 0))
+	m := newUtxoManager(dir, nil, newFakeUtxoNode(c), log.New(io.Discard, "", 0), utxoBitcoin)
 	m.freeBytes = func() uint64 { return 1 << 40 }
 	fmt.Println("started")
 	for {
