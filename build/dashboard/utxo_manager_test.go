@@ -1061,6 +1061,14 @@ func TestUtxoIndexOffByDefault(t *testing.T) {
 	if on.utxo == nil || on.utxo.Status().State != utxoStateNotSeeded {
 		t.Fatalf("enabled status %+v", on.utxo.Status())
 	}
+	if on.utxo.blockWait == nil || on.watchWake == nil || off.watchWake != nil {
+		t.Fatal("only an enabled index gets the new-block wake-up")
+	}
+	on.utxo.onApplied()
+	on.utxo.onApplied()
+	if len(on.watchWake) != 1 {
+		t.Fatalf("wallet wake-ups queued: %d", len(on.watchWake))
+	}
 	_ = on.utxo.store.Close()
 }
 

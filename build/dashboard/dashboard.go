@@ -108,6 +108,7 @@ type app struct {
 	familyWatch      *familyWatchManager
 	tariWatch        *TariWatchStore
 	utxo             *utxoManager
+	watchWake        chan struct{}
 	dashboardAuth    *dashboardAuth
 	sessions         *dashboardSessions
 	loginLimiter     *loginLimiter
@@ -168,6 +169,14 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 		blockRPC := *rpc
 		blockRPC.client, blockRPC.maxBody = &http.Client{Timeout: 2 * time.Minute}, 64<<20
 		a.utxo = newUtxoManager(cfg.utxoIndexDir, nil, &blockRPC, logger)
+		a.utxo.blockWait = &blockRPC
+		a.watchWake = make(chan struct{}, 1)
+		a.utxo.onApplied = func() {
+			select {
+			case a.watchWake <- struct{}{}:
+			default:
+			}
+		}
 		if cfg.stateDir != "" {
 			a.utxo.setSeedStatePath(filepath.Join(cfg.stateDir, "utxo-seed.json"))
 			dumpRPC := *rpc

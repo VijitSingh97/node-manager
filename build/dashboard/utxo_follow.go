@@ -12,6 +12,8 @@ import (
 
 const utxoFollowInterval = 10 * time.Second
 
+const utxoBlockWait = 60 * time.Second
+
 const (
 	utxoFollowIdle     = "idle"
 	utxoFollowCatching = "catching_up"

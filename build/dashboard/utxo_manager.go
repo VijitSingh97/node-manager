@@ -78,9 +78,13 @@ type utxoManager struct {
 	lowDisk  atomic.Bool
 	stop     context.CancelFunc
 
-	now      func() time.Time
-	seedJobs chan utxoSeedJob
-	seedPath string
+	now            func() time.Time
+	seedJobs       chan utxoSeedJob
+	seedPath       string
+	wake           chan struct{}
+	blockWait      utxoRPC
+	blockWaitRetry time.Duration
+	onApplied      func()
 
 	host       *utxoSeedHost
 	temp       func() (float64, error)
@@ -122,7 +126,7 @@ func newUtxoManager(dir string, fs vfs.FS, rpc utxoRPC, logger *log.Logger) *utx
 		fs = vfs.Default
 	}
 	m := &utxoManager{dir: dir, fs: fs, rpc: rpc, log: logger,
-		now: time.Now, seedJobs: make(chan utxoSeedJob), checkEvery: seedCheckEvery,
+		now: time.Now, seedJobs: make(chan utxoSeedJob), wake: make(chan struct{}, 1), blockWaitRetry: utxoFollowInterval, checkEvery: seedCheckEvery,
 		temp: func() (float64, error) { return hottestThermalC(seedThermalGlob) },
 		freeBytes: func() uint64 {
 			if d := diskUsage(dir); d.Total > 0 {
@@ -295,6 +299,9 @@ func (m *utxoManager) run(ctx context.Context) {
 		defer pt.Stop()
 		poll = pt.C
 	}
+	if m.blockWait != nil {
+		go m.waitBlocks(ctx)
+	}
 	for {
 		if m.follower != nil {
 			m.tick(ctx)
@@ -306,6 +313,8 @@ func (m *utxoManager) run(ctx context.Context) {
 				_ = m.currentStore().Close()
 				return
 			case <-t.C:
+				break wait
+			case <-m.wake:
 				break wait
 			case job := <-m.seedJobs:
 				job.done <- m.execSeed(job.ctx, job.fn)
@@ -521,6 +530,7 @@ func (m *utxoManager) AlertsSuppressed() bool {
 func (m *utxoManager) tick(ctx context.Context) {
 	m.mu.Lock()
 	skip := m.state == utxoStateInvalid || m.seeding
+	wasReady := m.state == utxoStateReady
 	m.mu.Unlock()
 	if skip {
 		return
@@ -556,7 +566,7 @@ func (m *utxoManager) tick(ctx context.Context) {
 		}
 		m.bound = true
 	}
-	height, _, hasTip, err := m.store.Tip()
+	height, before, hasTip, err := m.store.Tip()
 	if err != nil {
 		m.fail(err)
 		return
@@ -597,13 +607,54 @@ func (m *utxoManager) tick(ctx context.Context) {
 		m.fail(err)
 		return
 	}
-	height, _, _, _ = m.store.Tip()
+	height, after, _, _ := m.store.Tip()
 	m.setTip(height)
 	if err == nil && info.Blocks-int64(height) <= utxoReadyLag {
 		m.set(utxoStateReady, "")
+		if (after != before || !wasReady) && m.onApplied != nil {
+			m.onApplied()
+		}
 		return
 	}
 	m.set(utxoStateCatching, "")
+}
+
+// waitBlocks long-polls bitcoind so a new block wakes a ready index at once; catch-up keeps the ticker.
+func (m *utxoManager) waitBlocks(ctx context.Context) {
+	tip := ""
+	for ctx.Err() == nil {
+		m.mu.Lock()
+		ready := m.state == utxoStateReady
+		m.mu.Unlock()
+		if !ready {
+			select {
+			case <-ctx.Done():
+			case <-time.After(m.blockWaitRetry):
+			}
+			continue
+		}
+		params := []any{utxoBlockWait.Milliseconds()}
+		if tip != "" {
+			params = append(params, tip)
+		}
+		var res struct {
+			Hash string `json:"hash"`
+		}
+		if err := m.blockWait.call(ctx, "waitfornewblock", params, &res); err != nil || res.Hash == "" {
+			select {
+			case <-ctx.Done():
+			case <-time.After(m.blockWaitRetry):
+			}
+			continue
+		}
+		if res.Hash != tip {
+			select {
+			case m.wake <- struct{}{}:
+			default:
+			}
+		}
+		tip = res.Hash
+	}
 }
 
 func (m *utxoManager) fail(err error) {
