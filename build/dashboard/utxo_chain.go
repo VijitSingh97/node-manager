@@ -12,6 +12,7 @@ type utxoChainParams struct {
 	BlockVerbosity int
 	WaitTip        bool
 	Descriptors    []string
+	ReverseIndex   bool
 }
 
 var (
@@ -28,6 +29,7 @@ var (
 		LegacyDump:     true,
 		BlockVerbosity: 2,
 		Descriptors:    []string{"addr(", "pkh(", "wpkh(", "sh(wpkh(", "wsh("},
+		ReverseIndex:   true,
 	}
 )
 

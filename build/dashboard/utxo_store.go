@@ -17,11 +17,14 @@ import (
 
 const (
 	utxoSchemaVersion   = 1
+	utxoSchemaReverse   = 2
 	utxoPebbleFormat    = pebble.FormatFlushableIngest
 	utxoJournalDepth    = 144
 	utxoPrefixLen       = 16
 	utxoKeyLen          = utxoPrefixLen + 32 + 4
 	utxoValueLen        = 12
+	utxoRevTag          = 'o'
+	utxoRevKeyLen       = 1 + 32 + 4
 	utxoMaxScriptLen    = 10000
 	utxoBlockCacheBytes = 64 << 20
 	utxoMemTableBytes   = 16 << 20
@@ -97,6 +100,7 @@ type utxoStore struct {
 	beforeIngest  func() error
 	dir           string
 	fs            vfs.FS
+	reverse       bool
 	discard       bool
 	fatal         atomic.Pointer[string]
 }
@@ -157,20 +161,25 @@ func utxoCoinValue(amount uint64, height uint32) []byte {
 	return binary.BigEndian.AppendUint32(v, height)
 }
 
+// A reverse key maps an outpoint to its script hash, for chains whose blocks carry no prevout scripts.
+func utxoRevKey(coinKey []byte) []byte {
+	return append([]byte{utxoRevTag}, coinKey[utxoPrefixLen:]...)
+}
+
 // Undo keys are 8 bytes and the meta key 4, so neither can fall inside a 16-byte coin prefix range.
 func utxoUndoKey(height uint32) []byte {
 	return binary.BigEndian.AppendUint32([]byte("undo"), height)
 }
 
 func openUtxoStore(dir string) (*utxoStore, error) {
-	return openUtxoStoreFS(dir, nil)
+	return openUtxoStoreFS(dir, nil, false)
 }
 
-func openUtxoStoreFS(dir string, fs vfs.FS) (*utxoStore, error) {
+func openUtxoStoreFS(dir string, fs vfs.FS, reverse bool) (*utxoStore, error) {
 	if fs == nil {
 		fs = vfs.Default
 	}
-	s := &utxoStore{dir: dir, fs: fs}
+	s := &utxoStore{dir: dir, fs: fs, reverse: reverse}
 	opts := &pebble.Options{
 		Cache:                    pebble.NewCache(utxoBlockCacheBytes),
 		MemTableSize:             utxoMemTableBytes,
@@ -194,7 +203,7 @@ func openUtxoStoreFS(dir string, fs vfs.FS) (*utxoStore, error) {
 		if err := clearUtxoDir(fs, dir); err != nil {
 			return nil, fmt.Errorf("discard interrupted utxo ingest: %w", err)
 		}
-		return openUtxoStoreFS(dir, fs)
+		return openUtxoStoreFS(dir, fs, reverse)
 	}
 	if s.invalidReason != "" {
 		_ = db.Close()
@@ -226,9 +235,9 @@ func (s *utxoStore) loadMeta() error {
 		s.invalidReason = m.Invalid
 		return nil
 	}
-	if m.Schema != utxoSchemaVersion || m.PebbleFormat != int(utxoPebbleFormat) {
+	if m.Schema != s.schema() || m.PebbleFormat != int(utxoPebbleFormat) {
 		s.invalidReason = fmt.Sprintf("format version %d/%d, expected %d/%d",
-			m.Schema, m.PebbleFormat, utxoSchemaVersion, int(utxoPebbleFormat))
+			m.Schema, m.PebbleFormat, s.schema(), int(utxoPebbleFormat))
 		return nil
 	}
 	if m.Ingesting {
@@ -256,8 +265,15 @@ func (s *utxoStore) initMeta() error {
 		s.invalidReason = "missing metadata"
 		return nil
 	}
-	s.meta = utxoMeta{Schema: utxoSchemaVersion, PebbleFormat: int(utxoPebbleFormat)}
+	s.meta = utxoMeta{Schema: s.schema(), PebbleFormat: int(utxoPebbleFormat)}
 	return s.db.Set(utxoMetaKey, mustMarshalUtxoMeta(s.meta), pebble.Sync)
+}
+
+func (s *utxoStore) schema() int {
+	if s.reverse {
+		return utxoSchemaReverse
+	}
+	return utxoSchemaVersion
 }
 
 func mustMarshalUtxoMeta(m utxoMeta) []byte {
@@ -359,9 +375,19 @@ func (s *utxoStore) ApplyBlock(blk utxoBlock) error {
 		if err := b.Set(key, utxoCoinValue(c.Amount, blk.Height), nil); err != nil {
 			return err
 		}
+		if s.reverse {
+			if err := b.Set(utxoRevKey(key), key[:utxoPrefixLen], nil); err != nil {
+				return err
+			}
+		}
 	}
 	for _, sp := range blk.Spends {
 		key := utxoCoinKey(utxoScriptHash(sp.Script), sp.utxoOutpoint)
+		if s.reverse {
+			if err := takeUtxoRev(b, key); err != nil {
+				return err
+			}
+		}
 		val, closer, err := b.Get(key)
 		if errors.Is(err, pebble.ErrNotFound) {
 			return errUtxoMissingCoin
@@ -404,7 +430,26 @@ func (s *utxoStore) ApplyBlock(blk utxoBlock) error {
 	return nil
 }
 
-// An undo op is kind (1 set, 0 delete) || key || value (set only).
+// takeUtxoRev deletes the spent outpoint's reverse key and writes its script hash into key.
+func takeUtxoRev(b *pebble.Batch, key []byte) error {
+	rk := utxoRevKey(key)
+	h, closer, err := b.Get(rk)
+	if errors.Is(err, pebble.ErrNotFound) {
+		return errUtxoMissingCoin
+	}
+	if err != nil {
+		return err
+	}
+	ok := len(h) == utxoPrefixLen
+	copy(key, h)
+	closer.Close()
+	if !ok {
+		return errors.New("corrupt reverse record")
+	}
+	return b.Delete(rk, nil)
+}
+
+// An undo op is kind (1 set, 0 delete) || key || value (set only); reverse keys are derived from it, not journaled.
 func appendUtxoSet(ops, key, val []byte) []byte {
 	ops = append(ops, 1)
 	ops = append(ops, key...)
@@ -501,6 +546,13 @@ func (s *utxoStore) DisconnectTip() error {
 			err = b.Set(key, op[1+utxoKeyLen:], nil)
 		} else {
 			err = b.Delete(key, nil)
+		}
+		if err == nil && s.reverse {
+			if op[0] == 1 {
+				err = b.Set(utxoRevKey(key), key[:utxoPrefixLen], nil)
+			} else {
+				err = b.Delete(utxoRevKey(key), nil)
+			}
 		}
 		if err != nil {
 			return err

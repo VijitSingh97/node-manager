@@ -44,18 +44,18 @@ func TestUtxoChainParamsKeepBitcoinRequestsByteIdentical(t *testing.T) {
 		name                           string
 		chain                          *utxoChainParams
 		networks                       map[string][4]byte
-		legacy                         bool
+		legacy, reverse                bool
 		dump, wait, waitTip, verbosity string
 		descriptors                    []string
 	}{
-		{"bitcoin", utxoBitcoin, map[string][4]byte{"main": {0xf9, 0xbe, 0xb4, 0xd9}, "regtest": regtest}, false,
+		{"bitcoin", utxoBitcoin, map[string][4]byte{"main": {0xf9, 0xbe, 0xb4, 0xd9}, "regtest": regtest}, false, false,
 			`["utxo-seed.dat","latest"]`, `[60000]`, `[60000,"aa"]`, "3", []string{"addr(", "pkh(", "wpkh(", "sh(wpkh(", "wsh(", "tr("}},
-		{"litecoin", utxoLitecoin, map[string][4]byte{"main": {0xfb, 0xc0, 0xb6, 0xdb}, "regtest": regtest}, true,
+		{"litecoin", utxoLitecoin, map[string][4]byte{"main": {0xfb, 0xc0, 0xb6, 0xdb}, "regtest": regtest}, true, true,
 			`["utxo-seed.dat"]`, `[60000]`, `[60000]`, "2", []string{"addr(", "pkh(", "wpkh(", "sh(wpkh(", "wsh("}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if !reflect.DeepEqual(tc.chain.Networks, tc.networks) || tc.chain.LegacyDump != tc.legacy {
-				t.Fatalf("networks %x legacy %v", tc.chain.Networks, tc.chain.LegacyDump)
+			if !reflect.DeepEqual(tc.chain.Networks, tc.networks) || tc.chain.LegacyDump != tc.legacy || tc.chain.ReverseIndex != tc.reverse {
+				t.Fatalf("networks %x legacy %v reverse %v", tc.chain.Networks, tc.chain.LegacyDump, tc.chain.ReverseIndex)
 			}
 			if got := marshalParams(t, tc.chain.dumpArgs(seedDumpName)); got != tc.dump {
 				t.Errorf("dumptxoutset params %s, want %s", got, tc.dump)
@@ -80,7 +80,7 @@ func TestUtxoChainParamsKeepBitcoinRequestsByteIdentical(t *testing.T) {
 			}
 		})
 	}
-	if m := utxoMgrNew(t, t.TempDir(), nil, newFakeUtxoChain(), io.Discard); m.chain != utxoBitcoin || m.follower.chain != utxoBitcoin {
+	if m := utxoMgrNew(t, t.TempDir(), nil, newFakeUtxoChain(), io.Discard); m.chain != utxoBitcoin || m.follower.chain != utxoBitcoin || m.store.reverse {
 		t.Fatal("the manager does not default to the Bitcoin parameters")
 	}
 }

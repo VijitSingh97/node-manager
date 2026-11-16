@@ -56,11 +56,20 @@ func (p *utxoIngestProgress) Fraction() float64 {
 	return float64(p.Written.Load()) / float64(t)
 }
 
+// Reverse records share the 64-byte run format (key, value, zero padding); sorting on the first 52 bytes still orders them by key because keys are unique.
+type utxoRun struct {
+	path           string
+	keyLen, valLen int
+}
+
 type utxoRunReader struct {
+	utxoRun
 	f   vfs.File
 	r   *bufio.Reader
 	cur utxoIngestRec
 }
+
+func (r *utxoRunReader) key() []byte { return r.cur[:r.keyLen] }
 
 func (r *utxoRunReader) next() (bool, error) {
 	_, err := io.ReadFull(r.r, r.cur[:])
@@ -74,7 +83,7 @@ type utxoRunHeap []*utxoRunReader
 
 func (h utxoRunHeap) Len() int { return len(h) }
 func (h utxoRunHeap) Less(i, j int) bool {
-	return bytes.Compare(h[i].cur[:utxoKeyLen], h[j].cur[:utxoKeyLen]) < 0
+	return bytes.Compare(h[i].key(), h[j].key()) < 0
 }
 func (h utxoRunHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
 func (h *utxoRunHeap) Push(x any)   { *h = append(*h, x.(*utxoRunReader)) }
@@ -109,19 +118,19 @@ func writeUtxoRun(fs vfs.FS, path string, recs []utxoIngestRec) error {
 	return f.Close()
 }
 
-func mergeUtxoRunsToSSTs(fs vfs.FS, tmp string, runs []string, prog *utxoIngestProgress) ([]string, error) {
+func mergeUtxoRunsToSSTs(fs vfs.FS, tmp string, runs []utxoRun, prog *utxoIngestProgress) ([]string, error) {
 	var h utxoRunHeap
 	defer func() {
 		for _, r := range h {
 			_ = r.f.Close()
 		}
 	}()
-	for _, p := range runs {
-		f, err := fs.Open(p)
+	for _, run := range runs {
+		f, err := fs.Open(run.path)
 		if err != nil {
 			return nil, err
 		}
-		r := &utxoRunReader{f: f, r: bufio.NewReaderSize(f, utxoIngestBufBytes)}
+		r := &utxoRunReader{utxoRun: run, f: f, r: bufio.NewReaderSize(f, utxoIngestBufBytes)}
 		ok, err := r.next()
 		if err != nil {
 			_ = f.Close()
@@ -139,10 +148,14 @@ func mergeUtxoRunsToSSTs(fs vfs.FS, tmp string, runs []string, prog *utxoIngestP
 	var (
 		ssts     []string
 		w        *sstable.Writer
-		prev     [utxoKeyLen]byte
+		prev     []byte
 		havePrev bool
 		pending  uint64
+		perCoin  uint64 = 1
 	)
+	if slices.ContainsFunc(runs, func(r utxoRun) bool { return r.keyLen == utxoRevKeyLen }) {
+		perCoin = 2
+	}
 	closeWriter := func() error {
 		if w == nil {
 			return nil
@@ -153,12 +166,12 @@ func mergeUtxoRunsToSSTs(fs vfs.FS, tmp string, runs []string, prog *utxoIngestP
 	}
 	for len(h) > 0 {
 		top := h[0]
-		key, val := top.cur[:utxoKeyLen], top.cur[utxoKeyLen:]
-		if havePrev && bytes.Compare(prev[:], key) >= 0 {
+		key, val := top.key(), top.cur[top.keyLen:top.keyLen+top.valLen]
+		if havePrev && bytes.Compare(prev, key) >= 0 {
 			_ = closeWriter()
 			return ssts, errors.New("snapshot has a duplicate coin key")
 		}
-		copy(prev[:], key)
+		prev = append(prev[:0], key...)
 		havePrev = true
 		if w != nil && w.EstimatedSize() >= utxoIngestSSTBytes {
 			if err := closeWriter(); err != nil {
@@ -179,7 +192,7 @@ func mergeUtxoRunsToSSTs(fs vfs.FS, tmp string, runs []string, prog *utxoIngestP
 			return ssts, err
 		}
 		if pending++; pending == utxoIngestCheckpointEvery {
-			prog.Written.Add(pending)
+			prog.Written.Add(pending / perCoin)
 			pending = 0
 			if err := prog.checkpoint(); err != nil {
 				_ = closeWriter()
@@ -198,7 +211,7 @@ func mergeUtxoRunsToSSTs(fs vfs.FS, tmp string, runs []string, prog *utxoIngestP
 			heap.Pop(&h)
 		}
 	}
-	prog.Written.Add(pending)
+	prog.Written.Add(pending / perCoin)
 	return ssts, closeWriter()
 }
 
@@ -221,24 +234,42 @@ func ingestUtxoSnapshot(s *utxoStore, r io.Reader, chain *utxoChainParams, netwo
 	defer func() { _ = fs.RemoveAll(tmp) }()
 
 	var (
-		buf  []utxoIngestRec
-		runs []string
+		buf, rbuf []utxoIngestRec
+		runs      []utxoRun
 	)
+	write := func(recs []utxoIngestRec, keyLen, valLen int) error {
+		path := fs.PathJoin(tmp, fmt.Sprintf("run-%06d", len(runs)))
+		if err := writeUtxoRun(fs, path, recs); err != nil {
+			return err
+		}
+		runs = append(runs, utxoRun{path, keyLen, valLen})
+		return nil
+	}
 	flush := func() error {
 		if len(buf) == 0 {
 			return nil
 		}
-		path := fs.PathJoin(tmp, fmt.Sprintf("run-%06d", len(runs)))
-		if err := writeUtxoRun(fs, path, buf); err != nil {
+		if err := write(buf, utxoKeyLen, utxoValueLen); err != nil {
 			return err
 		}
-		runs = append(runs, path)
-		buf = buf[:0]
+		if s.reverse {
+			if err := write(rbuf, utxoRevKeyLen, utxoPrefixLen); err != nil {
+				return err
+			}
+		}
+		buf, rbuf = buf[:0], rbuf[:0]
 		return nil
+	}
+	runRecords := utxoIngestRunRecords
+	if s.reverse {
+		runRecords = max(1, runRecords/2)
 	}
 	hdr, err := chain.parseDump(r, network, func(h utxoHeader) {
 		prog.Total.Store(h.CoinsCount)
-		buf = make([]utxoIngestRec, 0, min(h.CoinsCount, utxoIngestRunRecords))
+		buf = make([]utxoIngestRec, 0, min(h.CoinsCount, runRecords))
+		if s.reverse {
+			rbuf = make([]utxoIngestRec, 0, cap(buf))
+		}
 	}, func(rec utxoRecord) error {
 		if prog.Parsed.Add(1)%utxoIngestCheckpointEvery == 0 {
 			if err := prog.checkpoint(); err != nil {
@@ -253,9 +284,16 @@ func ingestUtxoSnapshot(s *utxoStore, r io.Reader, chain *utxoChainParams, netwo
 			return nil
 		}
 		var e utxoIngestRec
-		copy(e[:], utxoCoinKey(utxoScriptHash(rec.ScriptPubKey), utxoOutpoint{Txid: rec.Txid, Vout: uint32(rec.Vout)}))
+		key := utxoCoinKey(utxoScriptHash(rec.ScriptPubKey), utxoOutpoint{Txid: rec.Txid, Vout: uint32(rec.Vout)})
+		copy(e[:], key)
 		copy(e[utxoKeyLen:], utxoCoinValue(rec.Amount, rec.Height))
 		buf = append(buf, e)
+		if s.reverse {
+			var r utxoIngestRec
+			copy(r[:], utxoRevKey(key))
+			copy(r[utxoRevKeyLen:], key[:utxoPrefixLen])
+			rbuf = append(rbuf, r)
+		}
 		if len(buf) == cap(buf) {
 			return flush()
 		}
@@ -267,13 +305,13 @@ func ingestUtxoSnapshot(s *utxoStore, r io.Reader, chain *utxoChainParams, netwo
 	if err := flush(); err != nil {
 		return hdr, err
 	}
-	buf = nil
+	buf, rbuf = nil, nil
 	ssts, err := mergeUtxoRunsToSSTs(fs, tmp, runs, prog)
 	if err != nil {
 		return hdr, err
 	}
-	for _, p := range runs {
-		_ = fs.Remove(p)
+	for _, run := range runs {
+		_ = fs.Remove(run.path)
 	}
 	height, err := baseHeight(hdr.BaseHash)
 	if err != nil {

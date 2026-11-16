@@ -488,7 +488,11 @@ func TestUtxoIngestLargeMeasure(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	s := utxoTestOpen(t, dir)
+	open := utxoTestOpen
+	if os.Getenv("UTXO_INGEST_BENCH_REVERSE") != "" {
+		open = utxoTestOpenReverse
+	}
+	s := open(t, dir)
 	var peakTmp, peakAll int64
 	var samples int
 	stop := make(chan struct{})

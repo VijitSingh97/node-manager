@@ -157,7 +157,7 @@ func (m *utxoManager) openLocked() {
 			m.log.Printf("utxo index: cannot restrict the index directory: %v", err)
 		}
 	}
-	store, err := openUtxoStoreFS(m.dir, m.fs)
+	store, err := openUtxoStoreFS(m.dir, m.fs, m.chain.ReverseIndex)
 	if err != nil {
 		m.log.Printf("utxo index: cannot open the store: %v", err)
 		m.store = &utxoStore{invalidReason: "cannot open the index store"}
@@ -683,7 +683,7 @@ func utxoErrorClass(err error) string {
 func (m *utxoManager) invalidate(reason string) {
 	err := m.store.MarkInvalid(reason)
 	if err != nil {
-		if ns, oerr := openUtxoStoreFS(m.dir, m.fs); oerr == nil {
+		if ns, oerr := openUtxoStoreFS(m.dir, m.fs, m.chain.ReverseIndex); oerr == nil {
 			err = ns.MarkInvalid(reason)
 			m.mu.Lock()
 			m.store = ns

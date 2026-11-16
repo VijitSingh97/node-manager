@@ -16,7 +16,7 @@ func TestUtxoManagerAppliesNewBlocksAtOnceRegtestLive(t *testing.T) {
 	n.do("generatetoaddress", 101, mine)
 
 	dir := t.TempDir()
-	store, err := openUtxoStoreFS(dir, nil)
+	store, err := openUtxoStoreFS(dir, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
