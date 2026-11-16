@@ -15,6 +15,7 @@ for private_runtime_path in credential-control/transaction.after port-control/re
   git check-ignore -q "$private_runtime_path" || fail "private runtime path is not ignored: $private_runtime_path"
 done
 
+repo_root=$PWD
 tmp=$(mktemp -d)
 legacy_pid=
 unrelated_pid=
@@ -545,6 +546,26 @@ case "$args" in
   *' ps -aq --filter volume='*) [ "${FAKE_VOL_MOUNTED:-0}" != 1 ] || echo dashboard-id ;;
   *'.utxo-seed.request.tmp'*) cat >"$FAKE_UTXO/request.json" ;;
   *'/state/utxo-seed.cancel'*) : >"$FAKE_UTXO/cancelled" ;;
+  *'.utxo-bench.request.tmp'*) cat >"$FAKE_UTXO/bench-request.json" ;;
+  *' exec -T -u 1000 dashboard cat /state/utxo-bench.result '*)
+    [ -f "$FAKE_UTXO/bench-request.json" ] || exit 1
+    case "${FAKE_BENCH_SCENARIO:-ok}" in
+      none) echo '{"id":"someone-else","wallets":[]}' ;;
+      refused) jq -n --slurpfile req "$FAKE_UTXO/bench-request.json" '{id: $req[0].id, repeat: $req[0].repeat, state: "catching_up", refusals: ["the index is catching_up, not ready"]}' ;;
+      ok)
+        jq -n --slurpfile req "$FAKE_UTXO/bench-request.json" '
+          {lookup: {first_s: 0.4, p50_s: 0.3, p99_s: 0.5, max_s: 0.6}} as $t |
+          {id: $req[0].id, repeat: $req[0].repeat, state: "ready", node_tip_height: 900, index_tip_height: 900,
+           wallets: [{name: "alpha", derive_s: 0.5, scripts: 2000, fallback: false, lookup: $t.lookup, coins: 7, sats: 1234},
+                     {name: "beta", derive_s: 0.01, scripts: 0, fallback: true, coins: 0, sats: 0}],
+           batches: [{wallets: 1, scripts: 2000, expected_scripts: 2000, fallback_wallets: 0, coins: 7, lookup: $t.lookup}, {wallets: 2, scripts: 2000, expected_scripts: 2000, fallback_wallets: 1, coins: 7, lookup: $t.lookup}],
+           cached_read: {first_s: 0.001, p50_s: 0.002, p99_s: 0.004, max_s: 0.005, roster_wallets: 3}} +
+          (if $req[0].scan then {scan: {height: 900, batch_s: 41.5, single_s: 20.25, wallets: [
+             {name: "alpha", coins: 7, sats: 1234, index_coins: 7, index_sats: 1234, match: true},
+             {name: "beta", coins: 3, sats: 5, index_coins: 0, index_sats: 0}]}} else {} end)'
+        ;;
+    esac
+    ;;
   *' exec -T -u 1000 dashboard cat /state/utxo-seed.json '*)
     if [ "${FAKE_DASH_SEEDING:-0}" = 1 ]; then
       if [ -f "$FAKE_UTXO/cancelled" ] && [ "${FAKE_DASH_STUCK:-0}" != 1 ]; then echo '{"seed_state":"cancelled"}'; else echo '{"seed_state":"seeding"}'; fi
@@ -729,6 +750,127 @@ reset_useed
 printf 'y\n' | BITCOIN_STACK_INTERACTIVE=1 useed utxo-index remove >/dev/null 2>&1 || fail "utxo-index remove failed after y"
 grep -qx "docker volume rm $vol" "$FAKE_LOG" || fail "utxo-index remove did not remove after y"
 mv "$utxo_dir/.env.keep" "$utxo_dir/.env"
+
+# utxo-index bench: option off or a bad wallet file is refused before anything is written.
+reset_ubench() {
+  reset_useed
+  rm -f "$FAKE_UTXO/bench-request.json"
+  unset FAKE_BENCH_SCENARIO
+}
+ubench() { (cd "$utxo_dir" && HOME="$tmp" BITCOIN_STACK_UTXO_BENCH_POLL_SECONDS=1 BITCOIN_STACK_UTXO_BENCH_TIMEOUT_SECONDS="${BENCH_TIMEOUT:-5}" PATH="$utxo_stub:$stub:$PATH" ./stack "$@"); }
+bench_wallets=$tmp/bench-wallets.json
+echo '[{"name": "alpha", "key": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"}, {"name": "beta", "key": "wpkh(xpubplaceholder/<0;1>/*)"}]' >"$bench_wallets"
+bench_written() { grep -q '.utxo-bench.request.tmp' "$FAKE_LOG" 2>/dev/null; }
+rm -f "$utxo_dir"/utxo-bench-*.json
+
+reset_ubench
+cp "$utxo_dir/.env" "$utxo_dir/.env.keep"
+grep -v '^COMPOSE_FILE=' "$utxo_dir/.env.keep" >"$utxo_dir/.env"
+ubench utxo-index bench "$bench_wallets" >"$tmp/ubench.out" 2>&1 && fail "utxo-index bench ran without the overlay"
+grep -q 'not enabled' "$tmp/ubench.out" || fail "utxo-index bench did not explain the missing overlay"
+bench_written && fail "utxo-index bench wrote a request without the overlay"
+mv "$utxo_dir/.env.keep" "$utxo_dir/.env"
+
+echo '{"name": "alpha", "key": "x"}' >"$tmp/bad1.json"
+echo '[]' >"$tmp/bad2.json"
+echo '[{"name": "alpha"}]' >"$tmp/bad3.json"
+echo '[{"name": "alpha", "key": 5}]' >"$tmp/bad4.json"
+echo '[{"name": "", "key": "x"}]' >"$tmp/bad5.json"
+echo 'not json' >"$tmp/bad6.json"
+jq -nc '[range(21) | {name: "w\(.)", key: "k\(.)"}]' >"$tmp/bad7.json"
+for bad in "$tmp"/bad[1-7].json "$tmp/missing.json"; do
+  reset_ubench
+  ubench utxo-index bench "$bad" >"$tmp/ubench.out" 2>&1 && fail "utxo-index bench accepted $bad"
+  grep -q 'must be a JSON array of 1 to 20' "$tmp/ubench.out" || fail "utxo-index bench did not explain $bad"
+  bench_written && fail "utxo-index bench wrote a request for $bad"
+done
+for args in "--repeat 0" "--repeat 201" "--repeat x" "--repeat" "--bogus" "extra.json"; do
+  reset_ubench
+  # shellcheck disable=SC2086
+  ubench utxo-index bench "$bench_wallets" $args >/dev/null 2>&1 && fail "utxo-index bench accepted arguments '$args'"
+  bench_written && fail "utxo-index bench wrote a request for arguments '$args'"
+done
+reset_ubench
+ubench utxo-index bench >/dev/null 2>&1 && fail "utxo-index bench ran without a wallet file"
+ubench utxo-index bogus >/dev/null 2>&1 && fail "utxo-index accepted an unknown subcommand after bench was added"
+
+reset_ubench
+ubench utxo-index bench "$bench_wallets" >"$tmp/ubench.out" 2>&1 || fail "utxo-index bench failed on the happy path"
+grep -q ' -u 1000 dashboard sh -c umask 077; cat > /state/.utxo-bench.request.tmp' "$FAKE_LOG" || fail "utxo-index bench did not write the request privately as the dashboard user"
+jq -e '(.id | test("^[0-9a-f]{32}$")) and (.requested_at | . > 1e9 and . <= now + 5) and .repeat == 20 and .scan == false and (.wallets | length == 2) and .wallets[0].name == "alpha" and .wallets[1].key == "wpkh(xpubplaceholder/<0;1>/*)"' "$FAKE_UTXO/bench-request.json" >/dev/null || fail "utxo-index bench request is not {id, wallets, repeat, scan}"
+grep -q 'scantxoutset' "$tmp/ubench.out" && fail "utxo-index bench warned about a scan without --scan"
+grep -q 'alpha  *2000  *7  *1234' "$tmp/ubench.out" || fail "utxo-index bench did not print the per-wallet table"
+grep -q 'beta .*fallback' "$tmp/ubench.out" || fail "utxo-index bench did not mark the fallback wallet"
+grep -q 'Batched lookups' "$tmp/ubench.out" || fail "utxo-index bench did not print the batches"
+grep -q 'Cached read (seconds): p50 0.002, p99 0.004, max 0.005, roster wallets 3' "$tmp/ubench.out" || fail "utxo-index bench did not print the cached read and roster size"
+grep -q 'warning: 1 wallet(s) fell back' "$tmp/ubench.out" || fail "utxo-index bench did not warn about the fallback wallet"
+grep -q '^2  *2000  *2000  *1  *7' "$tmp/ubench.out" || fail "utxo-index bench did not print expected scripts and fallback wallets per batch"
+grep -q 'Scan at height' "$tmp/ubench.out" && fail "utxo-index bench printed a scan section without --scan"
+saved=$(sed -n 's/^Saved \(.*\) (mode 600)\.$/\1/p' "$tmp/ubench.out")
+[ -f "$saved" ] || fail "utxo-index bench did not print the saved result path"
+[ -n "$(find "$saved" -perm 600)" ] || fail "utxo-index bench result is not mode 600"
+jq -e '.state == "ready"' "$saved" >/dev/null || fail "utxo-index bench saved result is not the dashboard result"
+
+reset_ubench
+ubench utxo-index bench "$bench_wallets" --scan >"$tmp/ubench.out" 2>&1 </dev/null && fail "utxo-index bench --scan ran without a terminal or -y"
+grep -q 'Run this on a terminal, or pass -y' "$tmp/ubench.out" || fail "utxo-index bench --scan did not ask for -y"
+bench_written && fail "utxo-index bench --scan wrote a request without confirmation"
+echo n | BITCOIN_STACK_INTERACTIVE=1 ubench utxo-index bench "$bench_wallets" --scan >"$tmp/ubench.out" 2>&1 && fail "utxo-index bench --scan ran after the answer n"
+grep -q 'Not started' "$tmp/ubench.out" || fail "utxo-index bench --scan did not report the declined scan"
+bench_written && fail "utxo-index bench --scan wrote a request after the answer n"
+reset_ubench
+echo y | BITCOIN_STACK_INTERACTIVE=1 ubench utxo-index bench "$bench_wallets" --scan >"$tmp/ubench.out" 2>&1 || fail "utxo-index bench --scan failed after the answer y"
+jq -e '.scan == true' "$FAKE_UTXO/bench-request.json" >/dev/null || fail "utxo-index bench --scan did not write the confirmed request"
+
+reset_ubench
+ubench utxo-index bench "$bench_wallets" --repeat 7 --scan -y >"$tmp/ubench.out" 2>&1 || fail "utxo-index bench --scan -y failed"
+jq -e '.repeat == 7 and .scan == true' "$FAKE_UTXO/bench-request.json" >/dev/null || fail "utxo-index bench did not pass --repeat and --scan"
+grep -q 'owner approved' "$tmp/ubench.out" || fail "utxo-index bench --scan did not warn about the heavy scan"
+grep -q 'Scan at height 900: batch of 2 41.5 s, first wallet alone 20.25 s' "$tmp/ubench.out" || fail "utxo-index bench did not print the scan timings"
+grep -q 'alpha  *7  *7  *1234  *1234  *true' "$tmp/ubench.out" || fail "utxo-index bench did not print the scan match"
+grep -q 'beta .*n/a' "$tmp/ubench.out" || fail "utxo-index bench did not print n/a for the fallback wallet"
+
+reset_ubench
+export FAKE_BENCH_SCENARIO=refused
+ubench utxo-index bench "$bench_wallets" >"$tmp/ubench.out" 2>&1 && fail "a refused bench exited 0"
+grep -q 'refused: the index is catching_up, not ready' "$tmp/ubench.out" || fail "utxo-index bench did not print the refusal"
+grep -q 'Per wallet' "$tmp/ubench.out" && fail "utxo-index bench printed tables for a refused run"
+
+reset_ubench
+export FAKE_BENCH_SCENARIO=none
+BENCH_TIMEOUT=2 ubench utxo-index bench "$bench_wallets" >"$tmp/ubench.out" 2>&1 && fail "a bench with no result exited 0"
+grep -q 'returned no result' "$tmp/ubench.out" || fail "utxo-index bench did not explain the timeout"
+grep -q ' dashboard rm -f /state/utxo-bench.request' "$FAKE_LOG" || fail "the bench timeout left the request behind"
+
+reset_ubench
+export FAKE_BENCH_SCENARIO=none
+(cd "$utxo_dir" && exec env HOME="$tmp" BITCOIN_STACK_UTXO_BENCH_POLL_SECONDS=1 BITCOIN_STACK_UTXO_BENCH_TIMEOUT_SECONDS=60 PATH="$utxo_stub:$stub:$PATH" ./stack utxo-index bench "$bench_wallets") >/dev/null 2>&1 &
+ubench_pid=$!
+for _ in $(seq 1 50); do bench_written 2>/dev/null && break; sleep 0.1; done
+kill -TERM "$ubench_pid"
+wait "$ubench_pid" 2>/dev/null || true
+grep -q ' dashboard rm -f /state/utxo-bench.request' "$FAKE_LOG" || fail "a signal during the bench wait left the request behind"
+reset_ubench
+rm -f "$utxo_dir"/utxo-bench-*.json
+
+# measure-block-latency.sh: blocks match the first refresh at that height or higher, split by index and block update.
+cat >"$tmp/block.log" <<'EOF'
+2026-11-15T06:30:00Z UpdateTip: new best=aa height=100 version=0x1 log2_work=1 tx=1 date='x' progress=1.0 cache=1.0MiB(1txo)
+2026-11-15T06:31:00Z UpdateTip: new best=bb height=101 version=0x1 log2_work=1 tx=1 date='x' progress=1.0 cache=1.0MiB(1txo)
+2026-11-15T06:32:00Z UpdateTip: new best=cc height=102 version=0x1 log2_work=1 tx=1 date='x' progress=1.0 cache=1.0MiB(1txo)
+2026-11-15T06:40:00Z UpdateTip: new best=dd height=103 version=0x1 log2_work=1 tx=1 date='x' progress=1.0 cache=1.0MiB(1txo)
+EOF
+cat >"$tmp/dash.log" <<'EOF'
+2026-11-15T06:30:20.123456789Z 2026/11/15 06:30:20 watch index: outcome=ok outpoints=7 height=100 took=0.500s
+2026-11-15T06:31:40.000000001Z 2026/11/15 06:31:40 watch block update: wallets=2 blocks=1 height=101 took=2.0s
+2026-11-15T06:33:30.5Z 2026/11/15 06:33:30 watch index: outcome=ok outpoints=7 height=102 took=0.100s
+EOF
+"$repo_root/scripts/measure-block-latency.sh" --since 2026-11-15T06:00:00Z --bitcoin-log "$tmp/block.log" --dashboard-log "$tmp/dash.log" >"$tmp/latency.out" || fail "measure-block-latency.sh failed"
+grep -q 'Blocks seen: 4, matched to a refresh: 3, with no refresh yet: 1' "$tmp/latency.out" || fail "measure-block-latency.sh miscounted the blocks"
+grep -Eq 'Served by the index  *2  *20.0  *90.0  *90.0' "$tmp/latency.out" || fail "measure-block-latency.sh got the index row wrong"
+grep -Eq 'Fell back to the block update  *1  *40.0  *40.0  *40.0' "$tmp/latency.out" || fail "measure-block-latency.sh got the block update row wrong"
+grep -Eq '^All  *3  *40.0  *90.0  *90.0' "$tmp/latency.out" || fail "measure-block-latency.sh got the overall row wrong"
+"$repo_root/scripts/measure-block-latency.sh" --bitcoin-log "$tmp/block.log" --dashboard-log "$tmp/dash.log" >/dev/null 2>&1 && fail "measure-block-latency.sh ran without --since"
 
 # stop, down and restart open a parked dump once; a running seed is cancelled first.
 for action in stop down restart; do

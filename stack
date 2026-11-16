@@ -525,6 +525,146 @@ utxo_index_remove() {
   echo "Removed $volume. Turning bitcoin.utxo_index on again starts not_seeded and needs a new $stack_command utxo-seed."
 }
 
+utxo_bench_print() {
+  local result=$1 tab=$'\t'
+  jq -r '(.refusals // [])[] | "refused: " + .' <<<"$result"
+  jq -e '(.wallets // []) | length > 0' <<<"$result" >/dev/null || return 0
+  jq -r '"Index \(.state) at height \(.index_tip_height // "?"), node at \(.node_tip_height // "?"), repeat \(.repeat)"' <<<"$result"
+  jq -r '[.wallets[] | select(.fallback)] | length | select(. > 0) | "warning: \(.) wallet(s) fell back (shape not indexed) and are left out of the lookups, batches and scan comparison."' <<<"$result"
+  echo
+  echo "Per wallet (seconds):"
+  jq -r 'def f: if . == null then "-" else ((. * 10000 | round) / 10000 | tostring) end;
+    (["wallet", "scripts", "coins", "sats", "derive", "first", "p50", "p99", "max"] | join("\t")),
+    (.wallets[] | [.name, .scripts, .coins, .sats, (.derive_s | f), (if .fallback then "fallback" else (.lookup.first_s | f) end), (.lookup.p50_s | f), (.lookup.p99_s | f), (.lookup.max_s | f)] | join("\t"))' <<<"$result" | { column -t -s "$tab" 2>/dev/null || cat; }
+  echo
+  echo "Batched lookups (seconds):"
+  jq -r 'def f: if . == null then "-" else ((. * 10000 | round) / 10000 | tostring) end;
+    (["wallets", "scripts", "expected", "fallback", "coins", "first", "p50", "p99", "max"] | join("\t")),
+    ((.batches // [])[] | [.wallets, .scripts, .expected_scripts, .fallback_wallets, .coins, (.lookup.first_s | f), (.lookup.p50_s | f), (.lookup.p99_s | f), (.lookup.max_s | f)] | join("\t"))' <<<"$result" | { column -t -s "$tab" 2>/dev/null || cat; }
+  jq -r 'def f: ((. * 10000 | round) / 10000 | tostring);
+    if .cached_read then "\nCached read (seconds): p50 \(.cached_read.p50_s | f), p99 \(.cached_read.p99_s | f), max \(.cached_read.max_s | f), roster wallets \(.cached_read.roster_wallets // "?")" else empty end' <<<"$result"
+  jq -r 'select((.cached_read.roster_wallets // 0) == 0) | "note: the watch roster is empty, so the cached read figure does not count."' <<<"$result"
+  jq -e '.scan' <<<"$result" >/dev/null 2>&1 || return 0
+  echo
+  jq -r 'def f: ((. * 10000 | round) / 10000 | tostring);
+    "Scan at height \(.scan.height): batch of \(.wallets | length) \(.scan.batch_s | f) s, first wallet alone \(.scan.single_s | f) s",
+    (["wallet", "scan_coins", "index_coins", "scan_sats", "index_sats", "match"] | join("\t")),
+    (.scan.wallets[] | [.name, .coins, .index_coins, .sats, .index_sats, (.match | if . == null then "n/a" else tostring end)] | join("\t"))' <<<"$result" | { column -t -s "$tab" 2>/dev/null || cat; }
+  jq -r 'select(.scan.height_skew) | "note: the scan height differs from the index tip, so a block arrived during the run and the comparison was skipped."' <<<"$result"
+}
+
+utxo_index_bench() {
+  local usage="Usage: $stack_command utxo-index bench <wallets.json> [--scan [-y]] [--repeat N]"
+  local file='' scan=false repeat=20 assume_yes=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --scan) scan=true ;;
+      -y) assume_yes=1 ;;
+      --repeat)
+        [ $# -ge 2 ] || {
+          echo "$usage" >&2
+          return 1
+        }
+        shift
+        repeat=$1
+        ;;
+      -*)
+        echo "$usage" >&2
+        return 1
+        ;;
+      *)
+        [ -z "$file" ] || {
+          echo "$usage" >&2
+          return 1
+        }
+        file=$1
+        ;;
+    esac
+    shift
+  done
+  if [ -z "$file" ] || ! [[ "$repeat" =~ ^[0-9]+$ ]] || [ "$repeat" -lt 1 ] || [ "$repeat" -gt 200 ]; then
+    echo "$usage" >&2
+    echo "--repeat takes a number from 1 to 200." >&2
+    return 1
+  fi
+  command -v jq >/dev/null || {
+    echo "jq is required; install it with your host package manager." >&2
+    return 1
+  }
+  utxo_seed_overlay_enabled || {
+    echo "The UTXO index is not enabled. Set bitcoin.utxo_index to true in config.json and run $stack_command apply." >&2
+    return 1
+  }
+  jq -e 'type == "array" and length >= 1 and length <= 20 and all(.[]; type == "object" and (.name | type == "string" and length > 0) and (.key | type == "string" and length > 0))' "$file" >/dev/null 2>&1 || {
+    echo "$file must be a JSON array of 1 to 20 {\"name\", \"key\"} objects with string values." >&2
+    return 1
+  }
+  utxo_seed_running dashboard || {
+    echo "The dashboard container is not running." >&2
+    return 1
+  }
+  local id request
+  id=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
+  request=$(jq -c --arg id "$id" --argjson at "$(date -u +%s)" --argjson repeat "$repeat" --argjson scan "$scan" '{id: $id, requested_at: $at, wallets: map({name, key}), repeat: $repeat, scan: $scan}' "$file") || return 1
+  if [ "$scan" = true ]; then
+    cat <<EOF
+This run uses scantxoutset, which is heavy: minutes of CPU on a 0.5-CPU node, and
+bitcoind RPC answers slowly meanwhile. Run it only in a window the owner approved.
+EOF
+    if [ "$assume_yes" != 1 ]; then
+      [ -t 0 ] || [ "${BITCOIN_STACK_INTERACTIVE:-0}" = 1 ] || {
+        echo "Run this on a terminal, or pass -y." >&2
+        return 1
+      }
+      local reply
+      printf 'Start the scan? [y/N] '
+      read -r reply || true
+      case "$reply" in
+        y | Y) ;;
+        *)
+          echo "Not started."
+          return 1
+          ;;
+      esac
+    fi
+  fi
+  trap 'trap - INT TERM HUP; compose exec -T -u 1000 dashboard rm -f /state/utxo-bench.request >/dev/null 2>&1 || true; echo; echo "Detached. The dashboard may still finish the run; the result stays in its state volume." >&2; exit 130' INT TERM HUP
+  if ! printf '%s\n' "$request" |
+    compose exec -T -u 1000 dashboard sh -c \
+      'umask 077; cat > /state/.utxo-bench.request.tmp; mv /state/.utxo-bench.request.tmp /state/utxo-bench.request' >/dev/null; then
+    trap - INT TERM HUP
+    echo "Could not write the bench request into the dashboard state." >&2
+    return 1
+  fi
+  local poll limit=600 deadline result=''
+  [ "$scan" != true ] || limit=2700
+  poll=$(utxo_seed_interval BITCOIN_STACK_UTXO_BENCH_POLL_SECONDS 5)
+  deadline=$((SECONDS + $(utxo_seed_interval BITCOIN_STACK_UTXO_BENCH_TIMEOUT_SECONDS "$limit")))
+  echo "Waiting for the dashboard to finish the bench..."
+  while true; do
+    result=$(compose exec -T -u 1000 dashboard cat /state/utxo-bench.result 2>/dev/null || true)
+    [ "$(jq -r '.id // ""' <<<"$result" 2>/dev/null || true)" != "$id" ] || break
+    if [ "$SECONDS" -ge "$deadline" ]; then
+      compose exec -T -u 1000 dashboard rm -f /state/utxo-bench.request >/dev/null 2>&1 || true
+      trap - INT TERM HUP
+      echo "The dashboard returned no result in time. Check that it is healthy and has the UTXO index enabled." >&2
+      return 1
+    fi
+    sleep "$poll"
+  done
+  trap - INT TERM HUP
+  local saved
+  saved=$state_dir/utxo-bench-$(date -u +%Y%m%dT%H%M%SZ).json
+  if ! (umask 077 && printf '%s\n' "$result" >"$saved"); then
+    echo "Could not save the result under $state_dir." >&2
+    return 1
+  fi
+  utxo_bench_print "$result"
+  echo
+  echo "Saved $saved (mode 600)."
+  [ "$(jq -r '(.refusals // []) | length' <<<"$result")" = 0 ]
+}
+
 utxo_unpark_dump() {
   utxo_seed_overlay_enabled || return 0
   local arg hit=1 methods
@@ -574,6 +714,8 @@ Usage: $stack_command <command> [args]
   restore [-y] <archive>     Restore a backup archive (prompts before overwrite)
   utxo-seed [-y | cancel]    Seed or cancel the Bitcoin balance index (needs bitcoin.utxo_index)
   utxo-index remove [-y]     Delete the balance index volume (needs bitcoin.utxo_index off and applied)
+  utxo-index bench <file> [--scan [-y]] [--repeat N]
+                             Time balance lookups for the wallets in <file> (needs the index seeded)
   help                       This text
 EOF
 }
@@ -1645,12 +1787,20 @@ case "$cmd" in
   restore) guard_package_containers && do_restore "$@" ;;
   utxo-seed) guard_package_containers && utxo_seed "$@" ;;
   utxo-index)
-    [ "${1:-}" = remove ] || {
-      echo "Usage: $stack_command utxo-index remove [-y]" >&2
-      exit 1
-    }
-    shift
-    guard_package_containers && utxo_index_remove "$@"
+    case "${1:-}" in
+      remove)
+        shift
+        guard_package_containers && utxo_index_remove "$@"
+        ;;
+      bench)
+        shift
+        guard_package_containers && utxo_index_bench "$@"
+        ;;
+      *)
+        echo "Usage: $stack_command utxo-index remove [-y] | bench <wallets.json> [--scan [-y]] [--repeat N]" >&2
+        exit 1
+        ;;
+    esac
     ;;
   help | --help | -h) usage ;;
   *)

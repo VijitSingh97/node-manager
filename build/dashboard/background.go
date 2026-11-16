@@ -44,6 +44,9 @@ func (a *app) startBackground(ctx context.Context) <-chan struct{} {
 	}
 	if a.utxo != nil {
 		start(func() { a.utxo.run(ctx) })
+		if a.utxo.bench != nil {
+			start(func() { a.utxo.benchLoop(ctx) })
+		}
 	}
 	if a.cfg.moneroWalletEnabled {
 		start(func() { a.moneroWatch.run(ctx, func() bool { return a.nodeWorkerRunnable(nodeMonero, true) }) })

@@ -87,6 +87,7 @@ type utxoManager struct {
 	onApplied      func()
 
 	host       *utxoSeedHost
+	bench      *utxoBenchHost
 	temp       func() (float64, error)
 	guards     func(context.Context) seedGuardInput
 	checkEvery time.Duration

@@ -1,0 +1,26 @@
+[
+  {
+    "name": "Genesis (public)",
+    "key": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"
+  },
+  {
+    "name": "Binance (public)",
+    "key": "34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo"
+  },
+  {
+    "name": "Vector wpkh",
+    "key": "wpkh(xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8/<0;1>/*)"
+  },
+  {
+    "name": "Vector sh-wpkh",
+    "key": "sh(wpkh(xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8/<0;1>/*))"
+  },
+  {
+    "name": "Vector tr",
+    "key": "tr(xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8/<0;1>/*)"
+  },
+  {
+    "name": "Vector pkh",
+    "key": "pkh(xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8/<0;1>/*)"
+  }
+]
