@@ -61,8 +61,8 @@ func TestLitecoinWatchServesBalancesFromTheIndex(t *testing.T) {
 		f.canonicalHashes[101] = familyScanHash101
 	})
 	manager.scanNode(t.Context(), nodeLitecoin, store)
-	if got := store.balances[a.ID]; got.Amount != "50000000" || got.ScanHeight != 101 || len(got.History) != 2 {
-		t.Fatalf("after a spend a = %+v", got)
+	if got := store.balances[a.ID]; got.Amount != "50000000" || got.ScanHeight != 101 || len(got.History) != 1 || got.History[0].Amount != formatFamilyWatchAmount("50000000") {
+		t.Fatalf("a spend within the hour did not update that hour's point: a = %+v", got)
 	}
 	if got := store.balances[b.ID]; len(got.History) != 1 {
 		t.Fatalf("an unchanged balance gained a history point: %+v", got)

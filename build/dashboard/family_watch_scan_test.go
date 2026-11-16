@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -253,6 +254,62 @@ func TestFamilyWatchRejectsFutureTipsAndWarnings(t *testing.T) {
 			manager.scanNode(t.Context(), nodeLitecoin, store)
 			if scans := fixture.scans(); len(scans) != 0 || store.states[wallet.ID] != "waiting" {
 				t.Fatalf("unsafe readiness scanned: %#v, state %q", scans, store.states[wallet.ID])
+			}
+		})
+	}
+}
+
+func TestFamilyWatchScantxoutsetWaitsForHourlyRescanWhenTipMoves(t *testing.T) {
+	now := time.Unix(2_000_000_000, 0)
+	manager, store, fixture := newFamilyScanTest(t, now, familyWatchEntry{ID: "wallet-hourly", Address: "hourly-address"})
+	manager.scanNode(t.Context(), nodeLitecoin, store)
+	fixture.update(func(f *familyScanRPCFixture) { f.chainHeight, f.chainHash = 101, familyScanHash101 })
+	manager.scanNode(t.Context(), nodeLitecoin, store)
+	if got := len(fixture.scans()); got != 1 {
+		t.Fatalf("scans = %d", got)
+	}
+}
+
+func TestFamilyWatchHistoryKeepsHourlyPointsForBlockDrivenBalances(t *testing.T) {
+	start := time.Unix(2_000_000_000, 0)
+	for _, tc := range []struct {
+		name   string
+		spaced bool
+		set    func(*familyWatchStore)
+	}{
+		{"zcash refreshes on each block", true, func(s *familyWatchStore) { s.backend = zcashFamilyWatchBackend() }},
+		{"litecoin reads the index", true, func(s *familyWatchStore) { s.index = &utxoManager{} }},
+		{"an hourly scan", false, func(*familyWatchStore) {}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wallet := familyWatchEntry{ID: "w", Address: "a"}
+			_, store, _ := newFamilyScanTest(t, start, wallet)
+			tc.set(store)
+			clock := start
+			store.now = func() time.Time { return clock }
+			for _, step := range []struct {
+				after  time.Duration
+				amount string
+			}{{0, "100"}, {10 * time.Minute, "200"}, {20 * time.Minute, "300"}, {30 * time.Minute, "300"}, {10 * time.Minute, "350"}, {50 * time.Minute, "400"}} {
+				clock = clock.Add(step.after)
+				store.record(wallet.ID, step.amount, 1, "best")
+			}
+			var got []string
+			for _, p := range store.balances[wallet.ID].History {
+				got = append(got, fmt.Sprintf("%d:%s", p.Time-start.Unix(), p.Amount))
+			}
+			want := []string{"0:" + formatFamilyWatchAmount("300"), "3600:" + formatFamilyWatchAmount("350"), "7200:" + formatFamilyWatchAmount("400")}
+			if !tc.spaced {
+				want = nil
+				for _, p := range []struct {
+					at     int
+					amount string
+				}{{0, "100"}, {600, "200"}, {1800, "300"}, {3600, "300"}, {4200, "350"}, {7200, "400"}} {
+					want = append(want, fmt.Sprintf("%d:%s", p.at, formatFamilyWatchAmount(p.amount)))
+				}
+			}
+			if strings.Join(got, " ") != strings.Join(want, " ") {
+				t.Fatalf("history %v, want %v", got, want)
 			}
 		})
 	}

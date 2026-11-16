@@ -404,8 +404,12 @@ func (m *utxoManager) finishSeed(err error) {
 		m.seed.AlertsUntil = time.Time{}
 	}
 	m.seed.Last = &utxoSeedResult{Outcome: outcome, Reason: seedErrorClass(err), FinishedAt: now, DurationSeconds: now.Sub(m.seed.StartedAt).Seconds()}
-	// A stopped replay keeps its blocks and an integrity error makes it invalid, so a replay never backs off.
-	if !m.chain.Replay || err == nil {
+	switch {
+	case errors.Is(err, errSeedUserCancel):
+		// The user stopped it, so no automatic seed starts until they ask for one.
+		m.seed.AutoFailures = utxoAutoSeedTries
+	case !m.chain.Replay || err == nil:
+		// A stopped replay keeps its blocks and an integrity error makes it invalid, so a replay never backs off.
 		m.countAutoSeedLocked(err == nil)
 	}
 	m.persistSeedLocked()
