@@ -586,7 +586,19 @@ The Tor container publishes each node's onion service and keeps its keys in the
 `tor_data` volume (`/var/lib/tor/<node>_onion`), so a node keeps its address
 across restarts. The nodes see only their public onion hostname. Upgrading from
 a release where bitcoind created its own onion service gives Bitcoin a new onion
-address once. To see Bitcoin's onion address:
+address once.
+
+Changing `network.inbound_connections`, or activating or deactivating Bitcoin,
+Litecoin or Bitcoin Cash while it is on, restarts the Tor container, as the LAN
+RPC toggles and upgrades do. Every node's Tor connections drop and come back
+without any manual step. Measured on the reference node on
+2026-11-16: Tari was reconnected in under 2 minutes and Monero in about 4.
+Bitcoin, which restarts with the change, had 3 peers within a minute and its
+usual 10 after about 11 minutes. In three lab trials an onion service, such as
+the dashboard onion, was reachable again 2.5 to 5.5 minutes after its Tor
+restarted, keeping the same address.
+
+To see Bitcoin's onion address:
 
 ```bash
 ./stack doctor
