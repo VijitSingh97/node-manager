@@ -485,7 +485,7 @@ if [ "$host_request" = true ]; then
       .[$node].enabled=true | .[$node].active=true |
       .[$node].resource_profile //= "compact" |
       if $node=="bitcoin" and (.bitcoin.prune_mb // 10000) != 0 and (.bitcoin // {} | has("utxo_index") | not) then .bitcoin.utxo_index=true
-      elif $node=="litecoin" then .litecoin.utxo_index //= true else . end |
+      elif $node=="litecoin" and (.litecoin // {} | has("utxo_index") | not) then .litecoin.utxo_index=true else . end |
       if $node=="zcash" and ((.zcash.address_index|type)!="boolean") then .zcash.address_index=true else . end |
       .[$node].steady_cpus //= 1 | .[$node].steady_mem_limit_mb //= $memory |
       if $data_dir!="" then .[$node].data_dir=$data_dir else . end |

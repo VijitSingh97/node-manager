@@ -577,4 +577,12 @@ for case in pruned:true archival:null off:false; do
   [ "$(jq -c .bitcoin.utxo_index "$config/config.json")" = "${case#*:}" ] || fail "a ${case%%:*} bitcoin install set utxo_index to $(jq -c .bitcoin.utxo_index "$config/config.json")"
 done
 
+jq '.litecoin={"enabled":false,"utxo_index":false}' "$config/config.json" >"$tmp/config.next"
+mv "$tmp/config.next" "$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+request '{"action":"install","id":"8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a","node":"litecoin","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state)" = applied ] || fail "litecoin reinstall was not applied: $(status .message)"
+[ "$(jq -c .litecoin.utxo_index "$config/config.json")" = false ] || fail "a Litecoin reinstall turned an explicitly off index back on"
+
 echo "PASS: test_node_control.sh"

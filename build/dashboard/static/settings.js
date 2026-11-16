@@ -666,7 +666,7 @@ if (typeof document !== "undefined") {
     utxoIndexLitecoin.disabled = balanceControl.disabled;
     balanceSettings.hidden = balanceControl.hidden && utxoIndexLitecoinLabel.hidden;
     utxoSeedNowLitecoin.hidden = !hostView.utxo_seed_now_litecoin;
-    utxoSeedNowLitecoin.disabled = busy;
+    utxoSeedNowLitecoin.disabled = busy || saving();
     configChange.hidden = !hostView.config_pending;
     const networkMessage = networkActions.includes(hostView.status.action);
     const balanceMessage = balanceActions.includes(hostView.status.action);
@@ -787,6 +787,7 @@ if (typeof document !== "undefined") {
     await loadHost();
   });
   utxoSeedNowLitecoin.addEventListener("click", async () => {
+    if (saving()) return;
     utxoSeedNowLitecoin.disabled = true;
     balanceStatus.textContent = await requestSeed(undefined, "litecoin");
     await loadHost();
