@@ -3,9 +3,12 @@
 ## Dashboard settings
 
 The gear at the bottom right opens node installation, launch at boot/login,
-Appearance, Dashboard password, Telegram, and Healthchecks. Each tower contains
-its own separate Alerts and LAN access sections under Node controls. Changes apply
-immediately unless LAN port settings change. A dashboard password protects the
+Network, Balance index, Appearance, Telegram, and Healthchecks. The person icon
+above it holds Account (sign out) and Dashboard password. Each tower contains
+its own separate Alerts and LAN access sections under Node controls. Switches
+take effect only when you press **Save**; closing the dialog discards them.
+Host switches (launch at boot, Network, Balance index) apply one after another.
+A dashboard password protects the
 gear and the rest of the dashboard. The gear works from localhost, a
 configured private LAN address, or the Tor onion dashboard (enable
 `dashboard.onion` in `config.json` and open the address shown by `./stack doctor`

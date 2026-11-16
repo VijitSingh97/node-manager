@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { balanceIndexPayload, balanceIndexChange, balanceIndexControl, seedCommand, UTXO_INDEX_OFF_PROMPT, hostControlModel, hostActionPayload } from "./settings.js";
+import { balanceIndexPayload, confirmedHostChanges, balanceIndexControl, seedCommand, UTXO_INDEX_OFF_PROMPT, hostControlModel, hostActionPayload } from "./settings.js";
 
 test("the balance index switch reads its state, builds a boolean payload and routes its status", () => {
   assert.equal(hostControlModel({}).utxo_index, false);
@@ -32,10 +32,12 @@ test("the balance index note states the free-space and RPC pause requirements", 
   assert.match(source, /Bitcoin RPC pauses for about 5 minutes/);
 });
 
-test("the balance index switch reverts on a cancelled confirm and hides or disables with the host state", () => {
-  assert.deepEqual(balanceIndexChange(false, () => false), { payload: undefined, checked: true });
-  assert.deepEqual(balanceIndexChange(false, () => true), { payload: { action: "utxo_index", enabled: false }, checked: false });
-  assert.deepEqual(balanceIndexChange(true, () => false), { payload: { action: "utxo_index", enabled: true }, checked: true });
+test("saving the balance index off drops only that change on a cancelled confirm, and the switch hides or disables with the host state", () => {
+  const off = { action: "utxo_index", enabled: false };
+  const boot = { action: "launch_at_boot", enabled: true };
+  assert.deepEqual(confirmedHostChanges([boot, off], () => false), [boot]);
+  assert.deepEqual(confirmedHostChanges([boot, off], () => true), [boot, off]);
+  assert.deepEqual(confirmedHostChanges([{ action: "utxo_index", enabled: true }], () => false), [{ action: "utxo_index", enabled: true }]);
   const bitcoin = { available: true, config_pending: false, utxo_index: true, nodes: { bitcoin: { installed: true } } };
   assert.deepEqual(balanceIndexControl(bitcoin, false), { hidden: false, checked: true, disabled: false });
   assert.equal(balanceIndexControl({ ...bitcoin, nodes: { bitcoin: { installed: false } } }, false).hidden, true);

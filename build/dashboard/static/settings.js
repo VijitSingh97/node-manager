@@ -71,9 +71,19 @@ export function balanceIndexPayload(enabled, confirmFn) {
   return hostActionPayload("utxo_index", enabled);
 }
 
-export function balanceIndexChange(enabled, confirmFn) {
-  const payload = balanceIndexPayload(enabled, confirmFn);
-  return { payload, checked: payload ? enabled : true };
+export function hostToggleChanges(view, draft) {
+  return Object.keys(toggleFields)
+    .filter((action) => typeof draft?.[action] === "boolean" && draft[action] !== view?.[toggleFields[action]])
+    .map((action) => hostActionPayload(action, draft[action]));
+}
+
+export function confirmedHostChanges(changes, confirmFn) {
+  return changes.map((change) => change.action === "utxo_index" ? balanceIndexPayload(change.enabled, confirmFn) : change).filter(Boolean);
+}
+
+export function hostQueueSettled(view, action) {
+  if (!action || view?.status?.state === "pending") return "";
+  return view?.status?.action === action && ["rejected", "failed"].includes(view.status.state) ? "failed" : "applied";
 }
 
 export function balanceIndexControl(view, busy) {
@@ -437,7 +447,8 @@ if (typeof document !== "undefined") {
   }
   byId("port-status")?.remove();
   byId("port-impact")?.remove();
-  const credentialSettings = credentialSettingsController(dialog, document);
+  const accountDialog = document.getElementById("account-dialog");
+  const credentialSettings = credentialSettingsController(accountDialog, document);
   let saved = {};
   let savedPorts = {};
   let allowed = false;
@@ -454,6 +465,10 @@ if (typeof document !== "undefined") {
   let hostView = hostControlModel();
   let hostLoaded = false;
   let pendingToggle;
+  let hostDraft = {};
+  let hostQueue = [];
+  let hostQueueAction = "";
+  const hostToggles = { launch_at_boot: launchAtStart, clearnet_over_tor: clearnetOverTor, inbound_connections: inboundConnections, utxo_index: utxoIndex };
   const hostRequests = latestRequestGate();
   let installNode = "";
   try { portRequestID = localStorage.getItem("nodeStackPortRequest") || ""; } catch {}
@@ -577,8 +592,15 @@ if (typeof document !== "undefined") {
         nextHostView.status = { action: pendingToggle.action, state: "pending", message: hostView.status.message || "Applying host change…" };
       }
     }
+    const queueResult = hostQueueSettled(nextHostView, hostQueueAction);
+    if (queueResult === "failed" || queueResult === "applied" && !hostQueue.length) {
+      hostQueue = [];
+      hostDraft = {};
+      hostQueueAction = "";
+    }
     const installed = hostLoaded ? newlyInstalledNodes(hostView, nextHostView) : [];
     hostView = nextHostView;
+    const shown = (action) => Object.hasOwn(hostDraft, action) ? hostDraft[action] : hostView[toggleFields[action]];
     hostLoaded = true;
     hostNodes.replaceChildren();
     const busy = hostView.status.state === "pending";
@@ -610,15 +632,15 @@ if (typeof document !== "undefined") {
       }
       hostNodes.append(row);
     }
-    launchAtStart.checked = hostView.boot_enabled;
+    launchAtStart.checked = shown("launch_at_boot");
     launchAtStart.disabled = !hostView.available || !hostView.boot_supported || hostView.config_pending || busy;
     launchAtStartLabel.querySelector("span").textContent = bootControlLabel(hostView.boot_kind);
     launchAtStartLabel.hidden = hostView.boot_kind === "unsupported";
     networkSettings.hidden = !hostView.available;
-    clearnetOverTor.checked = hostView.clearnet_over_tor;
-    inboundConnections.checked = hostView.inbound_connections;
+    clearnetOverTor.checked = shown("clearnet_over_tor");
+    inboundConnections.checked = shown("inbound_connections");
     clearnetOverTor.disabled = inboundConnections.disabled = !hostView.available || hostView.config_pending || busy;
-    const balanceControl = balanceIndexControl(hostView, busy);
+    const balanceControl = balanceIndexControl({ ...hostView, utxo_index: shown("utxo_index") }, busy);
     balanceSettings.hidden = balanceControl.hidden;
     utxoIndex.checked = balanceControl.checked;
     utxoIndex.disabled = balanceControl.disabled;
@@ -634,6 +656,13 @@ if (typeof document !== "undefined") {
     clearTimeout(hostPoll);
     if (shouldPollHost(hostView)) hostPoll = setTimeout(loadHost, 2000);
     if (installed.length) window.dispatchEvent(new CustomEvent("node-catalog-updated", { detail: { installed } }));
+    if (!busy && hostQueue.length) submitNextHostChange();
+  };
+
+  const submitNextHostChange = () => {
+    const next = hostQueue.shift();
+    hostQueueAction = next.action;
+    submitHost(next);
   };
 
   const openMigrate = (nodeID) => {
@@ -711,6 +740,9 @@ if (typeof document !== "undefined") {
       await loadHost();
     } catch (error) {
       pendingToggle = undefined;
+      hostQueue = [];
+      hostDraft = {};
+      hostQueueAction = "";
       status.textContent = error.message;
       await loadHost();
     }
@@ -827,8 +859,11 @@ if (typeof document !== "undefined") {
     }
     catch (error) { status.textContent = error.message; }
   }
-  byId("open").addEventListener("click", () => { dialog.showModal(); credentialSettings.openPassword(); load(); loadHost(); });
+  byId("open").addEventListener("click", () => { dialog.showModal(); load(); loadHost(); });
   byId("close").addEventListener("click", () => dialog.close());
+  document.getElementById("account-open").addEventListener("click", () => { accountDialog.showModal(); credentialSettings.openPassword(); });
+  document.getElementById("account-close").addEventListener("click", () => accountDialog.close());
+  accountDialog.addEventListener("close", () => credentialSettings.closePassword());
   byId("install-cancel").addEventListener("click", () => installDialog.close());
   installForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -856,7 +891,11 @@ if (typeof document !== "undefined") {
     installDialog.close();
     submitHost(payload).finally(() => { installSubmit.disabled = false; });
   });
-  dialog.addEventListener("close", () => { clearSecrets(); credentialSettings.closePassword(); delete saved.telegram_bot_token; delete saved.telegram_chat_id; delete saved.healthchecks_url; });
+  dialog.addEventListener("close", () => {
+    clearSecrets();
+    if (!hostQueueAction) hostDraft = {};
+    delete saved.telegram_bot_token; delete saved.telegram_chat_id; delete saved.healthchecks_url;
+  });
   window.addEventListener("node-selected", (event) => {
     credentialSettings.closeNode();
     if (event.detail?.node) {
@@ -866,14 +905,7 @@ if (typeof document !== "undefined") {
   });
   telegramEnabled.addEventListener("change", updateInputs);
   healthchecksEnabled.addEventListener("change", updateInputs);
-  launchAtStart.addEventListener("change", () => submitHost(hostActionPayload("launch_at_boot", launchAtStart.checked)));
-  clearnetOverTor.addEventListener("change", () => submitHost(hostActionPayload("clearnet_over_tor", clearnetOverTor.checked)));
-  inboundConnections.addEventListener("change", () => submitHost(hostActionPayload("inbound_connections", inboundConnections.checked)));
-  utxoIndex.addEventListener("change", () => {
-    const change = balanceIndexChange(utxoIndex.checked, (message) => window.confirm(message));
-    utxoIndex.checked = change.checked;
-    if (change.payload) submitHost(change.payload);
-  });
+  for (const [action, input] of Object.entries(hostToggles)) input.addEventListener("change", () => { hostDraft[action] = input.checked; });
   applyConfig.addEventListener("click", () => submitHost(hostActionPayload("apply_config", hostView.config_revision)));
   for (const row of Object.values(portRows)) {
     for (const input of row.querySelectorAll("input")) input.addEventListener("input", () => updatePortPlan(true));
@@ -920,9 +952,18 @@ if (typeof document !== "undefined") {
     if (!portPlanValid || !formValid) return;
     const payload = settingsPayload(scope);
     const saveNotifications = notificationChanged(saved, payload);
-    if (!saveNotifications && changes.length === 0) {
+    let hostChanges = scope === "global" && !hostQueueAction ? hostToggleChanges(hostView, hostDraft) : [];
+    if (!saveNotifications && changes.length === 0 && hostChanges.length === 0) {
       targetStatus.textContent = "No changes.";
       return;
+    }
+    if (hostChanges.length) {
+      const confirmed = confirmedHostChanges(hostChanges, (message) => window.confirm(message));
+      if (confirmed.length < hostChanges.length) {
+        delete hostDraft.utxo_index;
+        utxoIndex.checked = hostView.utxo_index;
+      }
+      hostChanges = confirmed;
     }
     targetSave.disabled = true;
     if (scope === "global") reset.disabled = true;
@@ -943,7 +984,11 @@ if (typeof document !== "undefined") {
     }
     if (changes.length === 0) {
       render(settingsView, scope);
-      targetStatus.textContent = "Settings saved.";
+      targetStatus.textContent = saveNotifications || hostChanges.length ? "Settings saved." : "No changes.";
+      if (hostChanges.length) {
+        hostQueue = hostChanges;
+        submitNextHostChange();
+      }
       return;
     }
     render(settingsView, scope);

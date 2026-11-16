@@ -452,8 +452,8 @@ measured seed budget, a "Needs a new seed" card, upgrades and removal.
   internal network. It calls no external service, and the Compose network
   configuration is unchanged (`tests/test_compose.sh` asserts this).
 - **Turning it on or off from the dashboard.** Settings → Balance index →
-  "Instant Bitcoin balances" is a switch for `bitcoin.utxo_index`; it applies
-  the change, restarts the dashboard, and asks first when turning off (the host
+  "Instant Bitcoin balances" is a switch for `bitcoin.utxo_index`; pressing
+  **Save** applies the change, restarts the dashboard, and asks first when turning off (the host
   refuses to turn it off while a seed runs; cancel it first). A badge
   in the heading of the watch-only wallets card shows the index state (ready,
   catching up, seeding, needs a seed, degraded or off) and links to the index

@@ -22,6 +22,12 @@ All notable changes to this project are documented here. Format follows
 
 ### Changed
 
+- Settings switches no longer apply on click. Launch at boot, both Network
+  switches and the Balance index wait for **Save**, which sends the changed
+  ones to the host one after another and stops at the first failure. Closing
+  the dialog without saving discards them.
+- A person icon above the Settings gear opens Account (sign out) and then
+  Dashboard password; both left the Settings dialog.
 - While a chain installs, its Settings → Node set row reads "Installing…"
   instead of a disabled "Install" button, and a data move reads "Moving
   data…", including after a page reload. The row appears as soon as the
