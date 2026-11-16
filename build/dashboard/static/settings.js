@@ -105,8 +105,8 @@ export function hostControlModel(data = {}) {
   };
 }
 
-export function installingNode(view) {
-  return view?.status?.state === "pending" && view.status.action === "install" ? view.status.node : "";
+export function pendingHostNode(view, action) {
+  return view?.status?.state === "pending" && view.status.action === action ? view.status.node : "";
 }
 
 export function newlyInstalledNodes(previous, current) {
@@ -552,7 +552,8 @@ if (typeof document !== "undefined") {
     hostLoaded = true;
     hostNodes.replaceChildren();
     const busy = hostView.status.state === "pending";
-    const installing = installingNode(hostView);
+    const installing = pendingHostNode(hostView, "install");
+    const moving = pendingHostNode(hostView, "migrate");
     for (const node of Object.values(hostView.nodes)) {
       const row = document.createElement("div");
       row.className = "settings-host-node";
@@ -565,7 +566,7 @@ if (typeof document !== "undefined") {
         path.title = "Current data folder";
         const move = document.createElement("button");
         move.type = "button";
-        move.textContent = "Move data…";
+        move.textContent = node.id === moving ? "Moving data…" : "Move data…";
         move.disabled = !node.data_dir || !hostView.available || !hostView.migrate_supported || hostView.config_pending || busy;
         move.addEventListener("click", () => openMigrate(node.id));
         row.append(name, path, move);
@@ -670,7 +671,7 @@ if (typeof document !== "undefined") {
       const statusView = await requestHost(payload);
       hostView.status = { action: payload.action, state: "pending", message: statusView.message || "Applying host change…" };
       status.textContent = hostView.status.message;
-      hostPoll = setTimeout(loadHost, 1000);
+      await loadHost();
     } catch (error) {
       pendingToggle = undefined;
       status.textContent = error.message;

@@ -9,8 +9,9 @@ All notable changes to this project are documented here. Format follows
 ### Changed
 
 - While a chain installs, its Settings → Node set row reads "Installing…"
-  instead of a disabled "Install" button, so it no longer looks like the
-  install still needs to be started.
+  instead of a disabled "Install" button, and a data move reads "Moving
+  data…", including after a page reload. The row appears as soon as the
+  host accepts the change instead of on the next poll.
 - With the Bitcoin balance index ready, a new block reaches the watched
   wallets' saved balances right away. The dashboard waits on bitcoind's
   `waitfornewblock` instead of checking every 10 seconds, applies the block to

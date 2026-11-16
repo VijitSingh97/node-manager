@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { notificationPayload, notificationChanged, configurationAccess, configuredNodeVisibility, portControlModel, portChanges, portCollision, portStatusMessage, portStatusNode, portDraftAfterStatus, portSubmissionOutcome, shouldPollPort, settingsSaveMessage, normalizeDefaultCurrency, applyAppearance, requestSettings, scopedSettingsPayload, splitNodeControlSections, alertPreferenceModel, hostControlModel, hostActionPayload, bootControlLabel, newlyInstalledNodes, shouldPollHost, installingNode, latestRequestGate } from "./settings.js";
+import { notificationPayload, notificationChanged, configurationAccess, configuredNodeVisibility, portControlModel, portChanges, portCollision, portStatusMessage, portStatusNode, portDraftAfterStatus, portSubmissionOutcome, shouldPollPort, settingsSaveMessage, normalizeDefaultCurrency, applyAppearance, requestSettings, scopedSettingsPayload, splitNodeControlSections, alertPreferenceModel, hostControlModel, hostActionPayload, bootControlLabel, newlyInstalledNodes, shouldPollHost, pendingHostNode, latestRequestGate } from "./settings.js";
 
 const alertDefaults = {
   alert_monitor_online: true,
@@ -80,13 +80,22 @@ test("completed installs reveal each new node without treating pending work as i
   assert.deepEqual(newlyInstalledNodes(bitcoin, bitcoinAndMonero), ["monero"]);
 });
 
-test("only the node being installed reads as installing", () => {
-  const pending = (status) => installingNode(hostControlModel({ nodes: [], status: { state: "pending", message: "Applying host change…", ...status } }));
-  assert.equal(pending({ action: "install", node: "litecoin" }), "litecoin");
-  assert.equal(pending({ action: "install" }), "");
-  assert.equal(pending({ action: "install", node: "unknown" }), "");
-  assert.equal(pending({ action: "migrate", node: "litecoin" }), "");
-  assert.equal(installingNode(hostControlModel({ nodes: [], status: { action: "install", node: "litecoin", state: "applied" } })), "");
+test("a reload mid-install marks only that node pending until the install finishes or fails", () => {
+  const view = (status) => hostControlModel({ nodes: [], status });
+  const reloaded = view({ action: "install", node: "litecoin", state: "pending", message: "Applying host change…" });
+  assert.equal(pendingHostNode(reloaded, "install"), "litecoin");
+  assert.equal(pendingHostNode(reloaded, "migrate"), "");
+  assert.equal(shouldPollHost(reloaded), true);
+  assert.equal(pendingHostNode(view({ action: "install", state: "pending" }), "install"), "");
+  assert.equal(pendingHostNode(view({ action: "install", node: "unknown", state: "pending" }), "install"), "");
+  assert.equal(pendingHostNode(view({ action: "migrate", node: "bitcoin", state: "pending" }), "migrate"), "bitcoin");
+  const finished = view({ action: "install", node: "litecoin", state: "applied", message: "Litecoin installed." });
+  assert.equal(pendingHostNode(finished, "install"), "");
+  assert.equal(shouldPollHost(finished), false);
+  const failed = view({ action: "install", node: "litecoin", state: "failed", message: "The host could not apply that change." });
+  assert.equal(pendingHostNode(failed, "install"), "");
+  assert.equal(shouldPollHost(failed), false);
+  assert.equal(failed.status.message, "The host could not apply that change.");
 });
 
 test("a host mutation ignores an older settings response", async () => {
