@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -43,6 +44,8 @@ type nodeConfig struct {
 	SteadyCPUs       float64
 	SteadyMemLimitMB int64
 	ResourceProfile  string
+	UTXOIndex        bool
+	UTXOIndexDir     string
 }
 
 func loadAdditionalNodes(cfg *config) error {
@@ -85,6 +88,13 @@ func loadAdditionalNodes(cfg *config) error {
 			return errors.New(prefix + "_RESOURCE_PROFILE must be compact or off")
 		}
 		spec.SteadyCPUs, spec.SteadyMemLimitMB, spec.ResourceProfile = cpus, memory, profile
+		if utxoChains[spec.ID] != nil {
+			spec.UTXOIndex = enabled(os.Getenv(prefix + "_UTXO_INDEX_ENABLED"))
+			spec.UTXOIndexDir = envOr(prefix+"_UTXO_INDEX_DIR", "/utxo-index-"+spec.ID)
+			if spec.UTXOIndex && !filepath.IsAbs(spec.UTXOIndexDir) {
+				return errors.New(prefix + "_UTXO_INDEX_DIR must be an absolute path")
+			}
+		}
 		if err := validateInternalHTTPURL(urlName, spec.RPCURL); err != nil {
 			return err
 		}

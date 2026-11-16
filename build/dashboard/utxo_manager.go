@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -123,11 +124,11 @@ type utxoIndexStatus struct {
 	NodePruned            *bool           `json:"node_pruned"`
 }
 
-func newUtxoManager(dir string, fs vfs.FS, rpc utxoRPC, logger *log.Logger) *utxoManager {
+func newUtxoManager(dir string, fs vfs.FS, rpc utxoRPC, logger *log.Logger, chain *utxoChainParams) *utxoManager {
 	if fs == nil {
 		fs = vfs.Default
 	}
-	m := &utxoManager{dir: dir, fs: fs, rpc: rpc, chain: utxoBitcoin, log: logger,
+	m := &utxoManager{dir: dir, fs: fs, rpc: rpc, chain: chain, log: logger,
 		now: time.Now, seedJobs: make(chan utxoSeedJob), wake: make(chan struct{}, 1), blockWaitRetry: utxoFollowInterval, checkEvery: seedCheckEvery,
 		temp: func() (float64, error) { return hottestThermalC(seedThermalGlob) },
 		freeBytes: func() uint64 {
@@ -694,6 +695,24 @@ func (m *utxoManager) invalidate(reason string) {
 		m.log.Printf("utxo index: invalid state could not be persisted: %v", err)
 	}
 	m.set(utxoStateInvalid, reason)
+}
+
+// newChainUtxo builds the index for a chain other than Bitcoin; its seed holds that chain's watch scan.
+func (a *app) newChainUtxo(node nodeConfig, chain *utxoChainParams, logger *log.Logger) *utxoManager {
+	rpc := &rpcClient{url: node.RPCURL, user: node.RPCUser, password: node.RPCPassword, client: &http.Client{Timeout: 2 * time.Minute}, maxBody: 64 << 20}
+	m := newUtxoManager(node.UTXOIndexDir, nil, rpc, logger, chain)
+	m.blockWait = rpc
+	if a.cfg.stateDir != "" {
+		m.setSeedStatePath(filepath.Join(a.cfg.stateDir, node.ID+"-utxo-seed.json"))
+		dump := *rpc
+		dump.client, dump.maxBody = &http.Client{}, 1<<20
+		hold, release := func() bool { return true }, func() {}
+		if store := a.familyWatch.stores[node.ID]; store != nil {
+			hold, release = store.scanMu.TryLock, store.scanMu.Unlock
+		}
+		m.configureSeed(utxoSeedHost{prefix: node.ID + "-", stateDir: a.cfg.stateDir, dataDir: node.DataDir, dump: &dump, hold: hold, release: release, lock: &a.utxoSeedLock})
+	}
+	return m
 }
 
 func (a *app) apiUtxoIndex(w http.ResponseWriter, r *http.Request) {

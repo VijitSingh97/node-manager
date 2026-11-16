@@ -109,6 +109,8 @@ type app struct {
 	familyWatch      *familyWatchManager
 	tariWatch        *TariWatchStore
 	utxo             *utxoManager
+	chainUtxo        map[string]*utxoManager
+	utxoSeedLock     sync.Mutex
 	watchWake        chan struct{}
 	dashboardAuth    *dashboardAuth
 	sessions         *dashboardSessions
@@ -169,7 +171,7 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 	if cfg.utxoIndexEnabled && !cfg.bitcoinDisabled {
 		blockRPC := *rpc
 		blockRPC.client, blockRPC.maxBody = &http.Client{Timeout: 2 * time.Minute}, 64<<20
-		a.utxo = newUtxoManager(cfg.utxoIndexDir, nil, &blockRPC, logger)
+		a.utxo = newUtxoManager(cfg.utxoIndexDir, nil, &blockRPC, logger, utxoBitcoin)
 		a.utxo.blockWait = &blockRPC
 		a.watchWake = make(chan struct{}, 1)
 		a.utxo.onApplied = func() {
@@ -182,8 +184,14 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 			a.utxo.setSeedStatePath(filepath.Join(cfg.stateDir, "utxo-seed.json"))
 			dumpRPC := *rpc
 			dumpRPC.client, dumpRPC.maxBody = &http.Client{}, 1<<20
-			a.utxo.configureSeed(utxoSeedHost{stateDir: cfg.stateDir, dataDir: cfg.dataDir, dump: &dumpRPC, hold: a.scanner.hold, release: a.scanner.release})
+			a.utxo.configureSeed(utxoSeedHost{stateDir: cfg.stateDir, dataDir: cfg.dataDir, dump: &dumpRPC, hold: a.scanner.hold, release: a.scanner.release, lock: &a.utxoSeedLock})
 			a.utxo.configureBench(a.benchHost())
+		}
+	}
+	a.chainUtxo = map[string]*utxoManager{}
+	for id, chain := range utxoChains {
+		if node := cfg.nodes[id]; node.Enabled && node.UTXOIndex {
+			a.chainUtxo[id] = a.newChainUtxo(node, chain, logger)
 		}
 	}
 	if a.moneroWatch.Err() != nil {

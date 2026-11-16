@@ -42,7 +42,7 @@ func TestPrunedWalletIndexMatchesScantxoutsetRegtestLive(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	m := newUtxoManager(dir, nil, n.rpc, log.New(io.Discard, "", 0))
+	m := newUtxoManager(dir, nil, n.rpc, log.New(io.Discard, "", 0), utxoBitcoin)
 	t.Cleanup(func() { _ = m.store.Close() })
 	m.tick(context.Background())
 	if st := m.Status().State; st != utxoStateReady {
