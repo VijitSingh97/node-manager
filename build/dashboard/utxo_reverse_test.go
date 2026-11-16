@@ -7,8 +7,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+
+	"github.com/cockroachdb/pebble/vfs"
 )
 
 func utxoTestOpenReverse(t testing.TB, dir string) *utxoStore {
@@ -59,6 +64,70 @@ func utxoTestKeys(t testing.TB, s *utxoStore) map[string]string {
 		t.Fatalf("%d coins and %d reverse keys in a reverse=%v store", coins, revs, s.reverse)
 	}
 	return out
+}
+
+// runSizeFS records each ingest run file's size as the ingest removes it.
+type runSizeFS struct {
+	vfs.FS
+	sizes []int64
+}
+
+func (f *runSizeFS) Remove(name string) error {
+	if strings.HasPrefix(f.PathBase(name), "run-") {
+		if st, err := f.Stat(name); err == nil {
+			f.sizes = append(f.sizes, st.Size())
+		}
+	}
+	return f.FS.Remove(name)
+}
+
+func TestUtxoReverseSeedSplitsTheRunBuffer(t *testing.T) {
+	utxoTestSmallRuns(t, 64, 4<<10)
+	raw, info, _ := litecoinFixture(t)
+	for _, tc := range []struct {
+		reverse          bool
+		runs, perRunRecs int
+	}{
+		{false, 8, 64},
+		{true, 2 * 15, 32},
+	} {
+		fs := &runSizeFS{FS: vfs.Default}
+		s, err := openUtxoStoreFS(t.TempDir(), fs, tc.reverse)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ingestUtxoSnapshot(s, bytes.NewReader(raw), utxoLitecoin, [4]byte{}, utxoTestHeight(info.Height), nil); err != nil {
+			t.Fatal(err)
+		}
+		_ = s.Close()
+		if len(fs.sizes) != tc.runs || slices.Max(fs.sizes) != int64(tc.perRunRecs*utxoIngestRecLen) {
+			t.Fatalf("reverse=%v: run sizes %v B, want %d runs of up to %d records", tc.reverse, fs.sizes, tc.runs, tc.perRunRecs)
+		}
+	}
+}
+
+func TestUtxoReverseKeyFixtureMeasure(t *testing.T) {
+	if os.Getenv("UTXO_REVERSE_MEASURE") == "" {
+		t.Skip("set UTXO_REVERSE_MEASURE=1 to print the fixture's SST bytes per coin with and without reverse keys")
+	}
+	raw, info, _ := litecoinFixture(t)
+	for _, reverse := range []bool{false, true} {
+		dir := t.TempDir()
+		s, err := openUtxoStoreFS(dir, nil, reverse)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ingestUtxoSnapshot(s, bytes.NewReader(raw), utxoLitecoin, [4]byte{}, utxoTestHeight(info.Height), nil); err != nil {
+			t.Fatal(err)
+		}
+		_ = s.Close()
+		ssts, _ := filepath.Glob(filepath.Join(dir, "*.sst"))
+		var n int64
+		for _, p := range ssts {
+			n += utxoTestDirSize(p)
+		}
+		t.Logf("reverse=%v coins=%d sst_files=%d sst_bytes=%d (%.1f B/coin)", reverse, info.TxOuts, len(ssts), n, float64(n)/float64(info.TxOuts))
+	}
 }
 
 func withoutPrevoutScripts(blk utxoBlock) utxoBlock {
