@@ -8,8 +8,8 @@ The undo journal does not grow. Each reverse key is derived from the forward coi
 
 ## Method
 
-- **Regtest fixture:** `build/dashboard/testdata/utxo_litecoin/dump.dat`, with 449 coins. It is ingested into a schema-1 store and a schema-2 store. Sizes are the SST files after the ingest, and the logical bytes are the sum of key and value lengths. The probe test was run once and not committed.
-- **Synthetic:** the committed harness `TestUtxoIngestLargeMeasure`, with random scripts. Run it as follows:
+- **Regtest fixture:** `build/dashboard/testdata/utxo_litecoin/dump.dat`, with 449 coins, ingested into a schema-1 store and a schema-2 store. Sizes count the SST files only, and the logical bytes are the sum of key and value lengths. Run the probe with `UTXO_REVERSE_MEASURE=1 go test -run TestUtxoReverseKeyFixtureMeasure -v`.
+- **Synthetic:** the committed harness `TestUtxoIngestLargeMeasure`, with random scripts. Its sizes cover the whole index directory: the SSTs plus MANIFEST, OPTIONS and WAL. Run it as follows:
 
   ```bash
   UTXO_INGEST_BENCH=5000000 [UTXO_INGEST_BENCH_REVERSE=1] go test -run TestUtxoIngestLargeMeasure -v
@@ -21,12 +21,12 @@ The undo journal does not grow. Each reverse key is derived from the forward coi
 
 | Input | Store | Logical | On disk, final | Peak during ingest |
 | --- | --- | --- | --- | --- |
-| Fixture, 449 coins | coins only | 64.0 B/coin | 46.8 B/coin (21,006 B of SST) | not measured |
-| Fixture, 449 coins | coins + reverse | 117.0 B/coin | 86.5 B/coin (38,826 B of SST) | not measured |
-| Synthetic, 1M coins | coins only | 64 B/coin | 64.2 B/coin | missed by the sampler |
-| Synthetic, 1M coins | coins + reverse | 117 B/coin | 102.3 B/coin | missed by the sampler |
-| Synthetic, 5M coins | coins only | 64 B/coin | 64.0 B/coin | 127.7 B/coin |
-| Synthetic, 5M coins | coins + reverse | 117 B/coin | 102.1 B/coin | 220.4 B/coin |
+| Fixture, 449 coins (SST files only) | coins only | 64.0 B/coin | 46.8 B/coin (21,006 B) | not measured |
+| Fixture, 449 coins (SST files only) | coins + reverse | 117.0 B/coin | 86.5 B/coin (38,826 B) | not measured |
+| Synthetic, 1M coins (whole directory) | coins only | 64 B/coin | 64.2 B/coin | missed by the sampler |
+| Synthetic, 1M coins (whole directory) | coins + reverse | 117 B/coin | 102.3 B/coin | missed by the sampler |
+| Synthetic, 5M coins (whole directory) | coins only | 64 B/coin | 64.0 B/coin | 127.7 B/coin |
+| Synthetic, 5M coins (whole directory) | coins + reverse | 117 B/coin | 102.1 B/coin | 220.4 B/coin |
 
 ## Findings
 

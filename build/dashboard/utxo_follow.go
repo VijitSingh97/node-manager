@@ -64,6 +64,7 @@ type utxoV3Block struct {
 	Tx       []struct {
 		Txid string `json:"txid"`
 		Vin  []struct {
+			IsMWEB   bool   `json:"ismweb"`
 			Coinbase string `json:"coinbase"`
 			Txid     string `json:"txid"`
 			Vout     uint32 `json:"vout"`
@@ -74,6 +75,7 @@ type utxoV3Block struct {
 			} `json:"prevout"`
 		} `json:"vin"`
 		Vout []struct {
+			IsMWEB       bool      `json:"ismweb"`
 			Value        rpcAmount `json:"value"`
 			N            uint32    `json:"n"`
 			ScriptPubKey struct {
@@ -316,7 +318,7 @@ func (f *utxoFollower) applyHeight(ctx context.Context, height uint32) error {
 	if err := f.rpc.call(ctx, "getblock", []any{hash, f.chain.BlockVerbosity}, &raw); err != nil {
 		return err
 	}
-	blk, err := convertUtxoBlock(raw)
+	blk, err := convertUtxoBlock(raw, f.chain.ReverseIndex)
 	if err != nil {
 		return err
 	}
@@ -338,7 +340,8 @@ func (f *utxoFollower) applyHeight(ctx context.Context, height uint32) error {
 	return nil
 }
 
-func convertUtxoBlock(raw utxoV3Block) (utxoBlock, error) {
+// With reverse set, spends carry no script and the store resolves them through its reverse keys.
+func convertUtxoBlock(raw utxoV3Block, reverse bool) (utxoBlock, error) {
 	var blk utxoBlock
 	var err error
 	blk.Height = raw.Height
@@ -356,10 +359,11 @@ func convertUtxoBlock(raw utxoV3Block) (utxoBlock, error) {
 			return blk, err
 		}
 		for _, in := range tx.Vin {
-			if in.Coinbase != "" {
+			// MWEB inputs spend MWEB outputs, which are never in the transparent index.
+			if in.Coinbase != "" || in.IsMWEB {
 				continue
 			}
-			if in.Prevout == nil {
+			if in.Prevout == nil && !reverse {
 				return blk, fmt.Errorf("%w: %s:%d", errUtxoNoPrevout, tx.Txid, in.Vout)
 			}
 			sp := utxoSpend{}
@@ -367,8 +371,10 @@ func convertUtxoBlock(raw utxoV3Block) (utxoBlock, error) {
 				return blk, err
 			}
 			sp.Vout = in.Vout
-			if sp.Script, err = hex.DecodeString(in.Prevout.ScriptPubKey.Hex); err != nil {
-				return blk, fmt.Errorf("%w: prevout script", errUtxoBadBlock)
+			if !reverse {
+				if sp.Script, err = hex.DecodeString(in.Prevout.ScriptPubKey.Hex); err != nil {
+					return blk, fmt.Errorf("%w: prevout script", errUtxoBadBlock)
+				}
 			}
 			blk.Spends = append(blk.Spends, sp)
 		}
@@ -376,6 +382,9 @@ func convertUtxoBlock(raw utxoV3Block) (utxoBlock, error) {
 			continue
 		}
 		for _, out := range tx.Vout {
+			if out.IsMWEB {
+				continue
+			}
 			c := utxoCreate{Amount: uint64(out.Value)}
 			c.Txid, c.Vout = txid, out.N
 			if c.Script, err = hex.DecodeString(out.ScriptPubKey.Hex); err != nil {

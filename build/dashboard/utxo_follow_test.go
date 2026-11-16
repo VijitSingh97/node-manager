@@ -14,9 +14,10 @@ import (
 )
 
 type fakeUtxoChain struct {
-	hashes []string
-	blocks map[string]map[string]any
-	calls  map[string]int
+	hashes    []string
+	blocks    map[string]map[string]any
+	calls     map[string]int
+	verbosity int
 }
 
 func fakeDisplayHash(label string, h int) string {
@@ -25,7 +26,7 @@ func fakeDisplayHash(label string, h int) string {
 }
 
 func newFakeUtxoChain() *fakeUtxoChain {
-	return &fakeUtxoChain{blocks: map[string]map[string]any{}, calls: map[string]int{}}
+	return &fakeUtxoChain{blocks: map[string]map[string]any{}, calls: map[string]int{}, verbosity: 3}
 }
 
 type fakeOut struct {
@@ -88,7 +89,7 @@ func (c *fakeUtxoChain) call(_ context.Context, method string, params any, out a
 		res = c.hashes[args[0].(uint32)]
 	case "getblock":
 		b, ok := c.blocks[args[0].(string)]
-		if !ok || args[1] != 3 {
+		if !ok || args[1] != c.verbosity {
 			return errors.New("fake: no such block")
 		}
 		res = b

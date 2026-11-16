@@ -79,7 +79,7 @@ func utxoRecoveryPrefixStates(t *testing.T) map[string]bool {
 	states := map[string]bool{}
 	for _, full := range []*fakeUtxoChain{utxoRecoveryChain("a", 6), utxoRecoveryChain("b", 8)} {
 		for p := 1; p <= len(full.hashes); p++ {
-			prefix := &fakeUtxoChain{hashes: full.hashes[:p], blocks: full.blocks, calls: map[string]int{}}
+			prefix := &fakeUtxoChain{hashes: full.hashes[:p], blocks: full.blocks, calls: map[string]int{}, verbosity: full.verbosity}
 			s := openFollowStore(t)
 			stepOK(t, newUtxoFollower(s, prefix))
 			states[utxoRecoveryPrint(t, s)] = true

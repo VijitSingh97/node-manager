@@ -273,7 +273,10 @@ func (u *utxoReader) coins(h utxoHeader, legacy bool, onHeader func(utxoHeader),
 					return utxoRecord{}, err
 				}
 				copy(txid[:], outpoint[:32])
-				return u.coin(txid, uint64(binary.LittleEndian.Uint32(outpoint[32:])))
+				rec, err := u.coin(txid, uint64(binary.LittleEndian.Uint32(outpoint[32:])))
+				// Litecoin keeps a peg-out flag in bit 31 of the height code (coins.h, fPegout).
+				rec.Height &^= 1 << 30
+				return rec, err
 			}
 			if left == 0 {
 				if err := u.full(txid[:]); err != nil {
