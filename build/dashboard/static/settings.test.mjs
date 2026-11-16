@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { notificationPayload, notificationChanged, configurationAccess, configuredNodeVisibility, portControlModel, portChanges, portCollision, portStatusMessage, portStatusNode, portDraftAfterStatus, portSubmissionOutcome, shouldPollPort, settingsSaveMessage, normalizeDefaultCurrency, applyAppearance, requestSettings, scopedSettingsPayload, splitNodeControlSections, alertPreferenceModel, hostControlModel, hostActionPayload, bootControlLabel, newlyInstalledNodes, shouldPollHost, pendingHostNode, latestRequestGate, hostToggleChanges, hostQueueSettled, savedHostActions } from "./settings.js";
+import { notificationPayload, notificationChanged, configurationAccess, configuredNodeVisibility, portControlModel, portChanges, portCollision, portStatusMessage, portStatusNode, portDraftAfterStatus, portSubmissionOutcome, shouldPollPort, settingsSaveMessage, normalizeDefaultCurrency, applyAppearance, requestSettings, scopedSettingsPayload, splitNodeControlSections, alertPreferenceModel, hostControlModel, hostActionPayload, bootControlLabel, newlyInstalledNodes, shouldPollHost, pendingHostNode, latestRequestGate, hostToggleChanges, hostQueueSettled, savedHostActions, resetSaveRequests, hostToggleDefaults } from "./settings.js";
 
 const alertDefaults = {
   alert_monitor_online: true,
@@ -450,5 +450,39 @@ test("Save sends the pending config first, then switches, installs and data move
   const source = await readFile(new URL("./settings.js", import.meta.url), "utf8");
   assert.equal(source.match(/submitHost\(/g).length, 2, "only the Save queue may call submitHost");
   assert.match(source, /hostStaged\[`\$\{installAction\}:\$\{installNode\}`\] = payload;/);
-  assert.match(source, /reset\.addEventListener\("click", \(\) => \{\n    if \(!allowed\) return;\n    resetStaged = !resetStaged;/);
+  const resetHandler = source.slice(source.indexOf('reset.addEventListener("click"'), source.indexOf("fetch(\"/api/settings?scope=appearance\")"));
+  assert.match(resetHandler, /^reset\.addEventListener\("click", \(\) => \{\n    if \(!allowed \|\| !saved\.defaults\) return;\n    resetStaged = true;/);
+  assert.doesNotMatch(resetHandler, /request\(|submitHost|requestHost/, "Reset to default only stages values");
+});
+
+test("Reset to default sends one reset, plus the edited values when the form changed after it", () => {
+  const defaults = {
+    telegram_enabled: true, telegram_bot_token: "123:server-token", telegram_chat_id: "server-chat",
+    healthchecks_enabled: false, healthchecks_url: "", tower_labels: false, computer_stats: false,
+    thermal_throttle: false, default_currency: "USD", health_endpoints: false, ...alertDefaults,
+  };
+  const form = { ...defaults, alert_new_block_bitcoin: true };
+  assert.deepEqual(resetSaveRequests(defaults, scopedSettingsPayload("global", form)), [{ reset: true }]);
+  const edited = scopedSettingsPayload("global", { ...form, default_currency: "EUR" });
+  assert.deepEqual(resetSaveRequests(defaults, edited), [{ reset: true }, edited]);
+  const tokenCleared = scopedSettingsPayload("global", { ...form, telegram_bot_token: "" });
+  assert.deepEqual(resetSaveRequests(defaults, tokenCleared), [{ reset: true }, tokenCleared]);
+  const lowered = scopedSettingsPayload("global", { ...form, default_currency: "usd" });
+  assert.deepEqual(resetSaveRequests({ ...defaults, telegram_chat_id: " server-chat " }, lowered), [{ reset: true }]);
+});
+
+test("host switch defaults match the host helper and the configuration reference", async () => {
+  const helper = await readFile(new URL("../../../scripts/node-control", import.meta.url), "utf8");
+  const reference = await readFile(new URL("../../../docs/configuration.md", import.meta.url), "utf8");
+  assert.match(helper, new RegExp(`clearnet_over_tor=${hostToggleDefaults.clearnet_over_tor}\\n\\s*inbound_connections=${hostToggleDefaults.inbound_connections}\\n\\s*utxo_index=${hostToggleDefaults.utxo_index}\\n`));
+  assert.match(reference, new RegExp(`\\| \`dashboard\\.launch_at_boot\` \\| \`${hostToggleDefaults.launch_at_boot}\` \\|`));
+  assert.deepEqual(Object.keys(hostToggleDefaults).sort(), ["clearnet_over_tor", "inbound_connections", "launch_at_boot", "utxo_index"]);
+});
+
+test("Settings ends with Reset to default, Cancel and Save, and Cancel closes like the X", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const source = await readFile(new URL("./settings.js", import.meta.url), "utf8");
+  assert.match(html, /<div class="settings-footer">\s*<div class="settings-actions"><button id="settings-reset" type="button">Reset to default<\/button><button id="settings-cancel" type="button">Cancel<\/button><button id="settings-save" type="submit">Save<\/button><\/div>\s*<p id="settings-status"/);
+  assert.doesNotMatch(html + source, /Use server config|Server config on Save/);
+  assert.match(source, /for \(const id of \["close", "cancel"\]\) byId\(id\)\.addEventListener\("click", \(\) => dialog\.close\(\)\)/);
 });

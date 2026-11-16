@@ -160,7 +160,7 @@ func TestNodeSettingsDoNotTransmitGlobalSecretsOrOverwriteThem(t *testing.T) {
 		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &view) != nil || !view["can_configure"].(bool) {
 			t.Fatalf("node settings unavailable: %d", response.Code)
 		}
-		for _, field := range []string{"telegram_bot_token", "telegram_chat_id", "healthchecks_url"} {
+		for _, field := range []string{"telegram_bot_token", "telegram_chat_id", "healthchecks_url", "defaults"} {
 			if _, present := view[field]; present {
 				t.Fatal("node settings included a global credential")
 			}

@@ -507,8 +507,10 @@ node-manager apply</code></pre>
           <div id="settings-port-zcash-rpc" class="settings-port" data-credential-node="zcash"><label class="settings-check"><input type="checkbox" data-port-enabled> Expose read-only RPC on private LAN</label><div class="settings-port-fields"><label>Port<input type="number" min="1" max="65535" step="1" data-port-number></label></div></div>
         </details>
       </fieldset>
-      <div class="settings-actions"><button id="settings-save" type="submit">Save</button><button id="settings-reset" type="button">Use server config</button></div>
-      <p id="settings-status" role="status" aria-live="polite"></p>
+      <div class="settings-footer">
+        <div class="settings-actions"><button id="settings-reset" type="button">Reset to default</button><button id="settings-cancel" type="button">Cancel</button><button id="settings-save" type="submit">Save</button></div>
+        <p id="settings-status" role="status" aria-live="polite"></p>
+      </div>
     </form>
   </dialog>
   <dialog id="settings-install-dialog" class="settings-dialog" aria-labelledby="settings-install-title">
