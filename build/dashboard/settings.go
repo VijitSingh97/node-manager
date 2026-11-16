@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/netip"
@@ -357,7 +358,7 @@ func (m *Monitor) settingsView(canConfigure bool) (map[string]any, error) {
 		return nil, ErrSettingsUnavailable
 	}
 	view := globalSettingsView(m.settings)
-	for field, value := range map[string]any{
+	maps.Copy(view, map[string]any{
 		"alert_new_block":             m.settings.AlertNewBlock,
 		"alert_new_block_bitcoin":     m.settings.AlertNewBlock,
 		"alert_new_block_monero":      m.settings.AlertNewBlockMonero,
@@ -376,9 +377,7 @@ func (m *Monitor) settingsView(canConfigure bool) (map[string]any, error) {
 		"overridden":                  m.settingsOverridden,
 		"can_configure":               canConfigure,
 		"defaults":                    globalSettingsView(m.settingsBaseline),
-	} {
-		view[field] = value
-	}
+	})
 	return view, nil
 }
 
