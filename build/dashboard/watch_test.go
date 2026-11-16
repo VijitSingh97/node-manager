@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -426,6 +427,33 @@ func TestWatchStoreCRUDAndStaleBalance(t *testing.T) {
 	}
 	if got := store.history.series(key); !reflect.DeepEqual(got, []float64{1.25}) {
 		t.Fatalf("history after removal = %v", got)
+	}
+}
+
+func TestWatchStoreAcceptsFiftyWallets(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wallets.json")
+	fillers := make([]WatchEntry, 0, 48)
+	for i := range 48 {
+		fillers = append(fillers, WatchEntry{Name: fmt.Sprintf("Filler %d", i), Key: fmt.Sprintf("wpkh(%s/%d/*)", testXpub, i)})
+	}
+	b, err := json.Marshal(fillers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WATCH_STORE", path)
+	t.Setenv("BALANCE_HISTORY", filepath.Join(t.TempDir(), "history.json"))
+	store := NewWatchStore(t.TempDir())
+	if _, err := store.Add("Forty-ninth", genesisAddress, ""); err != nil {
+		t.Fatalf("49th wallet: %v", err)
+	}
+	if _, err := store.Add("Fiftieth", parityZpub, ""); err != nil {
+		t.Fatalf("50th wallet: %v", err)
+	}
+	if _, err := store.Add("Fifty-first", testXpub, ""); err == nil || err.Error() != "At most 50 wallets." {
+		t.Fatalf("51st wallet error = %v", err)
 	}
 }
 

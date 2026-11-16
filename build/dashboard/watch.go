@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const maxWatchWallets = 20
+const maxWatchWallets = 50
 const genesisAddress = "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"
 const publicExampleName = "Binance (public)"
 const publicExampleAddress = "34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo"
