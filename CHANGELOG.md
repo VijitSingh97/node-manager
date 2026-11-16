@@ -12,6 +12,13 @@ All notable changes to this project are documented here. Format follows
   container restarts, which happens when incoming connections are turned on or
   off, when Bitcoin, Litecoin or Bitcoin Cash is activated or deactivated with
   incoming connections on, and on upgrades.
+- A "Balance index" switch in Settings (shown when Bitcoin is installed) turns
+  `bitcoin.utxo_index` on and off from the dashboard, the same way the network
+  switches work: the host helper saves the setting, applies it, and restores
+  the previous setting if the apply fails. Turning it off asks first. The
+  Bitcoin watch-only wallets card now carries a badge with the index state
+  (ready, catching up, seeding, needs a seed, degraded or off) that links to the
+  index card. Seeding still runs from the host.
 
 ### Changed
 

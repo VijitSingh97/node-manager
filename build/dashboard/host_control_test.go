@@ -201,6 +201,48 @@ func TestHostControlQueuesNetworkToggles(t *testing.T) {
 	}
 }
 
+func TestHostControlQueuesBalanceIndexToggle(t *testing.T) {
+	a, _ := testApp(t, &rpcFixture{}, "")
+	b, _ := json.Marshal(hostControlCapability{Timestamp: time.Now().Unix(), Platform: "linux", BootKind: "boot", UtxoIndex: true})
+	if err := os.WriteFile(a.nodeControlPath("capability"), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var view hostControlView
+	response := hostControlHTTP(a, http.MethodGet, "", false, "192.168.1.20:4321")
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &view) != nil || !view.UtxoIndex {
+		t.Fatalf("balance index view = %d %s", response.Code, response.Body.String())
+	}
+	for _, body := range []string{`{"action":"utxo_index"}`, `{"action":"utxo_index","enabled":"yes"}`, `{"action":"utxo_index","enabled":true,"node":"bitcoin"}`} {
+		if got := hostControlHTTP(a, http.MethodPost, body, true, "192.168.1.20:4321"); got.Code != http.StatusBadRequest {
+			t.Fatalf("%s = %d", body, got.Code)
+		}
+	}
+	a.cfg.bitcoinDisabled = true
+	if got := hostControlHTTP(a, http.MethodPost, `{"action":"utxo_index","enabled":true}`, true, "192.168.1.20:4321"); got.Code != http.StatusConflict {
+		t.Fatalf("balance index without Bitcoin = %d %s", got.Code, got.Body.String())
+	}
+	a.cfg.bitcoinDisabled = false
+	response = hostControlHTTP(a, http.MethodPost, `{"action":"utxo_index","enabled":false}`, true, "192.168.1.20:4321")
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("balance index toggle = %d %s", response.Code, response.Body.String())
+	}
+	b, err := os.ReadFile(a.nodeControlPath("request"))
+	var request map[string]any
+	if err != nil || json.Unmarshal(b, &request) != nil || request["action"] != "utxo_index" || request["enabled"] != false || len(request) != 4 {
+		t.Fatalf("request = %s, %v", b, err)
+	}
+	on, off := true, false
+	if got := canonicalHostStatusMessage(hostControlStatus{Action: "utxo_index", Enabled: &off, State: "applied"}); got != "Balance index turned off." {
+		t.Fatalf("off message = %q", got)
+	}
+	if got := canonicalHostStatusMessage(hostControlStatus{Action: "utxo_index", Enabled: &on, State: "applied"}); !strings.HasPrefix(got, "Balance index turned on") {
+		t.Fatalf("on message = %q", got)
+	}
+	if got := canonicalHostStatusMessage(hostControlStatus{Action: "utxo_index", Enabled: &off, State: "rejected", ErrorCode: "seed_running"}); !strings.Contains(got, "utxo-seed cancel") {
+		t.Fatalf("seed running message = %q", got)
+	}
+}
+
 func TestHostStatusCanonicalizesHelperErrors(t *testing.T) {
 	enabled := true
 	status := hostControlStatus{Action: "launch_at_boot", Enabled: &enabled, State: "failed", Message: "untrusted host output", ErrorCode: "ownership_conflict"}

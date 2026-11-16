@@ -269,6 +269,49 @@ request '{"action":"clearnet_over_tor","enabled":"no","id":"6e6e6e6e6e6e6e6e6e6e
 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 [ "$(status .error_code)" = invalid_request ] || fail "malformed network request was not rejected"
 
+jq -e '.utxo_index == false' "$dashboard_state/node-control.capability" >/dev/null || fail "balance index did not default off"
+request '{"action":"utxo_index","enabled":false,"id":"e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .error_code)" = unchanged ] || fail "unchanged balance index setting was applied"
+cp "$config/config.json" "$tmp/config.keep"
+jq '.bitcoin.enabled=false' "$tmp/config.keep" >"$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+request '{"action":"utxo_index","enabled":true,"id":"e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .error_code)" = validation_failed ] || { cat "$dashboard_state/node-control.status"; fail "balance index turned on without Bitcoin"; }
+jq -e '.bitcoin.utxo_index == null' "$config/config.json" >/dev/null || fail "rejected balance index request changed config"
+cp "$tmp/config.keep" "$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+rm -f "$FAKE_STACK_FAIL_MARKER"
+request '{"action":"utxo_index","enabled":true,"id":"e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2","requested_at":1000}'
+FAKE_STACK_FAIL_APPLY_ONCE=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .error_code)" = apply_failed ] || fail "failed balance index apply lacked typed status"
+jq -e '.bitcoin.utxo_index == null' "$config/config.json" >/dev/null || fail "failed balance index apply changed config"
+request '{"action":"utxo_index","enabled":true,"id":"e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1","requested_at":1000}'
+FAKE_STACK_FAIL_APPLY=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .error_code)" = rollback_failed ] || { cat "$dashboard_state/node-control.status"; fail "failed balance index rollback lacked typed status"; }
+jq -e '.bitcoin.utxo_index == null' "$config/config.json" >/dev/null || fail "failed balance index rollback changed config"
+: >"$tmp/stack.log"
+request '{"action":"utxo_index","enabled":true,"id":"e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state):$(status .enabled)" = applied:true ] || fail "balance index was not turned on"
+[ "$(jq -r .bitcoin.utxo_index "$config/config.json")" = true ] || fail "balance index setting was not saved"
+grep -qx apply "$tmp/stack.log" || fail "balance index did not re-apply the stack"
+jq -e '.utxo_index' "$dashboard_state/node-control.capability" >/dev/null || fail "balance index capability was stale after save"
+printf '{"seed_state":"seeding"}\n' >"$dashboard_state/utxo-seed.json"
+request '{"action":"utxo_index","enabled":false,"id":"e8e8e8e8e8e8e8e8e8e8e8e8e8e8e8e8","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .error_code)" = seed_running ] || fail "balance index turned off during a seed"
+[ "$(jq -r .bitcoin.utxo_index "$config/config.json")" = true ] || fail "rejected turn-off changed config"
+rm -f "$dashboard_state/utxo-seed.json"
+request '{"action":"utxo_index","enabled":false,"id":"e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state):$(status .enabled)" = applied:false ] || fail "balance index was not turned off"
+jq -e '.utxo_index|not' "$dashboard_state/node-control.capability" >/dev/null || fail "balance index capability stayed on after turning off"
+request '{"action":"utxo_index","enabled":"yes","id":"e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .error_code)" = invalid_request ] || fail "malformed balance index request was not rejected"
+
 
 approved_before=$(shasum -a 256 "$state/.approved-config.json" "$state/.approved.env")
 rm -f "$FAKE_STACK_FAIL_MARKER"

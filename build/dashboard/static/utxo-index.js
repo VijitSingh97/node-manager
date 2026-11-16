@@ -16,11 +16,31 @@ const STATE_TEXT = {
   invalid: "Needs a new seed",
 };
 
-export const OFF_HINT = "Instant balances: set bitcoin.utxo_index to true in config.json. See ";
+export const OFF_HINT = "Instant balances: switch it on under Settings, Balance index. See ";
 export const OFF_HINT_DOCS = "https://github.com/VijitSingh97/node-manager/blob/main/docs/watch-only.md";
 
 export function offHint(status) {
   return status && status.state === "off" && status.node_pruned === true ? OFF_HINT : "";
+}
+
+const BADGE = {
+  ready: ["ready", "ok"],
+  catching_up: ["catching up", "info"],
+  seeding: ["seeding", "info"],
+  not_seeded: ["needs a seed", "warn"],
+  invalid: ["needs a seed", "warn"],
+  degraded: ["degraded", "bad"],
+};
+
+export function badgeClickTarget(cardHidden) {
+  return cardHidden ? "settings" : "anchor";
+}
+
+export function indexBadge(status) {
+  if (!status) return null;
+  if (!status.enabled || status.state === "off") return { text: "Balance index: off", tone: "off" };
+  const [label, tone] = BADGE[status.state] || [String(status.state), "warn"];
+  return { text: `Balance index: ${label}`, tone };
 }
 
 export function indexView(status) {
@@ -49,10 +69,32 @@ export function indexView(status) {
   };
 }
 
+let renderBadge = () => {};
+
 if (typeof document !== "undefined") {
   const card = document.getElementById("utxo-index");
+  const heading = document.querySelector("#watch h2");
+  if (card && heading) {
+    const badge = el("a", "index-badge");
+    badge.href = "#utxo-index";
+    badge.hidden = true;
+    badge.addEventListener("click", (event) => {
+      if (badgeClickTarget(card.hidden) === "anchor") return;
+      event.preventDefault();
+      document.getElementById("settings-open")?.click();
+    });
+    heading.append(badge);
+    renderBadge = (status) => {
+      const view = indexBadge(status);
+      badge.hidden = !view;
+      if (!view) return;
+      badge.textContent = view.text;
+      badge.className = `index-badge index-badge-${view.tone}`;
+    };
+  }
   if (card) {
     const render = (status) => {
+      renderBadge(status);
       const view = indexView(status);
       const hint = offHint(status);
       card.hidden = !view && !hint;

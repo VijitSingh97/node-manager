@@ -24,6 +24,13 @@ mkdir -p "$state_root/node-control"
 chmod 700 "$state_root/node-control"
 exec 9>"$state_root/node-control/.lock"
 flock -n 9 || exit 0
+refresh_dashboard_id() {
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    dashboard_id=$(container_id dashboard)
+    if [ -n "$dashboard_id" ] && "$docker_bin" exec -u 1000 "$dashboard_id" true >/dev/null 2>&1; then return 0; fi
+    sleep 3
+  done
+}
 dashboard_exec() { [ -n "$dashboard_id" ] && "$docker_bin" exec -u 1000 "$dashboard_id" "$@"; }
 write_status() {
   jq -nc --arg id "$1" --arg node "$2" --argjson active "$3" --arg state "$4" --arg message "$5" --arg error_code "${6:-}" \
@@ -308,7 +315,9 @@ publish_host_capability() {
   fi
   clearnet_over_tor=true
   inbound_connections=true
+  utxo_index=false
   if [ -f "$approved_config" ]; then
+    utxo_index=$(jq -r '.bitcoin.utxo_index == true' "$approved_config" 2>/dev/null || printf false)
     clearnet_over_tor=$(jq -r '.network.clearnet_over_tor != false' "$approved_config" 2>/dev/null || printf true)
     inbound_connections=$(jq -r '.network.inbound_connections != false' "$approved_config" 2>/dev/null || printf true)
   fi
@@ -330,9 +339,9 @@ publish_host_capability() {
   done
   jq -nc --argjson timestamp "$now" --arg platform "$host_platform" --arg boot_kind "$boot_kind" \
     --argjson boot_supported "$boot_supported" --argjson boot_enabled "$boot_enabled" --argjson config_pending "$pending" \
-    --argjson clearnet_over_tor "$clearnet_over_tor" --argjson inbound_connections "$inbound_connections" \
+    --argjson clearnet_over_tor "$clearnet_over_tor" --argjson inbound_connections "$inbound_connections" --argjson utxo_index "$utxo_index" \
     --arg config_revision "$revision" --arg config_path "$config_path" --argjson data_paths "$data_paths" \
-    '{timestamp:$timestamp,install_supported:true,migrate_supported:true,boot_supported:$boot_supported,boot_enabled:$boot_enabled,clearnet_over_tor:$clearnet_over_tor,inbound_connections:$inbound_connections,config_pending:$config_pending,config_revision:$config_revision,platform:$platform,boot_kind:$boot_kind,config_path:$config_path,data_paths:$data_paths}' |
+    '{timestamp:$timestamp,install_supported:true,migrate_supported:true,boot_supported:$boot_supported,boot_enabled:$boot_enabled,clearnet_over_tor:$clearnet_over_tor,inbound_connections:$inbound_connections,utxo_index:$utxo_index,config_pending:$config_pending,config_revision:$config_revision,platform:$platform,boot_kind:$boot_kind,config_path:$config_path,data_paths:$data_paths}' |
     $docker_bin exec -i -u 1000 "$dashboard_id" sh -c 'umask 077; cat > /state/.node-control.capability.tmp; mv /state/.node-control.capability.tmp /state/node-control.capability' >/dev/null
 }
 publish_host_capability
@@ -406,7 +415,7 @@ elif printf '%s' "$request" | jq -e --argjson now "$now" '
   host_request=true
 elif printf '%s' "$request" | jq -e --argjson now "$now" '
   type=="object" and keys==["action","enabled","id","requested_at"] and
-  (.action=="launch_at_boot" or .action=="clearnet_over_tor" or .action=="inbound_connections") and
+  (.action=="launch_at_boot" or .action=="clearnet_over_tor" or .action=="inbound_connections" or .action=="utxo_index") and
   (.id|type=="string" and test("^[0-9a-f]{32}$")) and (.enabled|type=="boolean") and
   (.requested_at|type=="number" and floor==. and . >= $now-300 and . <= $now+30)
 ' >/dev/null 2>&1; then
@@ -657,23 +666,39 @@ if [ "$host_request" = true ]; then
     BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root"       BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" apply >/dev/null 2>&1 || true
     host_finish failed "Migration failed; the node was restored in place." "$host_node" "" apply_failed
   fi
-  if [ "$host_action" = clearnet_over_tor ] || [ "$host_action" = inbound_connections ]; then
+  if [ "$host_action" = clearnet_over_tor ] || [ "$host_action" = inbound_connections ] || [ "$host_action" = utxo_index ]; then
     host_enabled=$(printf '%s' "$request" | jq -r .enabled)
+    host_section=network
+    host_label="Network setting"
+    host_read=".network[\$key] != false"
+    if [ "$host_action" = utxo_index ]; then
+      host_section=bitcoin
+      host_label="Balance index setting"
+      host_read=".bitcoin[\$key] == true"
+    fi
     current='{}'
     [ -f "$config_file" ] && current=$(cat "$config_file")
-    printf '%s' "$current" | jq -e '.network == null or (.network | type) == "object"' >/dev/null 2>&1 ||
-      host_finish rejected "Network setting is invalid." "" "$host_enabled" validation_failed
-    [ "$(printf '%s' "$current" | jq -r --arg key "$host_action" '.network[$key] != false')" != "$host_enabled" ] ||
-      host_finish rejected "Network setting is already in that state." "" "$host_enabled" unchanged
+    printf '%s' "$current" | jq -e --arg section "$host_section" '.[$section] == null or (.[$section] | type) == "object"' >/dev/null 2>&1 ||
+      host_finish rejected "$host_label is invalid." "" "$host_enabled" validation_failed
+    if [ "$host_action" = utxo_index ] && [ "$host_enabled" = true ] &&
+      [ "$(printf '%s' "$current" | jq -r '.bitcoin.enabled == false')" = true ]; then
+      host_finish rejected "$host_label requires Bitcoin to be enabled." "" "$host_enabled" validation_failed
+    fi
+    [ "$(printf '%s' "$current" | jq -r --arg key "$host_action" "$host_read")" != "$host_enabled" ] ||
+      host_finish rejected "$host_label is already in that state." "" "$host_enabled" unchanged
+    if [ "$host_action" = utxo_index ] && [ "$host_enabled" = false ] &&
+      dashboard_exec cat /state/utxo-seed.json 2>/dev/null | jq -e '.seed_state == "seeding" or .seed_state == "checking"' >/dev/null 2>&1; then
+      host_finish rejected "$host_label cannot change while a seed is running." "" "$host_enabled" seed_running
+    fi
     candidate=$(mktemp "$config_root/.config.network.XXXXXX")
-    printf '%s' "$current" | jq --arg key "$host_action" --argjson enabled "$host_enabled" '.network[$key]=$enabled' >"$candidate" ||
-      { rm -f "$candidate"; host_finish rejected "Network setting is invalid." "" "$host_enabled" validation_failed; }
+    printf '%s' "$current" | jq --arg section "$host_section" --arg key "$host_action" --argjson enabled "$host_enabled" '.[$section][$key]=$enabled' >"$candidate" ||
+      { rm -f "$candidate"; host_finish rejected "$host_label is invalid." "" "$host_enabled" validation_failed; }
     validate=$(mktemp -d "$state_root/node-control/.validate.XXXXXX")
     cp "$candidate" "$validate/config.json"
     if ! BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$validate" \
       BITCOIN_STACK_VALIDATE_ONLY=1 BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/configure.sh" >/dev/null 2>&1; then
       rm -rf "$candidate" "$validate"
-      host_finish rejected "Network setting is invalid." "" "$host_enabled" validation_failed
+      host_finish rejected "$host_label is invalid." "" "$host_enabled" validation_failed
     fi
     rm -rf "$validate"
     backup=$(mktemp "$state_root/node-control/.config.backup.XXXXXX")
@@ -683,13 +708,16 @@ if [ "$host_request" = true ]; then
     if BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root" \
       BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" apply >/dev/null 2>&1; then
       rm -f "$backup"
-      host_finish applied "Network setting applied." "" "$host_enabled"
+      refresh_dashboard_id
+      host_finish applied "$host_label applied." "" "$host_enabled"
     fi
     if ! mv "$backup" "$config_file" || ! BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root" \
       BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" apply >/dev/null 2>&1; then
-      host_finish failed "Network setting failed and its prior state could not be fully restored." "" "$host_enabled" rollback_failed
+      refresh_dashboard_id
+      host_finish failed "$host_label failed and its prior state could not be fully restored." "" "$host_enabled" rollback_failed
     fi
-    host_finish failed "Network setting could not be applied; prior setting restored." "" "$host_enabled" apply_failed
+    refresh_dashboard_id
+    host_finish failed "$host_label could not be applied; prior setting restored." "" "$host_enabled" apply_failed
   fi
   if [ "$host_action" = launch_at_boot ]; then
     [ "$boot_supported" = true ] || host_finish rejected "Launch at boot is not managed for source installs." "" "$(printf '%s' "$request" | jq -r .enabled)" unsupported
@@ -755,7 +783,7 @@ if [ "$host_request" = true ]; then
     host_finish failed "Launch setting could not be changed; prior setting restored." "" "$host_enabled" apply_failed
   fi
 fi
-if printf '%s' "$request" | jq -e 'type=="object" and (.action=="install" or .action=="launch_at_boot" or .action=="apply_config" or .action=="clearnet_over_tor" or .action=="inbound_connections")' >/dev/null 2>&1; then
+if printf '%s' "$request" | jq -e 'type=="object" and (.action=="install" or .action=="launch_at_boot" or .action=="apply_config" or .action=="clearnet_over_tor" or .action=="inbound_connections" or .action=="utxo_index")' >/dev/null 2>&1; then
   invalid_host_id=$(printf '%s' "$request" | jq -r 'if (.id|type)=="string" and (.id|test("^[0-9a-f]{32}$")) then .id else "" end')
   invalid_host_action=$(printf '%s' "$request" | jq -r .action)
   write_host_status "$invalid_host_id" "$invalid_host_action" rejected "Invalid request." "" "" invalid_request

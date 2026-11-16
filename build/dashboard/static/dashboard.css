@@ -411,6 +411,12 @@ h2 {
 }
 .price-row .price-status.stale { color: var(--accent); }
 .watch-card h2 { font-size: 1.1rem; }
+.index-badge { font-size: 0.7rem; font-weight: normal; margin-left: 8px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 4px; color: var(--muted); text-decoration: none; white-space: nowrap; vertical-align: middle; }
+.index-badge-ok, .index-badge-info, .index-badge-warn, .index-badge-bad { color: var(--text); }
+.index-badge-ok { border-color: #2e9e5b; }
+.index-badge-info { border-color: var(--accent); }
+.index-badge-warn { border-color: #d98a00; }
+.index-badge-bad { border-color: #ff5252; }
 .wk-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .wk { /* truncated key/address, click to expand */
   font-family: monospace;
