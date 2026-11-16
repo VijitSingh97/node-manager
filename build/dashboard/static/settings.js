@@ -101,8 +101,12 @@ export function hostControlModel(data = {}) {
     config_revision: revision,
     config_path: typeof data.config_path === "string" && data.config_path.startsWith("/") ? data.config_path : "",
     nodes,
-    status: { action, state, message: state ? String(data.status?.message || "") : "" },
+    status: { action, state, node: allNodes.includes(data?.status?.node) ? data.status.node : "", message: state ? String(data.status?.message || "") : "" },
   };
+}
+
+export function installingNode(view) {
+  return view?.status?.state === "pending" && view.status.action === "install" ? view.status.node : "";
 }
 
 export function newlyInstalledNodes(previous, current) {
@@ -548,6 +552,7 @@ if (typeof document !== "undefined") {
     hostLoaded = true;
     hostNodes.replaceChildren();
     const busy = hostView.status.state === "pending";
+    const installing = installingNode(hostView);
     for (const node of Object.values(hostView.nodes)) {
       const row = document.createElement("div");
       row.className = "settings-host-node";
@@ -567,7 +572,7 @@ if (typeof document !== "undefined") {
       } else {
         const button = document.createElement("button");
         button.type = "button";
-        button.textContent = "Install";
+        button.textContent = node.id === installing ? "Installing…" : "Install";
         button.disabled = !node.data_dir || !hostView.available || !hostView.install_supported || hostView.config_pending || busy;
         button.addEventListener("click", () => openInstall(node.id));
         row.append(name, button);

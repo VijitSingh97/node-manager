@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { notificationPayload, notificationChanged, configurationAccess, configuredNodeVisibility, portControlModel, portChanges, portCollision, portStatusMessage, portStatusNode, portDraftAfterStatus, portSubmissionOutcome, shouldPollPort, settingsSaveMessage, normalizeDefaultCurrency, applyAppearance, requestSettings, scopedSettingsPayload, splitNodeControlSections, alertPreferenceModel, hostControlModel, hostActionPayload, bootControlLabel, newlyInstalledNodes, shouldPollHost, latestRequestGate } from "./settings.js";
+import { notificationPayload, notificationChanged, configurationAccess, configuredNodeVisibility, portControlModel, portChanges, portCollision, portStatusMessage, portStatusNode, portDraftAfterStatus, portSubmissionOutcome, shouldPollPort, settingsSaveMessage, normalizeDefaultCurrency, applyAppearance, requestSettings, scopedSettingsPayload, splitNodeControlSections, alertPreferenceModel, hostControlModel, hostActionPayload, bootControlLabel, newlyInstalledNodes, shouldPollHost, installingNode, latestRequestGate } from "./settings.js";
 
 const alertDefaults = {
   alert_monitor_online: true,
@@ -78,6 +78,15 @@ test("completed installs reveal each new node without treating pending work as i
   assert.deepEqual(newlyInstalledNodes(pending, bitcoin), ["bitcoin"]);
   assert.equal(shouldPollHost(bitcoin), false);
   assert.deepEqual(newlyInstalledNodes(bitcoin, bitcoinAndMonero), ["monero"]);
+});
+
+test("only the node being installed reads as installing", () => {
+  const pending = (status) => installingNode(hostControlModel({ nodes: [], status: { state: "pending", message: "Applying host change…", ...status } }));
+  assert.equal(pending({ action: "install", node: "litecoin" }), "litecoin");
+  assert.equal(pending({ action: "install" }), "");
+  assert.equal(pending({ action: "install", node: "unknown" }), "");
+  assert.equal(pending({ action: "migrate", node: "litecoin" }), "");
+  assert.equal(installingNode(hostControlModel({ nodes: [], status: { action: "install", node: "litecoin", state: "applied" } })), "");
 });
 
 test("a host mutation ignores an older settings response", async () => {
