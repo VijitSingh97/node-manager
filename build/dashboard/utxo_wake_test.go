@@ -41,26 +41,30 @@ func (w *waitBlockRPC) calls() []string {
 	return append([]string(nil), w.params...)
 }
 
-func waitForCalls(t *testing.T, w *waitBlockRPC, n int) []string {
+func waitUntil(t *testing.T, what string, ok func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
-	for len(w.calls()) < n {
+	for !ok() {
 		if time.Now().After(deadline) {
-			t.Fatalf("waitfornewblock calls: %v, want %d", w.calls(), n)
+			t.Fatal(what)
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	return w.calls()
 }
 
 func TestUtxoWaitBlocksWakesTheFollowerOnANewTip(t *testing.T) {
 	w := &waitBlockRPC{results: make(chan string)}
 	m := utxoMgrNew(t, t.TempDir(), nil, newFakeUtxoNode(utxoMgrChain(3, "w")), io.Discard)
-	m.blockWait = w
+	m.blockWait, m.blockWaitRetry = w, 50*time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go m.waitBlocks(ctx)
 
+	time.Sleep(200 * time.Millisecond)
+	if n := len(w.calls()); n != 0 {
+		t.Fatalf("waited on bitcoind while the index was not ready: %d calls", n)
+	}
+	m.set(utxoStateReady, "")
 	w.results <- "aa"
 	select {
 	case <-m.wake:
@@ -68,14 +72,11 @@ func TestUtxoWaitBlocksWakesTheFollowerOnANewTip(t *testing.T) {
 		t.Fatal("a new tip did not wake the follower")
 	}
 	w.results <- "aa"
-	got := waitForCalls(t, w, 3)
+	waitUntil(t, "no third waitfornewblock call", func() bool { return len(w.calls()) >= 3 })
 	select {
 	case <-m.wake:
 		t.Fatal("a timeout on the same tip woke the follower")
 	default:
-	}
-	if want := []string{"[60000]", "[60000 aa]", "[60000 aa]"}; fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Fatalf("waitfornewblock params: %v, want %v", got, want)
 	}
 	w.results <- "bb"
 	select {
@@ -83,21 +84,21 @@ func TestUtxoWaitBlocksWakesTheFollowerOnANewTip(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("the next block did not wake the follower")
 	}
-
-	waitForCalls(t, w, 4)
+	waitUntil(t, "no fourth waitfornewblock call", func() bool { return len(w.calls()) >= 4 })
 	w.results <- ""
-	time.Sleep(300 * time.Millisecond)
-	if n := len(w.calls()); n != 4 {
-		t.Fatalf("an RPC error was retried at once: %d calls", n)
+	waitUntil(t, "no retry after the RPC error", func() bool { return len(w.calls()) >= 5 })
+	if want := "[[60000] [60000 aa] [60000 aa] [60000 bb] [60000 bb]]"; fmt.Sprint(w.calls()) != want {
+		t.Fatalf("waitfornewblock params: %v, want %v", w.calls(), want)
 	}
 }
 
 func TestUtxoManagerSignalsWalletsWhenTheIndexReachesANewBlock(t *testing.T) {
 	ctx := context.Background()
 	c := utxoMgrChain(10, "n")
+	node := newFakeUtxoNode(c)
 	dir := t.TempDir()
 	utxoMgrSeed(t, dir, nil, c)
-	m := utxoMgrNew(t, dir, nil, newFakeUtxoNode(c), io.Discard)
+	m := utxoMgrNew(t, dir, nil, node, io.Discard)
 	applied := 0
 	m.onApplied = func() { applied++ }
 
@@ -114,12 +115,64 @@ func TestUtxoManagerSignalsWalletsWhenTheIndexReachesANewBlock(t *testing.T) {
 	if st := m.Status(); *st.IndexTip != 10 || applied != 2 {
 		t.Fatalf("new block: tip %d, signals %d", *st.IndexTip, applied)
 	}
-	utxoMgrAddBlock(c, "n", 11)
+	fork := utxoMgrChain(11, "y")
+	node.fakeUtxoChain = fork
+	m.tick(ctx)
+	if st := m.Status(); st.State != utxoStateReady || *st.IndexTip != 10 || applied != 3 {
+		t.Fatalf("same-height reorg: state %s, tip %d, signals %d", st.State, *st.IndexTip, applied)
+	}
+	utxoMgrAddBlock(fork, "y", 11)
 	m.freeBytes = func() uint64 { return utxoMinFreeBytes - 1 }
 	m.tick(ctx)
-	if st := m.Status(); st.State != utxoStateDegraded || applied != 2 {
+	if st := m.Status(); st.State != utxoStateDegraded || applied != 3 {
 		t.Fatalf("degraded index: state %s, signals %d", st.State, applied)
 	}
+}
+
+func TestUtxoManagerRunAppliesABlockWhenBitcoindReportsIt(t *testing.T) {
+	c := utxoMgrChain(10, "r")
+	dir := t.TempDir()
+	utxoMgrSeed(t, dir, nil, c)
+	m := utxoMgrNew(t, dir, nil, newFakeUtxoNode(c), io.Discard)
+	w := &waitBlockRPC{results: make(chan string)}
+	m.blockWait, m.blockWaitRetry = w, 50*time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { m.run(ctx); close(done) }()
+	defer func() { cancel(); <-done }()
+
+	waitUntil(t, "index never became ready", func() bool {
+		st := m.Status()
+		return st.State == utxoStateReady && *st.IndexTip == 9
+	})
+	waitUntil(t, "no waitfornewblock call", func() bool { return len(w.calls()) >= 1 })
+	utxoMgrAddBlock(c, "r", 10)
+	w.results <- "new-tip"
+	waitUntil(t, "the reported block was not applied before the 10 s ticker", func() bool {
+		return *m.Status().IndexTip == 10
+	})
+}
+
+func TestWatchRefreshRunsWhenTheIndexAppliesABlock(t *testing.T) {
+	fixture := &rpcFixture{}
+	a, _ := testApp(t, fixture, "")
+	a.watchWake = make(chan struct{}, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { a.refreshWatchLoop(ctx); close(done) }()
+	defer func() { cancel(); <-done }()
+
+	waitUntil(t, "the first refresh made no RPC", func() bool { return fixture.count() > 0 })
+	last := -1
+	waitUntil(t, "the first refresh did not settle", func() bool {
+		n := fixture.count()
+		settled := n == last
+		last = n
+		time.Sleep(100 * time.Millisecond)
+		return settled
+	})
+	a.watchWake <- struct{}{}
+	waitUntil(t, "a wake did not refresh the wallets", func() bool { return fixture.count() > last })
 }
 
 func TestEveryOrWakeRunsAgainOnWake(t *testing.T) {

@@ -32,7 +32,7 @@ func TestUtxoManagerAppliesNewBlocksAtOnceRegtestLive(t *testing.T) {
 	m.freeBytes = func() uint64 { return 1 << 40 }
 	waitRPC := *n.rpc
 	waitRPC.client = &http.Client{Timeout: 2 * time.Minute}
-	m.blockWait = &waitRPC
+	m.blockWait, m.blockWaitRetry = &waitRPC, 100*time.Millisecond
 	applied := make(chan struct{}, 8)
 	m.onApplied = func() { applied <- struct{}{} }
 	ctx, cancel := context.WithCancel(context.Background())
