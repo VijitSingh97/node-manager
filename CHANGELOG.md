@@ -6,6 +6,15 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- The Node manager usage panel now shows the host's CPU and board temperature,
+  fan speed, uptime and network rate (received and sent, summed over the
+  physical interfaces). The resource-profile host helper collects them with the
+  other host figures, reading the same thermal zones as the thermal throttle;
+  each reading the host cannot provide, such as every sensor on Homebrew for
+  macOS, shows "not available". No interface names or addresses are shown.
+
 ## [1.36.0] - 2026-11-16
 
 ### Added
