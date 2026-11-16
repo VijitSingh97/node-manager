@@ -178,6 +178,20 @@ func TestParseLegacyUtxoDumpRejectsMalformedInput(t *testing.T) {
 	}
 }
 
+func TestParseLegacyUtxoDumpClearsThePegoutFlag(t *testing.T) {
+	coin := utxoRecord{ScriptPubKey: []byte{0x51}, Txid: [32]byte{1}, Vout: 1, Amount: 200_000_000, Height: 434 | 1<<30}
+	var got []utxoRecord
+	if _, err := parseLegacyUtxoDump(bytes.NewReader(legacyUtxoDump([32]byte{}, []utxoRecord{coin})), nil, func(r utxoRecord) error {
+		got = append(got, r)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Height != 434 || got[0].Amount != coin.Amount || got[0].Coinbase {
+		t.Fatalf("peg-out coin parsed as %+v", got)
+	}
+}
+
 func TestIngestLitecoinDumpSeedsTheIndex(t *testing.T) {
 	raw, info, base := litecoinFixture(t)
 	var scripts [][]byte
