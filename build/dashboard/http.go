@@ -21,6 +21,8 @@ func (a *app) routes() http.Handler {
 		_, _ = w.Write([]byte("ok\n"))
 	})
 	mux.HandleFunc("GET /", a.index)
+	mux.HandleFunc("GET /actuator/health", a.actuatorHealth)
+	mux.HandleFunc("GET /actuator/info", a.actuatorInfo)
 	mux.HandleFunc("GET /metrics", a.metrics)
 	mux.HandleFunc("GET /api/fees", a.apiFees)
 	mux.HandleFunc("GET /api/prices", a.apiPrices)

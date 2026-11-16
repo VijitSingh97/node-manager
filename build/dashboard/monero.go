@@ -67,6 +67,7 @@ type moneroInfo struct {
 	Height                   uint64  `json:"height"`
 	TargetHeight             uint64  `json:"target_height"`
 	Version                  string  `json:"version"`
+	Nettype                  string  `json:"nettype"`
 	StartTime                uint64  `json:"start_time"`
 	IncomingConnectionsCount uint64  `json:"incoming_connections_count"`
 	OutgoingConnectionsCount uint64  `json:"outgoing_connections_count"`

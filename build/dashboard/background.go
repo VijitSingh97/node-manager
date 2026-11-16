@@ -93,6 +93,9 @@ func (a *app) startBackground(ctx context.Context) <-chan struct{} {
 			id, node := id, node
 			probes[id] = func() map[string]any { return a.healthAdditionalNode(ctx, id, node) }
 		}
+		for id, probe := range probes {
+			probes[id] = a.recordNodeInfo(id, probe)
+		}
 		start(func() { a.monitor.RunConfiguredNodes(ctx, probes) })
 	}
 	if a.cfg.bitcoinDisabled {
@@ -195,9 +198,17 @@ func (a *app) healthMonero(parent context.Context) map[string]any {
 		return nil
 	}
 	a.recordNodeHealth(nodeMonero, true)
+	progress := 1.0
+	if info.TargetHeight > info.Height {
+		progress = float64(info.Height) / float64(info.TargetHeight)
+	}
 	return map[string]any{
 		"initialblockdownload": !info.Synchronized || info.BusySyncing,
 		"blocks":               int64(info.Height),
+		"sync_progress":        progress,
+		"peers":                int64(info.IncomingConnectionsCount + info.OutgoingConnectionsCount),
+		"version":              info.Version,
+		"network":              info.Nettype,
 	}
 }
 
@@ -252,7 +263,7 @@ func (a *app) healthAdditionalNode(parent context.Context, id string, node nodeC
 			a.updateTariSyncMarker(false)
 			return nil
 		}
-		return map[string]any{"active": true, "initialblockdownload": !status.Synced, "blocks": status.Height}
+		return nodeStatusInfo(status)
 	}
 	if node.Protocol == "zcash-json-rpc" {
 		status, err := a.fetchZcashStatus(ctx, node, genericNodeStatus{Enabled: true, Active: true, Supported: true})
@@ -261,7 +272,7 @@ func (a *app) healthAdditionalNode(parent context.Context, id string, node nodeC
 			return nil
 		}
 		a.recordNodeHealth(id, true)
-		info := map[string]any{"active": true, "initialblockdownload": !status.Synced, "blocks": status.Height}
+		info := nodeStatusInfo(status)
 		if status.EndOfSupportWarning {
 			info["end_of_support_height"], info["end_of_support_remaining_blocks"] = status.EndOfSupportHeight, status.EndOfSupportRemaining
 		}
@@ -276,6 +287,14 @@ func (a *app) healthAdditionalNode(parent context.Context, id string, node nodeC
 	a.recordNodeHealth(id, true)
 	result["active"] = true
 	return result
+}
+
+func nodeStatusInfo(status genericNodeStatus) map[string]any {
+	info := map[string]any{"active": true, "initialblockdownload": !status.Synced, "blocks": status.Height, "sync_progress": status.SyncPercent / 100, "version": status.Version}
+	if status.ConnectionsAvailable {
+		info["peers"] = status.Connections
+	}
+	return info
 }
 
 func (a *app) provision(entry WatchEntry, pruned bool) {

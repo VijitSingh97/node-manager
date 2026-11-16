@@ -168,6 +168,10 @@ func (a *app) auth(next http.Handler) http.Handler {
 			writeAuthError(w, status, retry)
 			return
 		}
+		if anonymousHealthRequest(r) && a.healthEndpointsEnabled() {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if (r.Method == http.MethodGet || r.Method == http.MethodHead) && r.URL.Path == "/" {
 			http.Redirect(w, r, "/login", http.StatusFound)
 			return

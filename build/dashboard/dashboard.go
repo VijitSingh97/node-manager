@@ -96,6 +96,7 @@ type app struct {
 	additionalFees   map[string][]float64
 	nodeHealthMu     sync.RWMutex
 	nodeHealth       map[string]nodeHealthSnapshot
+	nodeInfo         map[string]nodeInfoSnapshot
 	syncMu           sync.RWMutex
 	lastSync         *syncSnapshot
 	log              *log.Logger
@@ -220,12 +221,15 @@ func (a *app) index(w http.ResponseWriter, r *http.Request) {
 	var network networkInfo
 	var peers []peerInfo
 	var uptime float64
-	_ = a.rpc.call(ctx, "getnetworkinfo", []any{}, &network)
-	_ = a.rpc.call(ctx, "getpeerinfo", []any{}, &peers)
+	networkErr := a.rpc.call(ctx, "getnetworkinfo", []any{}, &network)
+	peersErr := a.rpc.call(ctx, "getpeerinfo", []any{}, &peers)
 	uptimeErr := a.rpc.call(ctx, "uptime", []any{}, &uptime)
 	uptimeLabel := formatUptime(uptime)
 	if uptimeErr != nil {
 		uptimeLabel = "—"
+	}
+	if networkErr == nil && peersErr == nil {
+		a.noteNodeNetwork(nodeBitcoin, network.Subversion, int64(len(peers)))
 	}
 	if network.Subversion == "" {
 		network.Subversion = "Unknown"
