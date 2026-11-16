@@ -37,11 +37,15 @@ const (
 	utxoPhaseMerging    = "merging"
 	utxoPhasePaused     = "paused"
 	utxoPhaseCancelling = "cancelling"
+	utxoPhaseReplaying  = "replaying"
 
 	utxoAlertCap = 15 * time.Minute
 )
 
 var errUtxoSeedState = errors.New("index state does not allow a seed or reset")
+
+// A replay chain this far behind resumes as a seed, with its guards, lock and thermal pause, instead of in the follower.
+var utxoReplayGap int64 = 10_000
 
 type utxoSeedResult struct {
 	Outcome         string    `json:"outcome"`
@@ -360,7 +364,7 @@ func (m *utxoManager) startSeed() error {
 	m.mu.Lock()
 	state, busy := m.state, m.seeding
 	m.mu.Unlock()
-	if busy || state != utxoStateNotSeeded && state != utxoStateInvalid {
+	if busy || !seedableState(state, m.chain.Replay) {
 		return errUtxoSeedState
 	}
 	if state == utxoStateInvalid {
@@ -370,7 +374,7 @@ func (m *utxoManager) startSeed() error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.state != utxoStateNotSeeded {
+	if m.state == utxoStateInvalid || !seedableState(m.state, m.chain.Replay) {
 		return errUtxoSeedState
 	}
 	zero := 0.0
@@ -400,7 +404,10 @@ func (m *utxoManager) finishSeed(err error) {
 		m.seed.AlertsUntil = time.Time{}
 	}
 	m.seed.Last = &utxoSeedResult{Outcome: outcome, Reason: seedErrorClass(err), FinishedAt: now, DurationSeconds: now.Sub(m.seed.StartedAt).Seconds()}
-	m.countAutoSeedLocked(err == nil)
+	// A stopped replay keeps its blocks and an integrity error makes it invalid, so a replay never backs off.
+	if !m.chain.Replay || err == nil {
+		m.countAutoSeedLocked(err == nil)
+	}
 	m.persistSeedLocked()
 	m.log.Printf("utxo index: seed outcome=%s duration=%.0fs", outcome, m.seed.Last.DurationSeconds)
 	if err == nil {
@@ -408,9 +415,37 @@ func (m *utxoManager) finishSeed(err error) {
 		m.mu.Unlock()
 		return
 	}
+	if m.chain.Replay {
+		if m.state == utxoStateSeeding {
+			state := utxoStateNotSeeded
+			if m.indexTip != nil {
+				state = utxoStateCatching
+			}
+			m.setLocked(state, "")
+		}
+		m.mu.Unlock()
+		return
+	}
 	m.setLocked(utxoStateNotSeeded, "")
 	m.mu.Unlock()
 	_ = m.resetStore()
+}
+
+func seedableState(state string, replay bool) bool {
+	return state == utxoStateNotSeeded || state == utxoStateInvalid || replay && state == utxoStateCatching
+}
+
+func (m *utxoManager) replayFraction() float64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.indexTip == nil || m.nodeTip <= 0 {
+		return 0
+	}
+	return min(1, float64(*m.indexTip)/float64(m.nodeTip))
+}
+
+func (m *utxoManager) replayBehindLocked() bool {
+	return m.chain.Replay && m.state == utxoStateCatching && m.indexTip != nil && m.nodeTip-int64(*m.indexTip) > utxoReplayGap
 }
 
 func (m *utxoManager) setSeedPhase(phase string) {
@@ -486,10 +521,16 @@ func (m *utxoManager) setSeedStatePath(path string) {
 	m.seed.SeedState, m.seed.Phase, m.seed.Progress = utxoOutcomeFailed, "", nil
 	if interrupted {
 		m.seed.Last = &utxoSeedResult{Outcome: utxoOutcomeFailed, Reason: errSeedInterrupted.Error(), FinishedAt: now, DurationSeconds: now.Sub(m.seed.StartedAt).Seconds()}
-		m.countAutoSeedLocked(false)
-		_ = m.wipeLocked()
+		if !m.chain.Replay {
+			m.countAutoSeedLocked(false)
+			_ = m.wipeLocked()
+		}
 	}
 	m.persistSeedLocked()
+	if m.chain.Replay {
+		m.log.Print("utxo index: a replay was interrupted by a restart and resumes from its last block")
+		return
+	}
 	m.log.Print("utxo index: a seed was interrupted by a restart and its partial index was discarded")
 }
 
@@ -588,6 +629,10 @@ func (m *utxoManager) tick(ctx context.Context) {
 		return
 	}
 	m.setTip(height)
+	if m.chain.Replay && m.host != nil && info.Blocks-int64(height) > utxoReplayGap {
+		m.set(utxoStateCatching, "")
+		return
+	}
 	if info.Pruned && int64(height)+1 < info.PruneHeight {
 		m.invalidate("index is behind the node's retained blocks")
 		return

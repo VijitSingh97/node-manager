@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -243,15 +245,23 @@ func (m *utxoManager) pollSeed(ctx context.Context) {
 	if req.ID == m.lastSeedRequest() {
 		return
 	}
-	_ = os.Remove(filepath.Join(h.stateDir, h.prefix+seedCancelName))
 	m.mu.Lock()
 	if req.ID != m.seed.AutoRequestID {
 		m.seed.AutoFailures = 0
 	}
 	m.mu.Unlock()
-	m.markSeedRequest(req.ID, utxoSeedChecking, nil)
+	m.seedRequested(ctx, req.ID)
+}
+
+func (m *utxoManager) seedRequested(ctx context.Context, id string) {
+	h := m.host
+	_ = os.Remove(filepath.Join(h.stateDir, h.prefix+seedCancelName))
+	m.markSeedRequest(id, utxoSeedChecking, nil)
 	network, refusals := m.checkSeed(ctx)
-	if r := seedFIFOGuard(h.dataDir); r != nil {
+	seed := func(ctx context.Context) error { return m.seedFromDump(ctx, network) }
+	if m.chain.Replay {
+		seed = m.seedFromReplay
+	} else if r := seedFIFOGuard(h.dataDir); r != nil {
 		refusals = append(refusals, *r)
 	}
 	if len(refusals) == 0 && h.lock != nil {
@@ -261,7 +271,8 @@ func (m *utxoManager) pollSeed(ctx context.Context) {
 			refusals = append(refusals, seedRefusal{"lock", "another balance index is seeding"})
 		}
 	}
-	if len(refusals) == 0 {
+	// A replay runs for hours, so the watch keeps scanning through it.
+	if len(refusals) == 0 && !m.chain.Replay {
 		if h.hold() {
 			defer h.release()
 		} else {
@@ -269,16 +280,17 @@ func (m *utxoManager) pollSeed(ctx context.Context) {
 		}
 	}
 	if len(refusals) > 0 {
-		m.markSeedRequest(req.ID, utxoSeedRefused, refusals)
+		m.markSeedRequest(id, utxoSeedRefused, refusals)
 		return
 	}
-	if err := m.execSeed(ctx, func(ctx context.Context) error { return m.seedFromDump(ctx, network) }); errors.Is(err, errUtxoSeedState) {
-		m.markSeedRequest(req.ID, utxoSeedRefused, []seedRefusal{{"state", "the index state does not allow a seed"}})
+	if err := m.execSeed(ctx, seed); errors.Is(err, errUtxoSeedState) {
+		m.markSeedRequest(id, utxoSeedRefused, []seedRefusal{{"state", "the index state does not allow a seed"}})
 	}
 }
 
 func (m *utxoManager) checkSeed(ctx context.Context) ([4]byte, []seedRefusal) {
 	in := m.guards(ctx)
+	in.Replay = m.chain.Replay
 	refusals := evaluateSeedGuards(in)
 	network, known := m.chain.Networks[in.Chain.Chain]
 	if in.ChainErr == nil && !known {
@@ -288,18 +300,27 @@ func (m *utxoManager) checkSeed(ctx context.Context) ([4]byte, []seedRefusal) {
 }
 
 // maybeAutoSeed asks the host for a seed once an hour while the index has none; a refusal stays in the status.
+// A replay chain needs no host, so it starts or resumes its replay here.
 func (m *utxoManager) maybeAutoSeed(ctx context.Context) {
-	if m.host.autoSeed == nil {
+	if m.host.autoSeed == nil && !m.chain.Replay {
 		return
 	}
 	m.mu.Lock()
 	now := m.now()
-	due := m.state == utxoStateNotSeeded && !m.seeding && now.Sub(m.autoSeedAt) >= utxoAutoSeedEvery && m.autoSeedBackedOffLocked(now)
+	due := (m.state == utxoStateNotSeeded || m.replayBehindLocked()) && !m.seeding && now.Sub(m.autoSeedAt) >= utxoAutoSeedEvery && m.autoSeedBackedOffLocked(now)
 	if due {
 		m.autoSeedAt = now
 	}
 	m.mu.Unlock()
 	if !due {
+		return
+	}
+	if m.chain.Replay {
+		id := newSeedRequestID()
+		m.mu.Lock()
+		m.seed.AutoRequestID = id
+		m.mu.Unlock()
+		m.seedRequested(ctx, id)
 		return
 	}
 	_, refusals := m.checkSeed(ctx)
@@ -315,6 +336,12 @@ func (m *utxoManager) maybeAutoSeed(ctx context.Context) {
 		refusals = append(refusals, seedRefusal{"host", detail})
 	}
 	m.markSeedRequest(m.lastSeedRequest(), utxoSeedRefused, refusals)
+}
+
+func newSeedRequestID() string {
+	raw := make([]byte, 16)
+	_, _ = rand.Read(raw)
+	return hex.EncodeToString(raw)
 }
 
 func (m *utxoManager) autoSeedBackedOffLocked(now time.Time) bool {
@@ -376,6 +403,54 @@ func (m *utxoManager) watchSeedFirstByte(ctx context.Context, cancel context.Can
 	}
 }
 
+// seedFromReplay applies every block from the index tip, or from genesis, through the follower; a stop keeps what it applied.
+func (m *utxoManager) seedFromReplay(parent context.Context) error {
+	ctx, cancel := context.WithCancelCause(parent)
+	defer cancel(nil)
+	go m.watchSeedCancel(ctx, cancel)
+	m.setSeedPhase(utxoPhaseReplaying)
+	gate := &seedGate{m: m, ctx: ctx}
+	f, store := m.follower, m.currentStore()
+	f.gate = gate.checkpoint
+	defer func() { f.gate = nil }()
+	var genesis string
+	if err := m.rpc.call(ctx, "getblockhash", []any{uint32(0)}, &genesis); err != nil {
+		return err
+	}
+	for {
+		if err := gate.checkpoint(); err != nil {
+			return err
+		}
+		var info blockchainInfo
+		if err := m.rpc.call(ctx, "getblockchaininfo", nil, &info); err != nil {
+			return err
+		}
+		if err := store.BindChain(info.Chain, genesis); err != nil {
+			return err
+		}
+		m.bound = true
+		m.mu.Lock()
+		m.nodeTip = info.Blocks
+		m.mu.Unlock()
+		height, _, hasTip, err := store.Tip()
+		if err != nil {
+			return err
+		}
+		if hasTip && info.Blocks-int64(height) <= utxoReplayGap {
+			return nil
+		}
+		if err := f.Step(ctx); err != nil {
+			if cause := context.Cause(ctx); cause != nil {
+				return cause
+			}
+			if f.Status().State == utxoFollowError {
+				m.fail(err)
+			}
+			return err
+		}
+	}
+}
+
 type seedGate struct {
 	m      *utxoManager
 	ctx    context.Context
@@ -385,6 +460,9 @@ type seedGate struct {
 }
 
 func (g *seedGate) phase() string {
+	if g.prog == nil {
+		return utxoPhaseReplaying
+	}
 	if t := g.prog.Total.Load(); t > 0 && g.prog.Parsed.Load() >= t {
 		return utxoPhaseMerging
 	}
@@ -395,7 +473,9 @@ func (g *seedGate) checkpoint() error {
 	if g.ctx.Err() != nil {
 		return context.Cause(g.ctx)
 	}
-	if t := g.prog.Total.Load(); t > 0 {
+	if g.prog == nil {
+		g.m.setSeedProgress(g.m.replayFraction())
+	} else if t := g.prog.Total.Load(); t > 0 {
 		g.m.setSeedProgress(min(1, float64(g.prog.Parsed.Load()+g.prog.Written.Load())/float64(2*t)))
 	}
 	if time.Since(g.last) < g.m.checkEvery {
