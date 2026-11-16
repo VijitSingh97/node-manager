@@ -20,7 +20,21 @@ The result goes to `utxo-bench.result` in the state volume (mode 600). The comma
 - The index is `ready` and `blocks_behind` is 0 (the card, or `/api/utxo-index`). The run refuses otherwise and says why.
 - `jq` is installed. Run as root on APT (`sudo node-manager ...`), as the install user otherwise.
 - For the block-latency step, `scripts/measure-block-latency.sh` is copied to the host too, and the user can run `docker`.
-- The wallet file is on the host: copy `docs/measurements/bench-wallets.json` from the repository. It holds public data only: the genesis address, the product's public Binance example, and descriptors over the BIP32 test vector 1 master xpub as `wpkh`, `sh(wpkh)`, `tr` and `pkh`, each about 2,000 scripts. Add no owner wallet to it without approval.
+- The wallet file is on the host: copy `docs/measurements/bench-wallets.json` from the repository. It holds public data only: nine well-known addresses (below) and descriptors over the BIP32 test vector 1 master xpub as `wpkh`, `sh(wpkh)`, `tr` and `pkh`, each about 2,000 scripts. Add no owner wallet to it without approval.
+
+The nine addresses cover every script type the index serves except Taproot, which the `tr` vector covers. Their sizes range from a few coins to thousands, and they compare one-script lookups of very different sizes. Each address was checked with a local checksum decoder and with bitcoind 32.1's `validateaddress` on 2026-11-16, and each label is stated by at least two independent sources. Most labels come from public rich lists (Arkham, Bitinfocharts) and are not confirmed by the owner. Sizes were not looked up.
+
+| Name in the file | Type | Sources |
+| --- | --- | --- |
+| Genesis block coinbase address | P2PKH | [Bitcoin Wiki](https://en.bitcoin.it/wiki/Genesis_block), [Decrypt](https://decrypt.co/resources/the-bitcoin-genesis-block-how-it-all-started) |
+| Binance cold wallet 1 (rich-list label); also the dashboard's public example | P2SH | [CoinCodex](https://coincodex.com/article/31694/bitcoin-rich-list), [Bitcoin.com News](https://news.bitcoin.com/inside-the-top-12-bitcoin-addresses-who-holds-1-35-million-btc/) |
+| Binance cold wallet 2 (rich-list label) | P2SH | CoinCodex, Bitcoin.com News (as above) |
+| Robinhood cold wallet (rich-list label) | P2WPKH | CoinCodex, Bitcoin.com News |
+| Bitfinex cold wallet (rich-list label) | P2WSH | CoinCodex, Bitcoin.com News |
+| Tether cold wallet (rich-list label) | P2WSH | CoinCodex, Bitcoin.com News |
+| Silk Road funds address (2020 forfeiture) | P2PKH | [The Register](https://www.theregister.com/2020/11/05/us_bitcoin_1bn), [Security Affairs](https://securityaffairs.com/110498/uncategorized/silk-road-funds-transferred.html) |
+| Mt. Gox hack wallet (rich-list label) | P2PKH | CoinCodex, Bitcoin.com News |
+| Bitfinex 2016 hack funds held by the FBI (rich-list label) | P2WPKH | CoinCodex, Bitcoin.com News |
 
 ## Runs
 
@@ -43,7 +57,7 @@ Ctrl-C removes a request the dashboard has not taken yet; one it has taken finis
 
 | Target | Where to read it |
 | --- | --- |
-| Add an indexed wallet under 1 s | Per wallet, the rows named `Vector wpkh`, `Vector sh-wpkh`, `Vector tr` and `Vector pkh` (about 2,000 scripts each): add `derive` and `first` yourself. `first` is the first lookup of that wallet, not a true cold read: the OS page cache and earlier wallets have warmed the index. The `Genesis` row is the many-coins case; it and `Binance` are one script each and say nothing about derivation. |
+| Add an indexed wallet under 1 s | Per wallet, the rows named `Vector wpkh`, `Vector sh-wpkh`, `Vector tr` and `Vector pkh` (about 2,000 scripts each): add `derive` and `first` yourself. `first` is the first lookup of that wallet, not a true cold read: the OS page cache and earlier wallets have warmed the index. The nine address rows are one script each and say nothing about derivation; the `Genesis block coinbase address` row is the many-coins case. |
 | Add a wallet without the index | `--scan`: "first wallet alone" seconds. |
 | Cached read under 100 ms | "Cached read": p50 and p99. It reads the owner's roster, so it counts only when `roster wallets` is the size of interest (1, 5 or 20). With an empty roster the figure is near zero and means nothing. |
 | Batched registration of 1, 5 and 20 | "Batched lookups": the p50 for each size, plus the sum of `derive` for those wallets. With `--scan`, the batch scan against that sum. |
