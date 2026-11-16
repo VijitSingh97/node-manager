@@ -208,13 +208,24 @@ See [Tor networking](configuration.md#tor-networking).
 |---|---|---|---|
 | Bitcoin | Onion and clearnet through the Tor SOCKS proxy; DNS seeds resolved by Tor | Onion service published by the Tor container to bitcoind's internal address | `-onlynet=onion` / outbound-only |
 | Litecoin, Bitcoin Cash | Same, with `dnsseed=1` through the proxy | Same; the plain P2P listener binds loopback only | `onlynet=onion`, `dnsseed=0` / outbound-only |
-| Dogecoin | Same as Litecoin | None: Dogecoin 1.14 cannot advertise current (v3) onion addresses | `onlynet=onion`, `dnsseed=0` |
+| Dogecoin | Onion and clearnet through the Tor SOCKS proxy, with `dnsseed=0` and up to 8 current seed peers as `addnode` (below) | None: Dogecoin 1.14 cannot advertise current (v3) onion addresses | `onlynet=onion`, no seed lookup |
 | Tari | `tcp_tor` transport: onion and clearnet peers, proxy bypass off | None: its onion is created by Tari's built-in Tor, which has no route out, so it is never published | `tor` transport (onion only) |
 | Monero | Clearnet peers through `proxy=socks5://`; transactions relay over Tor (`tx-proxy`) | None (`in-peers=0`) | None: Monero syncs blocks only from clearnet peers |
 | Zcash (Zakura) | Four bootstrap seeds, each through a Tor SOCKS4A bridge in the Tor container; peers it discovers are unreachable | None | None: Zakura has no SOCKS proxy support |
 
-Dogecoin currently finds few or no peers: its DNS seeds do not resolve through
-Tor and many of its built-in seed addresses refuse connections.
+Dogecoin's two DNS seeds (`seed.multidoge.org`, `seed2.multidoge.org`) cannot be
+resolved by Tor exit relays, and most of the seed addresses built into Dogecoin
+1.14.9 (from February 2024) no longer answer. A fresh node relying on them took
+30 to 75 minutes to reach a few peers in testing. So on its first start, with no
+saved peer list, the Dogecoin container looks the two seed names up through Tor
+with DNS-over-HTTPS (Cloudflare's resolver, reached through a Tor exit) and adds
+up to 8 of the returned IPv4 addresses as `addnode`. It keeps only public IPv4
+addresses, and turns off Dogecoin's own DNS seeding, which only fails through
+Tor. In testing, a fresh node had 6 peers within 2 minutes this way. The list is
+current each time because it comes from the seeders' live answers. Restarts use
+the node's saved peer list and make no lookup. If the lookup fails three times,
+for example while Tor is still starting, the node starts from its built-in seeds
+as before. Onion-only mode (`network.clearnet_over_tor: false`) makes no lookup.
 
 The Tor container publishes the incoming onion services itself, from a static
 directory per node, and has no control port. The nodes get only their public

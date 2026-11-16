@@ -275,6 +275,8 @@ case "$chain" in
   zcash) config_probe='test -r /etc/zakura/zakurad.toml' ;;
 esac
 config_wait=60
+# Dogecoin writes its config only after the bounded seed lookup through Tor.
+[ "$chain" != dogecoin ] || config_wait=180
 if [ "$smoke_timeout" -lt "$config_wait" ]; then config_wait=$smoke_timeout; fi
 config_deadline=$((SECONDS + config_wait))
 config_ready=0
@@ -307,6 +309,12 @@ case "$chain" in
     # shellcheck disable=SC2016
     assert_runtime_config "$chain runtime config does not route every peer through Tor" \
       docker exec "$node_container" sh -c 'grep -qx "proxy=$TOR_PROXY" /tmp/*.conf && grep -qx "onion=$TOR_PROXY" /tmp/*.conf && grep -qx "discover=0" /tmp/*.conf'
+    if [ "$chain" = dogecoin ]; then
+      assert_runtime_config "Dogecoin still dials seeders Tor cannot resolve, or added a malformed seed peer" \
+        docker exec "$node_container" sh -c 'grep -qx "dnsseed=0" /tmp/dogecoin.conf && ! grep "^addnode=" /tmp/dogecoin.conf | grep -vEx "addnode=[0-9]{1,3}(\.[0-9]{1,3}){3}:22556"'
+      docker logs "$node_container" 2>&1 | grep -Eq 'seed peers (resolved )?through Tor' ||
+        fail "Dogecoin did not report its seed lookup through Tor"
+    fi
     if [ -n "$onion_nodes" ]; then
       onion_advertised=0
       for _ in $(seq 1 30); do
@@ -450,6 +458,21 @@ with socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=10):
 PY
     ;;
 esac
+
+IFS=. read -r net_a net_b net_c <<<"$subnet_prefix"
+net_hex=$(printf '%02X%02X%02X' "$net_c" "$net_b" "$net_a")
+outside=$(docker exec "$node_container" sh -c 'cat /proc/net/tcp /proc/net/tcp6 2>/dev/null' | awk -v net="$net_hex" '
+  $4 == "01" || $4 == "02" {
+    split($3, remote, ":")
+    addr = remote[1]
+    if (length(addr) == 32) {
+      if (addr == "00000000000000000000000001000000") next
+      if (substr(addr, 1, 24) != "0000000000000000FFFF0000") { print addr; next }
+      addr = substr(addr, 25)
+    }
+    if (addr != "0100007F" && substr(addr, 3) != net) print addr
+  }')
+[ -z "$outside" ] || fail "$chain has TCP connections outside its internal network, bypassing Tor: $outside"
 
 protocol=JSON-RPC
 if [ "$chain" = tari ]; then protocol=gRPC; fi

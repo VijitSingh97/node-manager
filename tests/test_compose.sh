@@ -285,6 +285,11 @@ for service in litecoin:172.29.0.33:9334 bitcoincash:172.29.0.35:8334; do
   echo "$rendered_service" | grep -q "ONION_HOSTNAME: /var/lib/tor-onions/${service%%:*}" || fail "${service%%:*} does not read its own onion hostname"
 done
 echo "$all_nodes" | sed -n '/^  dogecoin:$/,/^  [a-z][a-z-]*:$/p' | grep -q 'TOR_INBOUND' && fail "Dogecoin cannot publish a v3 onion service"
+echo "$all_nodes" | sed -n '/^  dogecoin:$/,/^  [a-z][a-z-]*:$/p' | grep -q 'SEED_DOH_HOSTS: seed.multidoge.org seed2.multidoge.org' ||
+  fail "Dogecoin does not look up its seed peers"
+for service in litecoin bitcoincash; do
+  echo "$all_nodes" | sed -n "/^  $service:\$/,/^  [a-z][a-z-]*:\$/p" | grep -q 'SEED_DOH_HOSTS' && fail "$service looks up seed peers it does not need"
+done
 grep -qx 'type = "__TRANSPORT__"' build/tari/config.toml || fail "Tari transport is not chosen at runtime"
 echo "$all_nodes" | sed -n '/^  bitcoincash:$/,/^  dashboard:$/p' | grep -q '^    command:' && fail "Bitcoin Cash command bypasses its private runtime config"
 
@@ -331,7 +336,41 @@ printf 'evil.onion\nrpcallowip=0.0.0.0/0\n' >"$entry_dir/onion"
 entry_conf 0 TOR_INBOUND=1 ONION_BIND=10.0.0.5:9334 ONION_HOSTNAME="$entry_dir/onion" 2>/dev/null | grep -Eq '^(externalip|rpcallowip=0)' &&
   fail "family nodes trusted a malformed onion hostname"
 [ "$(entry_conf 10000 | grep -vc '^disablewallet=1$')" = "$(echo "$watch_conf" | grep -c '')" ] || fail "watch wallet changed more than disablewallet"
-rm -rf "$entry_dir"
+
+doh_dir=$(mktemp -d)
+cat >"$doh_dir/curl" <<'STUB'
+#!/bin/sh
+printf '%s\n' "$*" >>"$DOH_LOG"
+case " $* " in *" --socks5-hostname t:1 "*) ;; *) exit 7 ;; esac
+[ "${DOH_FAIL:-0}" = 1 ] && exit 28
+good='{"data":"1.2.3.4"},{"data":"5.6.7.8"},{"data":"9.9.9.9"},{"data":"11.22.33.44"},{"data":"45.67.89.10"},{"data":"50.60.70.80"},{"data":"81.82.83.84"},{"data":"91.92.93.94"},{"data":"101.102.103.104"},{"data":"200.201.202.203"}'
+bad='{"data":"999.1.1.1"},{"data":"256.0.0.1"},{"data":"1.2.3"},{"data":"10.0.0.5"},{"data":"127.0.0.1"},{"data":"192.168.1.2"},{"data":"172.20.0.1"},{"data":"100.64.0.1"},{"data":"169.254.1.1"},{"data":"224.0.0.1"},{"data":"0.0.0.0"},{"data":"2001:db8::1"},{"data":"8.8.4.4\nrpcallowip=0.0.0.0/0"}'
+printf '{"Status":0,"Answer":[%s,%s]}' "$good" "$bad"
+STUB
+printf '#!/bin/sh\n' >"$doh_dir/sleep"
+chmod +x "$doh_dir/curl" "$doh_dir/sleep"
+doh_conf() { entry_conf 0 SEED_DOH_HOSTS="seed.example seed2.example" SEED_PORT=22556 DOH_LOG="$doh_dir/log" PATH="$doh_dir:$entry_dir:$PATH" "$@" 2>/dev/null; }
+seeded_conf=$(doh_conf)
+echo "$seeded_conf" | grep -q '^dnsseed=0$' || fail "Dogecoin still dials seeders Tor cannot resolve"
+[ "$(echo "$seeded_conf" | grep -c '^addnode=')" = 8 ] || fail "Dogecoin did not add 8 seed peers"
+echo "$seeded_conf" | grep '^addnode=' | grep -vEx 'addnode=(1\.2\.3\.4|5\.6\.7\.8|9\.9\.9\.9|11\.22\.33\.44|45\.67\.89\.10|50\.60\.70\.80|81\.82\.83\.84|91\.92\.93\.94|101\.102\.103\.104|200\.201\.202\.203):22556' &&
+  fail "Dogecoin accepted a malformed, private or reserved seed answer"
+echo "$seeded_conf" | grep -q 'rpcallowip=0' && fail "a seed answer injected a config line"
+[ "$(grep -c '' "$doh_dir/log")" = 2 ] || fail "seed lookup did not query each seeder once"
+grep -v -- '-q -s --proto =https --max-time 20 --socks5-hostname t:1 ' "$doh_dir/log" | grep -q . &&
+  fail "a seed lookup left the Tor proxy, HTTPS or the time limit"
+grep -q 'https://cloudflare-dns.com/dns-query?name=seed2.example&type=A$' "$doh_dir/log" || fail "seed lookup used an unexpected resolver"
+: >"$doh_dir/log"
+failed_conf=$(doh_conf DOH_FAIL=1)
+echo "$failed_conf" | grep -q '^dnsseed=0$' || fail "a failed seed lookup re-enabled the dead seeders"
+echo "$failed_conf" | grep -q '^addnode=' && fail "a failed seed lookup still added peers"
+[ "$(grep -c '' "$doh_dir/log")" = 6 ] || fail "a failed seed lookup was not retried three times"
+: >"$doh_dir/log"
+doh_conf TOR_CLEARNET=0 | grep -q '^onlynet=onion$' || fail "onion-only Dogecoin lost its restriction"
+[ -s "$doh_dir/log" ] && fail "onion-only Dogecoin looked up clearnet seed peers"
+entry_conf 0 DOH_LOG="$doh_dir/log" PATH="$doh_dir:$entry_dir:$PATH" | grep -q '^dnsseed=1$' || fail "nodes without seed hosts lost DNS seeding"
+[ -s "$doh_dir/log" ] && fail "a node without seed hosts looked up seed peers"
+rm -rf "$doh_dir" "$entry_dir"
 
 new_lan=$(TARI_GRPC_EXPOSE=1 TARI_GRPC_BIND_IP=192.168.1.10 TARI_GRPC_PORT=28142 \
   LITECOIN_RPC_EXPOSE=1 LITECOIN_RPC_BIND_IP=192.168.1.10 LITECOIN_RPC_PORT=29332 \
