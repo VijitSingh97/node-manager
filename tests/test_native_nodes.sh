@@ -314,6 +314,12 @@ case "$chain" in
         docker exec "$node_container" sh -c 'grep -qx "dnsseed=0" /tmp/dogecoin.conf && ! grep "^addnode=" /tmp/dogecoin.conf | grep -vEx "addnode=[0-9]{1,3}(\.[0-9]{1,3}){3}:22556"'
       docker logs "$node_container" 2>&1 | grep -Eq 'seed peers (resolved )?through Tor' ||
         fail "Dogecoin did not report its seed lookup through Tor"
+      if docker logs "$node_container" 2>&1 | grep -Eq '^Resolved [1-8] seed peers through Tor'; then
+        docker exec "$node_container" grep -q '^addnode=' /tmp/dogecoin.conf || fail "Dogecoin resolved seed peers but did not add them"
+      fi
+      # shellcheck disable=SC2016
+      proxy_exit=$(docker exec -e 'NO_PROXY=*' "$node_container" sh -c 'curl -q -s --noproxy "" --proto =https --max-time 5 --socks5-hostname 127.0.0.1:1 https://cloudflare-dns.com/dns-query >/dev/null; echo $?')
+      [ "$proxy_exit" = 7 ] || fail "Dogecoin's curl left the Tor proxy when NO_PROXY was set (exit $proxy_exit)"
     fi
     if [ -n "$onion_nodes" ]; then
       onion_advertised=0

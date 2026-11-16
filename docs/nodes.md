@@ -216,16 +216,18 @@ See [Tor networking](configuration.md#tor-networking).
 Dogecoin's two DNS seeds (`seed.multidoge.org`, `seed2.multidoge.org`) cannot be
 resolved by Tor exit relays, and most of the seed addresses built into Dogecoin
 1.14.9 (from February 2024) no longer answer. A fresh node relying on them took
-30 to 75 minutes to reach a few peers in testing. So on its first start, with no
-saved peer list, the Dogecoin container looks the two seed names up through Tor
-with DNS-over-HTTPS (Cloudflare's resolver, reached through a Tor exit) and adds
-up to 8 of the returned IPv4 addresses as `addnode`. It keeps only public IPv4
-addresses, and turns off Dogecoin's own DNS seeding, which only fails through
-Tor. In testing, a fresh node had 6 peers within 2 minutes this way. The list is
-current each time because it comes from the seeders' live answers. Restarts use
-the node's saved peer list and make no lookup. If the lookup fails three times,
-for example while Tor is still starting, the node starts from its built-in seeds
-as before. Onion-only mode (`network.clearnet_over_tor: false`) makes no lookup.
+30 to 75 minutes to reach a few peers in testing. So the Dogecoin container looks
+the two seed names up through Tor with DNS-over-HTTPS (Cloudflare's resolver,
+reached through a Tor exit) and adds up to 8 of the returned IPv4 addresses as
+`addnode`. It drops private, loopback, link-local, shared, documentation,
+benchmarking, multicast and reserved addresses, and turns off Dogecoin's own DNS
+seeding, which only fails through Tor. In testing, fresh nodes had 6 and 7 peers
+within 2 minutes this way. The list is current because it comes from the
+seeders' live answers. After one lookup succeeds, later starts use the node's
+saved peer list and make no lookup. If a lookup fails three times, for example
+while Tor is still starting, the node starts from its built-in seeds and tries
+the lookup again on its next start. Onion-only mode
+(`network.clearnet_over_tor: false`) makes no lookup.
 
 The Tor container publishes the incoming onion services itself, from a static
 directory per node, and has no control port. The nodes get only their public

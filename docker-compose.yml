@@ -278,6 +278,7 @@ services:
       context: ${STACK_ROOT:-.}/build/bitcoin-family
       target: dogecoin
     profiles: ["dogecoin"]
+    init: true
     labels:
       - "io.node-starter-stack.resource-profile=${DOGECOIN_RESOURCE_PROFILE:-off}"
       - "io.node-starter-stack.steady-cpus=${DOGECOIN_STEADY_CPUS:-1}"

@@ -17,11 +17,13 @@ Prices, alerts, and release
 checks send hostnames to Tor for remote resolution. An unavailable Tor proxy
 causes those requests to fail, without a direct fallback.
 
-On its first start, the Dogecoin container also asks Cloudflare's DNS-over-HTTPS
-resolver, through Tor, for the addresses of Dogecoin's two DNS seeds, because Tor
-exit relays cannot resolve them. Cloudflare sees a Tor exit asking for those two
-names and nothing else. The request uses HTTPS through the Tor proxy, with the
-resolver's hostname resolved by Tor, and fails without a direct fallback. See
+Until one lookup succeeds, normally on its first start, the Dogecoin container
+also asks Cloudflare's DNS-over-HTTPS resolver, through Tor, for the addresses of
+Dogecoin's two DNS seeds, because Tor exit relays cannot resolve them. Cloudflare
+sees a Tor exit asking for those two names and nothing else. The request uses
+HTTPS through the Tor proxy, with the resolver's hostname resolved by Tor and
+proxy-bypass environment variables ignored, and fails without a direct fallback.
+See
 [Peer connections](nodes.md#peer-connections).
 
 Zakura has no native Tor transport. Its peer list contains only four internal
