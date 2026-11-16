@@ -428,6 +428,13 @@ measured seed budget, a "Needs a new seed" card, upgrades and removal.
   uses the scan above. Each wallet in `/api/watch` reports `balance_source` as
   `index` or `scan`, and its row says "From the balance index" when the index
   answered.
+- **New blocks.** While the index is `ready`, the dashboard waits on bitcoind's
+  `waitfornewblock` RPC, so the index applies a block as soon as the node has
+  it, then refreshes the watched wallets straight away. In the regtest test a
+  mined block was applied in well under a second. The wait holds one of
+  bitcoind's 16 RPC threads. While the index catches up it checks every 10
+  seconds as before. The wallet list in the browser still refreshes every 15
+  seconds, so the page shows the new balance on its next refresh.
 - **Same limits as the scan.** Confirmed unspent balance only: no transaction
   history, no spent outputs, no mempool or unconfirmed activity. Indexes 0 to
   999 of receive and change per descriptor, so a wallet that used a higher index
