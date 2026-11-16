@@ -5,9 +5,11 @@
 The gear at the bottom right opens node installation, launch at boot/login,
 Network, Balance index, Appearance, Telegram, and Healthchecks. The person icon
 above it holds Account (sign out) and Dashboard password. Each tower contains
-its own separate Alerts and LAN access sections under Node controls. Switches
-take effect only when you press **Save**; closing the dialog discards them.
-Host switches (launch at boot, Network, Balance index) apply one after another.
+its own separate Alerts and LAN access sections under Node controls. Nothing in
+Settings takes effect until you press **Save**, including Install, Move data,
+Run new config and Use server config; their dialogs only check the values.
+Reopening Settings discards anything unsaved. Host changes then apply one
+after another: a pending config first, then switches, installs and data moves.
 A dashboard password protects the
 gear and the rest of the dashboard. The gear works from localhost, a
 configured private LAN address, or the Tor onion dashboard (enable
@@ -18,8 +20,8 @@ Dashboard changes are written atomically to `notification_settings.json` in the
 persistent `dashboard_state` volume, with owner-only permissions. They survive
 reboots, container recreation, and upgrades, and the existing stack backup/restore
 includes them. Saved overrides take priority over the notification values in
-`config.json`. **Use server config** removes the override and restores those
-values. After editing the server file, apply it and reset the override if needed.
+`config.json`. **Use server config** followed by **Save** removes the override
+and restores those values. After editing the server file, apply it and reset the override if needed.
 
 The gear displays the saved bot token and Healthchecks ping URL so they can be
 edited directly. Anyone with dashboard access can view those values. Disabling a

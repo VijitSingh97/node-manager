@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { notificationPayload, notificationChanged, configurationAccess, configuredNodeVisibility, portControlModel, portChanges, portCollision, portStatusMessage, portStatusNode, portDraftAfterStatus, portSubmissionOutcome, shouldPollPort, settingsSaveMessage, normalizeDefaultCurrency, applyAppearance, requestSettings, scopedSettingsPayload, splitNodeControlSections, alertPreferenceModel, hostControlModel, hostActionPayload, bootControlLabel, newlyInstalledNodes, shouldPollHost, pendingHostNode, latestRequestGate, hostToggleChanges, hostQueueSettled } from "./settings.js";
+import { notificationPayload, notificationChanged, configurationAccess, configuredNodeVisibility, portControlModel, portChanges, portCollision, portStatusMessage, portStatusNode, portDraftAfterStatus, portSubmissionOutcome, shouldPollPort, settingsSaveMessage, normalizeDefaultCurrency, applyAppearance, requestSettings, scopedSettingsPayload, splitNodeControlSections, alertPreferenceModel, hostControlModel, hostActionPayload, bootControlLabel, newlyInstalledNodes, shouldPollHost, pendingHostNode, latestRequestGate, hostToggleChanges, hostQueueSettled, savedHostActions } from "./settings.js";
 
 const alertDefaults = {
   alert_monitor_online: true,
@@ -432,4 +432,20 @@ test("host switches stay staged until Save and then apply one at a time in a fix
   assert.doesNotMatch(source, /addEventListener\("change", \(\) => submitHost/);
   assert.match(source, /for \(const \[action, input\] of Object\.entries\(hostToggles\)\) input\.addEventListener\("change", \(\) => \{ hostDraft\[action\] = input\.checked; \}\);/);
   assert.match(source, /byId\("open"\)\.addEventListener\("click", \(\) => \{\n    if \(!hostQueueAction\) \{\n      hostDraft = \{\};/);
+});
+
+test("Save sends the pending config first, then switches, installs and data moves", async () => {
+  const view = hostControlModel({ boot_enabled: false, clearnet_over_tor: true, inbound_connections: true, utxo_index: false });
+  const install = hostActionPayload("install", "monero", { data_dir: "/data/monero", interfaces: [] });
+  const migrate = hostActionPayload("migrate", "bitcoin", { data_dir: "/mnt/big/bitcoin" });
+  const apply = hostActionPayload("apply_config", "a".repeat(64));
+  assert.deepEqual(savedHostActions(view, { inbound_connections: false }, { "migrate:bitcoin": migrate, "install:monero": install, apply_config: apply }), [
+    apply, { action: "inbound_connections", enabled: false }, install, migrate,
+  ]);
+  assert.deepEqual(savedHostActions(view, {}, {}), []);
+  assert.deepEqual(savedHostActions(view, {}, { apply_config: undefined }), []);
+  const source = await readFile(new URL("./settings.js", import.meta.url), "utf8");
+  assert.equal(source.match(/submitHost\(/g).length, 2, "only the Save queue may call submitHost");
+  assert.match(source, /hostStaged\[`\$\{installAction\}:\$\{installNode\}`\] = payload;/);
+  assert.match(source, /reset\.addEventListener\("click", \(\) => \{\n    if \(!allowed\) return;\n    resetStaged = !resetStaged;/);
 });

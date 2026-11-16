@@ -59,7 +59,8 @@ tower for its block alerts, optional LAN interfaces, and RPC credentials.
 Personal view-only wallet material is separate from these service logins;
 never enter a seed phrase or private spend key.
 
-Choosing **Install** opens a confirmation dialog before anything is downloaded.
+Choosing **Install** opens a confirmation dialog, and nothing is downloaded until
+you press **Save** in Settings.
 It shows the default Homebrew data folder, the node's estimated post-sync disk
 use, and its optional LAN interfaces and ports. Every interface is closed by
 default. The host rejects an invalid folder or an enabled port that is already

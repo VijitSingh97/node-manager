@@ -392,7 +392,7 @@ workload fits; see [hardware estimates and test evidence](hardware.md).
 
 The gear menu contains **Nodes**, **Launch at boot/login**, **Network**,
 **Balance index**, **Appearance**, **Telegram**, and **Healthchecks** settings;
-switches take effect only when you press **Save**. The person icon above the gear
+nothing there takes effect until you press **Save**. The person icon above the gear
 holds **Account** and **Dashboard password**. **Nodes**
 installs an available chain through the host helper using versioned project images and
 default storage; LAN interfaces remain closed. It shows installation progress
