@@ -101,7 +101,7 @@ The index size is `docker system df -v` for the `utxo_index` volume. Journal byt
 
 ## Results
 
-Fill in one row per target from a run. Mark each met or not met against the number.
+Fill in one row per target from a run. Mark each met or not met against the number. The first run, on mini-1 with 1.36.0, is in [Balance index lookups on mainnet](lookup-bench-mainnet.md).
 
 | Target | Measured | Met |
 | --- | --- | --- |
