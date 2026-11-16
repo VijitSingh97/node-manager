@@ -566,7 +566,7 @@ func (m *utxoManager) tick(ctx context.Context) {
 		}
 		m.bound = true
 	}
-	height, _, hasTip, err := m.store.Tip()
+	height, before, hasTip, err := m.store.Tip()
 	if err != nil {
 		m.fail(err)
 		return
@@ -576,7 +576,6 @@ func (m *utxoManager) tick(ctx context.Context) {
 		return
 	}
 	m.setTip(height)
-	_, before, _, _ := m.store.Tip()
 	if info.Pruned && int64(height)+1 < info.PruneHeight {
 		m.invalidate("index is behind the node's retained blocks")
 		return
