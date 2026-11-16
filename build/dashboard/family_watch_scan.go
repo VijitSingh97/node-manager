@@ -72,7 +72,7 @@ func (m *familyWatchManager) scanNode(parent context.Context, id string, store *
 	if store.fromIndex(ctx, tip, now) {
 		return
 	}
-	due := store.walletsDue(now)
+	due := store.walletsDue(now, tip)
 	if store.backend.scanBatch != nil && len(due) > 0 {
 		started := time.Now()
 		amounts, result, outcome := store.backend.scanBatch(ctx, store, due, tip)
@@ -123,7 +123,7 @@ func familyWatchWarningsClear(raw json.RawMessage) bool {
 	return json.Unmarshal(raw, &warnings) == nil && len(warnings) == 0
 }
 
-func (s *familyWatchStore) walletsDue(now int64) []familyWatchEntry {
+func (s *familyWatchStore) walletsDue(now int64, tip familyWatchTip) []familyWatchEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	wallets := make([]familyWatchEntry, 0, len(s.wallets))
@@ -133,7 +133,7 @@ func (s *familyWatchStore) walletsDue(now int64) []familyWatchEntry {
 		}
 		balance, cached := s.balances[wallet.ID]
 		state := s.states[wallet.ID]
-		if !cached || state == "error" || state == "stale" || state == "rescanning" || balance.ScanTime > now || now-balance.ScanTime >= int64(familyWatchInterval/time.Second) {
+		if !cached || state == "error" || state == "stale" || state == "rescanning" || balance.ScanTime > now || now-balance.ScanTime >= int64(familyWatchInterval/time.Second) || s.backend.refreshOnTip && balance.BestBlock != tip.Best {
 			wallets = append(wallets, wallet)
 		}
 	}
@@ -177,7 +177,13 @@ func (s *familyWatchStore) record(id, amount string, height int64, bestBlock str
 		now := s.now().Unix()
 		balance := s.balances[id]
 		balance.Amount, balance.ScanHeight, balance.ScanTime, balance.BestBlock = amount, height, now, bestBlock
-		balance.History = append(balance.History, familyWatchHistory{Time: now, Amount: formatFamilyWatchAmount(amount)})
+		point := familyWatchHistory{Time: now, Amount: formatFamilyWatchAmount(amount)}
+		// Balances read on every block would fill the history in hours, so a change within the hour updates that hour's point.
+		if last := len(balance.History) - 1; (s.backend.refreshOnTip || s.index != nil) && last >= 0 && now-balance.History[last].Time < int64(familyWatchInterval/time.Second) {
+			balance.History[last].Amount = point.Amount
+		} else {
+			balance.History = append(balance.History, point)
+		}
 		if len(balance.History) > maxFamilyWatchHistory {
 			balance.History = append([]familyWatchHistory(nil), balance.History[len(balance.History)-maxFamilyWatchHistory:]...)
 		}
@@ -232,7 +238,7 @@ func (s *familyWatchStore) fromIndex(ctx context.Context, tip familyWatchTip, no
 		return false
 	}
 	due := map[string]bool{}
-	for _, wallet := range s.walletsDue(now) {
+	for _, wallet := range s.walletsDue(now, tip) {
 		due[wallet.ID] = true
 	}
 	for _, wallet := range wallets {

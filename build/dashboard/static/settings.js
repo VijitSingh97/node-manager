@@ -504,6 +504,7 @@ if (typeof document !== "undefined") {
   let resetStaged = false;
   let hostQueue = [];
   let hostQueueAction = "";
+  const saving = () => hostQueue.length > 0 || hostQueueAction !== "";
   const hostToggles = { launch_at_boot: launchAtStart, clearnet_over_tor: clearnetOverTor, inbound_connections: inboundConnections, utxo_index: utxoIndex, utxo_index_litecoin: utxoIndexLitecoin };
   const hostRequests = latestRequestGate();
   let installNode = "";
@@ -658,7 +659,7 @@ if (typeof document !== "undefined") {
     utxoSeedCommand.textContent = seedCommand(hostView.boot_kind);
     utxoSeedCli.hidden = hostView.available;
     utxoSeedNow.hidden = !hostView.utxo_seed_now;
-    utxoSeedNow.disabled = busy;
+    utxoSeedNow.disabled = busy || saving();
     utxoIndex.closest("label").hidden = balanceControl.hidden;
     utxoIndexLitecoinLabel.hidden = !hostView.available || !hostView.nodes.litecoin.installed;
     utxoIndexLitecoin.checked = shown("utxo_index_litecoin");
@@ -780,6 +781,7 @@ if (typeof document !== "undefined") {
   };
 
   utxoSeedNow.addEventListener("click", async () => {
+    if (saving()) return;
     utxoSeedNow.disabled = true;
     balanceStatus.textContent = await requestSeed();
     await loadHost();

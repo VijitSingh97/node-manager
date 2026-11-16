@@ -93,7 +93,7 @@ Wallet capabilities differ by chain:
 | Litecoin | Address-only confirmed UTXO snapshots from the local node. |
 | Bitcoin Cash | Address-only confirmed UTXO snapshots from the local node. |
 | Dogecoin | **Wallet balance not available** by default: the pruned daemon cannot discover an arbitrary address balance. With the opt-in `dogecoin.watch_wallet` (archival node, fresh unpruned sync, hours-long rescans, disk not yet measured here), public addresses are read from the local node's watch-only wallet and the Dogecoin Foundation address is shown as an example. |
-| Zcash / Zakura | **Wallet balance not available** by default: Zakura's checkpoint-pruned mode does not retain the address index. With the opt-in `zcash.address_index` (fresh resync, slower and less secure upstream, disk not yet measured), transparent `t1`/`t3` addresses are read from the local node and the Zcash Community Grants address is shown as an example. |
+| Zcash / Zakura | **Wallet balance** needs `zcash.address_index`, which new Zcash installs from the dashboard turn on (slower and less secure upstream than checkpoint sync, disk not yet measured). Existing installs keep their setting, and enabling it later needs a fresh data directory and resync. With it, transparent `t1`/`t3` addresses are read from the local node and the Zcash Community Grants address is shown as an example. |
 | Tari | One native view-only wallet using a public spend key, private view key, and optional `YYYY-MM-DD` birthday. Blank birthday scans from genesis. No seed or private spend key is accepted. |
 
 On fresh dashboard state, Monero includes the sourced Monero General Fund as a
@@ -106,7 +106,8 @@ imported view-only wallet. Zcash adds the Zcash Community Grants example only wi
 `dogecoin.watch_wallet`.
 
 Litecoin and Bitcoin Cash use their native `scantxoutset` RPC after sync. The
-dashboard caches the confirmed result for an hour and records balance snapshots;
+dashboard caches the confirmed result for an hour (Zcash refreshes on each new
+block) and records balance snapshots;
 it does not reconstruct transaction history, spent outputs, or mempool activity.
 New entries stay **Pending** until a scan completes. A failed refresh keeps the
 last confirmed result and marks it **Stale** or **Error** rather than replacing it
