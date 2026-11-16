@@ -205,6 +205,7 @@ tor_clearnet=$(jq -r 'if .network.clearnet_over_tor == false then 0 else 1 end' 
 tor_inbound=$(jq -r 'if .network.inbound_connections == false then 0 else 1 end' <<<"$config")
 blockfilterindex=$(flag '.bitcoin.blockfilterindex')
 utxo_index=$(flag '.bitcoin.utxo_index')
+litecoin_utxo_index=$(flag '.litecoin.utxo_index')
 rpc_expose=$(flag '.bitcoin.rpc_expose')
 rpc_bind_ip=$(get '.bitcoin.rpc_bind_ip')
 rpc_port=$(jq -r '.bitcoin.rpc_port // 8332' <<<"$config")
@@ -626,6 +627,14 @@ if [ "$utxo_index" = "1" ] && [ "$bitcoin_enabled" != "1" ]; then
   echo "bitcoin.utxo_index requires bitcoin.enabled."
   exit 1
 fi
+if jq -e '(.litecoin // {}) | has("utxo_index") and (.utxo_index | type) != "boolean"' >/dev/null <<<"$config"; then
+  echo "litecoin.utxo_index must be true or false."
+  exit 1
+fi
+if [ "$litecoin_utxo_index" = "1" ] && [ "$litecoin_enabled" != "1" ]; then
+  echo "litecoin.utxo_index requires litecoin.enabled."
+  exit 1
+fi
 
 compose_file=docker-compose.yml
 [ "$tari_enabled" = "1" ] && compose_file=$compose_file:docker-compose.tari-wallet.yml
@@ -640,6 +649,10 @@ compose_file=docker-compose.yml
 if [ "$utxo_index" = "1" ]; then
   compose_file=$compose_file:docker-compose.utxo-index.yml
   echo "bitcoin.utxo_index is on: ./stack apply recreates the dashboard with a utxo_index volume, a 1g memory limit and 0.5 CPU. bitcoind is not restarted. The first seed takes about 20 minutes and the index uses about 7.5 GiB, up to about 17 GiB while it seeds."
+fi
+if [ "$litecoin_utxo_index" = "1" ]; then
+  compose_file=$compose_file:docker-compose.litecoin-utxo-index.yml
+  echo "litecoin.utxo_index is on: ./stack apply recreates the dashboard with a utxo_index_litecoin volume, a 1g memory limit and 0.5 CPU. litecoind is not restarted. Its seed time and size on mainnet are not measured yet."
 fi
 compose_profiles=
 append_profile() { [ -z "$compose_profiles" ] || compose_profiles=$compose_profiles,; compose_profiles=${compose_profiles}$1; }

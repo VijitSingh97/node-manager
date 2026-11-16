@@ -530,10 +530,10 @@ echo "docker $*" >>"$FAKE_LOG"
 args=" $* "
 rpcinfo='{"active_commands":[{"method":"getrpcinfo"}]}'
 case "$args" in
-  *' ps -aq '*'service=bitcoin'*) [ "${FAKE_BITCOIN_DOWN:-0}" = 1 ] || echo bitcoin-id ;;
+  *' ps -aq '*'service=bitcoin'* | *' ps -aq '*'service=litecoin'*) [ "${FAKE_BITCOIN_DOWN:-0}" = 1 ] || echo node-id ;;
   *' ps -aq '*'service=dashboard'*) echo dashboard-id ;;
   *' inspect --format {{.State.Running}} '*) echo true ;;
-  *' exec -T bitcoin bitcoin-cli -datadir=/data getrpcinfo '*)
+  *' exec -T bitcoin bitcoin-cli -datadir=/data getrpcinfo '* | *' exec -T litecoin litecoin-cli -datadir=/data getrpcinfo '*)
     [ "${FAKE_RPC_FAIL:-0}" != 1 ] || exit 1
     rn=$(($(cat "$FAKE_UTXO/rpc_n" 2>/dev/null || echo 0) + 1))
     echo "$rn" >"$FAKE_UTXO/rpc_n"
@@ -544,8 +544,8 @@ case "$args" in
     [ "${FAKE_VOL_MISSING:-0}" = 1 ] || echo "${args##*name=}" | tr -d ' '
     ;;
   *' ps -aq --filter volume='*) [ "${FAKE_VOL_MOUNTED:-0}" != 1 ] || echo dashboard-id ;;
-  *'.utxo-seed.request.tmp'*) cat >"$FAKE_UTXO/request.json" ;;
-  *'/state/utxo-seed.cancel'*) : >"$FAKE_UTXO/cancelled" ;;
+  *'.utxo-seed.request.tmp'* | *'.litecoin-utxo-seed.request.tmp'*) cat >"$FAKE_UTXO/request.json" ;;
+  *'/state/utxo-seed.cancel'* | *'/state/litecoin-utxo-seed.cancel'*) : >"$FAKE_UTXO/cancelled" ;;
   *'.utxo-bench.request.tmp'*) cat >"$FAKE_UTXO/bench-request.json" ;;
   *' exec -T -u 1000 dashboard cat /state/utxo-bench.result '*)
     [ -f "$FAKE_UTXO/bench-request.json" ] || exit 1
@@ -566,7 +566,7 @@ case "$args" in
         ;;
     esac
     ;;
-  *' exec -T -u 1000 dashboard cat /state/utxo-seed.json '*)
+  *' exec -T -u 1000 dashboard cat /state/utxo-seed.json '* | *' exec -T -u 1000 dashboard cat /state/litecoin-utxo-seed.json '*)
     if [ "${FAKE_DASH_SEEDING:-0}" = 1 ]; then
       if [ -f "$FAKE_UTXO/cancelled" ] && [ "${FAKE_DASH_STUCK:-0}" != 1 ]; then echo '{"seed_state":"cancelled"}'; else echo '{"seed_state":"seeding"}'; fi
       exit 0
@@ -914,4 +914,27 @@ grep -q 'timeout 5 cat' "$FAKE_LOG" && fail "stopping only the dashboard unparke
 useed stop bitcoin >/dev/null
 grep -q 'timeout 5 cat' "$FAKE_LOG" || fail "stopping bitcoin did not unpark the dump"
 reset_useed
+ltc_dir=$tmp/utxo-seed-litecoin
+mkdir -p "$ltc_dir"
+cp stack configure.sh "$ltc_dir/"
+printf '1.2.3\n' >"$ltc_dir/VERSION"
+echo '{"bitcoin": {"enabled": true}, "litecoin": {"enabled": true, "utxo_index": true}, "dashboard": {"password": "utxoseedtest12"}}' >"$ltc_dir/config.json"
+(cd "$ltc_dir" && HOME="$tmp" PATH="$stub:$PATH" ./stack init >/dev/null 2>&1) || fail "litecoin utxo test setup init failed"
+grep -q '^COMPOSE_FILE=.*docker-compose.litecoin-utxo-index.yml' "$ltc_dir/.env" || fail "litecoin.utxo_index did not render its overlay"
+grep -q 'docker-compose.utxo-index.yml' "$ltc_dir/.env" && fail "litecoin.utxo_index rendered the Bitcoin overlay"
+lseed() { (cd "$ltc_dir" && HOME="$tmp" BITCOIN_STACK_UTXO_SEED_POLL_SECONDS=1 BITCOIN_STACK_UTXO_SEED_ACK_SECONDS=2 PATH="$utxo_stub:$stub:$PATH" ./stack "$@"); }
+reset_useed
+lseed utxo-seed litecoin -y </dev/null >"$tmp/lseed.out" 2>&1 || {
+  cat "$tmp/lseed.out" "$FAKE_LOG"
+  fail "utxo-seed litecoin failed on the happy path"
+}
+grep -q 'Seeding the Litecoin balance index' "$tmp/lseed.out" || fail "utxo-seed litecoin did not print its own warning"
+grep -q 'Seed finished' "$tmp/lseed.out" || fail "utxo-seed litecoin did not report success"
+grep -q ' exec -T litecoin litecoin-cli -datadir=/data getrpcinfo' "$FAKE_LOG" || fail "utxo-seed litecoin did not ask litecoind for running commands"
+grep -q ' exec -T litecoin mkfifo -m 600 /data/utxo-seed.dat.incomplete' "$FAKE_LOG" || fail "utxo-seed litecoin did not make the FIFO in the litecoin container"
+grep -q 'cat > /state/.litecoin-utxo-seed.request.tmp' "$FAKE_LOG" || fail "utxo-seed litecoin did not write its prefixed request"
+grep -q ' exec -T bitcoin ' "$FAKE_LOG" && fail "utxo-seed litecoin touched the bitcoin container"
+lseed utxo-index remove litecoin -y >"$tmp/lremove.out" 2>&1 && fail "utxo-index remove litecoin ran while the index was on"
+grep -q 'litecoin.utxo_index is still on' "$tmp/lremove.out" || fail "utxo-index remove litecoin did not name the litecoin setting"
+
 echo "PASS: test_cli.sh"

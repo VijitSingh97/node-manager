@@ -771,4 +771,21 @@ printf '%s\n' '{"dashboard":{"password":"configuretest12"}}' >"$utxo/config.json
 cmp -s "$utxo/baseline.env" "$utxo/.env" || fail "removing utxo_index did not restore the baseline .env"
 rm -rf "$utxo"
 
+ltc=$(mktemp -d)
+cp configure.sh "$ltc/"
+printf '%s\n' '{"dashboard":{"password":"configuretest12"},"litecoin":{"enabled":true}}' >"$ltc/config.json"
+(cd "$ltc" && ./configure.sh) >/dev/null || fail "Litecoin baseline for utxo_index failed"
+cp "$ltc/.env" "$ltc/baseline.env"
+printf '%s\n' '{"dashboard":{"password":"configuretest12"},"litecoin":{"enabled":true,"utxo_index":true}}' >"$ltc/config.json"
+(cd "$ltc" && ./configure.sh) >"$ltc/out.log" || fail "litecoin.utxo_index=true failed"
+grep -q 'litecoind is not restarted' "$ltc/out.log" || fail "enabling litecoin.utxo_index did not tell the user what apply changes"
+ltc_compose=$(sed -n 's/^COMPOSE_FILE=//p' "$ltc/baseline.env")
+grep -qx "COMPOSE_FILE=$ltc_compose:docker-compose.litecoin-utxo-index.yml" "$ltc/.env" || fail "litecoin.utxo_index=true did not add only its overlay"
+[ "$(diff "$ltc/baseline.env" "$ltc/.env" | grep -c '^>')" = 1 ] || fail "litecoin.utxo_index=true changed more than COMPOSE_FILE"
+printf '%s\n' '{"dashboard":{"password":"configuretest12"},"litecoin":{"enabled":true,"utxo_index":"yes"}}' >"$ltc/config.json"
+(cd "$ltc" && ./configure.sh) >/dev/null 2>&1 && fail "non-boolean litecoin.utxo_index was accepted"
+printf '%s\n' '{"dashboard":{"password":"configuretest12"},"litecoin":{"utxo_index":true}}' >"$ltc/config.json"
+(cd "$ltc" && ./configure.sh) >/dev/null 2>&1 && fail "litecoin.utxo_index without litecoin was accepted"
+rm -rf "$ltc"
+
 echo "PASS: test_configure.sh"

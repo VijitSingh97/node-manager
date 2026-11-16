@@ -195,6 +195,7 @@ jq -e '.install_supported and (.boot_supported|not) and (.boot_enabled|not) and 
 request '{"action":"install","id":"66666666666666666666666666666666","node":"litecoin","requested_at":1000}'
 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 [ "$(jq -r '.litecoin.enabled and .litecoin.active and (.litecoin.rpc_expose|not) and .litecoin.steady_cpus==0.75 and .litecoin.steady_mem_limit_mb==3072 and .litecoin.data_dir=="/preset/litecoin"' "$config/config.json")" = true ] || fail "safe Litecoin defaults did not preserve preset settings"
+[ "$(jq -r .litecoin.utxo_index "$config/config.json")" = true ] || fail "a dashboard Litecoin install did not turn on its balance index"
 if [ "$(status .action)" != install ] || [ "$(status .state)" != applied ]; then
   fail "install status was not applied"
 fi
@@ -334,6 +335,8 @@ FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root
 [ "$(status .state):$(status .node)" = applied:bitcoin ] || { cat "$dashboard_state/node-control.status"; fail "bitcoin seed was not prepared"; }
 [ -p "$FAKE_NODE_DATA/bitcoin/utxo-seed.dat.incomplete" ] && [ ! -e "$FAKE_NODE_DATA/bitcoin/utxo-seed.dat" ] || fail "the seed pipe was not made fresh"
 jq -e 'keys==["id","requested_at"] and .requested_at==1000 and .id=="f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3"' "$dashboard_state/utxo-seed.request" >/dev/null || fail "the bitcoin seed request did not carry the host request id"
+jq '.litecoin.utxo_index=false' "$config/config.json" >"$tmp/config.next" && mv "$tmp/config.next" "$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
 request '{"action":"utxo_seed","id":"f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4","node":"litecoin","requested_at":1000}'
 FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 [ "$(status .error_code)" = validation_failed ] || fail "a seed was prepared for an index that is off"
@@ -350,6 +353,30 @@ jq -S . "$config/config.json" >"$state/.approved-config.json"
 request '{"action":"utxo_seed","id":"f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6","node":"dogecoin","requested_at":1000}'
 FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 [ "$(status .error_code)" = invalid_request ] || fail "a seed request for an unsupported node was accepted"
+
+printf '{"seed_state":"seeding"}\n' >"$dashboard_state/litecoin-utxo-seed.json"
+jq '.litecoin.utxo_index=true' "$config/config.json" >"$tmp/config.next" && mv "$tmp/config.next" "$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+request '{"action":"utxo_index","enabled":false,"id":"f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7","node":"litecoin","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .error_code)" = seed_running ] || fail "the Litecoin index turned off during its seed"
+rm -f "$dashboard_state/litecoin-utxo-seed.json"
+request '{"action":"utxo_index","enabled":false,"id":"f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8","node":"litecoin","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state):$(status .node)" = applied:litecoin ] || { cat "$dashboard_state/node-control.status"; fail "the Litecoin index was not turned off"; }
+[ "$(jq -r .litecoin.utxo_index "$config/config.json"):$(jq -r .bitcoin.utxo_index "$config/config.json")" = false:true ] || fail "turning off the Litecoin index touched the wrong key"
+jq -e '(.utxo_index_litecoin|not) and .utxo_index' "$dashboard_state/node-control.capability" >/dev/null || fail "Litecoin index capability was stale after turning it off"
+request '{"action":"utxo_index","enabled":true,"id":"f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9","node":"litecoin","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state)" = applied ] && [ "$(jq -r .litecoin.utxo_index "$config/config.json")" = true ] || fail "the Litecoin index was not turned on"
+jq -e '.utxo_index_litecoin' "$dashboard_state/node-control.capability" >/dev/null || fail "Litecoin index capability was stale after turning it on"
+jq '.litecoin.enabled=false | .litecoin.utxo_index=false' "$config/config.json" >"$tmp/config.next" && mv "$tmp/config.next" "$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+request '{"action":"utxo_index","enabled":true,"id":"fafafafafafafafafafafafafafafafa","node":"litecoin","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .error_code)" = validation_failed ] || fail "the Litecoin index turned on without Litecoin"
+jq '.litecoin.enabled=true' "$config/config.json" >"$tmp/config.next" && mv "$tmp/config.next" "$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
 rm -f "$dashboard_state/utxo-seed.json"
 request '{"action":"utxo_index","enabled":false,"id":"e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6","requested_at":1000}'
 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"

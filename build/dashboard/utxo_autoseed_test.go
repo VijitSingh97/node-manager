@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -201,5 +202,33 @@ func TestSeedNowQueuesOnlyWhenTheIndexNeedsASeed(t *testing.T) {
 	a.utxo.set(utxoStateReady, "")
 	if a.seedNow(nodeBitcoin) || post(seed) != http.StatusConflict {
 		t.Fatal("Seed now was offered for a ready index")
+	}
+}
+
+func TestHostControlQueuesTheLitecoinIndexToggle(t *testing.T) {
+	a, _ := testApp(t, &rpcFixture{}, "")
+	b, _ := json.Marshal(hostControlCapability{Timestamp: time.Now().Unix(), Platform: "linux", BootKind: "boot", UtxoIndexLTC: true})
+	if err := os.WriteFile(a.nodeControlPath("capability"), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var view hostControlView
+	if got := hostControlHTTP(a, http.MethodGet, "", false, "192.168.1.20:4321"); json.Unmarshal(got.Body.Bytes(), &view) != nil || !view.UtxoIndexLTC || view.UtxoIndex {
+		t.Fatalf("host view %s", got.Body.String())
+	}
+	const on = `{"action":"utxo_index","node":"litecoin","enabled":true}`
+	if got := hostControlHTTP(a, http.MethodPost, on, true, "192.168.1.20:4321"); got.Code != http.StatusConflict || !strings.Contains(got.Body.String(), "Litecoin is not installed") {
+		t.Fatalf("toggle without Litecoin = %d %s", got.Code, got.Body.String())
+	}
+	if got := hostControlHTTP(a, http.MethodPost, `{"action":"utxo_index","node":"dogecoin","enabled":true}`, true, "192.168.1.20:4321"); got.Code != http.StatusBadRequest {
+		t.Fatalf("toggle for an unsupported chain = %d", got.Code)
+	}
+	a.cfg.nodes = map[string]nodeConfig{nodeLitecoin: {ID: nodeLitecoin, Enabled: true, Supported: true}}
+	if got := hostControlHTTP(a, http.MethodPost, on, true, "192.168.1.20:4321"); got.Code != http.StatusAccepted {
+		t.Fatalf("toggle = %d %s", got.Code, got.Body.String())
+	}
+	raw, err := os.ReadFile(a.nodeControlPath("request"))
+	var req map[string]any
+	if err != nil || json.Unmarshal(raw, &req) != nil || req["action"] != "utxo_index" || req["node"] != nodeLitecoin || req["enabled"] != true || len(req) != 5 {
+		t.Fatalf("request %s %v", raw, err)
 	}
 }

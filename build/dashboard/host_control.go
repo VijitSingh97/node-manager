@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -26,6 +27,7 @@ type hostControlCapability struct {
 	ClearnetOverTor   bool              `json:"clearnet_over_tor"`
 	InboundTor        bool              `json:"inbound_connections"`
 	UtxoIndex         bool              `json:"utxo_index"`
+	UtxoIndexLTC      bool              `json:"utxo_index_litecoin,omitempty"`
 	ConfigPending     bool              `json:"config_pending"`
 	ConfigRevision    string            `json:"config_revision"`
 	ConfigPath        string            `json:"config_path,omitempty"`
@@ -91,6 +93,8 @@ type hostControlView struct {
 	InboundTor       bool               `json:"inbound_connections"`
 	UtxoIndex        bool               `json:"utxo_index"`
 	UtxoSeedNow      bool               `json:"utxo_seed_now"`
+	UtxoIndexLTC     bool               `json:"utxo_index_litecoin"`
+	UtxoSeedNowLTC   bool               `json:"utxo_seed_now_litecoin"`
 	ConfigPending    bool               `json:"config_pending"`
 	ConfigRevision   string             `json:"config_revision,omitempty"`
 	ConfigPath       string             `json:"config_path,omitempty"`
@@ -229,6 +233,7 @@ func validHostControlShape(action, node string, enabled *bool, dataDir string, i
 	return action == "install" && normalizeNodeID(node) != "" && enabled == nil && (dataDir == "" && interfaces == nil || validInstallOptions(node, dataDir, interfaces)) ||
 		action == "migrate" && normalizeNodeID(node) != "" && enabled == nil && safeHostPath(dataDir) && interfaces == nil ||
 		toggleHostAction(action) && node == "" && enabled != nil && dataDir == "" && interfaces == nil ||
+		action == "utxo_index" && node == nodeLitecoin && enabled != nil && dataDir == "" && interfaces == nil ||
 		action == "utxo_seed" && (node == nodeBitcoin || node == nodeLitecoin) && enabled == nil && dataDir == "" && interfaces == nil ||
 		action == "apply_config" && node == "" && enabled == nil && dataDir == "" && interfaces == nil
 }
@@ -263,7 +268,7 @@ func canonicalHostStatusMessage(status hostControlStatus) string {
 			if status.Enabled != nil && !*status.Enabled {
 				return "Balance index turned off."
 			}
-			return "Balance index turned on. Seed it to start using it."
+			return "Balance index turned on. It seeds itself once the node has synced."
 		case "utxo_seed":
 			return "Balance index seed started."
 		case "migrate":
@@ -356,7 +361,7 @@ func (a *app) hostControlView() hostControlView {
 		interfaces := append([]hostInstallInterface(nil), catalog.Interfaces...)
 		nodes = append(nodes, hostControlNode{ID: id, Name: nodeDisplayName(id), Installed: configured, DataDir: capability.DataPaths[id], DiskEstimate: catalog.DiskEstimate, DiskNote: catalog.DiskNote, Interfaces: interfaces})
 	}
-	return hostControlView{Available: available, InstallSupported: available && capability.InstallSupported, MigrateSupported: available && capability.MigrateSupported, BootSupported: available && capability.BootSupported, BootEnabled: capability.BootEnabled, BootKind: capability.BootKind, ClearnetOverTor: capability.ClearnetOverTor, InboundTor: capability.InboundTor, UtxoIndex: capability.UtxoIndex, UtxoSeedNow: a.seedNow(nodeBitcoin), ConfigPending: capability.ConfigPending, ConfigRevision: capability.ConfigRevision, ConfigPath: capability.ConfigPath, Nodes: nodes, Status: status}
+	return hostControlView{Available: available, InstallSupported: available && capability.InstallSupported, MigrateSupported: available && capability.MigrateSupported, BootSupported: available && capability.BootSupported, BootEnabled: capability.BootEnabled, BootKind: capability.BootKind, ClearnetOverTor: capability.ClearnetOverTor, InboundTor: capability.InboundTor, UtxoIndex: capability.UtxoIndex, UtxoSeedNow: a.seedNow(nodeBitcoin), UtxoIndexLTC: capability.UtxoIndexLTC, UtxoSeedNowLTC: a.seedNow(nodeLitecoin), ConfigPending: capability.ConfigPending, ConfigRevision: capability.ConfigRevision, ConfigPath: capability.ConfigPath, Nodes: nodes, Status: status}
 }
 
 func (a *app) apiHostControlGet(w http.ResponseWriter, r *http.Request) {
@@ -379,7 +384,8 @@ func decodeHostControlInput(w http.ResponseWriter, r *http.Request) (hostControl
 	legacyInstall := input.Action == "install" && input.DataDir == "" && input.Interfaces == nil
 	configuredInstall := input.Action == "install" && validInstallOptions(normalizeNodeID(input.Node), input.DataDir, input.Interfaces)
 	valid := (legacyInstall || configuredInstall) && normalizeNodeID(input.Node) != "" && input.Enabled == nil && input.Revision == "" ||
-		input.Action == "migrate" && normalizeNodeID(input.Node) != "" && input.Enabled == nil && input.Revision == "" && safeHostPath(input.DataDir) && input.Interfaces == nil || toggleHostAction(input.Action) && input.Node == "" && input.Enabled != nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil || input.Action == "apply_config" && input.Node == "" && input.Enabled == nil && validRevision && input.DataDir == "" && input.Interfaces == nil ||
+		input.Action == "migrate" && normalizeNodeID(input.Node) != "" && input.Enabled == nil && input.Revision == "" && safeHostPath(input.DataDir) && input.Interfaces == nil || toggleHostAction(input.Action) && input.Node == "" && input.Enabled != nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil ||
+		input.Action == "utxo_index" && input.Node == nodeLitecoin && input.Enabled != nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil || input.Action == "apply_config" && input.Node == "" && input.Enabled == nil && validRevision && input.DataDir == "" && input.Interfaces == nil ||
 		input.Action == "utxo_seed" && (input.Node == nodeBitcoin || input.Node == nodeLitecoin) && input.Enabled == nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil
 	if !valid {
 		return input, errors.New("invalid host control request")
@@ -466,9 +472,9 @@ func (a *app) apiHostControlPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if input.Action == "utxo_index" && *input.Enabled {
-		configured, _ := a.nodeConfigured("bitcoin")
-		if !configured {
-			http.Error(w, "Bitcoin is not installed", http.StatusConflict)
+		node := cmp.Or(input.Node, nodeBitcoin)
+		if configured, _ := a.nodeConfigured(node); !configured {
+			http.Error(w, nodeDisplayName(node)+" is not installed", http.StatusConflict)
 			return
 		}
 	}
