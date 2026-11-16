@@ -6,6 +6,12 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `utxo-index bench` reads a relative wallet file path from the directory it was
+  run in. On APT installs it looked in `/var/lib/node-manager` instead and
+  reported a valid file as malformed; a missing file is now named as unreadable.
+
 ## [1.36.0] - 2026-11-16
 
 ### Added
