@@ -14,8 +14,10 @@ All notable changes to this project are documented here. Format follows
   waited about 2 minutes at each start for one and then ran without it. The
   package upgrade now adds the missing network settings the same way
   `configure.sh` does, from the approved configuration and node selection. On an
-  APT install already on 1.35.0, this upgrade adds them; then run
-  `sudo node-manager restart bitcoin` once so Bitcoin advertises its onion.
+  APT install already on 1.35.0, this upgrade adds them and recreates Litecoin
+  and Bitcoin Cash. Bitcoin's upstream image does not change, so run
+  `sudo node-manager restart bitcoin` once afterwards to make it advertise its
+  onion.
 
 ## [1.35.0] - 2026-11-15
 
