@@ -893,8 +893,29 @@ render_package_upgrade_env() {
     echo "Approved runtime is missing a single package version field." >&2
     return 1
   fi
+  if ! grep -q '^TOR_ONION_NODES=' "$target" && ! add_package_upgrade_tor_keys "$target"; then
+    rm -f "$target"
+    echo "Could not derive the Tor network settings from the approved configuration." >&2
+    return 1
+  fi
   chmod 600 "$target"
   mv "$target" "$env_file"
+}
+
+# An approved runtime from before 1.35 lacks these keys; derive them as configure.sh does.
+add_package_upgrade_tor_keys() {
+  local target=$1 clearnet inbound profiles nodes='' node
+  clearnet=$(jq -r 'if .network.clearnet_over_tor == false then 0 else 1 end' "$approved_config_file") || return 1
+  inbound=$(jq -r 'if .network.inbound_connections == false then 0 else 1 end' "$approved_config_file") || return 1
+  profiles=$(sed -n 's/^COMPOSE_PROFILES=//p' "$target")
+  if [ "$inbound" = 1 ]; then
+    for node in bitcoin litecoin bitcoincash; do
+      case ",$profiles," in *",$node,"*) nodes=${nodes:+$nodes,}$node ;; esac
+    done
+  fi
+  grep -q '^TOR_CLEARNET=' "$target" || printf 'TOR_CLEARNET=%s\n' "$clearnet" >>"$target"
+  grep -q '^TOR_INBOUND=' "$target" || printf 'TOR_INBOUND=%s\n' "$inbound" >>"$target"
+  printf 'TOR_ONION_NODES=%s\n' "$nodes" >>"$target"
 }
 
 restore_package_upgrade_state() {

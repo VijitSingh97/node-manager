@@ -179,6 +179,22 @@ FAKE_DOCKER_DOWN=1 ./stack package-upgrade >/dev/null 2>&1 && fail "package upgr
 grep -q ' pull ' "$log" && fail "Docker-down path attempted a pull"
 [ -f "$tmp/state/.package-upgrade-pending" ] || fail "Docker-down path did not leave a retry marker"
 
+expected_tor=$(grep '^TOR_' "$tmp/state/.approved.env" | sort)
+[ "$(grep -c '^TOR_' "$tmp/state/.approved.env")" = 3 ] || fail "configure.sh did not render the three Tor network keys"
+sed -i.bak '/^TOR_/d' "$tmp/state/.approved.env"
+rm -f "$tmp/state/.approved.env.bak"
+printf '%s\n' tor bitcoin dashboard >"$running"
+./stack package-upgrade >/dev/null
+[ "$(grep '^TOR_' "$tmp/state/.env" | sort)" = "$expected_tor" ] || fail "package upgrade did not derive the Tor network keys configure.sh renders"
+
+sed -i.bak '/^TOR_/d' "$tmp/state/.approved.env"
+rm -f "$tmp/state/.approved.env.bak"
+printf '%s\n' '{"network":{"inbound_connections":false}}' >"$tmp/state/.approved-config.json"
+./stack package-upgrade >/dev/null
+grep -q '^TOR_INBOUND=0$' "$tmp/state/.env" || fail "package upgrade ignored an approved inbound_connections false"
+grep -q '^TOR_ONION_NODES=$' "$tmp/state/.env" || fail "package upgrade published node onions with inbound off"
+[ "$(grep -c '^TOR_' "$tmp/state/.env")" = 3 ] || fail "package upgrade duplicated the Tor network keys"
+
 mkdir -p "$tmp/state/data/bitcoin-old"
 head -c 2097152 /dev/zero >"$tmp/state/data/bitcoin-old/blk00000.dat"
 ./stack doctor >"$tmp/doctor.out" 2>&1 || true

@@ -6,6 +6,17 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- APT upgrades now set up incoming onion connections. An APT upgrade to 1.35.0
+  kept the earlier version's approved settings, which have no onion node list,
+  so Tor published no node onion while Bitcoin, Litecoin and Bitcoin Cash still
+  waited about 2 minutes at each start for one and then ran without it. The
+  package upgrade now adds the missing network settings the same way
+  `configure.sh` does, from the approved configuration and node selection. On an
+  APT install already on 1.35.0, this upgrade adds them; then run
+  `sudo node-manager restart bitcoin` once so Bitcoin advertises its onion.
+
 ## [1.35.0] - 2026-11-15
 
 ### Added
