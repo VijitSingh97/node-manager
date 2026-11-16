@@ -29,27 +29,31 @@ func startLiveNodeWith(t *testing.T, dockerArgs ...string) *liveNode {
 	if os.Getenv("UTXO_REGTEST") != "1" {
 		t.Skip("set UTXO_REGTEST=1 to run against the pinned regtest bitcoind")
 	}
+	compose, err := os.ReadFile("../../docker-compose.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	image := regexp.MustCompile(`image: (bitcoin/bitcoin:\S+)`).FindStringSubmatch(string(compose))[1]
+	return runLiveNode(t, "18443", append(dockerArgs, image, "bitcoind", "-regtest", "-acceptnonstdtxn=1", "-fallbackfee=0.0001", "-printtoconsole=0",
+		"-rpcuser=test", "-rpcpassword=test", "-rpcbind=0.0.0.0", "-rpcallowip=0.0.0.0/0")...)
+}
+
+func runLiveNode(t *testing.T, rpcPort string, runArgs ...string) *liveNode {
+	t.Helper()
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker not installed")
 	}
 	if err := exec.Command("docker", "info").Run(); err != nil {
 		t.Skip("docker daemon not running")
 	}
-	compose, err := os.ReadFile("../../docker-compose.yml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	image := regexp.MustCompile(`image: (bitcoin/bitcoin:\S+)`).FindStringSubmatch(string(compose))[1]
 	name := fmt.Sprintf("utxo-follow-%d", time.Now().UnixNano())
-	args := append([]string{"run", "-d", "--rm", "--name", name, "-p", "127.0.0.1::18443"}, dockerArgs...)
-	args = append(args, image, "bitcoind", "-regtest", "-acceptnonstdtxn=1", "-fallbackfee=0.0001", "-printtoconsole=0",
-		"-rpcuser=test", "-rpcpassword=test", "-rpcbind=0.0.0.0", "-rpcallowip=0.0.0.0/0")
+	args := append([]string{"run", "-d", "--rm", "--name", name, "-p", "127.0.0.1::" + rpcPort}, runArgs...)
 	out, err := exec.Command("docker", args...).CombinedOutput()
 	if err != nil {
 		t.Fatalf("docker run: %v\n%s", err, out)
 	}
 	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", "-v", name).Run() })
-	port, err := exec.Command("docker", "port", name, "18443/tcp").Output()
+	port, err := exec.Command("docker", "port", name, rpcPort+"/tcp").Output()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +66,7 @@ func startLiveNodeWith(t *testing.T, dockerArgs ...string) *liveNode {
 			return n
 		}
 		if i > 60 {
-			t.Fatal("bitcoind did not start")
+			t.Fatal("the node did not start")
 		}
 		time.Sleep(time.Second)
 	}
