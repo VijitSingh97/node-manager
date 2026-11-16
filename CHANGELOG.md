@@ -36,8 +36,9 @@ All notable changes to this project are documented here. Format follows
   first through the slower per-block scan update.
 - Settings switches no longer apply on click. Launch at boot, both Network
   switches and the Balance index wait for **Save**, which sends the changed
-  ones to the host one after another and stops at the first failure.
-  Reopening Settings discards unsaved switches. Buttons that act on their own
+  ones to the host one after another (keep the page open until the last one
+  applies) and stops at the first failure. Reopening Settings discards unsaved
+  switches. Buttons that act on their own
   (Install, Move data, Run new config, Use server config) still act on click.
 - A person icon above the Settings gear opens Account (sign out) and then
   Dashboard password; both left the Settings dialog.
