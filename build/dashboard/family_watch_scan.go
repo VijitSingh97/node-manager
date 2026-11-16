@@ -178,7 +178,10 @@ func (s *familyWatchStore) record(id, amount string, height int64, bestBlock str
 		balance := s.balances[id]
 		balance.Amount, balance.ScanHeight, balance.ScanTime, balance.BestBlock = amount, height, now, bestBlock
 		point := familyWatchHistory{Time: now, Amount: formatFamilyWatchAmount(amount)}
-		if last := len(balance.History) - 1; !s.backend.refreshOnTip || last < 0 || balance.History[last].Amount != point.Amount || now-balance.History[last].Time >= int64(familyWatchInterval/time.Second) {
+		// Balances read on every block would fill the history in hours, so a change within the hour updates that hour's point.
+		if last := len(balance.History) - 1; (s.backend.refreshOnTip || s.index != nil) && last >= 0 && now-balance.History[last].Time < int64(familyWatchInterval/time.Second) {
+			balance.History[last].Amount = point.Amount
+		} else {
 			balance.History = append(balance.History, point)
 		}
 		if len(balance.History) > maxFamilyWatchHistory {

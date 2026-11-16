@@ -90,7 +90,9 @@ When the Litecoin balance index is on and at the node's tip, Litecoin balances c
 from the index instead and update within a minute of each block; the scan is the
 fallback while the index seeds or catches up. Litecoin balances cover transparent
 outputs only: funds inside MWEB are not counted, and the peg-in pool shows as one
-non-wallet coin.
+non-wallet coin. Balances that update on each block (Litecoin from the index, and
+Zcash transparent addresses) keep one chart point per hour, showing the latest
+balance within that hour.
 The row is **Pending** before its first successful scan. If the node is syncing or
 a later scan fails, a prior confirmed amount remains visible as **Stale** or
 **Error**; an unverified failure is never displayed as a zero balance. Saved
