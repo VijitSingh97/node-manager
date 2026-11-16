@@ -6,6 +6,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.35.1] - 2026-11-16
+
 ### Fixed
 
 - APT upgrades now set up incoming onion connections. An APT upgrade to 1.35.0
@@ -1469,7 +1471,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.35.0...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.35.1...HEAD
+[1.35.1]: https://github.com/VijitSingh97/node-manager/compare/v1.35.0...v1.35.1
 [1.35.0]: https://github.com/VijitSingh97/node-manager/compare/v1.34.0...v1.35.0
 [1.34.0]: https://github.com/VijitSingh97/node-manager/compare/v1.33.19...v1.34.0
 [1.33.19]: https://github.com/VijitSingh97/node-manager/compare/v1.33.18...v1.33.19
