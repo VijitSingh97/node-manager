@@ -248,3 +248,14 @@ func TestFamilyWatchRejectsFutureTipsAndWarnings(t *testing.T) {
 		})
 	}
 }
+
+func TestFamilyWatchScantxoutsetWaitsForHourlyRescanWhenTipMoves(t *testing.T) {
+	now := time.Unix(2_000_000_000, 0)
+	manager, store, fixture := newFamilyScanTest(t, now, familyWatchEntry{ID: "wallet-hourly", Address: "hourly-address"})
+	manager.scanNode(t.Context(), nodeLitecoin, store)
+	fixture.update(func(f *familyScanRPCFixture) { f.chainHeight, f.chainHash = 101, familyScanHash101 })
+	manager.scanNode(t.Context(), nodeLitecoin, store)
+	if got := len(fixture.scans()); got != 1 {
+		t.Fatalf("scans = %d", got)
+	}
+}

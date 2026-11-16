@@ -25,6 +25,8 @@ cat >"$root/configure.sh" <<'EOF'
 #!/bin/sh
 set -eu
 jq -e 'type=="object"' "$BITCOIN_STACK_CONFIG_DIR/config.json" >/dev/null
+zdir=$(jq -r 'select(.zcash.address_index == true) | .zcash.data_dir // empty' "$BITCOIN_STACK_CONFIG_DIR/config.json")
+[ -z "$zdir" ] || [ ! -e "$zdir/old.db" ] || exit 1
 if [ "${BITCOIN_STACK_VALIDATE_ONLY:-0}" != 1 ]; then
   if [ "${FAKE_CONFIGURE_FAIL_ONCE:-0}" = 1 ] && [ ! -e "$FAKE_CONFIGURE_FAIL_MARKER" ]; then
     : >"$FAKE_CONFIGURE_FAIL_MARKER"
@@ -424,7 +426,27 @@ for interface_case in \
   jq -e --arg node "$node" ".[\$node].enabled == true and .[\$node].active == true and ($closed)" "$config/config.json" >/dev/null ||
     fail "$node install did not close every optional LAN interface"
   [ "$(status .state)" = applied ] || fail "$node install status was not applied"
+  if [ "$node" = zcash ]; then
+    jq -e '.zcash.address_index == true' "$config/config.json" >/dev/null || fail "zcash install did not turn on the address index"
+  else
+    jq -e '.zcash.address_index == null' "$config/config.json" >/dev/null || fail "$node install set the zcash address index"
+  fi
 done
+
+jq -n '{bitcoin:{enabled:false},zcash:{enabled:false,address_index:false}}' >"$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+cp "$state/.env" "$state/.approved.env"
+request '{"action":"install","id":"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1","node":"zcash","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+jq -e '.zcash.enabled == true and .zcash.address_index == false' "$config/config.json" >/dev/null || fail "zcash install overrode an explicit address_index false"
+
+mkdir -p "$state/zdata"; : >"$state/zdata/old.db"
+jq -n --arg d "$state/zdata" '{bitcoin:{enabled:false},zcash:{enabled:false,data_dir:$d}}' >"$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+cp "$state/.env" "$state/.approved.env"
+request '{"action":"install","id":"a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2","node":"zcash","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+jq -e '.zcash.enabled == true and .zcash.address_index == null' "$config/config.json" >/dev/null || fail "zcash reinstall over a used data dir did not fall back to index off"
 
 jq -n '{bitcoin:{enabled:false},monero:{enabled:false,node_password:"moneropassword1234567890123456"}}' >"$config/config.json"
 jq -S . "$config/config.json" >"$state/.approved-config.json"

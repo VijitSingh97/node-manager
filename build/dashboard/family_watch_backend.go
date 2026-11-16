@@ -20,9 +20,10 @@ type familyWatchResult struct {
 }
 
 type familyWatchBackend struct {
-	ready    func(ctx context.Context, s *familyWatchStore, now int64) (familyWatchTip, bool)
-	scan     func(ctx context.Context, s *familyWatchStore, address string, tip familyWatchTip) (familyWatchResult, string)
-	validate func(ctx context.Context, s *familyWatchStore, address string) (string, error)
+	refreshOnTip bool
+	ready        func(ctx context.Context, s *familyWatchStore, now int64) (familyWatchTip, bool)
+	scan         func(ctx context.Context, s *familyWatchStore, address string, tip familyWatchTip) (familyWatchResult, string)
+	validate     func(ctx context.Context, s *familyWatchStore, address string) (string, error)
 }
 
 func (a *app) familyWatchNodes() []string {
@@ -98,6 +99,7 @@ func utxoFamilyWatchBackend(litecoin bool) familyWatchBackend {
 
 func zcashFamilyWatchBackend() familyWatchBackend {
 	return familyWatchBackend{
+		refreshOnTip: true,
 		ready: func(ctx context.Context, s *familyWatchStore, now int64) (familyWatchTip, bool) {
 			var chain zcashBlockchainInfo
 			if s.rpc.call(ctx, "getblockchaininfo", nil, &chain) != nil || chain.BestBlockHash == "" || chain.Blocks < max(chain.Headers, chain.EstimatedHeight) || chain.VerificationProgress < 0.999999 {
