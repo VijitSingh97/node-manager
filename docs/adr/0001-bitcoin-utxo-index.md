@@ -345,6 +345,7 @@ Rejected: dumping into the datadir (the dashboard cannot delete it, and it eats 
 - A version bump, a chain mismatch, or a failed integrity check means the index is **invalid**: `scantxoutset` serves, the UI offers a re-seed, and the user starts it. **No silent migration. No automatic re-seed.** (Decided.)
 - Pebble's own on-disk format version is pinned to `FormatFlushableIngest` and recorded as `pebble_format`. A mismatch with the running binary counts as a schema bump and makes the index invalid. (Decided.)
 - A downgrade of the dashboard image that cannot read the store is also invalid, not an error: the index is ignored and the fallback serves.
+- A store that also keeps the reverse outpoint key, for chains whose `getblock` has no prevouts (Litecoin, #238), uses schema 2. Bitcoin stays on schema 1, and each schema refuses the other. Sizes are in `docs/measurements/litecoin-reverse-key.md`.
 - A re-seed takes about 20 minutes of wall time (1179 s on the first mainnet seed, against a derived floor of about 15 min) and the same RPC block as the first seed (measured, Sizing).
 
 ### 9. Gap-limit semantics and derivation

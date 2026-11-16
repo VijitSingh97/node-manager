@@ -106,7 +106,7 @@ func utxoMgrCheck(t *testing.T, s *utxoStore, c *fakeUtxoChain, label string, ti
 
 func utxoMgrSeed(t testing.TB, dir string, fs vfs.FS, c *fakeUtxoChain) {
 	t.Helper()
-	s, err := openUtxoStoreFS(dir, fs)
+	s, err := openUtxoStoreFS(dir, fs, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -704,7 +704,7 @@ func TestUtxoManagerBindErrorRetries(t *testing.T) {
 	if st := m.Status(); st.State == utxoStateInvalid {
 		t.Fatalf("a failed chain bind invalidated the index: %+v", st)
 	}
-	s, err := openUtxoStoreFS(dir, nil)
+	s, err := openUtxoStoreFS(dir, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
