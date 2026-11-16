@@ -79,16 +79,6 @@ func seedErrorClass(err error) string {
 	return "seed failed"
 }
 
-func seedNetwork(chain string) ([4]byte, bool) {
-	switch chain {
-	case "main":
-		return utxoNetMainnet, true
-	case "regtest":
-		return utxoNetRegtest, true
-	}
-	return [4]byte{}, false
-}
-
 func seedFIFOGuard(dir string) *seedRefusal {
 	if _, err := os.Lstat(filepath.Join(dir, seedDumpName)); err == nil {
 		return &seedRefusal{"fifo", seedDumpName + " already exists"}
@@ -248,7 +238,7 @@ func (m *utxoManager) pollSeed(ctx context.Context) {
 	m.markSeedRequest(req.ID, utxoSeedChecking, nil)
 	in := m.guards(ctx)
 	refusals := evaluateSeedGuards(in)
-	network, known := seedNetwork(in.Chain.Chain)
+	network, known := m.chain.Networks[in.Chain.Chain]
 	if in.ChainErr == nil && !known {
 		refusals = append(refusals, seedRefusal{"node", "this chain cannot be seeded"})
 	}
@@ -385,7 +375,7 @@ func (m *utxoManager) seedFromDump(parent context.Context, network [4]byte) erro
 	dumped := make(chan seedDumpOutcome, 1)
 	go func() {
 		var res seedDumpResult
-		err := h.dump.call(ctx, "dumptxoutset", []any{seedDumpName, "latest"}, &res)
+		err := h.dump.call(ctx, "dumptxoutset", m.chain.dumpArgs(seedDumpName), &res)
 		if err != nil {
 			cancel(errSeedDump)
 		}
@@ -395,7 +385,7 @@ func (m *utxoManager) seedFromDump(parent context.Context, network [4]byte) erro
 	prog := &utxoIngestProgress{}
 	gate := &seedGate{m: m, ctx: ctx, prog: prog}
 	prog.Checkpoint = gate.checkpoint
-	_, err = ingestUtxoSnapshot(m.currentStore(), fifo, network, func(hash [32]byte) (uint32, error) {
+	_, err = ingestUtxoSnapshot(m.currentStore(), fifo, m.chain, network, func(hash [32]byte) (uint32, error) {
 		select {
 		case out := <-dumped:
 			want, herr := utxoRevHex(out.res.BaseHash)

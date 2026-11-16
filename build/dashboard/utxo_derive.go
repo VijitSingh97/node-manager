@@ -128,16 +128,6 @@ func sortedUniqueScripts(scripts [][]byte) [][]byte {
 
 const deriveBatchSize = 20
 
-func descriptorSupported(desc string) bool {
-	desc = strings.TrimSpace(desc)
-	for _, prefix := range []string{"addr(", "pkh(", "wpkh(", "sh(wpkh(", "wsh(", "tr("} {
-		if strings.HasPrefix(desc, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
 func batchChunks(ctx context.Context, rpc *rpcClient, calls []rpcBatchCall) ([]rpcResponse, error) {
 	var out []rpcResponse
 	for start := 0; start < len(calls); start += deriveBatchSize {
@@ -152,7 +142,7 @@ func batchChunks(ctx context.Context, rpc *rpcClient, calls []rpcBatchCall) ([]r
 }
 
 // One batched call per chunk of descriptors; a wallet that cannot be turned into a complete script set is marked Fallback for the scantxoutset path.
-func resolveWalletScripts(ctx context.Context, rpc *rpcClient, keys []string) ([]walletScripts, error) {
+func resolveWalletScripts(ctx context.Context, rpc *rpcClient, chain *utxoChainParams, keys []string) ([]walletScripts, error) {
 	var infoCalls []rpcBatchCall
 	var owners []int
 	result := make([]walletScripts, len(keys))
@@ -166,7 +156,7 @@ func resolveWalletScripts(ctx context.Context, rpc *rpcClient, keys []string) ([
 			continue
 		}
 		for _, d := range descs {
-			if !descriptorSupported(d.Desc) {
+			if !chain.descriptorSupported(d.Desc) {
 				result[w].Fallback = true
 			}
 		}

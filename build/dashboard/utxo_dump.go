@@ -214,6 +214,50 @@ func parseUtxoDumpHeader(r io.Reader, wantNetwork [4]byte, onHeader func(utxoHea
 	if err != nil {
 		return h, err
 	}
+	return h, u.coins(h, false, onHeader, fn)
+}
+
+// parseLegacyUtxoDump streams the pre-v2 layout Litecoin 0.21 writes: a 44-byte header, then flat outpoint and coin records.
+func parseLegacyUtxoDump(r io.Reader, onHeader func(utxoHeader), fn func(utxoRecord) error) (utxoHeader, error) {
+	u := &utxoReader{r: bufio.NewReaderSize(r, 1<<16)}
+	var h utxoHeader
+	var fixed [44]byte
+	if err := u.full(fixed[:]); err != nil {
+		return h, fmt.Errorf("utxo dump header: %w", err)
+	}
+	// fixed[40:44] is nChainTx, left unchecked because the spike could not tie it to any node value.
+	copy(h.BaseHash[:], fixed[:32])
+	h.CoinsCount = binary.LittleEndian.Uint64(fixed[32:40])
+	return h, u.coins(h, true, onHeader, fn)
+}
+
+func (u *utxoReader) coin(txid [32]byte, vout uint64) (utxoRecord, error) {
+	code, err := u.varint()
+	if err != nil {
+		return utxoRecord{}, err
+	}
+	if code>>1 > 1<<32-1 {
+		return utxoRecord{}, fmt.Errorf("height %d out of range", code>>1)
+	}
+	comp, err := u.varint()
+	if err != nil {
+		return utxoRecord{}, err
+	}
+	script, err := u.script()
+	if err != nil {
+		return utxoRecord{}, err
+	}
+	return utxoRecord{
+		ScriptPubKey: script,
+		Txid:         txid,
+		Vout:         vout,
+		Amount:       decompressUtxoAmount(comp),
+		Height:       uint32(code >> 1),
+		Coinbase:     code&1 == 1,
+	}, nil
+}
+
+func (u *utxoReader) coins(h utxoHeader, legacy bool, onHeader func(utxoHeader), fn func(utxoRecord) error) error {
 	if onHeader != nil {
 		onHeader(h)
 	}
@@ -223,6 +267,14 @@ func parseUtxoDumpHeader(r io.Reader, wantNetwork [4]byte, onHeader func(utxoHea
 	)
 	for i := uint64(0); i < h.CoinsCount; i++ {
 		rec, err := func() (utxoRecord, error) {
+			if legacy {
+				var outpoint [36]byte
+				if err := u.full(outpoint[:]); err != nil {
+					return utxoRecord{}, err
+				}
+				copy(txid[:], outpoint[:32])
+				return u.coin(txid, uint64(binary.LittleEndian.Uint32(outpoint[32:])))
+			}
 			if left == 0 {
 				if err := u.full(txid[:]); err != nil {
 					return utxoRecord{}, err
@@ -239,43 +291,21 @@ func parseUtxoDumpHeader(r io.Reader, wantNetwork [4]byte, onHeader func(utxoHea
 			if err != nil {
 				return utxoRecord{}, err
 			}
-			code, err := u.varint()
-			if err != nil {
-				return utxoRecord{}, err
-			}
-			if code>>1 > 1<<32-1 {
-				return utxoRecord{}, fmt.Errorf("height %d out of range", code>>1)
-			}
-			comp, err := u.varint()
-			if err != nil {
-				return utxoRecord{}, err
-			}
-			script, err := u.script()
-			if err != nil {
-				return utxoRecord{}, err
-			}
 			left--
-			return utxoRecord{
-				ScriptPubKey: script,
-				Txid:         txid,
-				Vout:         vout,
-				Amount:       decompressUtxoAmount(comp),
-				Height:       uint32(code >> 1),
-				Coinbase:     code&1 == 1,
-			}, nil
+			return u.coin(txid, vout)
 		}()
 		if err != nil {
-			return h, fmt.Errorf("coin %d of %d: %w", i+1, h.CoinsCount, err)
+			return fmt.Errorf("coin %d of %d: %w", i+1, h.CoinsCount, err)
 		}
 		if err := fn(rec); err != nil {
-			return h, err
+			return err
 		}
 	}
 	if left != 0 {
-		return h, fmt.Errorf("header says %d coins but the last txid group has %d more", h.CoinsCount, left)
+		return fmt.Errorf("header says %d coins but the last txid group has %d more", h.CoinsCount, left)
 	}
 	if _, err := u.r.ReadByte(); err != io.EOF {
-		return h, fmt.Errorf("utxo dump has more data than the %d coins in its header", h.CoinsCount)
+		return fmt.Errorf("utxo dump has more data than the %d coins in its header", h.CoinsCount)
 	}
-	return h, nil
+	return nil
 }

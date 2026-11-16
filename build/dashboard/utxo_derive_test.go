@@ -111,7 +111,7 @@ func TestResolveWalletScriptsBatchesSortsAndFallsBack(t *testing.T) {
 	srv := f.server()
 	defer srv.Close()
 	rpc := &rpcClient{url: srv.URL, client: srv.Client()}
-	got, err := resolveWalletScripts(context.Background(), rpc, []string{testXpub, "pk(" + strings.Repeat("02", 33) + ")", "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080"})
+	got, err := resolveWalletScripts(context.Background(), rpc, utxoBitcoin, []string{testXpub, "pk(" + strings.Repeat("02", 33) + ")", "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestResolveWalletScriptsBatchesSortsAndFallsBack(t *testing.T) {
 func TestResolveWalletScriptsRejectsPrivateKeys(t *testing.T) {
 	rpc := &rpcClient{url: "http://127.0.0.1:1", client: http.DefaultClient}
 	xprv := "xprv9s21ZrQH143K3QTDL4LXw2F7HEK3wJUD2nW2nRk4stbPy6cq3jPPqjiChkVvvNKmPGJxWUtg6LnF5kejMRNNU3TGtRBeJgk33yuGBxrMPHi"
-	if _, err := resolveWalletScripts(context.Background(), rpc, []string{xprv}); err == nil {
+	if _, err := resolveWalletScripts(context.Background(), rpc, utxoBitcoin, []string{xprv}); err == nil {
 		t.Fatal("private key accepted")
 	}
 }
@@ -164,7 +164,7 @@ func TestResolveWalletScriptsFallsBackPerWallet(t *testing.T) {
 		"not a key",
 		"pk(" + strings.Repeat("02", 33) + ")",
 	}
-	got, err := resolveWalletScripts(context.Background(), rpc, keys)
+	got, err := resolveWalletScripts(context.Background(), rpc, utxoBitcoin, keys)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +203,7 @@ func TestResolveWalletScriptsFallsBackOnShortRange(t *testing.T) {
 	}))
 	defer srv.Close()
 	rpc := &rpcClient{url: srv.URL, client: srv.Client()}
-	got, err := resolveWalletScripts(context.Background(), rpc, []string{testXpub})
+	got, err := resolveWalletScripts(context.Background(), rpc, utxoBitcoin, []string{testXpub})
 	if err != nil || !got[0].Fallback {
 		t.Fatalf("short derivation accepted: %+v, %v", got, err)
 	}
@@ -220,7 +220,7 @@ func TestResolveWalletScriptsChunksLargeSets(t *testing.T) {
 	for i := range keys {
 		keys[i] = testXpub
 	}
-	got, err := resolveWalletScripts(context.Background(), rpc, keys)
+	got, err := resolveWalletScripts(context.Background(), rpc, utxoBitcoin, keys)
 	if err != nil {
 		t.Fatal(err)
 	}

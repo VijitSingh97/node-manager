@@ -100,7 +100,7 @@ func newPrunedScanner(a *app) *prunedScanner {
 		app: a, queued: map[string]bool{}, failures: map[string]int{}, lastTry: map[string]time.Time{},
 		jobs: make(chan WatchEntry, maxWatchWallets), now: time.Now, derived: map[string]derivedAddresses{}, waiting: map[string]scanWait{},
 		resolveScripts: func(ctx context.Context, keys []string) ([]walletScripts, error) {
-			return resolveWalletScripts(ctx, a.rpc, keys)
+			return resolveWalletScripts(ctx, a.rpc, utxoBitcoin, keys)
 		},
 	}
 }

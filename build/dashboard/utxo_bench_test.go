@@ -391,7 +391,7 @@ func TestBenchWalletFileIsAcceptedByWatchValidation(t *testing.T) {
 		if w.Key != genesisAddress && w.Key != publicExampleAddress {
 			descs, _ := descriptorsFor(w.Key)
 			for _, d := range descs {
-				if !descriptorSupported(d.Desc) {
+				if !utxoBitcoin.descriptorSupported(d.Desc) {
 					t.Errorf("%s: the index does not support %q", w.Name, d.Desc)
 				}
 			}

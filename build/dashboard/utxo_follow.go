@@ -38,6 +38,7 @@ type utxoRPC interface {
 type utxoFollower struct {
 	store   *utxoStore
 	rpc     utxoRPC
+	chain   *utxoChainParams
 	onBlock func(height uint32)
 
 	mu       sync.Mutex
@@ -101,7 +102,7 @@ func (a *rpcAmount) UnmarshalJSON(b []byte) error {
 }
 
 func newUtxoFollower(store *utxoStore, rpc utxoRPC) *utxoFollower {
-	return &utxoFollower{store: store, rpc: rpc, state: utxoFollowIdle}
+	return &utxoFollower{store: store, rpc: rpc, chain: utxoBitcoin, state: utxoFollowIdle}
 }
 
 func (f *utxoFollower) Status() utxoFollowStatus {
@@ -312,7 +313,7 @@ func (f *utxoFollower) applyHeight(ctx context.Context, height uint32) error {
 		return err
 	}
 	var raw utxoV3Block
-	if err := f.rpc.call(ctx, "getblock", []any{hash, 3}, &raw); err != nil {
+	if err := f.rpc.call(ctx, "getblock", []any{hash, f.chain.BlockVerbosity}, &raw); err != nil {
 		return err
 	}
 	blk, err := convertUtxoBlock(raw)

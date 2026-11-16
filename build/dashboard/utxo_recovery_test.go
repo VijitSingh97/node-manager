@@ -152,7 +152,7 @@ func TestUtxoRecoveryHelper(t *testing.T) {
 			}
 			return utxoRecoveryIngestBase, nil
 		}
-		if _, err := ingestUtxoSnapshot(s, utxoTestRandomDump(utxoRecoveryIngestCoins), utxoNetRegtest, baseHeight, prog); err != nil {
+		if _, err := ingestUtxoSnapshot(s, utxoTestRandomDump(utxoRecoveryIngestCoins), utxoBitcoin, utxoNetRegtest, baseHeight, prog); err != nil {
 			fail(3, err)
 		}
 		reached()

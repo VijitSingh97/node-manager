@@ -372,7 +372,7 @@ func TestIngestBaseHeightErrorLeavesStoreEmpty(t *testing.T) {
 	defer f.Close()
 	var seen [32]byte
 	mismatch := errors.New("dump base hash does not match the node")
-	_, err = ingestUtxoSnapshot(s, f, utxoNetRegtest, func(h [32]byte) (uint32, error) { seen = h; return 0, mismatch }, nil)
+	_, err = ingestUtxoSnapshot(s, f, utxoBitcoin, utxoNetRegtest, func(h [32]byte) (uint32, error) { seen = h; return 0, mismatch }, nil)
 	if !errors.Is(err, mismatch) {
 		t.Fatalf("err = %v", err)
 	}
@@ -392,7 +392,7 @@ func TestIngestBaseHeightRunsAfterMerge(t *testing.T) {
 	prog := &utxoIngestProgress{}
 	f, _ := os.Open("testdata/utxo/all_types.dat")
 	defer f.Close()
-	hdr, err := ingestUtxoSnapshot(s, f, utxoNetRegtest, func([32]byte) (uint32, error) {
+	hdr, err := ingestUtxoSnapshot(s, f, utxoBitcoin, utxoNetRegtest, func([32]byte) (uint32, error) {
 		if prog.Written.Load() != prog.Total.Load() || prog.Total.Load() == 0 {
 			t.Errorf("baseHeight called before the merge finished: %d of %d", prog.Written.Load(), prog.Total.Load())
 		}
@@ -422,7 +422,7 @@ func TestIngestCheckpointCancelDiscardsPartialIndex(t *testing.T) {
 				return nil
 			}
 			dump := utxoTestRandomDump(20000)
-			_, err := ingestUtxoSnapshot(s, dump, utxoNetRegtest, utxoTestHeight(1), prog)
+			_, err := ingestUtxoSnapshot(s, dump, utxoBitcoin, utxoNetRegtest, utxoTestHeight(1), prog)
 			dump.(io.Closer).Close()
 			if !errors.Is(err, context.Canceled) {
 				t.Fatalf("err = %v after %d checkpoints", err, calls)
