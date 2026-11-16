@@ -778,7 +778,7 @@ echo '[{"name": "alpha", "key": 5}]' >"$tmp/bad4.json"
 echo '[{"name": "", "key": "x"}]' >"$tmp/bad5.json"
 echo 'not json' >"$tmp/bad6.json"
 jq -nc '[range(21) | {name: "w\(.)", key: "k\(.)"}]' >"$tmp/bad7.json"
-for bad in "$tmp"/bad[1-7].json "$tmp/missing.json"; do
+for bad in "$tmp"/bad[1-7].json; do
   reset_ubench
   ubench utxo-index bench "$bad" >"$tmp/ubench.out" 2>&1 && fail "utxo-index bench accepted $bad"
   grep -q 'must be a JSON array of 1 to 20' "$tmp/ubench.out" || fail "utxo-index bench did not explain $bad"
@@ -790,6 +790,10 @@ for args in "--repeat 0" "--repeat 201" "--repeat x" "--repeat" "--bogus" "extra
   ubench utxo-index bench "$bench_wallets" $args >/dev/null 2>&1 && fail "utxo-index bench accepted arguments '$args'"
   bench_written && fail "utxo-index bench wrote a request for arguments '$args'"
 done
+reset_ubench
+ubench utxo-index bench "$tmp/missing.json" >"$tmp/ubench.out" 2>&1 && fail "utxo-index bench accepted a missing wallet file"
+grep -q "Cannot read $tmp/missing.json" "$tmp/ubench.out" || fail "utxo-index bench did not name the unreadable wallet file"
+bench_written && fail "utxo-index bench wrote a request for a missing wallet file"
 reset_ubench
 ubench utxo-index bench >/dev/null 2>&1 && fail "utxo-index bench ran without a wallet file"
 ubench utxo-index bogus >/dev/null 2>&1 && fail "utxo-index accepted an unknown subcommand after bench was added"
@@ -806,6 +810,12 @@ grep -q 'Cached read (seconds): p50 0.002, p99 0.004, max 0.005, roster wallets 
 grep -q 'warning: 1 wallet(s) fell back' "$tmp/ubench.out" || fail "utxo-index bench did not warn about the fallback wallet"
 grep -q '^2  *2000  *2000  *1  *7' "$tmp/ubench.out" || fail "utxo-index bench did not print expected scripts and fallback wallets per batch"
 grep -q 'Scan at height' "$tmp/ubench.out" && fail "utxo-index bench printed a scan section without --scan"
+
+reset_ubench
+mkdir -p "$tmp/bench-cwd"
+cp "$bench_wallets" "$tmp/bench-cwd/relative-wallets.json"
+(cd "$tmp/bench-cwd" && HOME="$tmp" BITCOIN_STACK_UTXO_BENCH_POLL_SECONDS=1 BITCOIN_STACK_UTXO_BENCH_TIMEOUT_SECONDS="${BENCH_TIMEOUT:-5}" PATH="$utxo_stub:$stub:$PATH" "$utxo_dir/stack" utxo-index bench relative-wallets.json) >"$tmp/ubench.out" 2>&1 || fail "utxo-index bench did not read a wallet file relative to the caller's directory"
+jq -e '.wallets | length == 2' "$FAKE_UTXO/bench-request.json" >/dev/null || fail "utxo-index bench sent the wrong wallets for a relative path"
 saved=$(sed -n 's/^Saved \(.*\) (mode 600)\.$/\1/p' "$tmp/ubench.out")
 [ -f "$saved" ] || fail "utxo-index bench did not print the saved result path"
 [ -n "$(find "$saved" -perm 600)" ] || fail "utxo-index bench result is not mode 600"

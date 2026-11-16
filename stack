@@ -190,6 +190,7 @@ prepare_config_for_start() {
       ;;
   esac
 }
+caller_dir=$PWD
 cd "$state_dir"
 
 compose() {
@@ -587,6 +588,14 @@ utxo_index_bench() {
     echo "--repeat takes a number from 1 to 200." >&2
     return 1
   fi
+  case "$file" in
+    /*) ;;
+    *) file=$caller_dir/$file ;;
+  esac
+  [ -r "$file" ] || {
+    echo "Cannot read $file." >&2
+    return 1
+  }
   command -v jq >/dev/null || {
     echo "jq is required; install it with your host package manager." >&2
     return 1
