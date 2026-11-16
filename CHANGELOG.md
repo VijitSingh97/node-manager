@@ -8,6 +8,15 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
+- `utxo-index bench <wallets.json> [--scan [-y]] [--repeat N]` measures balance
+  lookups on a host with the Bitcoin balance index ready. The dashboard times
+  script derivation, cold and repeated index lookups per wallet, batches of 1,
+  5 and 20 wallets and the cached wallet read, and with `--scan` also runs
+  `scantxoutset` over the same wallets and compares the coins. It needs no
+  dashboard password and leaves the wallet list untouched; the result is saved
+  with mode 600. `docs/measurements/lookup-bench.md` is the runbook, with public
+  test wallets in `bench-wallets.json`, and `scripts/measure-block-latency.sh`
+  measures new-block-to-balance time from logs (#236).
 - Docs: how long nodes and onion services take to reconnect after the Tor
   container restarts, which happens when incoming connections are turned on or
   off, when Bitcoin, Litecoin or Bitcoin Cash is activated or deactivated with

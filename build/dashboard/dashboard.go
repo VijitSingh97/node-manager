@@ -182,6 +182,7 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 			dumpRPC := *rpc
 			dumpRPC.client, dumpRPC.maxBody = &http.Client{}, 1<<20
 			a.utxo.configureSeed(utxoSeedHost{stateDir: cfg.stateDir, dataDir: cfg.dataDir, dump: &dumpRPC, hold: a.scanner.hold, release: a.scanner.release})
+			a.utxo.configureBench(a.benchHost())
 		}
 	}
 	if a.moneroWatch.Err() != nil {

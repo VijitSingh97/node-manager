@@ -183,6 +183,31 @@ func publicExampleOnly(entries []WatchEntry) bool {
 	return len(entries) == 0 || len(entries) == 1 && isPublicExample(entries[0])
 }
 
+type validatedDescriptor struct {
+	desc   string
+	ranged bool
+}
+
+func (a *app) validateWatchKey(ctx context.Context, key string) ([]validatedDescriptor, error) {
+	descs, err := descriptorsFor(key)
+	if err != nil {
+		return nil, err
+	}
+	validated := make([]validatedDescriptor, 0, len(descs))
+	for _, desc := range descs {
+		var info struct {
+			Descriptor     string `json:"descriptor"`
+			IsRange        *bool  `json:"isrange"`
+			HasPrivateKeys *bool  `json:"hasprivatekeys"`
+		}
+		if err := a.rpc.call(ctx, "getdescriptorinfo", []any{desc.Desc}, &info); err != nil || info.Descriptor == "" || info.IsRange == nil || info.HasPrivateKeys == nil || *info.HasPrivateKeys {
+			return nil, errors.New("invalid descriptor")
+		}
+		validated = append(validated, validatedDescriptor{desc: info.Descriptor, ranged: *info.IsRange})
+	}
+	return validated, nil
+}
+
 func (a *app) apiWatchAdd(w http.ResponseWriter, r *http.Request) {
 	if a.rejectDisabledBitcoin(w) {
 		return
@@ -200,27 +225,10 @@ func (a *app) apiWatchAdd(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Name and key are both required.", 400)
 		return
 	}
-	descs, err := descriptorsFor(entry.Key)
+	validated, err := a.validateWatchKey(r.Context(), entry.Key)
 	if err != nil {
 		http.Error(w, "A valid public key, address, or descriptor is required.", 400)
 		return
-	}
-	type validatedDescriptor struct {
-		desc   string
-		ranged bool
-	}
-	validated := make([]validatedDescriptor, 0, len(descs))
-	for _, desc := range descs {
-		var info struct {
-			Descriptor     string `json:"descriptor"`
-			IsRange        *bool  `json:"isrange"`
-			HasPrivateKeys *bool  `json:"hasprivatekeys"`
-		}
-		if err := a.rpc.call(r.Context(), "getdescriptorinfo", []any{desc.Desc}, &info); err != nil || info.Descriptor == "" || info.IsRange == nil || info.HasPrivateKeys == nil || *info.HasPrivateKeys {
-			http.Error(w, "A valid public key, address, or descriptor is required.", 400)
-			return
-		}
-		validated = append(validated, validatedDescriptor{desc: info.Descriptor, ranged: *info.IsRange})
 	}
 	var chain blockchainInfo
 	_ = a.rpc.call(r.Context(), "getblockchaininfo", nil, &chain)

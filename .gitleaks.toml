@@ -17,6 +17,13 @@ regexes = [
   '''^(?:(?:bench|admin):)?benchpass$''',
   '''1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa''',
   '''34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo''',
+  '''3M219KR5vEneNb47ewrPfWyb5jQ2DjxRP6''',
+  '''bc1ql49ydapnjafl5t2cp9zqpjwe6pdgmxy98859v2''',
+  '''bc1qgdjqv0av3q56jvd82tkdjpy7gdp9ut8tlqmgrpmv24sq90ecnvqqjwvw97''',
+  '''bc1qjasf9z3h7w3jspkhtgatgpyvvzgpa2wwd2lr0eh5tx44reyn2k7sfc27a4''',
+  '''1HQ3Go3ggs8pFnXuHVHRytPCq5fGG8Hbhx''',
+  '''1FeexV6bAHb8ybZjqQMjJrcCrHGW9sb6uF''',
+  '''bc1qazcm763858nkj2dj986etajv6wquslv8uxwczt''',
   '''bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu''',
   '''zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs''',
 ]
