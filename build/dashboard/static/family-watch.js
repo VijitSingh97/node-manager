@@ -7,6 +7,9 @@ const LABELS = { tari: "Tari", litecoin: "Litecoin", dogecoin: "Dogecoin", bitco
 const UNITS = { litecoin: "LTC", dogecoin: "DOGE", bitcoincash: "BCH", zcash: "ZEC" };
 const PRICE_ASSETS = { litecoin: "litecoin", dogecoin: "dogecoin", bitcoincash: "bitcoin-cash", zcash: "zcash" };
 const HEADERS = { "X-Requested-With": "fetch" };
+export const SCOPE_NOTES = {
+  litecoin: "Balances cover transparent outputs only. Funds inside MWEB are not counted, and the peg-in pool shows as one non-wallet coin.",
+};
 
 export function familyAmount(value) {
   return typeof value === "string" && /^(0|[1-9]\d*)\.\d{8}$/.test(value) ? value : "";
@@ -86,6 +89,7 @@ if (typeof document !== "undefined") {
     address.setAttribute("aria-label", `${LABELS[node]} public address`);
     add.type = "submit";
     form.append(label, address, add, message);
+    if (SCOPE_NOTES[node]) root.append(el("p", "watch-hint", SCOPE_NOTES[node]));
     if (SUPPORTED.has(node)) root.append(form);
 
     const setMessage = (text, error = false) => {

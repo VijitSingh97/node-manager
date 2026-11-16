@@ -199,7 +199,11 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 			logger.Printf("%s balance index disabled: %s overlaps %s", node.Name, node.UTXOIndexDir, clash)
 			continue
 		}
-		a.chainUtxo[id] = a.newChainUtxo(node, chain, logger)
+		m := a.newChainUtxo(node, chain, logger)
+		a.chainUtxo[id] = m
+		if store := a.familyWatch.stores[id]; store != nil {
+			store.index, m.onApplied = m, store.requestScan
+		}
 	}
 	if a.moneroWatch.Err() != nil {
 		a.log.Print("Monero watch-only wallet state unavailable until the state file is repaired and the dashboard restarts")

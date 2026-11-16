@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log"
@@ -62,13 +63,21 @@ func (f *familyScanRPCFixture) handler(w http.ResponseWriter, r *http.Request) {
 		result = map[string]any{"blocks": chainHeight, "headers": chainHeight, "bestblockhash": chainHash, "initialblockdownload": ibd, "warnings": warnings}
 	case "getblockheader":
 		result = map[string]any{"time": tipTime}
+	case "validateaddress":
+		address, _ := request.Params[0].(string)
+		result = map[string]any{"isvalid": true, "address": address, "scriptPubKey": hex.EncodeToString([]byte(address))}
 	case "scantxoutset":
 		descriptors, _ := request.Params[1].([]any)
-		descriptor, _ := descriptors[0].(string)
+		var unspents []any
 		f.mu.Lock()
-		f.scanned = append(f.scanned, descriptor)
+		for _, d := range descriptors {
+			descriptor, _ := d.(string)
+			f.scanned = append(f.scanned, descriptor)
+			address := strings.TrimSuffix(strings.TrimPrefix(descriptor, "addr("), ")")
+			unspents = append(unspents, map[string]any{"scriptPubKey": hex.EncodeToString([]byte(address)), "amount": json.RawMessage("1.25000000")})
+		}
 		f.mu.Unlock()
-		result = map[string]any{"success": true, "total_amount": json.RawMessage("1.25000000"), "height": scanHeight, "bestblock": scanHash}
+		result = map[string]any{"success": true, "total_amount": json.RawMessage("1.25000000"), "height": scanHeight, "bestblock": scanHash, "unspents": unspents}
 	case "getblockhash":
 		height, _ := request.Params[0].(float64)
 		result = canonical[int64(height)]

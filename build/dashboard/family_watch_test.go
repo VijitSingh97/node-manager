@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log"
@@ -54,7 +55,7 @@ func (f *familyWatchRPCFixture) handler(w http.ResponseWriter, r *http.Request) 
 		} else if strings.HasPrefix(address, "empty-script-") {
 			result = map[string]any{"isvalid": true, "address": address, "scriptPubKey": "", "ismweb": false}
 		} else {
-			result = map[string]any{"isvalid": true, "address": "canonical-" + address, "scriptPubKey": "76a914", "ismweb": false}
+			result = map[string]any{"isvalid": true, "address": "canonical-" + strings.TrimPrefix(address, "canonical-"), "scriptPubKey": familyWatchFixtureScript(address), "ismweb": false}
 		}
 	case "getblockchaininfo":
 		result = map[string]any{"blocks": 200, "headers": 200, "bestblockhash": "tip", "initialblockdownload": ibd}
@@ -84,11 +85,14 @@ func (f *familyWatchRPCFixture) handler(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		descriptors, _ := request.Params[1].([]any)
-		amount := json.RawMessage("0.00000000")
-		if len(descriptors) == 1 && strings.Contains(descriptors[0].(string), "canonical-") {
-			amount = json.RawMessage("1.23456789")
+		var unspents []any
+		for _, d := range descriptors {
+			if descriptor, _ := d.(string); strings.Contains(descriptor, "canonical-") {
+				address := strings.TrimSuffix(strings.TrimPrefix(descriptor, "addr("), ")")
+				unspents = append(unspents, map[string]any{"scriptPubKey": familyWatchFixtureScript(address), "amount": json.RawMessage("1.23456789")})
+			}
 		}
-		result = map[string]any{"success": true, "total_amount": amount, "height": 200, "bestblock": "tip"}
+		result = map[string]any{"success": true, "height": 200, "bestblock": "tip", "unspents": unspents}
 	default:
 		http.Error(w, "unexpected method", http.StatusBadRequest)
 		return
@@ -278,4 +282,8 @@ func TestFamilyWatchSyncWaitingAndFailedScanPreserveStaleBalance(t *testing.T) {
 	if len(wallets[0].History) != maxFamilyWatchHistory {
 		t.Fatalf("history length = %d", len(wallets[0].History))
 	}
+}
+
+func familyWatchFixtureScript(address string) string {
+	return hex.EncodeToString([]byte("canonical-" + strings.TrimPrefix(address, "canonical-")))
 }

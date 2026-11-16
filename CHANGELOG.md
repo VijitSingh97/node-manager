@@ -42,6 +42,10 @@ All notable changes to this project are documented here. Format follows
 
 ### Changed
 
+- The Litecoin and Bitcoin Cash watch-only cards scan every due address in one
+  `scantxoutset` walk instead of one walk per address, and the Litecoin card holds
+  up to 50 addresses (was 25). The Litecoin card notes that funds inside MWEB are
+  not counted.
 - The new-version notice and Settings now link to the README's Updating section
   instead of repeating the update commands.
 - Settings ends with **Reset to default**, **Cancel** and **Save**, and that

@@ -55,6 +55,16 @@ func TestLitecoinIndexConfigAndWiring(t *testing.T) {
 		m.host.dataDir != cfg.nodes[nodeLitecoin].DataDir || m.host.lock != &a.utxoSeedLock || m.seedPath != filepath.Join(cfg.stateDir, "litecoin-utxo-seed.json") {
 		t.Fatalf("litecoin index wired as chain %p dir %s host %+v seed %s", m.chain, m.dir, *m.host, m.seedPath)
 	}
+	if store := a.familyWatch.stores[nodeLitecoin]; store.index != m || m.onApplied == nil {
+		t.Fatal("the Litecoin watch does not read the Litecoin index")
+	} else {
+		m.onApplied()
+		select {
+		case <-store.trigger:
+		default:
+			t.Fatal("a new indexed block did not wake the Litecoin watch")
+		}
+	}
 	scan := &a.familyWatch.stores[nodeLitecoin].scanMu
 	if !m.host.hold() || scan.TryLock() {
 		t.Fatal("the seed hold does not stop the Litecoin watch scan")

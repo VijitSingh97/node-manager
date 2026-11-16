@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { familyAccessView, familyAmount, familyRow, familySourceURL, familyWalletPost } from "./family-watch.js";
+import { familyAccessView, familyAmount, familyRow, familySourceURL, familyWalletPost, SCOPE_NOTES } from "./family-watch.js";
 
 test("Litecoin and Bitcoin Cash labels are optional", () => {
   assert.deepEqual(familyWalletPost("litecoin", "", " Laddress "), { label: "Litecoin wallet", address: "Laddress" });
@@ -73,4 +73,9 @@ test("saved balance charts preserve a single atomic-unit change", () => {
   const series = familyRow({ state: "ok", amount: "1.00000000", history: [{ amount: "9007199254740993.00000000" }, { amount: "9007199254740993.00000001" }] }, "litecoin").series;
   assert.deepEqual(series, [0, 1]);
   assert.deepEqual(familyRow({ state: "ok", amount: "1.00000000", history: [{ amount: "0.00000000" }] }, "litecoin").series, []);
+});
+
+test("the Litecoin watch says MWEB funds are not counted", () => {
+  assert.equal(SCOPE_NOTES.litecoin, "Balances cover transparent outputs only. Funds inside MWEB are not counted, and the peg-in pool shows as one non-wallet coin.");
+  assert.deepEqual(Object.keys(SCOPE_NOTES), ["litecoin"]);
 });

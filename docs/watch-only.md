@@ -79,11 +79,18 @@ Fresh Bitcoin state includes one clearly marked public example; see
 The Litecoin and Bitcoin Cash cards require one public address; the optional
 label defaults to **Litecoin wallet** or **Bitcoin Cash wallet**. After
 the node is fully synced, the dashboard validates the address with that daemon and
-runs its native `scantxoutset` call. The result is a confirmed UTXO snapshot at the
-displayed scan height, not transaction history. Extended public keys, descriptors,
-Litecoin MWEB addresses, private keys, and seeds are not accepted in these forms.
+scans every address that is due in one native `scantxoutset` walk. The result is a
+confirmed UTXO snapshot at the displayed scan height, not transaction history.
+Extended public keys, descriptors, Litecoin MWEB addresses, private keys, and seeds
+are not accepted in these forms. The Litecoin card holds up to 50 addresses and the
+Bitcoin Cash card up to 25.
 
 Scans run in the background and a confirmed result is reused for up to one hour.
+When the Litecoin balance index is on and at the node's tip, Litecoin balances come
+from the index instead and update within a minute of each block; the scan is the
+fallback while the index seeds or catches up. Litecoin balances cover transparent
+outputs only: funds inside MWEB are not counted, and the peg-in pool shows as one
+non-wallet coin.
 The row is **Pending** before its first successful scan. If the node is syncing or
 a later scan fails, a prior confirmed amount remains visible as **Stale** or
 **Error**; an unverified failure is never displayed as a zero balance. Saved
