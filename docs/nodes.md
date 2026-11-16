@@ -147,6 +147,10 @@ shows the node's estimated post-sync disk use and fills in its default absolute
 host data folder. It also lists the interfaces that node can expose—RPC, ZMQ, or
 gRPC as applicable—with their default ports. Every interface starts closed;
 opening one is an explicit choice in this dialog.
+The host runs one change at a time. While it runs, the node's row reads
+"Installing…" (or "Moving data…" for a data move), and the other Node set
+controls stay disabled until it finishes or fails. This holds across page
+reloads.
 
 Choose a new or empty data folder. The host rejects symlinked folders and
 locations that overlap application settings or other sensitive application paths;

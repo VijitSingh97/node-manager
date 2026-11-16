@@ -87,6 +87,55 @@ func TestHostControlKeepsEmptyInstallInterfaces(t *testing.T) {
 	}
 }
 
+func TestHostControlKeepsAPendingInstallVisibleAndRejectsAnotherChange(t *testing.T) {
+	a, _ := testApp(t, &rpcFixture{}, "")
+	writeHostCapability(t, a, false)
+	if got := hostControlHTTP(a, http.MethodPost, `{"action":"install","node":"monero"}`, true, "192.168.1.20:4321"); got.Code != http.StatusAccepted {
+		t.Fatalf("install = %d %s", got.Code, got.Body.String())
+	}
+	status := func() *hostControlStatus {
+		t.Helper()
+		var view hostControlView
+		if err := json.Unmarshal(hostControlHTTP(a, http.MethodGet, "", false, "192.168.1.20:4321").Body.Bytes(), &view); err != nil {
+			t.Fatal(err)
+		}
+		return view.Status
+	}
+	for _, step := range []string{"request", "processing"} {
+		if got := status(); got == nil || got.State != "pending" || got.Action != "install" || got.Node != "monero" {
+			t.Fatalf("%s status = %#v", step, got)
+		}
+		for _, body := range []string{`{"action":"install","node":"monero"}`, `{"action":"migrate","node":"bitcoin","data_dir":"/mnt/big/bitcoin"}`, `{"action":"launch_at_boot","enabled":true}`} {
+			if got := hostControlHTTP(a, http.MethodPost, body, true, "192.168.1.20:4321"); got.Code != http.StatusConflict {
+				t.Fatalf("%s: second change %s = %d", step, body, got.Code)
+			}
+		}
+		if step == "request" {
+			if err := os.Rename(a.nodeControlPath("request"), a.nodeControlPath("processing")); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	b, err := os.ReadFile(a.nodeControlPath("processing"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var request hostControlRequest
+	if err := json.Unmarshal(b, &request); err != nil {
+		t.Fatal(err)
+	}
+	failed, _ := json.Marshal(hostControlStatus{ID: request.ID, Action: "install", Node: "monero", State: "failed", ErrorCode: "apply_failed"})
+	if err := os.WriteFile(a.nodeControlPath("status"), failed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(a.nodeControlPath("processing")); err != nil {
+		t.Fatal(err)
+	}
+	if got := status(); got == nil || got.State != "failed" || got.Node != "monero" || got.Message != "The host could not apply that change." {
+		t.Fatalf("failed status = %#v", got)
+	}
+}
+
 func TestHostControlRejectsUnsafeInstallOptions(t *testing.T) {
 	for _, body := range []string{
 		`{"action":"install","node":"monero","data_dir":"../monero","interfaces":[]}`,
