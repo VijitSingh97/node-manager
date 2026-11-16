@@ -6,6 +6,13 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- Docs: how long nodes and onion services take to reconnect after the Tor
+  container restarts, which happens when incoming connections are turned on or
+  off, when Bitcoin, Litecoin or Bitcoin Cash is activated or deactivated with
+  incoming connections on, and on upgrades.
+
 ### Changed
 
 - With the Bitcoin balance index ready, a new block reaches the watched
@@ -19,6 +26,14 @@ All notable changes to this project are documented here. Format follows
 
 ### Fixed
 
+- Dogecoin finds peers through Tor. Its two DNS seeds cannot be resolved by Tor
+  exit relays, so a fresh node relied on built-in seeds from February 2024 and
+  took 30 to 75 minutes to reach a few peers. The container now looks the seeds
+  up with DNS-over-HTTPS (Cloudflare) through Tor and adds up to 8 current
+  peers; fresh nodes had 6 and 7 peers within 2 minutes in testing. Dogecoin's
+  own DNS seeding is off. After one successful lookup, restarts use the saved
+  peer list; a failed lookup falls back to the built-in seeds and is retried on
+  the next start. Every request still goes through Tor (#296).
 - Coins worth less than one unit of the chosen currency no longer show a
   rounded-down price such as "Tari price $0.00". The panel and tower price the
   smallest power of ten worth at least one unit, such as "10,000 Tari price
