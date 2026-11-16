@@ -1,6 +1,6 @@
 # ADR 0001: Bitcoin UTXO index for instant watch-only balances
 
-- Status: Accepted 2026-11-14. The owner chose to build the index: opt-in, balances only, filled by a one-time export on already-synced nodes and during initial sync on fresh installs (#267).
+- Status: Accepted 2026-11-14. The owner chose to build the index: opt-in, balances only, filled by a one-time export once the node is synced. Building it during initial sync (#267) is not planned, by the owner's decision on 2026-11-16.
 - Date: 2026-11-14
 - Issue: #219, part of epic #213. Inputs: #216 and #217, both measured.
 - Scope: Bitcoin on pruned nodes. Litecoin follows in #238. Monero and Tari are out of scope.
@@ -162,9 +162,9 @@ Only the first row separates the two choices, and only the index meets it. Optio
 
 Transaction history of spent coins is out of scope. A pruned node no longer holds those blocks, and an all-address history index would be very roughly 150-300 GB (estimate).
 
-The index is opt-in (section 3). It is filled one of two ways:
-1. **Already-synced nodes:** the one-time export (`dumptxoutset` through a FIFO), section 4.
-2. **Fresh installs:** built during initial sync (#267). The dashboard follows blocks from height 0 as Core downloads them, using the same per-block update as tip following (section 6). During that phase Core runs in manual prune mode, and the dashboard calls `pruneblockchain` only behind its own indexed height, so no block is pruned before it is indexed. When initial sync finishes, the index is complete and no export runs. Its cost during sync is unmeasured; #267 measures it.
+The index is opt-in (section 3). It is filled by the one-time export (`dumptxoutset` through a FIFO), section 4, once the node is synced, on fresh and existing installs alike.
+
+Building it during initial sync instead (#267) is not planned, by the owner's decision on 2026-11-16. The dashboard would follow blocks from height 0 with Core in manual prune mode, pruning only behind its own indexed height. A plan for it estimated 6 to 8 days of work. At the measured 1.8 to 3.0 s per recent block for `getblock` verbosity 3, it would add roughly 8 to 13 days of CPU to a full sync on the reference node (inferred). A raw-block reader would be faster but needs a reverse outpoint map of about 9 GB more (inferred). It would replace a seed that took 20 minutes on the same node (measured).
 
 The owner accepts the costs listed under "Is a full index needed at all?" for this goal. Option E (progress UI and queued-add batching) remains useful as the fallback while the index is off, not seeded or not ready. It needs its own issue.
 
@@ -381,7 +381,6 @@ Everything measured is recorded above. What remains:
 
 | Item | Needed when | What it decides | Owner |
 | --- | --- | --- | --- |
-| Build during initial sync: v3 cost across a full sync, prune-lock safety limit | before fresh-install users enable it | Whether v3 is fast enough or a raw-block reader is needed | #267 |
 | Option E: progress UI and queued-add batching | while the index is off or seeding | The fallback's user experience | none yet |
 
 Design items still to measure:
