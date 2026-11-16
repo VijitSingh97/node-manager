@@ -134,17 +134,7 @@ func (a *app) startBackground(ctx context.Context) <-chan struct{} {
 			}
 		})
 	})
-	start(func() {
-		a.every(ctx, 30*time.Second, func(ctx context.Context) {
-			if !a.nodeWorkerRunnable(nodeBitcoin, true) {
-				return
-			}
-			var info blockchainInfo
-			if a.rpc.call(ctx, "getblockchaininfo", nil, &info) == nil {
-				a.scanner.refresh(a.watch.Entries(), info)
-			}
-		})
-	})
+	start(func() { a.refreshWatchLoop(ctx) })
 	start(func() {
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
@@ -336,7 +326,23 @@ func (a *app) nodeWorkerRunnable(id string, fallback bool) bool {
 	return a.nodeActive(id, fallback) && !a.nodeTransitioning(id)
 }
 
+func (a *app) refreshWatchLoop(ctx context.Context) {
+	a.everyOrWake(ctx, 30*time.Second, a.watchWake, func(ctx context.Context) {
+		if !a.nodeWorkerRunnable(nodeBitcoin, true) {
+			return
+		}
+		var info blockchainInfo
+		if a.rpc.call(ctx, "getblockchaininfo", nil, &info) == nil {
+			a.scanner.refresh(a.watch.Entries(), info)
+		}
+	})
+}
+
 func (a *app) every(ctx context.Context, interval time.Duration, fn func(context.Context)) {
+	a.everyOrWake(ctx, interval, nil, fn)
+}
+
+func (a *app) everyOrWake(ctx context.Context, interval time.Duration, wake <-chan struct{}, fn func(context.Context)) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -348,6 +354,7 @@ func (a *app) every(ctx context.Context, interval time.Duration, fn func(context
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		case <-wake:
 		}
 	}
 }
