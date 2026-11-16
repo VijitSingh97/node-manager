@@ -6,6 +6,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.35.0] - 2026-11-15
+
 ### Added
 
 - Settings → Network has two switches that apply at any time, like the LAN
@@ -41,8 +43,6 @@ All notable changes to this project are documented here. Format follows
   height, block 3,643,309 (around 2026-12-03), so a later Zakura is still needed
   before then.
 
-### Changed
-
 - Nodes now reach clearnet peers through Tor by default. Bitcoin, Litecoin,
   Dogecoin and Bitcoin Cash drop `onlynet=onion` and keep their Tor proxy, so
   clearnet dials leave through a Tor exit relay; the family nodes also query
@@ -51,7 +51,7 @@ All notable changes to this project are documented here. Format follows
   `network.clearnet_over_tor` to `false` for onion peers only (Tari then uses
   its onion-only `tor` transport). Monero and Zcash already reached clearnet
   peers through Tor and have no onion-only mode.
-- Incoming connections over Tor are on by default and now cover Litecoin and
+- **Incoming connections over Tor are on by default** and now cover Litecoin and
   Bitcoin Cash as well as Bitcoin. `network.inbound_connections` replaces
   `bitcoin.inbound_onion`, which is no longer read: an install that had
   `"inbound_onion": false` (the old example default) starts accepting incoming
@@ -1457,7 +1457,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.34.0...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.35.0...HEAD
+[1.35.0]: https://github.com/VijitSingh97/node-manager/compare/v1.34.0...v1.35.0
 [1.34.0]: https://github.com/VijitSingh97/node-manager/compare/v1.33.19...v1.34.0
 [1.33.19]: https://github.com/VijitSingh97/node-manager/compare/v1.33.18...v1.33.19
 [1.33.18]: https://github.com/VijitSingh97/node-manager/compare/v1.33.17...v1.33.18

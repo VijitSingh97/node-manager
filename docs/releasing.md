@@ -45,6 +45,11 @@ Versioning rules:
 - **Major** — anything that breaks an existing deployment: removed or
   renamed config keys, subnet changes, data-directory migrations.
 
+One recorded exception: v1.35.0 replaced `bitcoin.inbound_onion` with
+`network.inbound_connections` as a minor release, by the owner's decision,
+because no deployment fails to start. Its changelog says how to stay
+outbound-only.
+
 ## Cutting a release
 
 1. Land the changes on `main` through a PR, including in the same PR:
