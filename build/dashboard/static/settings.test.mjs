@@ -430,4 +430,6 @@ test("host switches stay staged until Save and then apply one at a time in a fix
   assert.equal(hostQueueSettled({ status: { action: "inbound_connections", state: "failed" } }, ""), "");
   const source = await readFile(new URL("./settings.js", import.meta.url), "utf8");
   assert.doesNotMatch(source, /addEventListener\("change", \(\) => submitHost/);
+  assert.match(source, /for \(const \[action, input\] of Object\.entries\(hostToggles\)\) input\.addEventListener\("change", \(\) => \{ hostDraft\[action\] = input\.checked; \}\);/);
+  assert.match(source, /byId\("open"\)\.addEventListener\("click", \(\) => \{\n    if \(!hostQueueAction\) \{\n      hostDraft = \{\};/);
 });

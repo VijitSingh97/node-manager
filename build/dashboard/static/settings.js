@@ -594,6 +594,7 @@ if (typeof document !== "undefined") {
     }
     const queueResult = hostQueueSettled(nextHostView, hostQueueAction);
     if (queueResult === "failed" || queueResult === "applied" && !hostQueue.length) {
+      status.textContent = queueResult === "failed" ? "A host change failed; the changes after it were not sent." : "Settings saved.";
       hostQueue = [];
       hostDraft = {};
       hostQueueAction = "";
@@ -859,7 +860,15 @@ if (typeof document !== "undefined") {
     }
     catch (error) { status.textContent = error.message; }
   }
-  byId("open").addEventListener("click", () => { dialog.showModal(); load(); loadHost(); });
+  byId("open").addEventListener("click", () => {
+    if (!hostQueueAction) {
+      hostDraft = {};
+      for (const [action, input] of Object.entries(hostToggles)) input.checked = hostView[toggleFields[action]];
+    }
+    dialog.showModal();
+    load();
+    loadHost();
+  });
   byId("close").addEventListener("click", () => dialog.close());
   document.getElementById("account-open").addEventListener("click", () => { accountDialog.showModal(); credentialSettings.openPassword(); });
   document.getElementById("account-close").addEventListener("click", () => accountDialog.close());
@@ -891,11 +900,7 @@ if (typeof document !== "undefined") {
     installDialog.close();
     submitHost(payload).finally(() => { installSubmit.disabled = false; });
   });
-  dialog.addEventListener("close", () => {
-    clearSecrets();
-    if (!hostQueueAction) hostDraft = {};
-    delete saved.telegram_bot_token; delete saved.telegram_chat_id; delete saved.healthchecks_url;
-  });
+  dialog.addEventListener("close", () => { clearSecrets(); delete saved.telegram_bot_token; delete saved.telegram_chat_id; delete saved.healthchecks_url; });
   window.addEventListener("node-selected", (event) => {
     credentialSettings.closeNode();
     if (event.detail?.node) {
@@ -984,7 +989,7 @@ if (typeof document !== "undefined") {
     }
     if (changes.length === 0) {
       render(settingsView, scope);
-      targetStatus.textContent = saveNotifications || hostChanges.length ? "Settings saved." : "No changes.";
+      targetStatus.textContent = hostChanges.length ? "Applying host changes…" : saveNotifications ? "Settings saved." : "No changes.";
       if (hostChanges.length) {
         hostQueue = hostChanges;
         submitNextHostChange();
