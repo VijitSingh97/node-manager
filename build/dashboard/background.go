@@ -42,6 +42,9 @@ func (a *app) startBackground(ctx context.Context) <-chan struct{} {
 	if a.familyWatch != nil && a.familyWatchWorkerWanted() {
 		start(func() { a.familyWatch.run(ctx) })
 	}
+	for _, m := range a.chainUtxo {
+		start(func() { m.run(ctx) })
+	}
 	if a.utxo != nil {
 		start(func() { a.utxo.run(ctx) })
 		if a.utxo.bench != nil {

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -29,6 +30,7 @@ type fakeCore struct {
 	skip    bool
 	stallAt int
 	onCall  func()
+	args    []any
 
 	stalled chan struct{}
 	release chan struct{}
@@ -58,7 +60,11 @@ func (c *fakeCore) call(_ context.Context, method string, params any, out any) e
 	c.mu.Lock()
 	c.calls++
 	c.mu.Unlock()
-	if args, ok := params.([]any); !ok || len(args) != 2 || args[0] != seedDumpName || args[1] != "latest" {
+	want := c.args
+	if want == nil {
+		want = []any{seedDumpName, "latest"}
+	}
+	if !reflect.DeepEqual(params, want) {
 		return fmt.Errorf("unexpected params %v", params)
 	}
 	if c.onCall != nil {
@@ -97,6 +103,7 @@ func (c *fakeCore) call(_ context.Context, method string, params any, out any) e
 }
 
 type seedFixture struct {
+	prefix  string
 	m       *utxoManager
 	core    *fakeCore
 	state   string
@@ -110,18 +117,23 @@ func seedTestRequestID(n int) string { return fmt.Sprintf("%032x", n) }
 
 func newSeedFixture(t *testing.T, core *fakeCore) *seedFixture {
 	t.Helper()
+	return newChainSeedFixture(t, core, utxoBitcoin, "")
+}
+
+func newChainSeedFixture(t *testing.T, core *fakeCore, chain *utxoChainParams, prefix string) *seedFixture {
+	t.Helper()
 	utxoTestSmallRuns(t, 1000, 20<<10)
-	fx := &seedFixture{core: core, state: t.TempDir(), data: t.TempDir()}
+	fx := &seedFixture{prefix: prefix, core: core, state: t.TempDir(), data: t.TempDir()}
 	fx.holdOK.Store(true)
 	core.dir = fx.data
 	if err := syscall.Mkfifo(filepath.Join(fx.data, seedIncompleteName), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	fx.m = utxoMgrNew(t, t.TempDir(), nil, newFakeUtxoNode(utxoMgrChain(2, "b")), io.Discard)
-	fx.m.configureSeed(utxoSeedHost{stateDir: fx.state, dataDir: fx.data, dump: core,
+	fx.m = utxoMgrNewChain(t, t.TempDir(), nil, newFakeUtxoNode(utxoMgrChain(2, "b")), io.Discard, chain)
+	fx.m.configureSeed(utxoSeedHost{prefix: prefix, stateDir: fx.state, dataDir: fx.data, dump: core,
 		hold:    func() bool { fx.holds.Add(1); return fx.holdOK.Load() },
 		release: func() { fx.release.Add(1) }})
-	fx.m.setSeedStatePath(filepath.Join(fx.state, "utxo-seed.json"))
+	fx.m.setSeedStatePath(filepath.Join(fx.state, prefix+"utxo-seed.json"))
 	fx.m.checkEvery = time.Millisecond
 	fx.m.temp = func() (float64, error) { return 50, nil }
 	fx.m.guards = func(context.Context) seedGuardInput {
@@ -135,14 +147,14 @@ func newSeedFixture(t *testing.T, core *fakeCore) *seedFixture {
 func (fx *seedFixture) request(t *testing.T, id string, at time.Time) {
 	t.Helper()
 	raw, _ := json.Marshal(seedRequest{ID: id, RequestedAt: at.Unix()})
-	if err := os.WriteFile(filepath.Join(fx.state, seedRequestName), raw, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(fx.state, fx.prefix+seedRequestName), raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func (fx *seedFixture) persisted(t *testing.T) map[string]any {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(fx.state, "utxo-seed.json"))
+	raw, err := os.ReadFile(filepath.Join(fx.state, fx.prefix+"utxo-seed.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

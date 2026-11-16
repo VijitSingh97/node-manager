@@ -145,7 +145,7 @@ func TestPrunedFallsBackToScanWhenIndexCannotServe(t *testing.T) {
 	c := indexTestChain(nil)
 	invalid := indexTestManager(t, c)
 	invalid.invalidate("test")
-	empty := newUtxoManager(t.TempDir(), nil, newFakeUtxoNode(c), log.New(io.Discard, "", 0))
+	empty := newUtxoManager(t.TempDir(), nil, newFakeUtxoNode(c), log.New(io.Discard, "", 0), utxoBitcoin)
 	t.Cleanup(func() { _ = empty.store.Close() })
 	ready := indexTestManager(t, c)
 	cases := map[string]struct {

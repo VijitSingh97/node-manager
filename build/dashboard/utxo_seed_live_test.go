@@ -102,7 +102,7 @@ func TestUtxoSeedInContainer(t *testing.T) {
 	dump := *rpc
 	dump.client = &http.Client{}
 	n := &liveNode{t: t, rpc: rpc}
-	m := newUtxoManager(t.TempDir(), nil, rpc, log.New(io.Discard, "", 0))
+	m := newUtxoManager(t.TempDir(), nil, rpc, log.New(io.Discard, "", 0), utxoBitcoin)
 	state := t.TempDir()
 	m.configureSeed(utxoSeedHost{stateDir: state, dataDir: seedLiveMount + seedLiveNetDir, dump: &dump,
 		hold: func() bool { return true }, release: func() {}})
