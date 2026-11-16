@@ -6,6 +6,15 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+- With the Bitcoin balance index on, a new block reaches watched wallets right
+  away. The dashboard waits on bitcoind's `waitfornewblock` instead of checking
+  every 10 seconds, applies the block to the index, and then refreshes the
+  wallets instead of waiting for their next 30-second pass. On the reference
+  node about half of new blocks used to reach wallets first through the slower
+  per-block scan update, a median 19 seconds after the block (#236).
+
 ## [1.35.1] - 2026-11-16
 
 ### Fixed

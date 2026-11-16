@@ -135,7 +135,7 @@ func (a *app) startBackground(ctx context.Context) <-chan struct{} {
 		})
 	})
 	start(func() {
-		a.every(ctx, 30*time.Second, func(ctx context.Context) {
+		a.everyOrWake(ctx, 30*time.Second, a.watchWake, func(ctx context.Context) {
 			if !a.nodeWorkerRunnable(nodeBitcoin, true) {
 				return
 			}
@@ -337,6 +337,10 @@ func (a *app) nodeWorkerRunnable(id string, fallback bool) bool {
 }
 
 func (a *app) every(ctx context.Context, interval time.Duration, fn func(context.Context)) {
+	a.everyOrWake(ctx, interval, nil, fn)
+}
+
+func (a *app) everyOrWake(ctx context.Context, interval time.Duration, wake <-chan struct{}, fn func(context.Context)) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -348,6 +352,7 @@ func (a *app) every(ctx context.Context, interval time.Duration, fn func(context
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		case <-wake:
 		}
 	}
 }
