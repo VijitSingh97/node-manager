@@ -31,7 +31,7 @@ All notable changes to this project are documented here. Format follows
   answering for about 5 minutes and then answers slowly, and the disk use of
   about 7.5 GiB, up to about 17 GiB while seeding.
 - Operator docs for the measured seed budget, the "Needs a new seed" causes,
-  upgrades, and removing the index and its volume by hand.
+  upgrades, and removing the index and its volume.
 
 ### Changed
 
@@ -42,7 +42,6 @@ All notable changes to this project are documented here. Format follows
 - Zcash runs Zakura 1.8.8 (from 1.8.6). It keeps the same end-of-support
   height, block 3,643,309 (around 2026-12-03), so a later Zakura is still needed
   before then.
-
 - Nodes now reach clearnet peers through Tor by default. Bitcoin, Litecoin,
   Dogecoin and Bitcoin Cash drop `onlynet=onion` and keep their Tor proxy, so
   clearnet dials leave through a Tor exit relay; the family nodes also query
