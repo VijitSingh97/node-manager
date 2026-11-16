@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { indexView, offHint, OFF_HINT, OFF_HINT_DOCS, SEED_COMMAND, SEED_WARNING, CONFIRMED_ONLY } from "./utxo-index.js";
+import { badgeClickTarget, indexBadge, indexView, offHint, OFF_HINT, OFF_HINT_DOCS, SEED_COMMAND, SEED_WARNING, CONFIRMED_ONLY } from "./utxo-index.js";
 
 test("every endpoint state renders its label, and the confirmed-only row is always present", () => {
   const cases = [
@@ -70,7 +70,7 @@ test("a failed or cancelled last seed is reported; a ready index shows no comman
 
 test("the off hint shows only for an off index on a pruned node", () => {
   assert.equal(offHint({ enabled: false, state: "off", node_pruned: true }), OFF_HINT);
-  assert.match(OFF_HINT, /bitcoin\.utxo_index/);
+  assert.match(OFF_HINT, /Settings/);
   assert.match(OFF_HINT_DOCS, /^https:\/\/github\.com\/.*docs\/watch-only\.md$/);
   assert.equal(offHint({ enabled: false, state: "off", node_pruned: false }), "");
   assert.equal(offHint({ enabled: false, state: "off", node_pruned: null }), "");
@@ -79,4 +79,24 @@ test("the off hint shows only for an off index on a pruned node", () => {
   assert.equal(offHint({ enabled: true, state: "ready", node_pruned: true }), "");
   assert.equal(indexView({ enabled: false, state: "off", node_pruned: true }), null);
   assert.equal(indexView({ enabled: true, state: "ready" }).rows[0], "Index: Ready");
+});
+
+test("the wallet card badge names each index state and its tone", () => {
+  const cases = [
+    [{ enabled: true, state: "ready" }, "Balance index: ready", "ok"],
+    [{ enabled: true, state: "catching_up" }, "Balance index: catching up", "info"],
+    [{ enabled: true, state: "seeding" }, "Balance index: seeding", "info"],
+    [{ enabled: true, state: "not_seeded" }, "Balance index: needs a seed", "warn"],
+    [{ enabled: true, state: "invalid" }, "Balance index: needs a seed", "warn"],
+    [{ enabled: true, state: "degraded" }, "Balance index: degraded", "bad"],
+    [{ enabled: false, state: "off" }, "Balance index: off", "off"],
+    [{ enabled: true, state: "off" }, "Balance index: off", "off"],
+  ];
+  for (const [status, text, tone] of cases) assert.deepEqual(indexBadge(status), { text, tone });
+  assert.equal(indexBadge(null), null);
+});
+
+test("the badge scrolls to the index card when it shows and opens Settings when it is hidden", () => {
+  assert.equal(badgeClickTarget(false), "anchor");
+  assert.equal(badgeClickTarget(true), "settings");
 });

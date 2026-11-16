@@ -24,6 +24,7 @@ type hostControlCapability struct {
 	BootEnabled      bool              `json:"boot_enabled"`
 	ClearnetOverTor  bool              `json:"clearnet_over_tor"`
 	InboundTor       bool              `json:"inbound_connections"`
+	UtxoIndex        bool              `json:"utxo_index"`
 	ConfigPending    bool              `json:"config_pending"`
 	ConfigRevision   string            `json:"config_revision"`
 	ConfigPath       string            `json:"config_path,omitempty"`
@@ -87,6 +88,7 @@ type hostControlView struct {
 	BootKind         string             `json:"boot_kind"`
 	ClearnetOverTor  bool               `json:"clearnet_over_tor"`
 	InboundTor       bool               `json:"inbound_connections"`
+	UtxoIndex        bool               `json:"utxo_index"`
 	ConfigPending    bool               `json:"config_pending"`
 	ConfigRevision   string             `json:"config_revision,omitempty"`
 	ConfigPath       string             `json:"config_path,omitempty"`
@@ -210,7 +212,7 @@ func hostControlPendingMessage(action string) string {
 }
 
 func validHostAction(action string) bool {
-	return action == "install" || action == "migrate" || action == "launch_at_boot" || action == "apply_config" || networkHostAction(action)
+	return action == "install" || action == "migrate" || action == "launch_at_boot" || action == "apply_config" || action == "utxo_index" || networkHostAction(action)
 }
 
 func networkHostAction(action string) bool {
@@ -218,7 +220,7 @@ func networkHostAction(action string) bool {
 }
 
 func toggleHostAction(action string) bool {
-	return action == "launch_at_boot" || networkHostAction(action)
+	return action == "launch_at_boot" || action == "utxo_index" || networkHostAction(action)
 }
 
 func validHostControlShape(action, node string, enabled *bool, dataDir string, interfaces []hostInstallInterface) bool {
@@ -254,6 +256,11 @@ func canonicalHostStatusMessage(status hostControlStatus) string {
 				return "Incoming Tor connections disabled."
 			}
 			return "Incoming Tor connections enabled."
+		case "utxo_index":
+			if status.Enabled != nil && !*status.Enabled {
+				return "Balance index turned off."
+			}
+			return "Balance index turned on. Seed it to start using it."
 		case "migrate":
 			if normalizeNodeID(status.Node) == "" {
 				return "Node data migrated."
@@ -274,6 +281,7 @@ func canonicalHostStatusMessage(status hostControlStatus) string {
 		"unsupported":        "That host action is not supported by this installation.",
 		"ownership_conflict": "The node data directory is managed by another installation.",
 		"unchanged":          "The host already has that setting.",
+		"seed_running":       "A balance index seed is running. Cancel it with utxo-seed cancel, then try again.",
 		"not_installed":      "That node is not installed.",
 		"data_path_invalid":  "The data folder must be a new or empty writable folder outside the app and config roots, without symbolic links.",
 		"insufficient_space": "The destination disk does not have enough free space.",
@@ -343,7 +351,7 @@ func (a *app) hostControlView() hostControlView {
 		interfaces := append([]hostInstallInterface(nil), catalog.Interfaces...)
 		nodes = append(nodes, hostControlNode{ID: id, Name: nodeDisplayName(id), Installed: configured, DataDir: capability.DataPaths[id], DiskEstimate: catalog.DiskEstimate, DiskNote: catalog.DiskNote, Interfaces: interfaces})
 	}
-	return hostControlView{Available: available, InstallSupported: available && capability.InstallSupported, MigrateSupported: available && capability.MigrateSupported, BootSupported: available && capability.BootSupported, BootEnabled: capability.BootEnabled, BootKind: capability.BootKind, ClearnetOverTor: capability.ClearnetOverTor, InboundTor: capability.InboundTor, ConfigPending: capability.ConfigPending, ConfigRevision: capability.ConfigRevision, ConfigPath: capability.ConfigPath, Nodes: nodes, Status: status}
+	return hostControlView{Available: available, InstallSupported: available && capability.InstallSupported, MigrateSupported: available && capability.MigrateSupported, BootSupported: available && capability.BootSupported, BootEnabled: capability.BootEnabled, BootKind: capability.BootKind, ClearnetOverTor: capability.ClearnetOverTor, InboundTor: capability.InboundTor, UtxoIndex: capability.UtxoIndex, ConfigPending: capability.ConfigPending, ConfigRevision: capability.ConfigRevision, ConfigPath: capability.ConfigPath, Nodes: nodes, Status: status}
 }
 
 func (a *app) apiHostControlGet(w http.ResponseWriter, r *http.Request) {
@@ -404,6 +412,13 @@ func (a *app) apiHostControlPost(w http.ResponseWriter, r *http.Request) {
 		configured, _ := a.nodeConfigured(input.Node)
 		if !configured {
 			http.Error(w, "node is not installed", http.StatusConflict)
+			return
+		}
+	}
+	if input.Action == "utxo_index" && *input.Enabled {
+		configured, _ := a.nodeConfigured("bitcoin")
+		if !configured {
+			http.Error(w, "Bitcoin is not installed", http.StatusConflict)
 			return
 		}
 	}
