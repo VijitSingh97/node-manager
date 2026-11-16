@@ -252,8 +252,9 @@ first — a live copy of `chainstate/` is corrupt by construction.
       the node answers, the entry also carries `network`, `height`,
       `sync_progress` (0 to 1), `peers` and `version` where already known.
       Bitcoin, Litecoin, Dogecoin and Bitcoin Cash report `peers` and
-      `version` once their tower has been opened. Tari and Zcash report no
-      `network`.
+      `version` once their tower has been opened. `network` is the node's own
+      word (`main` for the Bitcoin family, `mainnet` for Monero); Tari and
+      Zcash report none.
 
   Neither endpoint returns wallet data, credentials, onion addresses or
   host paths. A configured `dashboard.public_url` still limits which host
