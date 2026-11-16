@@ -24,17 +24,27 @@ export function formatPrice(amount, currency, NumberFormat = Intl.NumberFormat) 
   }
 }
 
+export function scaledPrice(price) {
+  const amount = Number(price);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  let quantity = 1;
+  // Products such as 1e-11 * 1e11 land one ulp under 1.
+  while (amount * quantity < 1 - 1e-9) quantity *= 10;
+  return { quantity, amount: amount * quantity };
+}
+
 export function priceView(data, currency, formatTime = defaultTime) {
   const code = normalizeCurrency(currency);
-  const amount = Number(data?.prices?.[code.toLowerCase()]);
-  if (data?.available !== true || !Number.isFinite(amount) || amount <= 0) {
-    return { currency: code, value: "—", status: "Price unavailable", stale: false };
+  const unit = scaledPrice(data?.prices?.[code.toLowerCase()]);
+  if (data?.available !== true || !unit) {
+    return { currency: code, quantity: "", value: "—", status: "Price unavailable", stale: false };
   }
   const updated = Number(data.updated_at);
   const asOf = Number.isFinite(updated) && updated > 0 ? formatTime(updated) : "unknown";
   return {
     currency: code,
-    value: formatPrice(amount, code),
+    quantity: unit.quantity > 1 ? unit.quantity.toLocaleString() : "",
+    value: formatPrice(unit.amount, code),
     status: data.stale ? `Stale · as of ${asOf}` : `As of ${asOf}`,
     stale: !!data.stale,
   };
@@ -47,7 +57,7 @@ export function panelCurrency(openedNode, asset, current, configured) {
 export function towerPriceView(data, currency) {
   const view = priceView(data, currency);
   return {
-    text: view.value === "—" ? "Price unavailable" : `${view.value}${view.stale ? " · stale" : ""}`,
+    text: view.value === "—" ? "Price unavailable" : `${view.value}${view.quantity ? ` per ${view.quantity}` : ""}${view.stale ? " · stale" : ""}`,
     status: view.status,
     stale: view.stale,
   };
@@ -107,6 +117,8 @@ if (typeof document !== "undefined") {
     const value = widget?.querySelector("[data-price-value]");
     const currencySelect = widget?.querySelector("[data-price-currency]");
     const status = widget?.querySelector("[data-price-status]");
+    const label = widget?.querySelector(".price-label");
+    const labelText = label?.textContent;
     if (widget && (!value || !currencySelect || !status)) continue;
     if (!widget && !towerPrices.length) continue;
 
@@ -123,6 +135,7 @@ if (typeof document !== "undefined") {
       if (widget) {
         const view = priceView(controller.latest, controller.currency);
         value.textContent = view.value;
+        if (label) label.textContent = view.quantity ? `${view.quantity} ${labelText}` : labelText;
         currencySelect.value = controller.currency;
         status.textContent = view.status;
         status.classList.toggle("stale", view.stale);

@@ -17,6 +17,13 @@ All notable changes to this project are documented here. Format follows
   block to the first wallet refresh, and about half of blocks reached wallets
   first through the slower per-block scan update.
 
+### Fixed
+
+- Coins worth less than one unit of the chosen currency no longer show a
+  rounded-down price such as "Tari price $0.00". The panel and tower price the
+  smallest power of ten worth at least one unit, such as "10,000 Tari price
+  $8.03", and recompute it from each new quote and currency.
+
 ## [1.35.1] - 2026-11-16
 
 ### Fixed

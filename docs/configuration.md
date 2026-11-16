@@ -476,6 +476,9 @@ bases continue below the screen; a temporary connection failure keeps the last
 known height. Deactivated nodes remain visible in grey.
 **Default currency** starts at USD and applies to those prices and to a panel
 when opened. Panel currency selectors can still change the current view.
+A coin worth less than one unit of that currency is priced per the smallest
+power of ten worth at least one, so Tari at $0.0008032 reads
+**10,000 Tari price** $8.03 in its panel and $8.03 per 10,000 on its tower.
 Resetting to server configuration hides the names and restores USD.
 
 Node cards display configured host RPC/ZMQ endpoints under **Open ports**.
