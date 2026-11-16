@@ -1,4 +1,4 @@
-import { formatBytes } from "./nodes.js";
+import { formatBytes, formatCompactBytes, formatUptime } from "./nodes.js";
 import { NODE_LABELS } from "./chains.js";
 
 export const OTHER_COLOR = "#6e6e6e";
@@ -171,6 +171,30 @@ export function pieView(stats) {
   };
 }
 
+const NOT_AVAILABLE = "not available";
+
+function reading(value) {
+  return value === null || value === undefined || value === "" ? NaN : Number(value);
+}
+
+export function healthView(stats) {
+  const temps = [["CPU", stats?.cpu_temp_c], ["Board", stats?.board_temp_c]]
+    .filter(([, celsius]) => Number.isFinite(reading(celsius)))
+    .map(([label, celsius]) => `${label} ${Math.round(reading(celsius))} °C`);
+  const fans = (Array.isArray(stats?.fans_rpm) ? stats.fans_rpm : []).map(reading).filter((rpm) => Number.isFinite(rpm) && rpm >= 0);
+  // Unconnected fan headers read 0 rpm, so they are hidden while any fan spins.
+  const spinning = fans.filter((rpm) => rpm > 0).map(Math.round);
+  const uptime = reading(stats?.uptime_s);
+  const rx = reading(stats?.net_rx_bps);
+  const tx = reading(stats?.net_tx_bps);
+  return [
+    { label: "Temperature", value: temps.join(" · ") || NOT_AVAILABLE },
+    { label: spinning.length > 1 ? "Fans" : "Fan", value: fans.length ? `${spinning.join(" · ") || 0} rpm` : NOT_AVAILABLE },
+    { label: "Uptime", value: uptime > 0 ? formatUptime(uptime) : NOT_AVAILABLE },
+    { label: "Network", value: rx >= 0 && tx >= 0 ? `↓ ${formatCompactBytes(rx)}/s · ↑ ${formatCompactBytes(tx)}/s` : NOT_AVAILABLE },
+  ];
+}
+
 export function arcPath(startFrac, endFrac) {
   if (endFrac - startFrac >= 0.9999) return "M 1 0 A 1 1 0 1 1 1 -0.0002 L 0 0 Z";
   const point = (f) => `${Math.cos(2 * Math.PI * f).toFixed(4)} ${Math.sin(2 * Math.PI * f).toFixed(4)}`;
@@ -227,6 +251,21 @@ function renderPies(stats) {
   wrap.hidden = false;
 }
 
+function renderHealth(stats) {
+  const list = document.querySelector("#host-stats [data-host-health]");
+  if (!list) return;
+  list.hidden = !stats;
+  if (!stats) return;
+  list.textContent = "";
+  for (const { label, value } of healthView(stats)) {
+    const term = document.createElement("dt");
+    term.textContent = label;
+    const detail = document.createElement("dd");
+    detail.textContent = value;
+    list.append(term, detail);
+  }
+}
+
 const sizes = new Map();
 let host = null;
 const zoomedDisks = new Set();
@@ -270,6 +309,7 @@ function render() {
     wrap.appendChild(row);
   }
   if (host?.stats) renderPies(host.stats);
+  renderHealth(host?.stats);
   panel.hidden = false;
 }
 

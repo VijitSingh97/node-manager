@@ -37,6 +37,36 @@ a health report. From a source checkout,
 `docker inspect --format '{{json .State.Health}}' "$(docker compose ps -q bitcoin)"`
 shows recent probe output when diagnosing.
 
+## Host readings
+
+With **Node manager usage** ticked in Settings, the usage panel at the top left
+lists the host's temperature, fan speed, uptime and network rate under the disk
+bars and CPU and memory pies. The resource-profile host helper collects them
+once a minute with the other host figures, so the dashboard container needs no
+extra mounts or privileges:
+
+- **Temperature** — the same `/sys/class/thermal` zones the thermal throttle
+  reads. `CPU` is the hottest CPU package zone (`x86_pkg_temp`, `cpu-thermal`,
+  `soc-thermal` or `TCPU`) and `Board` the hottest `acpitz` zone; other zones
+  are not shown but still count for the throttle.
+- **Fan** — every `fan*_input` under `/sys/class/hwmon`, including drivers such
+  as `applesmc` that keep their readings in the hwmon `device/` directory.
+  Headers reading 0 rpm are hidden while any fan spins, because unconnected
+  headers read 0; when every fan reads 0 the panel shows `0 rpm`.
+- **Uptime** — `/proc/uptime` on the host.
+- **Network** — received and sent bytes per second, summed over the host's
+  physical interfaces (those with a device in `/sys/class/net`, so loopback,
+  Docker bridges, `veth` pairs and VPN tunnels such as `tailscale0` are left
+  out). The rate is measured across the helper's existing one-second CPU
+  sample, so it is a snapshot taken once a minute, not an average.
+
+Each reading the host cannot provide shows `not available`: on Homebrew for
+macOS (Docker runs in a VM, and the helper does not read the Mac's sensors),
+in virtual machines without thermal zones, on hosts without hwmon fans, and on
+CPUs that report their temperature only through hwmon (for example AMD's
+`k10temp`), which show just the board reading when there is one. Only numbers
+reach the dashboard: no interface names, addresses or sensor names.
+
 ## Startup and external configuration changes
 
 The application starts only when you run `init` or `up`, unless **Launch at

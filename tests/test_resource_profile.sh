@@ -429,6 +429,52 @@ run_profile
 unset RESOURCE_CGROUP_ROOT FAKE_HOST_STATS_OUT
 jq -e '.nodes.monero.mem_bytes == 1234567890' "$tmp/host-stats-payload.json" >/dev/null || fail "cgroup anon memory did not override docker stats"
 
+host_proc=$case_root/proc host_sys=$case_root/sys
+mkdir -p "$host_proc/net" "$case_root/proc-next/net" "$tmp/bin" "$case_root/zones/0" "$case_root/zones/1" "$case_root/zones/2"
+printf 'cpu  100 0 100 800 0 0 0 0 0 0\n' >"$host_proc/stat"
+printf 'MemTotal: 8000000 kB\nMemAvailable: 4000000 kB\n' >"$host_proc/meminfo"
+printf '1000.00 3000.00\n' >"$host_proc/uptime"
+printf '1002.00 3007.00\n' >"$case_root/proc-next/uptime"
+net_dev() {
+  printf 'Inter-|   Receive                                                |  Transmit\n'
+  printf ' face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n'
+  printf '    lo: %s 10 0 0 0 0 0 0 %s 10 0 0 0 0 0 0\n' "$1" "$1"
+  printf 'enp3s0f0: %s 10 0 0 0 0 0 0 %s 10 0 0 0 0 0 0\n' "$2" "$3"
+  printf 'wlp2s0:%s 10 0 0 0 0 0 0 %s 10 0 0 0 0 0 0\n' "$4" "$5"
+  for virtual in tailscale0 docker0 br-26404e166c9c veth559171e; do
+    printf '%s: %s 10 0 0 0 0 0 0 %s 10 0 0 0 0 0 0\n' "$virtual" "$1" "$1"
+  done
+}
+net_dev 5000000000 1000 2000 500 0 >"$host_proc/net/dev"
+net_dev 9000000000 5000 3000 2500 0 >"$case_root/proc-next/net/dev"
+for iface in lo enp3s0f0 wlp2s0 tailscale0 docker0 br-26404e166c9c veth559171e; do mkdir -p "$host_sys/class/net/$iface"; done
+: >"$host_sys/class/net/enp3s0f0/device"
+: >"$host_sys/class/net/wlp2s0/device"
+mkdir -p "$host_sys/class/hwmon/hwmon1" "$host_sys/class/hwmon/hwmon2/device" "$host_sys/class/hwmon/hwmon3"
+printf 'coretemp\n' >"$host_sys/class/hwmon/hwmon1/name"
+printf '2506\n' >"$host_sys/class/hwmon/hwmon2/device/fan1_input"
+printf '0\n' >"$host_sys/class/hwmon/hwmon3/fan2_input"
+printf '59000\n' >"$case_root/zones/0/temp"; printf 'x86_pkg_temp\n' >"$case_root/zones/0/type"
+printf '45000\n' >"$case_root/zones/1/temp"; printf 'acpitz\n' >"$case_root/zones/1/type"
+printf '70000\n' >"$case_root/zones/2/temp"; printf 'iwlwifi_1\n' >"$case_root/zones/2/type"
+cat >"$tmp/bin/sleep" <<'EOF'
+#!/bin/sh
+cp -R "$FAKE_PROC_NEXT"/. "$RESOURCE_PROC_ROOT"/
+EOF
+chmod +x "$tmp/bin/sleep"
+export RESOURCE_PROC_ROOT=$host_proc RESOURCE_SYS_ROOT=$host_sys RESOURCE_THERMAL_GLOB="$case_root/zones/*/temp"
+export FAKE_PROC_NEXT=$case_root/proc-next FAKE_HOST_STATS_OUT=$tmp/host-stats-payload.json
+PATH="$tmp/bin:$PATH" run_profile
+jq -e '.cpu_temp_c == 59 and .board_temp_c == 45 and .fans_rpm == [0, 2506] and .uptime_s == 1002 and .net_rx_bps == 3000 and .net_tx_bps == 500' "$tmp/host-stats-payload.json" >/dev/null ||
+  fail "host health readings are wrong: $(jq -c '{cpu_temp_c, board_temp_c, fans_rpm, uptime_s, net_rx_bps, net_tx_bps}' "$tmp/host-stats-payload.json")"
+! grep -Eq 'enp3s0f0|wlp2s0|tailscale0|docker0|veth|iwlwifi|coretemp' "$tmp/host-stats-payload.json" || fail "host stats leaked interface or sensor names"
+mkdir -p "$case_root/empty"
+export RESOURCE_PROC_ROOT=$case_root/empty RESOURCE_SYS_ROOT=$case_root/empty RESOURCE_THERMAL_GLOB="$case_root/empty/none*/temp"
+run_profile
+jq -e '.cpus == 4 and ([has("cpu_temp_c", "board_temp_c", "fans_rpm", "uptime_s", "net_rx_bps", "net_tx_bps")] | any | not)' "$tmp/host-stats-payload.json" >/dev/null ||
+  fail "missing sensors were not left out of the host stats payload"
+unset RESOURCE_PROC_ROOT RESOURCE_SYS_ROOT RESOURCE_THERMAL_GLOB FAKE_PROC_NEXT FAKE_HOST_STATS_OUT
+
 new_case thermal
 cat >>"$case_root/state/.env" <<'ENVEOF'
 THERMAL_LIMIT_C=85
