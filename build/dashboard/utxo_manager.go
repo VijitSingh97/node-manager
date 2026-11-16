@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -695,6 +696,32 @@ func (m *utxoManager) invalidate(reason string) {
 		m.log.Printf("utxo index: invalid state could not be persisted: %v", err)
 	}
 	m.set(utxoStateInvalid, reason)
+}
+
+// utxoDirClash names a directory that a chain's index directory equals, sits in or contains; resetting that index would wipe it.
+func utxoDirClash(cfg config, id, dir string) string {
+	others := []string{cfg.utxoIndexDir, cfg.stateDir, cfg.dataDir}
+	for other, node := range cfg.nodes {
+		others = append(others, node.DataDir)
+		if other != id && node.UTXOIndex {
+			others = append(others, node.UTXOIndexDir)
+		}
+	}
+	for _, other := range others {
+		if other != "" && pathsOverlap(dir, other) {
+			return other
+		}
+	}
+	return ""
+}
+
+func pathsOverlap(a, b string) bool {
+	inside := func(x, y string) bool {
+		rel, err := filepath.Rel(y, x)
+		return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	}
+	a, b = filepath.Clean(a), filepath.Clean(b)
+	return inside(a, b) || inside(b, a)
 }
 
 // newChainUtxo builds the index for a chain other than Bitcoin; its seed holds that chain's watch scan.

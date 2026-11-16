@@ -103,7 +103,7 @@ func envConfig() (config, error) {
 			cfg.version = "dev"
 		}
 	}
-	cfg.utxoIndexEnabled = slices.Contains([]string{"1", "true", "yes", "on"}, strings.ToLower(os.Getenv("UTXO_INDEX_ENABLED")))
+	cfg.utxoIndexEnabled = utxoIndexFlag("UTXO_INDEX_ENABLED")
 	cfg.utxoIndexDir = envOr("UTXO_INDEX_DIR", "/utxo-index")
 	if cfg.utxoIndexEnabled && !filepath.IsAbs(cfg.utxoIndexDir) {
 		return config{}, errors.New("UTXO_INDEX_DIR must be an absolute path")
@@ -319,4 +319,8 @@ func main() {
 	if err := runDashboardServers(ctx, stop, a, servers); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func utxoIndexFlag(name string) bool {
+	return slices.Contains([]string{"1", "true", "yes", "on"}, strings.ToLower(os.Getenv(name)))
 }
