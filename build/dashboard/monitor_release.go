@@ -82,7 +82,7 @@ func persistedNodeFromState(state monitorState) persistedNodeState {
 	return persistedNodeState{
 		Fails: state.fails, DownAlerted: state.downAlerted, ChainKnown: state.chainKnown,
 		IBD: state.ibd, IBDTicks: state.ibdTicks, Synced: state.synced, SyncPending: state.syncPending, LastBlock: state.lastBlock,
-		HasLastBlock: state.hasLastBlock, PendingBlock: state.pendingBlock, DiskAlerted: state.diskAlerted, EOSAlerted: state.eosAlerted,
+		HasLastBlock: state.hasLastBlock, PendingBlock: state.pendingBlock, DiskAlerted: state.diskAlerted,
 	}
 }
 
@@ -91,7 +91,7 @@ func applyPersistedNodeState(state *monitorState, saved persistedNodeState) {
 	state.ibd, state.ibdTicks, state.syncPending = saved.IBD, saved.IBDTicks, saved.SyncPending
 	state.synced = saved.Synced || (saved.ChainKnown && !saved.IBD && !saved.SyncPending)
 	state.lastBlock, state.hasLastBlock, state.pendingBlock = saved.LastBlock, saved.HasLastBlock, saved.PendingBlock
-	state.diskAlerted, state.eosAlerted = saved.DiskAlerted, saved.EOSAlerted
+	state.diskAlerted = saved.DiskAlerted
 }
 
 func (m *Monitor) latestReleaseTag(ctx context.Context, url string) string {

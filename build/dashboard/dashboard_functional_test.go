@@ -375,11 +375,8 @@ func TestDashboardUpdateNoticeIsInformational(t *testing.T) {
 	page := responseBody(t, fixture.request(t, http.MethodGet, "/"))
 	for _, want := range []string{
 		"stack v1.3.0 available (running v1.2.0)",
-		"sudo apt install --only-upgrade node-manager",
-		"node-manager pull",
-		"brew upgrade node-manager",
-		"node-manager apply",
-		"https://github.com/VijitSingh97/node-manager/releases/latest",
+		"https://github.com/VijitSingh97/node-manager#updating",
+		"How to update",
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("update notice missing %q", want)
@@ -412,9 +409,17 @@ func TestDashboardUpdateNoticeIsInformational(t *testing.T) {
 				fixture.rpc.setUnavailable(true)
 			}
 			page := responseBody(t, fixture.request(t, http.MethodGet, "/"))
-			for _, want := range []string{`id="update-notice"`, `id="settings-update"`, "stack v1.3.0 available", "docs/operations.md#upgrading"} {
+			for _, want := range []string{`id="update-notice"`, `id="settings-update"`, "stack v1.3.0 available", "node-manager#updating", "How to update"} {
 				if !strings.Contains(page, want) {
 					t.Errorf("%s page missing %q", state, want)
+				}
+			}
+			if got := strings.Count(page, "node-manager#updating"); got != 2 {
+				t.Errorf("%s page has %d update links, want 2 (banner and Settings)", state, got)
+			}
+			for _, bad := range []string{"apt update", "brew upgrade", "end_of_support", "zcash-eos"} {
+				if strings.Contains(page, bad) {
+					t.Errorf("%s page still contains %q", state, bad)
 				}
 			}
 		})
