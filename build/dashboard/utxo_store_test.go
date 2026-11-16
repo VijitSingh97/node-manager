@@ -369,7 +369,7 @@ func TestUtxoStoreDiskFullLeavesStoreOpenable(t *testing.T) {
 		}
 		return nil
 	}))
-	s, err := openUtxoStoreFS("db", fs)
+	s, err := openUtxoStoreFS("db", fs, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -387,7 +387,7 @@ func TestUtxoStoreDiskFullLeavesStoreOpenable(t *testing.T) {
 	if _, _, _, err := s.Tip(); !errors.Is(err, errUtxoBroken) {
 		t.Fatalf("handle after failed commit: %v", err)
 	}
-	s, err = openUtxoStoreFS("db", fs)
+	s, err = openUtxoStoreFS("db", fs, false)
 	if err != nil {
 		t.Fatalf("reopen after ENOSPC: %v", err)
 	}
@@ -401,7 +401,7 @@ func TestUtxoStoreDiskFullLeavesStoreOpenable(t *testing.T) {
 
 func TestUtxoStoreBackgroundFatalMarksStoreBroken(t *testing.T) {
 	fs := vfs.NewMem()
-	s, err := openUtxoStoreFS("db", fs)
+	s, err := openUtxoStoreFS("db", fs, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -421,7 +421,7 @@ func TestUtxoStoreBackgroundFatalMarksStoreBroken(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatalf("close after background fatal: %v", err)
 	}
-	s, err = openUtxoStoreFS("db", fs)
+	s, err = openUtxoStoreFS("db", fs, false)
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
@@ -531,7 +531,7 @@ func TestUtxoStoreKillHelper(t *testing.T) {
 			return nil
 		}))
 	}
-	s, err := openUtxoStoreFS(dir, fs)
+	s, err := openUtxoStoreFS(dir, fs, false)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
