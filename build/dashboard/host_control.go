@@ -402,6 +402,8 @@ func (a *app) seedNow(node string) bool {
 	return (state == utxoStateNotSeeded || state == utxoStateInvalid) && ok && capability.UTXOSeedSupported && !capability.ConfigPending
 }
 
+const hostChangePending = "another host change is pending"
+
 // queueSeedHostAction asks node-control to create a node's seed pipe and a seed request named by the returned id.
 func (a *app) queueSeedHostAction(node string) (id, refusal string) {
 	capability, ok := a.hostControlCapability()
@@ -414,7 +416,7 @@ func (a *app) queueSeedHostAction(node string) (id, refusal string) {
 	a.controlMu.Lock()
 	defer a.controlMu.Unlock()
 	if a.controlRequestPending() {
-		return "", "another host change is pending"
+		return "", hostChangePending
 	}
 	raw := make([]byte, 16)
 	if _, err := rand.Read(raw); err != nil {

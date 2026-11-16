@@ -40,10 +40,15 @@ func TestUtxoAutoSeedAsksTheHostAtMostHourly(t *testing.T) {
 		t.Fatalf("asked the host %d times within the hour, want 1", asks)
 	}
 	clock = clock.Add(time.Hour)
-	answer = "another host change is pending"
+	answer = hostChangePending
 	m.maybeAutoSeed(t.Context())
-	if asks != 2 || !slices.Equal(guardsOf(), []string{"host"}) {
-		t.Fatalf("asks %d, refusals %v", asks, m.Status().Refusals)
+	if asks != 2 || len(guardsOf()) != 0 {
+		t.Fatalf("host contention: asks %d, refusals %v", asks, m.Status().Refusals)
+	}
+	answer = "a configuration change is waiting to be applied"
+	m.maybeAutoSeed(t.Context())
+	if asks != 3 || !slices.Equal(guardsOf(), []string{"host"}) {
+		t.Fatalf("the next poll after host contention: asks %d, refusals %v", asks, m.Status().Refusals)
 	}
 
 	clock = clock.Add(time.Hour)
@@ -53,7 +58,7 @@ func TestUtxoAutoSeedAsksTheHostAtMostHourly(t *testing.T) {
 		return in
 	}
 	m.maybeAutoSeed(t.Context())
-	if asks != 2 || !slices.Contains(guardsOf(), "node") {
+	if asks != 3 || !slices.Contains(guardsOf(), "node") {
 		t.Fatalf("a syncing node was seeded: asks %d, refusals %v", asks, m.Status().Refusals)
 	}
 
@@ -61,7 +66,7 @@ func TestUtxoAutoSeedAsksTheHostAtMostHourly(t *testing.T) {
 	m.guards = synced
 	m.set(utxoStateReady, "")
 	m.maybeAutoSeed(t.Context())
-	if asks != 2 {
+	if asks != 3 {
 		t.Fatal("a seeded index asked for another seed")
 	}
 }
@@ -132,23 +137,36 @@ func TestUtxoAutoSeedBacksOffAfterFailedSeeds(t *testing.T) {
 	failLastAsk(errSeedDump)
 	askAfter(time.Hour, 1)
 	askAfter(5*time.Hour, 2)
-	failLastAsk(context.Canceled)
+	shutdown := context.Canceled
+	failLastAsk(shutdown)
 	askAfter(23*time.Hour, 2)
 	askAfter(time.Hour, 3)
 	failLastAsk(errSeedThermal)
 	askAfter(30*24*time.Hour, 3)
 
-	raw, _ := json.Marshal(seedRequest{ID: seedTestRequestID(99), RequestedAt: clock.Unix()})
-	if err := os.WriteFile(filepath.Join(state, seedRequestName), raw, 0o600); err != nil {
-		t.Fatal(err)
+	userSeed := func(n int) {
+		t.Helper()
+		raw, _ := json.Marshal(seedRequest{ID: seedTestRequestID(n), RequestedAt: clock.Unix()})
+		if err := os.WriteFile(filepath.Join(state, seedRequestName), raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		m.pollSeed(t.Context())
+		if m.seed.AutoFailures != 0 {
+			t.Fatalf("a user's seed request left %d automatic failures", m.seed.AutoFailures)
+		}
 	}
-	m.pollSeed(t.Context())
-	if m.seed.AutoFailures != 0 {
-		t.Fatalf("a user's seed request left %d automatic failures", m.seed.AutoFailures)
-	}
+	userSeed(99)
 	askAfter(time.Hour, 4)
 
-	m.markSeedRequest(asked[3], utxoSeedRunning, nil)
+	failLastAsk(errSeedUserCancel)
+	if st := m.Status(); st.LastSeed.Outcome != "cancelled" {
+		t.Fatalf("a user cancel ended as %+v", st.LastSeed)
+	}
+	askAfter(30*24*time.Hour, 4)
+	userSeed(98)
+	askAfter(time.Hour, 5)
+
+	m.markSeedRequest(asked[4], utxoSeedRunning, nil)
 	restarted := utxoMgrNew(t, t.TempDir(), nil, newFakeUtxoNode(utxoMgrChain(2, "b")), io.Discard)
 	restarted.setSeedStatePath(filepath.Join(state, "utxo-seed.json"))
 	if restarted.seed.AutoFailures != 1 {

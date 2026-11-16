@@ -476,7 +476,7 @@ if [ "$host_request" = true ]; then
     printf '%s' "$current" | jq --arg node "$host_node" --arg data_dir "$host_data_dir" --arg bind_ip "$host_bind_ip" --argjson interfaces "$host_interfaces" --argjson memory "$memory" '
       .[$node].enabled=true | .[$node].active=true |
       .[$node].resource_profile //= "compact" |
-      if $node=="bitcoin" and (.bitcoin.prune_mb // 10000) != 0 then .bitcoin.utxo_index //= true else . end |
+      if $node=="bitcoin" and (.bitcoin.prune_mb // 10000) != 0 and (.bitcoin // {} | has("utxo_index") | not) then .bitcoin.utxo_index=true else . end |
       .[$node].steady_cpus //= 1 | .[$node].steady_mem_limit_mb //= $memory |
       if $data_dir!="" then .[$node].data_dir=$data_dir else . end |
       if $node=="monero" then .[$node].rpc_expose=false | .[$node].zmq_expose=false

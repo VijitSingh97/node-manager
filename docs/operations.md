@@ -319,9 +319,11 @@ installs it seeds itself: while the index has no seed (or its last seed failed),
 the dashboard checks the seed guards once an hour, and when they pass it asks the
 host helper (`node-control`) to create the seed pipe and request, the same
 preparation `utxo-seed` does. A refused check stays in the index status with its
-reason. A seed that starts and then fails is retried after 6 hours, then 24
-hours, and not again after a third failure until you start one; a guard refusal
-costs nothing and is re-checked hourly. The automatic seed holds node-down alerts
+reason. A seed that starts and then fails, or is cut short by a dashboard
+restart, is retried after 6 hours, then 24 hours, and not again after a third
+failure until you start one; a guard refusal costs nothing and is re-checked
+hourly. Cancelling a seed (`utxo-seed cancel`) stops automatic seeding until you
+start one with **Seed now** or `utxo-seed`. The automatic seed holds node-down alerts
 like a manual one. **Seed now** on the index card or in Settings starts a seed
 through the same host helper. A source checkout has no host helper, so seed it by
 hand. To seed it from the host, with the stack running and the node synced:

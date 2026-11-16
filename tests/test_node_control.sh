@@ -516,11 +516,13 @@ NODE_CONTROL_FORCE_MIGRATE_MODE=copy BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTRO
 [ ! -e "$newdisk" ] || fail "copy migrate did not remove the old copy"
 [ ! -e "$dashboard_state/node-control.progress" ] || fail "finished migrate left the progress file behind"
 
-for case in pruned:true archival:null; do
-  jq --argjson archival "$([ "${case%%:*}" = archival ] && echo true || echo false)" '.bitcoin={"enabled":false} | if $archival then .bitcoin.prune_mb=0 else . end' "$config/config.json" >"$tmp/config.next"
+install_id=85
+for case in pruned:true archival:null off:false; do
+  jq --arg case "${case%%:*}" '.bitcoin={"enabled":false} | if $case=="archival" then .bitcoin.prune_mb=0 elif $case=="off" then .bitcoin.utxo_index=false else . end' "$config/config.json" >"$tmp/config.next"
   mv "$tmp/config.next" "$config/config.json"
   jq -S . "$config/config.json" >"$state/.approved-config.json"
-  request "{\"action\":\"install\",\"id\":\"$([ "${case%%:*}" = archival ] && echo 85 || echo 86)858585858585858585858585858585\",\"node\":\"bitcoin\",\"requested_at\":1000}"
+  install_id=$((install_id + 1))
+  request "{\"action\":\"install\",\"id\":\"${install_id}858585858585858585858585858585\",\"node\":\"bitcoin\",\"requested_at\":1000}"
   BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
   [ "$(status .state)" = applied ] || fail "bitcoin install (${case%%:*}) was not applied: $(status .message)"
   [ "$(jq -c .bitcoin.utxo_index "$config/config.json")" = "${case#*:}" ] || fail "a ${case%%:*} bitcoin install set utxo_index to $(jq -c .bitcoin.utxo_index "$config/config.json")"

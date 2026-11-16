@@ -555,6 +555,9 @@ func TestSeedFromDumpCancelClosesReader(t *testing.T) {
 	if st := fx.m.Status(); st.LastSeed.Outcome != "cancelled" || st.LastSeed.Reason != "" {
 		t.Fatalf("last seed %+v", st.LastSeed)
 	}
+	if fx.m.seed.AutoFailures != utxoAutoSeedTries {
+		t.Fatalf("a user cancel left automatic seeding on: %d failures", fx.m.seed.AutoFailures)
+	}
 	if _, err := os.Stat(filepath.Join(fx.state, seedCancelName)); !os.IsNotExist(err) {
 		t.Fatal("cancel file not consumed")
 	}
