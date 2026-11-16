@@ -6,6 +6,13 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- Docs: how long nodes and onion services take to reconnect after the Tor
+  container restarts, which happens when incoming connections are turned on or
+  off, when Bitcoin, Litecoin or Bitcoin Cash is activated or deactivated with
+  incoming connections on, and on upgrades.
+
 ### Changed
 
 - With the Bitcoin balance index ready, a new block reaches the watched
