@@ -29,6 +29,8 @@ All notable changes to this project are documented here. Format follows
 
 ### Changed
 
+- The new-version notice and Settings now link to the README's Updating section
+  instead of repeating the update commands.
 - Settings ends with **Reset to default**, **Cancel** and **Save**, and that
   bar stays at the bottom of the dialog while it scrolls. Reset to default
   replaces Use server config: it fills in the default of every Settings
@@ -37,6 +39,11 @@ All notable changes to this project are documented here. Format follows
   until Save. Cancel closes Settings, like ✕.
 - Up to 50 Bitcoin watch-only wallets instead of 20, and `utxo-index bench`
   takes up to 50 wallets.
+
+### Removed
+
+- The Zcash panel no longer shows the Zakura end-of-support warning; the
+  new-version notice is the only update prompt.
 
 ## [1.36.0] - 2026-11-16
 

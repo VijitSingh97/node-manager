@@ -158,10 +158,7 @@ test("missing Monero mempool fields remain unavailable", () => {
   assert.equal(view.fees, "—");
 });
 
-test("generic node view warns only when the end-of-support flag is set", () => {
-  const base = { enabled: true, available: true, height: 100, sync_percent: 100 };
-  assert.equal(genericNodeView(base, "Zcash").warning, "");
-  const view = genericNodeView({ ...base, end_of_support_warning: true, end_of_support_height: 3643309, end_of_support_remaining_blocks: 1000 }, "Zcash");
-  assert.match(view.warning, /block 3,643,309 \(in 1,000 blocks\).*newer Zakura/);
-  assert.match(genericNodeView({ ...base, end_of_support_warning: true, end_of_support_height: 3643309, end_of_support_remaining_blocks: -3 }, "Zcash").warning, /\(now\)/);
+test("generic node view has no end-of-support warning", () => {
+  const view = genericNodeView({ enabled: true, available: true, height: 100, sync_percent: 100, end_of_support_warning: true }, "Zcash");
+  assert.equal("warning" in view, false);
 });

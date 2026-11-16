@@ -134,6 +134,31 @@ Enable **Launch at login** in Settings if the stack should return when you sign
 in. Docker Desktop must also be running. See the [Homebrew guide](docs/homebrew.md)
 for custom paths, services, upgrades, and removal.
 
+## Updating
+
+The dashboard shows a notice at the top when a new Node Manager release is out.
+Back up, then update the way you installed.
+
+Ubuntu / APT:
+
+```bash
+sudo node-manager backup
+sudo apt update
+sudo apt upgrade
+```
+
+macOS / Homebrew:
+
+```bash
+node-manager backup
+brew update
+brew upgrade node-manager
+node-manager pull
+node-manager apply
+```
+
+Details and recovery: [Upgrading](docs/operations.md#upgrading).
+
 ## Safe defaults
 
 A fresh `init` starts Bitcoin only with 10 GB of recent block files retained.

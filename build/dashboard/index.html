@@ -19,7 +19,7 @@
   <div id="tower-overview-label-bitcoincash" class="tower-overview-label tower-overview-label-bitcoincash" style="--node-accent:#36a852" hidden>loading block <b></b></div>
   <div id="tower-overview-label-zcash" class="tower-overview-label tower-overview-label-zcash" style="--node-accent:#d69c35" hidden>loading block <b></b></div>
   <button id="theme-toggle" class="theme-toggle" title="Toggle light / dark theme" aria-label="Toggle theme">Auto</button>
-  <aside id="update-notice" class="update-notice update-notice-global" role="status"{{if not .UpdateNote}} hidden{{end}}>{{if .UpdateNote}}<strong>🆕 {{.UpdateNote}}</strong> <a href="https://github.com/VijitSingh97/node-manager/blob/main/docs/operations.md#upgrading" target="_blank" rel="noopener noreferrer">Update instructions</a>{{end}}</aside>
+  <aside id="update-notice" class="update-notice update-notice-global" role="status"{{if not .UpdateNote}} hidden{{end}}>{{if .UpdateNote}}<strong>🆕 {{.UpdateNote}}</strong> <a href="https://github.com/VijitSingh97/node-manager#updating" target="_blank" rel="noopener noreferrer">How to update</a>{{end}}</aside>
   <main id="node-overview" class="node-overview" aria-label="Choose a node">
     <div id="host-stats" class="host-stats" hidden>
       <p class="host-stats-line" data-host-line></p>
@@ -86,7 +86,7 @@
   <div id="tower-overview-label-bitcoincash" class="tower-overview-label tower-overview-label-bitcoincash" style="--node-accent:#36a852" hidden>loading block <b></b></div>
   <div id="tower-overview-label-zcash" class="tower-overview-label tower-overview-label-zcash" style="--node-accent:#d69c35" hidden>loading block <b></b></div>
   <button id="theme-toggle" class="theme-toggle" title="Toggle light / dark theme" aria-label="Toggle theme">Auto</button>
-  <aside id="update-notice" class="update-notice update-notice-global" role="status"{{if not .UpdateNote}} hidden{{end}}>{{if .UpdateNote}}<strong>🆕 {{.UpdateNote}}</strong> <a href="https://github.com/VijitSingh97/node-manager/blob/main/docs/operations.md#upgrading" target="_blank" rel="noopener noreferrer">Update instructions</a>{{end}}</aside>
+  <aside id="update-notice" class="update-notice update-notice-global" role="status"{{if not .UpdateNote}} hidden{{end}}>{{if .UpdateNote}}<strong>🆕 {{.UpdateNote}}</strong> <a href="https://github.com/VijitSingh97/node-manager#updating" target="_blank" rel="noopener noreferrer">How to update</a>{{end}}</aside>
   <main id="node-overview" class="node-overview" aria-label="Choose a node">
     <div id="host-stats" class="host-stats" hidden>
       <p class="host-stats-line" data-host-line></p>
@@ -343,7 +343,6 @@
       <h2>Zcash Node Status<span id="zcash-badge" class="badge">Loading</span></h2>
       <p id="zcash-state" class="node-state">Connecting...</p>
       <div id="zcash-details" hidden>
-        <p id="zcash-eos" class="node-state warn" role="alert" hidden></p>
         <div class="row"><span class="label">Version:</span><span id="zcash-version">—</span></div>
         <div class="row"><span class="label">Uptime:</span><span id="zcash-uptime">—</span></div>
         <div class="row"><span class="label">Connections:</span><span id="zcash-connections">—</span></div>
@@ -448,16 +447,8 @@
       <fieldset id="settings-update"{{if not .UpdateNote}} hidden{{end}}>
         <legend>Update available</legend>
         {{if .UpdateNote}}<p><strong>{{.UpdateNote}}</strong></p>
-        <p class="settings-note">Back up first, then use the same installation method you used originally.</p>
-        <p><b>Ubuntu / APT</b></p><pre><code>sudo node-manager backup
-sudo apt update
-sudo apt install --only-upgrade node-manager</code></pre>
-        <p><b>macOS / Homebrew</b></p><pre><code>node-manager backup
-brew update
-brew upgrade node-manager
-node-manager pull
-node-manager apply</code></pre>
-        <p><a href="https://github.com/VijitSingh97/node-manager/releases/latest" target="_blank" rel="noopener noreferrer">Download the latest GitHub release</a> · <a href="https://github.com/VijitSingh97/node-manager/blob/main/docs/operations.md#upgrading" target="_blank" rel="noopener noreferrer">Full upgrade instructions</a></p>{{end}}
+        <p class="settings-note">Back up first, then update the way you installed.</p>
+        <p><a href="https://github.com/VijitSingh97/node-manager#updating" target="_blank" rel="noopener noreferrer">How to update</a></p>{{end}}
       </fieldset>
       <fieldset id="settings-node-alerts" hidden>
         <legend>Node settings</legend>
