@@ -264,3 +264,66 @@ func TestMountDevicePicksLongestMountpointPrefix(t *testing.T) {
 		t.Fatalf("empty mounts = %q", got)
 	}
 }
+
+func TestNodesStoppedFromHostStats(t *testing.T) {
+	dir := t.TempDir()
+	node := nodeConfig{ID: nodeLitecoin, Name: "Litecoin", Enabled: true, Supported: true}
+	a := &app{cfg: config{bitcoinDisabled: true, dashboardPassword: "secret", stateDir: dir, dataDir: dir, nodes: map[string]nodeConfig{nodeLitecoin: node}}}
+	initializeTestDashboardAuth(t, a)
+	stopped := func() bool {
+		t.Helper()
+		response := nodeControlHTTP(a, http.MethodGet, "/api/nodes", "", false)
+		var view struct {
+			Nodes []nodeControlNode `json:"nodes"`
+		}
+		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &view) != nil {
+			t.Fatalf("nodes view = %d %s", response.Code, response.Body.String())
+		}
+		for _, n := range view.Nodes {
+			if n.ID == nodeLitecoin {
+				return n.Stopped
+			}
+		}
+		t.Fatal("litecoin missing")
+		return false
+	}
+	write := func(updated time.Time, running string) {
+		stats := fmt.Sprintf(`{"updated":%d,"cpus":8,"mem_total_bytes":17179869184,"nodes":{},"other":{"cpu_pct":0,"mem_bytes":0}%s}`, updated.Unix(), running)
+		if err := os.WriteFile(filepath.Join(dir, "host-stats.json"), []byte(stats), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if stopped() {
+		t.Fatal("stopped without host stats")
+	}
+	write(time.Now(), `,"running":{"litecoin":false}`)
+	if !stopped() {
+		t.Fatal("fresh report of a stopped container was ignored")
+	}
+	write(time.Now(), `,"running":{"litecoin":true}`)
+	if stopped() {
+		t.Fatal("running container marked stopped")
+	}
+	write(time.Now(), `,"running":{"tari":false}`)
+	if stopped() {
+		t.Fatal("unknown node marked stopped")
+	}
+	write(time.Now().Add(-10*time.Minute), `,"running":{"litecoin":false}`)
+	if stopped() {
+		t.Fatal("stale report marked stopped")
+	}
+	write(time.Now().Add(-time.Minute), `,"running":{"litecoin":false}`)
+	if err := os.WriteFile(filepath.Join(dir, "node-runtime.json"), []byte(`{"litecoin":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if stopped() {
+		t.Fatal("report older than the last node state change marked stopped")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "node-runtime.json"), []byte(`{"litecoin":false}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	write(time.Now(), `,"running":{"litecoin":false}`)
+	if stopped() {
+		t.Fatal("deactivated node marked stopped")
+	}
+}

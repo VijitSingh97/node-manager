@@ -14,6 +14,12 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
+- A node whose container is stopped outside the dashboard (`node-manager stop`,
+  `docker stop`, a crash that exhausted its restarts) now shows its tower greyed
+  with a Stopped status and a Start node button instead of Connecting forever.
+  The resource-profile host helper reports each node container's running state,
+  and the dashboard treats missing or stale reports as running. Starting an
+  already-active node re-runs its services.
 - The Node manager usage panel now shows the host's CPU and board temperature,
   fan speed, uptime and network rate (received and sent, summed over the
   physical interfaces). The resource-profile host helper collects them with the

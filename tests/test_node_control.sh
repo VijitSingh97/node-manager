@@ -146,6 +146,13 @@ request '{"id":"22222222222222222222222222222222","node":"tari","active":true,"c
 grep -qx 'up tari tari-wallet' "$tmp/stack.log" || fail "Tari node was not started before its wallet"
 [ "$(jq -r .tari.active "$state/.approved-config.json")" = true ] || fail "node state did not advance approved config"
 
+: >"$tmp/stack.log"
+request '{"id":"2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a","node":"tari","active":true,"confirmation":"","requested_at":1000}'
+"$root/scripts/node-control"
+[ "$(status .state)" = applied ] || fail "starting an already-active node was rejected"
+grep -qx 'up tari tari-wallet' "$tmp/stack.log" || fail "starting an already-active node did not run stack up"
+[ "$(jq -r .tari.active "$config/config.json")" = true ] || fail "start changed the node config"
+
 request '{"id":"22222222222222222222222222222222","node":"tari","active":false,"confirmation":"deactivate","requested_at":1000}'
 "$root/scripts/node-control"
 [ "$(status .error_code)" = replayed ] || fail "replayed request was accepted"
