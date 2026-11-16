@@ -224,7 +224,7 @@ shows the overridable settings with their defaults:
 | `bitcoin.dbcache_mb` | `128` | Bitcoin Core's UTXO cache size in MB. Size it to your RAM — see [Hardware](hardware.md#ram). Existing installs keep their rendered cache setting when this key is omitted; the Compose fallback remains 3000 for older `.env` files that predate this setting. |
 | `bitcoin.prune_mb` | `10000` | Keeps 10,000 MiB of recent block files after full validation. Existing explicit configuration and rendered state remain unchanged. `0` remains an advanced manual archival setting; any nonzero value must be ≥ `550`. See [Pruned node](#pruned-node). |
 | `bitcoin.blockfilterindex` | `false` | Advanced archival-node compatibility setting. It works with pruning only if enabled before the first prune (Core refuses to add it to an already pruned datadir); it is not needed for the default pruned watch-only balance scan. |
-| `bitcoin.utxo_index` | `false` | Opt-in. `true` adds the `docker-compose.utxo-index.yml` overlay: a `utxo_index` volume and a 1g memory limit with 0.5 CPU on the dashboard container, plus `UTXO_INDEX_ENABLED` and `UTXO_INDEX_DIR` in its environment. `./stack apply` recreates the dashboard only; bitcoind is not restarted. With the key absent or false, the rendered `.env` and Compose file set are unchanged. Requires `bitcoin.enabled`. Settings → Balance index → "Instant Bitcoin balances" switches the key from the dashboard (it asks before turning off) and runs the apply for you; the dashboard restarts, and the one-time seed still runs from the host. Removing the key drops the overlay but keeps the volume; `./stack utxo-index remove` deletes it (the APT purge and Homebrew uninstall do not remove Docker volumes); the steps are in [Operations](operations.md#seeding-the-bitcoin-balance-index). |
+| `bitcoin.utxo_index` | `false` | Opt-in. `true` adds the `docker-compose.utxo-index.yml` overlay: a `utxo_index` volume and a 1g memory limit with 0.5 CPU on the dashboard container, plus `UTXO_INDEX_ENABLED` and `UTXO_INDEX_DIR` in its environment. `./stack apply` recreates the dashboard only; bitcoind is not restarted. With the key absent or false, the rendered `.env` and Compose file set are unchanged. Requires `bitcoin.enabled`. Settings → Balance index → "Instant Bitcoin balances" switches the key from the dashboard when you press Save (it asks before turning off) and runs the apply for you; the dashboard restarts, and the one-time seed still runs from the host. Removing the key drops the overlay but keeps the volume; `./stack utxo-index remove` deletes it (the APT purge and Homebrew uninstall do not remove Docker volumes); the steps are in [Operations](operations.md#seeding-the-bitcoin-balance-index). |
 | `bitcoin.mem_limit_mb` | `0` (unlimited) | Optional memory cap on the bitcoin container, in MB. `0` = no limit (Docker's default). A cap turns a bitcoind memory blowup into a contained container restart instead of a whole-host OOM. **Size it above `dbcache_mb`** and leave additional room for Core's workload-dependent memory outside the cache. There is no universal fixed margin; monitor actual usage because a low cap can make bitcoind restart-loop. `configure.sh` warns if the cap is not above `dbcache_mb`. |
 | `bitcoin.cpus` | `0` (unlimited) | Optional hard CPU cap on the bitcoin container, applied from container start and kept across upgrades, unlike a manual `docker update`. Same number format as `steady_cpus`; `0` = no limit. Applies during initial sync too, so a thermally or otherwise constrained host is never left uncapped while catching up. The resource profiler leaves operator-set limits alone. |
 | | | Data folders of installed nodes can be moved from the dashboard: Settings → node set → "Move data…" migrates the data and updates this value in one guarded step. |
@@ -390,8 +390,10 @@ workload fits; see [hardware estimates and test evidence](hardware.md).
 
 ## Dashboard settings
 
-The gear menu contains **Nodes**, **Launch at boot/login**, **Appearance**,
-**Dashboard password**, **Telegram**, and **Healthchecks** settings. **Nodes**
+The gear menu contains **Nodes**, **Launch at boot/login**, **Network**,
+**Balance index**, **Appearance**, **Telegram**, and **Healthchecks** settings;
+nothing there takes effect until you press **Save**. The person icon above the gear
+holds **Account** and **Dashboard password**. **Nodes**
 installs an available chain through the host helper using versioned project images and
 default storage; LAN interfaces remain closed. It shows installation progress
 and errors. Pending external configuration changes appear here for explicit
@@ -419,7 +421,7 @@ Bitcoin Cash 144, Monero and Tari 720, Litecoin 576, Dogecoin 1,440, and Zcash
 1,152. These use each chain's target block interval; several blocks found in a
 single check share one alert, so actual message totals can be lower.
 
-Changing the dashboard password requires the current value and the new password
+Changing the dashboard password (person icon → Dashboard password) requires the current value and the new password
 twice. The new value must contain 12–128 characters and no
 control characters. The dashboard stores only a salted PBKDF2 password hash in
 `/state/dashboard_auth.json` inside the private `dashboard_state` volume. This
@@ -572,7 +574,7 @@ Apply like any other change: edit `config.json`, `./configure.sh`,
 
 Every node reaches the network only through the Tor container, and two settings
 choose how. Both default to `true` and can be changed at any time under
-**Settings → Network** in the dashboard, which saves `config.json` and restarts
+**Settings → Network** in the dashboard (press **Save**), which saves `config.json` and restarts
 the affected nodes, or in the `network` section of `config.json` followed by
 `./configure.sh` and `./stack apply`.
 

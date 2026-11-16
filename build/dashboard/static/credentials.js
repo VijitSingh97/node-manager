@@ -103,7 +103,7 @@ function credentialPanel(row, node) {
   return { panel, reveal, reset, secret, username, password, status };
 }
 
-export function credentialSettingsController(settingsDialog, root = document) {
+export function credentialSettingsController(passwordDialog, root = document) {
   const byId = (id) => document.getElementById(id);
   const password = {
     old: byId("settings-password-old"),
@@ -134,7 +134,7 @@ export function credentialSettingsController(settingsDialog, root = document) {
   let resetNode = "";
 
   const active = (current) => current === generation;
-  const passwordActive = (current) => settingsDialog.open && current === passwordGeneration;
+  const passwordActive = (current) => passwordDialog.open && current === passwordGeneration;
   const request = async (path, payload) => {
     const response = await fetch(path, {
       method: payload ? "POST" : "GET",

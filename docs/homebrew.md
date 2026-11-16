@@ -53,12 +53,14 @@ selected authenticated node gets a separate generated `admin` login, retained
 in private state. No node RPC, gRPC, or ZMQ port is exposed by default.
 
 Global Settings installs additional nodes, controls launch at login, and
-contains Appearance, Dashboard password, Telegram, and Healthchecks. Open a
+contains Appearance, Telegram, and Healthchecks. The person icon above it holds
+Account and Dashboard password. Open a
 tower for its block alerts, optional LAN interfaces, and RPC credentials.
 Personal view-only wallet material is separate from these service logins;
 never enter a seed phrase or private spend key.
 
-Choosing **Install** opens a confirmation dialog before anything is downloaded.
+Choosing **Install** opens a confirmation dialog, and nothing is downloaded until
+you press **Save** in Settings.
 It shows the default Homebrew data folder, the node's estimated post-sync disk
 use, and its optional LAN interfaces and ports. Every interface is closed by
 default. The host rejects an invalid folder or an enabled port that is already

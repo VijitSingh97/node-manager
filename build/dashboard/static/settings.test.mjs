@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { notificationPayload, notificationChanged, configurationAccess, configuredNodeVisibility, portControlModel, portChanges, portCollision, portStatusMessage, portStatusNode, portDraftAfterStatus, portSubmissionOutcome, shouldPollPort, settingsSaveMessage, normalizeDefaultCurrency, applyAppearance, requestSettings, scopedSettingsPayload, splitNodeControlSections, alertPreferenceModel, hostControlModel, hostActionPayload, bootControlLabel, newlyInstalledNodes, shouldPollHost, pendingHostNode, latestRequestGate } from "./settings.js";
+import { notificationPayload, notificationChanged, configurationAccess, configuredNodeVisibility, portControlModel, portChanges, portCollision, portStatusMessage, portStatusNode, portDraftAfterStatus, portSubmissionOutcome, shouldPollPort, settingsSaveMessage, normalizeDefaultCurrency, applyAppearance, requestSettings, scopedSettingsPayload, splitNodeControlSections, alertPreferenceModel, hostControlModel, hostActionPayload, bootControlLabel, newlyInstalledNodes, shouldPollHost, pendingHostNode, latestRequestGate, hostToggleChanges, hostQueueSettled, savedHostActions } from "./settings.js";
 
 const alertDefaults = {
   alert_monitor_online: true,
@@ -414,4 +414,41 @@ test("migrate payloads and model gate on migrate support", () => {
   assert.equal(view.status.action, "migrate");
   assert.equal(shouldPollHost(view), true);
   assert.equal(hostControlModel({}).migrate_supported, false);
+});
+
+test("host switches stay staged until Save and then apply one at a time in a fixed order", async () => {
+  const view = hostControlModel({ boot_enabled: false, clearnet_over_tor: true, inbound_connections: true, utxo_index: false });
+  assert.deepEqual(hostToggleChanges(view, {}), []);
+  assert.deepEqual(hostToggleChanges(view, { clearnet_over_tor: true, utxo_index: false }), []);
+  assert.deepEqual(hostToggleChanges(view, { utxo_index: true, inbound_connections: false, launch_at_boot: true, clearnet_over_tor: "no" }), [
+    { action: "launch_at_boot", enabled: true },
+    { action: "inbound_connections", enabled: false },
+    { action: "utxo_index", enabled: true },
+  ]);
+  const pending = { status: { action: "inbound_connections", state: "pending" } };
+  assert.equal(hostQueueSettled(pending, "inbound_connections"), "");
+  assert.equal(hostQueueSettled({ status: { action: "inbound_connections", state: "applied" } }, "inbound_connections"), "applied");
+  assert.equal(hostQueueSettled({ status: { action: "inbound_connections", state: "rejected" } }, "inbound_connections"), "failed");
+  assert.equal(hostQueueSettled({ status: { action: "launch_at_boot", state: "failed" } }, "inbound_connections"), "applied");
+  assert.equal(hostQueueSettled({ status: { action: "inbound_connections", state: "failed" } }, ""), "");
+  const source = await readFile(new URL("./settings.js", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /addEventListener\("change", \(\) => submitHost/);
+  assert.match(source, /for \(const \[action, input\] of Object\.entries\(hostToggles\)\) input\.addEventListener\("change", \(\) => \{ hostDraft\[action\] = input\.checked; \}\);/);
+  assert.match(source, /byId\("open"\)\.addEventListener\("click", \(\) => \{\n    if \(!hostQueueAction\) \{\n      hostDraft = \{\};/);
+});
+
+test("Save sends the pending config first, then switches, installs and data moves", async () => {
+  const view = hostControlModel({ boot_enabled: false, clearnet_over_tor: true, inbound_connections: true, utxo_index: false });
+  const install = hostActionPayload("install", "monero", { data_dir: "/data/monero", interfaces: [] });
+  const migrate = hostActionPayload("migrate", "bitcoin", { data_dir: "/mnt/big/bitcoin" });
+  const apply = hostActionPayload("apply_config", "a".repeat(64));
+  assert.deepEqual(savedHostActions(view, { inbound_connections: false }, { "migrate:bitcoin": migrate, "install:monero": install, apply_config: apply }), [
+    apply, { action: "inbound_connections", enabled: false }, install, migrate,
+  ]);
+  assert.deepEqual(savedHostActions(view, {}, {}), []);
+  assert.deepEqual(savedHostActions(view, {}, { apply_config: undefined }), []);
+  const source = await readFile(new URL("./settings.js", import.meta.url), "utf8");
+  assert.equal(source.match(/submitHost\(/g).length, 2, "only the Save queue may call submitHost");
+  assert.match(source, /hostStaged\[`\$\{installAction\}:\$\{installNode\}`\] = payload;/);
+  assert.match(source, /reset\.addEventListener\("click", \(\) => \{\n    if \(!allowed\) return;\n    resetStaged = !resetStaged;/);
 });

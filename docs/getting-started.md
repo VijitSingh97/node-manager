@@ -210,7 +210,7 @@ launch at boot/login where the installation manages that feature. **Install**
 first opens a confirmation dialog. It fills in that node's default host data
 folder, shows its estimated post-sync disk use, and lists the optional LAN
 interfaces and ports. All interface toggles default off. Change the folder or
-opt into an interface before confirming; the host validates the folder and
+opt into an interface before confirming, then press **Save**; the host validates the folder and
 checks enabled ports for conflicts before it changes the running stack. The
 install preserves every existing node and its data. Watch progress or correct a
 failed installation in the same panel. View-only wallets are added in the
@@ -283,7 +283,7 @@ If the file changed while the application was stopped, a manual `up` or
 `restart` asks **Config change detected. Run new config?** Declining keeps the
 last approved settings and retains your edit for later review. An unattended
 boot does the same without waiting for terminal input; global Settings shows
-the pending change and lets you approve it. A private approved snapshot makes
+the pending change and lets you approve it (Run new config, then Save). A private approved snapshot makes
 this possible; never delete it as a way to apply an edit.
 
 ## First start: what to expect

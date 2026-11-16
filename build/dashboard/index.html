@@ -368,6 +368,25 @@
       <button type="button" class="node-power-button" data-node-power="zcash">Deactivate node</button>
     </section>
   </div>
+  <button id="account-open" class="settings-open account-open" type="button" aria-label="User" title="User"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7z"/></svg></button>
+  <dialog id="account-dialog" class="settings-dialog" aria-labelledby="account-title">
+    <form id="account-form">
+      <div class="settings-heading"><h2 id="account-title">User</h2><button id="account-close" type="button" aria-label="Close user settings">✕</button></div>
+      <fieldset id="settings-account"{{if not .PasswordEnabled}} hidden{{end}}>
+        <legend>Account</legend>
+        <p class="settings-note">Signed in as <strong>admin</strong></p>
+        <div class="settings-actions"><button id="session-logout" type="button">Sign out</button></div>
+      </fieldset>
+      <fieldset id="settings-dashboard-password">
+        <legend>Dashboard password</legend>
+        <label id="settings-password-old-label">Current password<input id="settings-password-old" type="password" autocomplete="current-password" maxlength="256"></label>
+        <label>New password<input id="settings-password-new" type="password" autocomplete="new-password" minlength="12" maxlength="128"></label>
+        <label>Repeat new password<input id="settings-password-repeat" type="password" autocomplete="new-password" minlength="12" maxlength="128"></label>
+        <div class="settings-actions"><button id="settings-password-save" type="button">Change password</button><button id="settings-password-reload" type="button" hidden>Reload and sign in</button></div>
+        <p id="settings-password-status" class="settings-note" role="status" aria-live="polite"></p>
+      </fieldset>
+    </form>
+  </dialog>
   <button id="settings-open" class="settings-open" type="button" aria-label="Settings" title="Settings">⚙</button>
   <dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-title">
     <form id="settings-form">
@@ -392,19 +411,6 @@
           <button id="settings-apply-config" type="button">Run new config</button>
         </div>
         <p id="settings-host-status" class="settings-note" role="status" aria-live="polite"></p>
-      </fieldset>
-      <fieldset id="settings-dashboard-password">
-        <legend>Dashboard password</legend>
-        <label id="settings-password-old-label">Current password<input id="settings-password-old" type="password" autocomplete="current-password" maxlength="256"></label>
-        <label>New password<input id="settings-password-new" type="password" autocomplete="new-password" minlength="12" maxlength="128"></label>
-        <label>Repeat new password<input id="settings-password-repeat" type="password" autocomplete="new-password" minlength="12" maxlength="128"></label>
-        <div class="settings-actions"><button id="settings-password-save" type="button">Change password</button><button id="settings-password-reload" type="button" hidden>Reload and sign in</button></div>
-        <p id="settings-password-status" class="settings-note" role="status" aria-live="polite"></p>
-      </fieldset>
-      <fieldset id="settings-account"{{if not .PasswordEnabled}} hidden{{end}}>
-        <legend>Account</legend>
-        <p class="settings-note">Signed in as <strong>admin</strong></p>
-        <div class="settings-actions"><button id="session-logout" type="button">Sign out</button></div>
       </fieldset>
       <fieldset id="settings-telegram">
         <legend>Telegram</legend>

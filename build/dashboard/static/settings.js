@@ -72,9 +72,24 @@ export function balanceIndexPayload(enabled, confirmFn) {
   return hostActionPayload("utxo_index", enabled);
 }
 
-export function balanceIndexChange(enabled, confirmFn) {
-  const payload = balanceIndexPayload(enabled, confirmFn);
-  return { payload, checked: payload ? enabled : true };
+export function hostToggleChanges(view, draft) {
+  return Object.keys(toggleFields)
+    .filter((action) => typeof draft?.[action] === "boolean" && draft[action] !== view?.[toggleFields[action]])
+    .map((action) => hostActionPayload(action, draft[action]));
+}
+
+export function savedHostActions(view, draft, staged = {}) {
+  const byAction = (action) => Object.values(staged).filter((payload) => payload?.action === action);
+  return [...byAction("apply_config"), ...hostToggleChanges(view, draft), ...byAction("install"), ...byAction("migrate")];
+}
+
+export function confirmedHostChanges(changes, confirmFn) {
+  return changes.map((change) => change.action === "utxo_index" ? balanceIndexPayload(change.enabled, confirmFn) : change).filter(Boolean);
+}
+
+export function hostQueueSettled(view, action) {
+  if (!action || view?.status?.state === "pending") return "";
+  return view?.status?.action === action && ["rejected", "failed"].includes(view.status.state) ? "failed" : "applied";
 }
 
 export function balanceIndexControl(view, busy) {
@@ -439,7 +454,8 @@ if (typeof document !== "undefined") {
   }
   byId("port-status")?.remove();
   byId("port-impact")?.remove();
-  const credentialSettings = credentialSettingsController(dialog, document);
+  const accountDialog = document.getElementById("account-dialog");
+  const credentialSettings = credentialSettingsController(accountDialog, document);
   let saved = {};
   let savedPorts = {};
   let allowed = false;
@@ -456,6 +472,12 @@ if (typeof document !== "undefined") {
   let hostView = hostControlModel();
   let hostLoaded = false;
   let pendingToggle;
+  let hostDraft = {};
+  let hostStaged = {};
+  let resetStaged = false;
+  let hostQueue = [];
+  let hostQueueAction = "";
+  const hostToggles = { launch_at_boot: launchAtStart, clearnet_over_tor: clearnetOverTor, inbound_connections: inboundConnections, utxo_index: utxoIndex };
   const hostRequests = latestRequestGate();
   let installNode = "";
   try { portRequestID = localStorage.getItem("nodeStackPortRequest") || ""; } catch {}
@@ -579,54 +601,34 @@ if (typeof document !== "undefined") {
         nextHostView.status = { action: pendingToggle.action, state: "pending", message: hostView.status.message || "Applying host change…" };
       }
     }
+    const queueResult = hostQueueSettled(nextHostView, hostQueueAction);
+    if (queueResult === "failed" || queueResult === "applied" && !hostQueue.length) {
+      status.textContent = queueResult === "failed" ? "A host change failed; the changes after it were not sent." : "Settings saved.";
+      hostQueue = [];
+      hostDraft = {};
+      hostStaged = {};
+      hostQueueAction = "";
+    }
     const installed = hostLoaded ? newlyInstalledNodes(hostView, nextHostView) : [];
     hostView = nextHostView;
+    const shown = (action) => Object.hasOwn(hostDraft, action) ? hostDraft[action] : hostView[toggleFields[action]];
     hostLoaded = true;
-    hostNodes.replaceChildren();
     const busy = hostView.status.state === "pending";
-    const installing = pendingHostNode(hostView, "install");
-    const moving = pendingHostNode(hostView, "migrate");
-    for (const node of Object.values(hostView.nodes)) {
-      const row = document.createElement("div");
-      row.className = "settings-host-node";
-      const name = document.createElement("span");
-      name.textContent = node.name;
-      if (node.installed) {
-        const path = document.createElement("code");
-        path.className = "settings-host-path";
-        path.textContent = node.data_dir || "";
-        path.title = "Current data folder";
-        const move = document.createElement("button");
-        move.type = "button";
-        move.textContent = node.id === moving ? "Moving data…" : "Move data…";
-        move.disabled = !node.data_dir || !hostView.available || !hostView.migrate_supported || hostView.config_pending || busy;
-        move.addEventListener("click", () => openMigrate(node.id));
-        row.append(name, path, move);
-      } else {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.textContent = node.id === installing ? "Installing…" : "Install";
-        button.disabled = !node.data_dir || !hostView.available || !hostView.install_supported || hostView.config_pending || busy;
-        button.addEventListener("click", () => openInstall(node.id));
-        row.append(name, button);
-      }
-      hostNodes.append(row);
-    }
-    launchAtStart.checked = hostView.boot_enabled;
+    renderHostActions();
+    launchAtStart.checked = shown("launch_at_boot");
     launchAtStart.disabled = !hostView.available || !hostView.boot_supported || hostView.config_pending || busy;
     launchAtStartLabel.querySelector("span").textContent = bootControlLabel(hostView.boot_kind);
     launchAtStartLabel.hidden = hostView.boot_kind === "unsupported";
     networkSettings.hidden = !hostView.available;
-    clearnetOverTor.checked = hostView.clearnet_over_tor;
-    inboundConnections.checked = hostView.inbound_connections;
+    clearnetOverTor.checked = shown("clearnet_over_tor");
+    inboundConnections.checked = shown("inbound_connections");
     clearnetOverTor.disabled = inboundConnections.disabled = !hostView.available || hostView.config_pending || busy;
-    const balanceControl = balanceIndexControl(hostView, busy);
+    const balanceControl = balanceIndexControl({ ...hostView, utxo_index: shown("utxo_index") }, busy);
     balanceSettings.hidden = balanceControl.hidden;
     utxoIndex.checked = balanceControl.checked;
     utxoIndex.disabled = balanceControl.disabled;
     utxoSeedCommand.textContent = seedCommand(hostView.boot_kind);
     configChange.hidden = !hostView.config_pending;
-    applyConfig.disabled = !hostView.available || busy;
     const networkMessage = networkActions.includes(hostView.status.action);
     const balanceMessage = hostView.status.action === "utxo_index";
     networkStatus.textContent = networkMessage ? hostView.status.message : "";
@@ -636,6 +638,59 @@ if (typeof document !== "undefined") {
     clearTimeout(hostPoll);
     if (shouldPollHost(hostView)) hostPoll = setTimeout(loadHost, 2000);
     if (installed.length) window.dispatchEvent(new CustomEvent("node-catalog-updated", { detail: { installed } }));
+    if (!busy && hostQueue.length) submitNextHostChange();
+  };
+
+  const renderHostActions = () => {
+    hostNodes.replaceChildren();
+    const busy = hostView.status.state === "pending";
+    const installing = pendingHostNode(hostView, "install");
+    const moving = pendingHostNode(hostView, "migrate");
+    for (const node of Object.values(hostView.nodes)) {
+      const row = document.createElement("div");
+      row.className = "settings-host-node";
+      const name = document.createElement("span");
+      name.textContent = node.name;
+      const action = node.installed ? "migrate" : "install";
+      const key = `${action}:${node.id}`;
+      const button = document.createElement("button");
+      button.type = "button";
+      if (hostStaged[key]) {
+        button.textContent = node.installed ? "Moves on Save" : "Installs on Save";
+        button.title = "Click to undo";
+        button.disabled = busy;
+        button.addEventListener("click", () => { delete hostStaged[key]; renderHostActions(); });
+      } else if (node.installed) {
+        button.textContent = node.id === moving ? "Moving data…" : "Move data…";
+        button.disabled = !node.data_dir || !hostView.available || !hostView.migrate_supported || hostView.config_pending || busy;
+        button.addEventListener("click", () => openMigrate(node.id));
+      } else {
+        button.textContent = node.id === installing ? "Installing…" : "Install";
+        button.disabled = !node.data_dir || !hostView.available || !hostView.install_supported || hostView.config_pending || busy;
+        button.addEventListener("click", () => openInstall(node.id));
+      }
+      if (node.installed) {
+        const path = document.createElement("code");
+        path.className = "settings-host-path";
+        path.textContent = node.data_dir || "";
+        path.title = "Current data folder";
+        row.append(name, path, button);
+      } else row.append(name, button);
+      hostNodes.append(row);
+    }
+    applyConfig.textContent = hostStaged.apply_config ? "Runs on Save" : "Run new config";
+    applyConfig.disabled = !hostView.available || busy;
+  };
+
+  const renderResetStage = () => {
+    reset.textContent = resetStaged ? "Server config on Save" : "Use server config";
+    reset.setAttribute("aria-pressed", String(resetStaged));
+  };
+
+  const submitNextHostChange = () => {
+    const next = hostQueue.shift();
+    hostQueueAction = next.action;
+    submitHost(next);
   };
 
   const openMigrate = (nodeID) => {
@@ -648,6 +703,7 @@ if (typeof document !== "undefined") {
     installDataDir.value = node.data_dir;
     installInterfaces.replaceChildren();
     installError.textContent = "";
+    installSubmit.textContent = "Move on Save";
     installDialog.showModal();
   };
 
@@ -686,6 +742,7 @@ if (typeof document !== "undefined") {
       installInterfaces.append(row);
     }
     installError.textContent = "";
+    installSubmit.textContent = "Install on Save";
     installDialog.showModal();
   };
 
@@ -713,6 +770,10 @@ if (typeof document !== "undefined") {
       await loadHost();
     } catch (error) {
       pendingToggle = undefined;
+      hostQueue = [];
+      hostDraft = {};
+      hostStaged = {};
+      hostQueueAction = "";
       status.textContent = error.message;
       await loadHost();
     }
@@ -830,8 +891,23 @@ if (typeof document !== "undefined") {
     }
     catch (error) { status.textContent = error.message; }
   }
-  byId("open").addEventListener("click", () => { dialog.showModal(); credentialSettings.openPassword(); load(); loadHost(); });
+  byId("open").addEventListener("click", () => {
+    if (!hostQueueAction) {
+      hostDraft = {};
+      hostStaged = {};
+      for (const [action, input] of Object.entries(hostToggles)) input.checked = hostView[toggleFields[action]];
+      renderHostActions();
+    }
+    resetStaged = false;
+    renderResetStage();
+    dialog.showModal();
+    load();
+    loadHost();
+  });
   byId("close").addEventListener("click", () => dialog.close());
+  document.getElementById("account-open").addEventListener("click", () => { accountDialog.showModal(); credentialSettings.openPassword(); });
+  document.getElementById("account-close").addEventListener("click", () => accountDialog.close());
+  accountDialog.addEventListener("close", () => credentialSettings.closePassword());
   byId("install-cancel").addEventListener("click", () => installDialog.close());
   installForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -855,11 +931,11 @@ if (typeof document !== "undefined") {
       installError.textContent = "Choose an absolute host folder and valid ports from 1 to 65535.";
       return;
     }
-    installSubmit.disabled = true;
+    hostStaged[`${installAction}:${installNode}`] = payload;
     installDialog.close();
-    submitHost(payload).finally(() => { installSubmit.disabled = false; });
+    renderHostActions();
   });
-  dialog.addEventListener("close", () => { clearSecrets(); credentialSettings.closePassword(); delete saved.telegram_bot_token; delete saved.telegram_chat_id; delete saved.healthchecks_url; });
+  dialog.addEventListener("close", () => { clearSecrets(); delete saved.telegram_bot_token; delete saved.telegram_chat_id; delete saved.healthchecks_url; });
   window.addEventListener("node-selected", (event) => {
     credentialSettings.closeNode();
     if (event.detail?.node) {
@@ -869,15 +945,12 @@ if (typeof document !== "undefined") {
   });
   telegramEnabled.addEventListener("change", updateInputs);
   healthchecksEnabled.addEventListener("change", updateInputs);
-  launchAtStart.addEventListener("change", () => submitHost(hostActionPayload("launch_at_boot", launchAtStart.checked)));
-  clearnetOverTor.addEventListener("change", () => submitHost(hostActionPayload("clearnet_over_tor", clearnetOverTor.checked)));
-  inboundConnections.addEventListener("change", () => submitHost(hostActionPayload("inbound_connections", inboundConnections.checked)));
-  utxoIndex.addEventListener("change", () => {
-    const change = balanceIndexChange(utxoIndex.checked, (message) => window.confirm(message));
-    utxoIndex.checked = change.checked;
-    if (change.payload) submitHost(change.payload);
+  for (const [action, input] of Object.entries(hostToggles)) input.addEventListener("change", () => { hostDraft[action] = input.checked; });
+  applyConfig.addEventListener("click", () => {
+    if (hostStaged.apply_config) delete hostStaged.apply_config;
+    else hostStaged.apply_config = hostActionPayload("apply_config", hostView.config_revision);
+    renderHostActions();
   });
-  applyConfig.addEventListener("click", () => submitHost(hostActionPayload("apply_config", hostView.config_revision)));
   for (const row of Object.values(portRows)) {
     for (const input of row.querySelectorAll("input")) input.addEventListener("input", () => updatePortPlan(true));
   }
@@ -923,18 +996,30 @@ if (typeof document !== "undefined") {
     const formValid = scopeForm.reportValidity();
     if (!portPlanValid || !formValid) return;
     const payload = settingsPayload(scope);
-    const saveNotifications = notificationChanged(saved, payload);
-    if (!saveNotifications && changes.length === 0) {
+    const resetNow = scope === "global" && resetStaged;
+    const saveNotifications = !resetNow && notificationChanged(saved, payload);
+    let hostChanges = scope === "global" && !hostQueueAction ? savedHostActions(hostView, hostDraft, hostStaged) : [];
+    if (!resetNow && !saveNotifications && changes.length === 0 && hostChanges.length === 0) {
       targetStatus.textContent = "No changes.";
       return;
+    }
+    if (hostChanges.length) {
+      const confirmed = confirmedHostChanges(hostChanges, (message) => window.confirm(message));
+      if (confirmed.length < hostChanges.length) {
+        delete hostDraft.utxo_index;
+        utxoIndex.checked = hostView.utxo_index;
+      }
+      hostChanges = confirmed;
     }
     targetSave.disabled = true;
     if (scope === "global") reset.disabled = true;
     targetStatus.textContent = "Saving…";
     let settingsView = saved;
-    if (saveNotifications) {
+    if (resetNow || saveNotifications) {
       try {
-        settingsView = await request("POST", payload, scope);
+        settingsView = await request("POST", resetNow ? { reset: true } : payload, scope);
+        resetStaged = false;
+        renderResetStage();
       } catch (error) {
         clearSecrets();
         targetStatus.textContent = error.message;
@@ -947,7 +1032,11 @@ if (typeof document !== "undefined") {
     }
     if (changes.length === 0) {
       render(settingsView, scope);
-      targetStatus.textContent = "Settings saved.";
+      targetStatus.textContent = hostChanges.length ? "Applying host changes…" : resetNow ? "Using the server configuration." : saveNotifications ? "Settings saved." : "No changes.";
+      if (hostChanges.length) {
+        hostQueue = hostChanges;
+        submitNextHostChange();
+      }
       return;
     }
     render(settingsView, scope);
@@ -985,18 +1074,11 @@ if (typeof document !== "undefined") {
       saveScope(node, view.form, view.status, view.save);
     });
   }
-  reset.addEventListener("click", async () => {
+  reset.addEventListener("click", () => {
     if (!allowed) return;
-    save.disabled = reset.disabled = true;
-    status.textContent = "Saving…";
-    try {
-      render(await request("POST", { reset: true }), "global");
-      status.textContent = "Using the server configuration.";
-    } catch (error) {
-      status.textContent = error.message;
-      save.disabled = !allowed;
-      reset.disabled = !allowed || !saved.overridden;
-    }
+    resetStaged = !resetStaged;
+    renderResetStage();
+    status.textContent = resetStaged ? "Save switches these settings to the server configuration and discards edits to them." : "";
   });
   fetch("/api/settings?scope=appearance")
     .then((response) => response.ok ? response.json() : Promise.reject())

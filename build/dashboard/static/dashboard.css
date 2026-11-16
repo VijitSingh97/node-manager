@@ -204,6 +204,7 @@ body:not([data-node=""]) .node-close-backdrop { display: block; }
   cursor: pointer;
 }
 .settings-open:hover, .settings-open:focus-visible { color: var(--accent); }
+.account-open { bottom: 64px; display: grid; place-items: center; padding: 0; }
 .settings-dialog {
   width: min(440px, calc(100vw - 64px));
   max-height: calc(100dvh - 80px);

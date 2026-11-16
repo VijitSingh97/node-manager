@@ -146,7 +146,9 @@ Use **Settings → Node set → Install** to add a chain later. A confirmation d
 shows the node's estimated post-sync disk use and fills in its default absolute
 host data folder. It also lists the interfaces that node can expose—RPC, ZMQ, or
 gRPC as applicable—with their default ports. Every interface starts closed;
-opening one is an explicit choice in this dialog.
+opening one is an explicit choice in this dialog. The dialog's **Install on Save**
+(or **Move on Save**) only checks the values and marks the row; Settings →
+**Save** sends it, and clicking the marked row undoes it.
 The host runs one change at a time. While it runs, the node's row reads
 "Installing…" (or "Moving data…" for a data move), and the other Node set
 controls stay disabled until it finishes or fails. This holds across page

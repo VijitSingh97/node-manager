@@ -46,8 +46,11 @@ test("credential polling runs only while a reset is active and settings remain o
 test("credential controls are independent, limited to password-capable RPCs, and never persist secrets", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const source = await readFile(new URL("./credentials.js", import.meta.url), "utf8");
-  assert.ok(html.indexOf('id="settings-appearance"') < html.indexOf('id="settings-dashboard-password"'));
-  assert.ok(html.indexOf('id="settings-dashboard-password"') < html.indexOf('id="settings-telegram"'));
+  const account = html.slice(html.indexOf('<dialog id="account-dialog"'), html.indexOf('<dialog id="settings-dialog"'));
+  assert.ok(html.indexOf('id="account-open"') < html.indexOf('id="settings-open"'));
+  assert.ok(account.indexOf('id="settings-account"') > 0);
+  assert.ok(account.indexOf('id="settings-account"') < account.indexOf('id="settings-dashboard-password"'));
+  assert.doesNotMatch(html.slice(html.indexOf('<dialog id="settings-dialog"')), /settings-dashboard-password|session-logout/);
   assert.match(html, /id="settings-password-save" type="button"/);
   assert.match(html, /id="settings-password-reload" type="button"/);
   assert.match(html, /id="credential-reset-cancel"[^>]*type="button"|type="button" id="credential-reset-cancel"/);

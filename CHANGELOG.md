@@ -53,6 +53,17 @@ All notable changes to this project are documented here. Format follows
   before this change on the reference node (#236): a median 19 seconds from a
   block to the first wallet refresh, and about half of blocks reached wallets
   first through the slower per-block scan update.
+- Nothing in Settings applies on click any more. Launch at boot, both Network
+  switches, the Balance index, Install, Move data, Run new config and Use
+  server config wait for **Save**; the Install and Move data dialogs only check
+  their values, and clicking a row marked "Installs on Save" or "Moves on Save"
+  undoes it. Save sends host changes one after another (a pending config
+  first, then switches, installs and data moves; keep the page open until the
+  last one applies) and stops at the first failure. Reopening Settings
+  discards unsaved changes. The User dialog's Change password and Sign out
+  still act at once.
+- A person icon above the Settings gear opens Account (sign out) and then
+  Dashboard password; both left the Settings dialog.
 
 ### Fixed
 
