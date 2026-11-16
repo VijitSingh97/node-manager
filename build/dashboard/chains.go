@@ -378,6 +378,9 @@ func (a *app) writeBitcoinFamilyStatus(w http.ResponseWriter, r *http.Request, n
 			status.Connections = int64(len(peers))
 		}
 	}
+	if status.ConnectionsAvailable {
+		a.noteNodeNetwork(node.ID, status.Version, status.Connections)
+	}
 	var uptime float64
 	if rpc.call(ctx, "uptime", nil, &uptime) == nil && uptime >= 0 {
 		status.UptimeSeconds, status.UptimeAvailable = int64(uptime), true

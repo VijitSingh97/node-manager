@@ -401,6 +401,11 @@ tower and find separate **Alerts** and **LAN access** sections under **Node
 controls**, after the wallet section and before deactivation.
 Block alerts are off by default.
 
+Settings → **Health endpoints** (off by default, applied with **Save**) serves
+`/actuator/health` and `/actuator/info` for uptime monitors and scripts; see
+[Monitoring integrations](operations.md#monitoring-integrations). It is a
+dashboard setting saved in the dashboard volume, not a `config.json` key.
+
 Under **Telegram → Alert preferences**, choose whether to notify when the monitor
 starts, a node goes offline or recovers, synchronization completes, disk space
 is low, or a dashboard update is available. These alerts default to enabled.

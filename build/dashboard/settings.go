@@ -60,6 +60,7 @@ type notificationSettings struct {
 	ComputerStats            bool   `json:"computer_stats"`
 	ThermalThrottle          bool   `json:"thermal_throttle"`
 	DefaultCurrency          string `json:"default_currency"`
+	HealthEndpoints          bool   `json:"health_endpoints"`
 }
 
 type settingsUpdate struct {
@@ -88,6 +89,7 @@ type settingsUpdate struct {
 	ComputerStats            *bool   `json:"computer_stats,omitempty"`
 	ThermalThrottle          *bool   `json:"thermal_throttle,omitempty"`
 	DefaultCurrency          *string `json:"default_currency,omitempty"`
+	HealthEndpoints          *bool   `json:"health_endpoints,omitempty"`
 	present                  map[string]bool
 }
 
@@ -317,6 +319,9 @@ func (update settingsUpdate) apply(current notificationSettings) (notificationSe
 	if update.DefaultCurrency != nil {
 		next.DefaultCurrency = *update.DefaultCurrency
 	}
+	if update.HealthEndpoints != nil {
+		next.HealthEndpoints = *update.HealthEndpoints
+	}
 	if next.TelegramEnabled {
 		if update.TelegramBotToken != nil && *update.TelegramBotToken != "" {
 			next.TelegramBotToken = *update.TelegramBotToken
@@ -384,6 +389,7 @@ func (m *Monitor) settingsView(canConfigure bool) (map[string]any, error) {
 		"computer_stats":              m.settings.ComputerStats,
 		"thermal_throttle":            m.settings.ThermalThrottle,
 		"default_currency":            m.settings.DefaultCurrency,
+		"health_endpoints":            m.settings.HealthEndpoints,
 		"overridden":                  m.settingsOverridden,
 		"can_configure":               canConfigure,
 	}, nil

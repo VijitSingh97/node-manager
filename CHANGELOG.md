@@ -12,6 +12,16 @@ All notable changes to this project are documented here. Format follows
   container restarts, which happens when incoming connections are turned on or
   off, when Bitcoin, Litecoin or Bitcoin Cash is activated or deactivated with
   incoming connections on, and on upgrades.
+- Health and info endpoints in the style of Spring Boot Actuator, off by
+  default and switched under Settings → Health endpoints.
+  `GET /actuator/health` returns the overall status (`UP`, `DEGRADED` or
+  `DOWN`; 503 only for `DOWN`) without sign-in, so plain uptime checkers can
+  poll it. Signed-in callers also get per-component status for the dashboard,
+  each active node (synced, syncing, busy or down), Tor and the balance index.
+  `GET /actuator/info` needs sign-in and reports the version, install kind and
+  each chain's network, height, sync progress, peers and node version. Both
+  read state the dashboard already keeps, and neither returns wallet data,
+  credentials, onion addresses or host paths.
 - A "Balance index" switch in Settings (shown when Bitcoin is installed) turns
   `bitcoin.utxo_index` on and off from the dashboard, the same way the network
   switches work: the host helper saves the setting, applies it, and restores

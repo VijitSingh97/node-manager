@@ -215,6 +215,53 @@ first — a live copy of `chainstate/` is corrupt by construction.
   `curl --user admin https://node.example.com/metrics` prompts for the password
   locally. Browsers use session sign-in; use a cookie-free command-line client
   for Basic authentication.
+- **Health and info endpoints:** off by default. Turn on Settings → Health
+  endpoints and press **Save** to serve two JSON endpoints in the style of
+  Spring Boot Actuator. While off, both return 404 to signed-in callers and 401
+  to everyone else. They read state the dashboard already keeps (the node
+  probe that runs about once a minute, the balance index status and the last
+  Tor price fetch), so a request never calls a node.
+  - `GET /actuator/health` answers **without sign-in** with only the overall
+    `status`, so a plain uptime checker can poll it: HTTP 503 for `DOWN`, 200
+    for `UP` or `DEGRADED`. Signed-in callers (a dashboard session, or Basic
+    auth as for `/metrics`) also get `components`:
+    - `dashboard`: always `UP`.
+    - One entry per active node, with `details.state`:
+      - `synced`: `UP`.
+      - `syncing`: `DEGRADED`.
+      - `busy`: `DEGRADED`. The node is being changed from the dashboard, or
+        a balance index seed has paused Bitcoin RPC. This matches the window
+        in which node-down alerts are held.
+      - `down`: `DOWN`. Its RPC has not answered in the last 2 minutes.
+
+      Deactivated nodes are left out.
+    - `tor`: `UP` while the dashboard's Tor price fetch (every 5 minutes)
+      succeeds, `DEGRADED` after it fails. This is indirect, since the price
+      service can fail on its own, so it never reports `DOWN`.
+    - `balance_index` (only when turned on): `UP` when `ready`, otherwise
+      `DEGRADED`, with the index state in `details.state`. Wallet balances
+      fall back to the slower scan meanwhile.
+
+    The overall status is `DOWN` if any component is `DOWN`, `DEGRADED` if any
+    is `DEGRADED`, otherwise `UP`.
+  - `GET /actuator/info` needs sign-in. It returns:
+    - `app`: `name`, `version`, and `install_kind` (`apt`, `homebrew`,
+      `source`, or `unknown` without the host helper).
+    - `chains`: one entry per installed node, with `name`, `active` and
+      `status` (`UP`, `DEGRADED`, `DOWN`, or `OFF` when deactivated). While
+      the node answers, the entry also carries `network`, `height`,
+      `sync_progress` (0 to 1), `peers` and `version` where already known.
+      Bitcoin, Litecoin, Dogecoin and Bitcoin Cash report `peers` and
+      `version` once their tower has been opened. Tari and Zcash report no
+      `network`.
+
+  Neither endpoint returns wallet data, credentials, onion addresses or
+  host paths. A configured `dashboard.public_url` still limits which host
+  name they answer on. For example,
+  `curl -fsS https://node.example.com/actuator/health` exits non-zero when
+  something is down, and
+  `curl --user admin https://node.example.com/actuator/info` prompts for the
+  dashboard password.
 - **Telegram / Healthchecks.io:** see [Notifications](notifications.md).
 - **Fee sparkline:** the dashboard samples the next-block fee once a minute
   into an in-memory 24-hour series (reset on restart) and draws it under the

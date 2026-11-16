@@ -427,6 +427,11 @@
         <label class="settings-check"><input id="settings-healthchecks-enabled" type="checkbox"> Enable Healthchecks pings</label>
         <label>HTTPS ping URL<input id="settings-healthchecks-url" type="url" autocomplete="off" maxlength="2048"></label>
       </fieldset>
+      <fieldset id="settings-health-endpoints-group">
+        <legend>Health endpoints</legend>
+        <label class="settings-check"><input id="settings-health-endpoints" type="checkbox"> Serve /actuator/health and /actuator/info</label>
+        <p class="settings-note">For uptime monitors and scripts. Anyone who can reach the dashboard can read the overall status (UP, DEGRADED or DOWN) without signing in. Per-component health and /actuator/info need sign-in or Basic auth, like /metrics.</p>
+      </fieldset>
       <fieldset id="settings-config">
         <legend>Config</legend>
         <p class="settings-note">Host config.json</p>
