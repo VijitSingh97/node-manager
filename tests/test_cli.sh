@@ -777,11 +777,11 @@ echo '[{"name": "alpha"}]' >"$tmp/bad3.json"
 echo '[{"name": "alpha", "key": 5}]' >"$tmp/bad4.json"
 echo '[{"name": "", "key": "x"}]' >"$tmp/bad5.json"
 echo 'not json' >"$tmp/bad6.json"
-jq -nc '[range(21) | {name: "w\(.)", key: "k\(.)"}]' >"$tmp/bad7.json"
+jq -nc '[range(51) | {name: "w\(.)", key: "k\(.)"}]' >"$tmp/bad7.json"
 for bad in "$tmp"/bad[1-7].json; do
   reset_ubench
   ubench utxo-index bench "$bad" >"$tmp/ubench.out" 2>&1 && fail "utxo-index bench accepted $bad"
-  grep -q 'must be a JSON array of 1 to 20' "$tmp/ubench.out" || fail "utxo-index bench did not explain $bad"
+  grep -q 'must be a JSON array of 1 to 50' "$tmp/ubench.out" || fail "utxo-index bench did not explain $bad"
   bench_written && fail "utxo-index bench wrote a request for $bad"
 done
 for args in "--repeat 0" "--repeat 201" "--repeat x" "--repeat" "--bogus" "extra.json"; do

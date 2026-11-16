@@ -604,8 +604,8 @@ utxo_index_bench() {
     echo "The UTXO index is not enabled. Set bitcoin.utxo_index to true in config.json and run $stack_command apply." >&2
     return 1
   }
-  jq -e 'type == "array" and length >= 1 and length <= 20 and all(.[]; type == "object" and (.name | type == "string" and length > 0) and (.key | type == "string" and length > 0))' "$file" >/dev/null 2>&1 || {
-    echo "$file must be a JSON array of 1 to 20 {\"name\", \"key\"} objects with string values." >&2
+  jq -e 'type == "array" and length >= 1 and length <= 50 and all(.[]; type == "object" and (.name | type == "string" and length > 0) and (.key | type == "string" and length > 0))' "$file" >/dev/null 2>&1 || {
+    echo "$file must be a JSON array of 1 to 50 {\"name\", \"key\"} objects with string values." >&2
     return 1
   }
   utxo_seed_running dashboard || {
