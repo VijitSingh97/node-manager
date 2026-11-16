@@ -285,6 +285,11 @@ for service in litecoin:172.29.0.33:9334 bitcoincash:172.29.0.35:8334; do
   echo "$rendered_service" | grep -q "ONION_HOSTNAME: /var/lib/tor-onions/${service%%:*}" || fail "${service%%:*} does not read its own onion hostname"
 done
 echo "$all_nodes" | sed -n '/^  dogecoin:$/,/^  [a-z][a-z-]*:$/p' | grep -q 'TOR_INBOUND' && fail "Dogecoin cannot publish a v3 onion service"
+echo "$all_nodes" | sed -n '/^  dogecoin:$/,/^  [a-z][a-z-]*:$/p' | grep -q 'SEED_DOH_HOSTS: seed.multidoge.org seed2.multidoge.org' ||
+  fail "Dogecoin does not look up its seed peers"
+for service in litecoin bitcoincash; do
+  echo "$all_nodes" | sed -n "/^  $service:\$/,/^  [a-z][a-z-]*:\$/p" | grep -q 'SEED_DOH_HOSTS' && fail "$service looks up seed peers it does not need"
+done
 grep -qx 'type = "__TRANSPORT__"' build/tari/config.toml || fail "Tari transport is not chosen at runtime"
 echo "$all_nodes" | sed -n '/^  bitcoincash:$/,/^  dashboard:$/p' | grep -q '^    command:' && fail "Bitcoin Cash command bypasses its private runtime config"
 
@@ -331,7 +336,72 @@ printf 'evil.onion\nrpcallowip=0.0.0.0/0\n' >"$entry_dir/onion"
 entry_conf 0 TOR_INBOUND=1 ONION_BIND=10.0.0.5:9334 ONION_HOSTNAME="$entry_dir/onion" 2>/dev/null | grep -Eq '^(externalip|rpcallowip=0)' &&
   fail "family nodes trusted a malformed onion hostname"
 [ "$(entry_conf 10000 | grep -vc '^disablewallet=1$')" = "$(echo "$watch_conf" | grep -c '')" ] || fail "watch wallet changed more than disablewallet"
-rm -rf "$entry_dir"
+
+doh_dir=$(mktemp -d)
+cat >"$doh_dir/curl" <<'STUB'
+#!/bin/sh
+for arg in "$@"; do printf '[%s]' "$arg"; done >>"$DOH_LOG"
+echo >>"$DOH_LOG"
+proxied=0 noproxy=0 prev=
+for arg in "$@"; do
+  [ "$prev" = --socks5-hostname ] && [ "$arg" = t:1 ] && proxied=1
+  [ "$prev" = --noproxy ] && [ -z "$arg" ] && noproxy=1
+  prev=$arg
+done
+[ "$proxied$noproxy" = 11 ] || exit 7
+[ "${DOH_FAIL:-0}" = 1 ] && exit 28
+printf '{"Status":0,"Answer":[%s]}' "$DOH_ANSWER"
+STUB
+printf '#!/bin/sh\n' >"$doh_dir/sleep"
+chmod +x "$doh_dir/curl" "$doh_dir/sleep"
+answer() { for ip in "$@"; do printf '{"name":"seed.example","type":1,"data":"%s"},' "$ip"; done | sed 's/,$//'; }
+good_ips="1.2.3.4 5.6.7.8 9.9.9.9 11.22.33.44 45.67.89.10 50.60.70.80 81.82.83.84 91.92.93.94 101.102.103.104 200.201.202.203"
+bad_ips="999.1.1.1 256.0.0.1 1.2.3 10.0.0.5 127.0.0.1 192.168.1.2 172.16.0.1 172.31.255.255 100.64.0.1 100.127.0.1 169.254.1.1 224.0.0.1 255.255.255.255 0.0.0.0 192.0.2.1 192.0.0.8 198.18.0.1 198.19.255.1 198.51.100.7 203.0.113.9 2001:db8::1 8.8.4.4\\nrpcallowip=0.0.0.0/0"
+doh_conf() {
+  data=$1
+  shift
+  [ -n "$data" ] || data=$(mktemp -d "$doh_dir/data.XXXXXX")
+  entry_conf 0 SEED_DOH_HOSTS="seed.example seed2.example" SEED_PORT=22556 DOH_LOG="$doh_dir/log" NODE_DATA_DIR="$data" \
+    PATH="$doh_dir:$entry_dir:$PATH" "$@" 2>/dev/null
+}
+mkdir "$doh_dir/kept" "$doh_dir/failed"
+: >"$doh_dir/log"
+# shellcheck disable=SC2086
+seeded_conf=$(doh_conf "$doh_dir/kept" DOH_ANSWER="$(answer $good_ips $bad_ips)")
+echo "$seeded_conf" | grep -q '^dnsseed=0$' || fail "Dogecoin still dials seeders Tor cannot resolve"
+[ "$(echo "$seeded_conf" | grep -c '^addnode=')" = 8 ] || fail "Dogecoin did not add 8 seed peers"
+echo "$seeded_conf" | grep '^addnode=' | grep -vEx "addnode=($(echo "$good_ips" | sed 's/\./\\./g; s/ /|/g')):22556" &&
+  fail "Dogecoin added a seed peer the resolver did not return as a valid public address"
+echo "$seeded_conf" | grep -q 'rpcallowip=0' && fail "a seed answer injected a config line"
+[ "$(grep -c '' "$doh_dir/log")" = 2 ] || fail "seed lookup did not query each seeder once"
+grep -vF '[-q][-s][--noproxy][][--proto][=https][--max-time][20][--socks5-hostname][t:1]' "$doh_dir/log" | grep -q . &&
+  fail "a seed lookup could leave the Tor proxy, HTTPS or the time limit"
+grep -qF '[https://cloudflare-dns.com/dns-query?name=seed2.example&type=A]' "$doh_dir/log" || fail "seed lookup used an unexpected resolver"
+[ -e "$doh_dir/kept/.seed-lookup-done" ] || fail "a successful seed lookup was not recorded"
+: >"$doh_dir/log"
+again_conf=$(doh_conf "$doh_dir/kept" DOH_ANSWER="$(answer 1.2.3.4)")
+[ -s "$doh_dir/log" ] && fail "Dogecoin looked up seed peers again after a successful lookup"
+echo "$again_conf" | grep -q '^dnsseed=0$' || fail "a later start re-enabled the dead seeders"
+echo "$again_conf" | grep -q '^addnode=' && fail "a later start added seed peers without a lookup"
+: >"$doh_dir/log"
+failed_conf=$(doh_conf "$doh_dir/failed" DOH_FAIL=1 DOH_ANSWER=)
+echo "$failed_conf" | grep -q '^dnsseed=0$' || fail "a failed seed lookup re-enabled the dead seeders"
+echo "$failed_conf" | grep -q '^addnode=' && fail "a failed seed lookup still added peers"
+[ "$(grep -c '' "$doh_dir/log")" = 6 ] || fail "a failed seed lookup did not retry both seeders three times"
+[ -e "$doh_dir/failed/.seed-lookup-done" ] && fail "a failed seed lookup was recorded, so it would never be retried"
+for ip in $bad_ips; do
+  doh_conf "" DOH_ANSWER="$(answer "$ip")" | grep -q '^addnode=' && fail "Dogecoin accepted the seed answer $ip"
+done
+for ip in 1.0.0.1 172.15.0.1 172.32.0.1 100.63.255.255 100.128.0.1 192.0.1.1 198.17.0.1 198.20.0.1 223.255.255.255; do
+  [ "$(doh_conf "" DOH_ANSWER="$(answer "$ip")" | grep '^addnode=')" = "addnode=$ip:22556" ] || fail "Dogecoin rejected the public seed answer $ip"
+done
+: >"$doh_dir/log"
+doh_conf "" TOR_CLEARNET=0 DOH_ANSWER="$(answer 1.2.3.4)" | grep -q '^onlynet=onion$' || fail "onion-only Dogecoin lost its restriction"
+[ -s "$doh_dir/log" ] && fail "onion-only Dogecoin looked up clearnet seed peers"
+entry_conf 0 DOH_LOG="$doh_dir/log" PATH="$doh_dir:$entry_dir:$PATH" | grep -q '^dnsseed=1$' || fail "nodes without seed hosts lost DNS seeding"
+[ -s "$doh_dir/log" ] && fail "a node without seed hosts looked up seed peers"
+echo "$all_nodes" | sed -n '/^  dogecoin:$/,/^  [a-z][a-z-]*:$/p' | grep -q '^    init: true$' || fail "Dogecoin cannot be stopped promptly during its seed lookup"
+rm -rf "$doh_dir" "$entry_dir"
 
 new_lan=$(TARI_GRPC_EXPOSE=1 TARI_GRPC_BIND_IP=192.168.1.10 TARI_GRPC_PORT=28142 \
   LITECOIN_RPC_EXPOSE=1 LITECOIN_RPC_BIND_IP=192.168.1.10 LITECOIN_RPC_PORT=29332 \

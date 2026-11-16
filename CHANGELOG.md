@@ -17,6 +17,17 @@ All notable changes to this project are documented here. Format follows
   block to the first wallet refresh, and about half of blocks reached wallets
   first through the slower per-block scan update.
 
+### Fixed
+
+- Dogecoin finds peers through Tor. Its two DNS seeds cannot be resolved by Tor
+  exit relays, so a fresh node relied on built-in seeds from February 2024 and
+  took 30 to 75 minutes to reach a few peers. The container now looks the seeds
+  up with DNS-over-HTTPS (Cloudflare) through Tor and adds up to 8 current
+  peers; fresh nodes had 6 and 7 peers within 2 minutes in testing. Dogecoin's
+  own DNS seeding is off. After one successful lookup, restarts use the saved
+  peer list; a failed lookup falls back to the built-in seeds and is retried on
+  the next start. Every request still goes through Tor (#296).
+
 ## [1.35.1] - 2026-11-16
 
 ### Fixed
