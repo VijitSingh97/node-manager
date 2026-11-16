@@ -6,6 +6,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.36.0] - 2026-11-16
+
 ### Added
 
 - `utxo-index bench <wallets.json> [--scan [-y]] [--repeat N]` measures balance
@@ -1545,7 +1547,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.35.1...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.36.0...HEAD
+[1.36.0]: https://github.com/VijitSingh97/node-manager/compare/v1.35.1...v1.36.0
 [1.35.1]: https://github.com/VijitSingh97/node-manager/compare/v1.35.0...v1.35.1
 [1.35.0]: https://github.com/VijitSingh97/node-manager/compare/v1.34.0...v1.35.0
 [1.34.0]: https://github.com/VijitSingh97/node-manager/compare/v1.33.19...v1.34.0
