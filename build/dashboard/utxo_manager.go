@@ -752,6 +752,16 @@ func (a *app) newChainUtxo(node nodeConfig, chain *utxoChainParams, logger *log.
 }
 
 func (a *app) apiUtxoIndex(w http.ResponseWriter, r *http.Request) {
+	if chain := r.URL.Query().Get("chain"); chain != "" && chain != nodeBitcoin {
+		if utxoChains[chain] == nil {
+			http.Error(w, "unknown chain", http.StatusNotFound)
+			return
+		}
+		st := a.chainUtxo[chain].Status()
+		st.SeedNow = a.seedNow(chain)
+		writeJSON(w, st)
+		return
+	}
 	st := a.utxo.Status()
 	if st.State == utxoStateOff && !a.cfg.bitcoinDisabled {
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)

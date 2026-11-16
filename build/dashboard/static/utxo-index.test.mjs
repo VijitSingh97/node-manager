@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { badgeClickTarget, indexBadge, indexView, offHint, requestSeed, OFF_HINT, OFF_HINT_DOCS, SEED_COMMAND, SEED_WARNING, CONFIRMED_ONLY } from "./utxo-index.js";
+import { badgeClickTarget, indexBadge, indexView, offHint, requestSeed, OFF_HINT, OFF_HINT_DOCS, SEED_COMMAND, SEED_WARNING, LITECOIN_SEED_COMMAND, LITECOIN_SEED_WARNING, CONFIRMED_ONLY } from "./utxo-index.js";
 
 test("every endpoint state renders its label, and the confirmed-only row is always present", () => {
   const cases = [
@@ -116,4 +116,14 @@ test("Seed now replaces the host command when the host can prepare a seed", asyn
   assert.deepEqual(JSON.parse(sent.init.body), { action: "utxo_seed", node: "bitcoin" });
   assert.equal(await requestSeed(reply(false, "The balance index cannot be seeded now.\n")), "The balance index cannot be seeded now.");
   assert.equal(await requestSeed(async () => { throw new Error("offline"); }), "Could not request a seed.");
+});
+
+test("the Litecoin index card shows its own command and warning and seeds Litecoin", async () => {
+  const view = indexView({ enabled: true, state: "not_seeded" }, "litecoin");
+  assert.equal(view.command, LITECOIN_SEED_COMMAND);
+  assert.equal(view.warning, LITECOIN_SEED_WARNING);
+  assert.equal(indexView({ enabled: true, state: "not_seeded" }).command, SEED_COMMAND);
+  let body;
+  await requestSeed(async (url, init) => { body = JSON.parse(init.body); return { ok: true, text: async () => "" }; }, "litecoin");
+  assert.deepEqual(body, { action: "utxo_seed", node: "litecoin" });
 });

@@ -14,6 +14,13 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
+- Instant Litecoin balances: `litecoin.utxo_index` (Settings → Balance index →
+  "Instant Litecoin balances") keeps a Litecoin balance index, and the Litecoin
+  watch-only card reads its balances from it once it is seeded, updating within a
+  minute of each block. It is on by default when Litecoin is installed from the
+  dashboard, seeds itself like the Bitcoin index, and has `utxo-seed litecoin`
+  and `utxo-index remove litecoin`. Only one balance index seeds at a time.
+  Balances cover transparent outputs only; funds inside MWEB are not counted.
 - The Bitcoin balance index is on by default for new pruned installs. APT and
   Homebrew setup, and installing Bitcoin from the dashboard, write
   `bitcoin.utxo_index: true` when the node is pruned; existing installs and

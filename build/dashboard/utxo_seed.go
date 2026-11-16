@@ -92,7 +92,7 @@ func seedFIFOGuard(dir string) *seedRefusal {
 	if _, err := os.Lstat(filepath.Join(dir, seedDumpName)); err == nil {
 		return &seedRefusal{"fifo", seedDumpName + " already exists"}
 	} else if !errors.Is(err, fs.ErrNotExist) {
-		return &seedRefusal{"fifo", "the bitcoin data directory cannot be inspected"}
+		return &seedRefusal{"fifo", "the node data directory cannot be inspected"}
 	}
 	fi, err := os.Lstat(filepath.Join(dir, seedIncompleteName))
 	switch {
@@ -103,11 +103,11 @@ func seedFIFOGuard(dir string) *seedRefusal {
 	}
 	st, err := os.Stat(dir)
 	if err != nil {
-		return &seedRefusal{"fifo", "the bitcoin data directory cannot be inspected"}
+		return &seedRefusal{"fifo", "the node data directory cannot be inspected"}
 	}
 	sys, ok := st.Sys().(*syscall.Stat_t)
 	if !ok || os.Getuid() != 0 && int(sys.Uid) != os.Getuid() {
-		return &seedRefusal{"fifo", "the dashboard user does not own the bitcoin data directory"}
+		return &seedRefusal{"fifo", "the dashboard user does not own the node data directory"}
 	}
 	return nil
 }

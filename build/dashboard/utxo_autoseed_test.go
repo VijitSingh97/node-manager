@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -230,5 +231,30 @@ func TestHostControlQueuesTheLitecoinIndexToggle(t *testing.T) {
 	var req map[string]any
 	if err != nil || json.Unmarshal(raw, &req) != nil || req["action"] != "utxo_index" || req["node"] != nodeLitecoin || req["enabled"] != true || len(req) != 5 {
 		t.Fatalf("request %s %v", raw, err)
+	}
+}
+
+func TestUtxoIndexAPIServesTheLitecoinIndex(t *testing.T) {
+	a, _ := testApp(t, &rpcFixture{}, "")
+	get := func(query string) (*httptest.ResponseRecorder, utxoIndexStatus) {
+		w := httptest.NewRecorder()
+		a.apiUtxoIndex(w, httptest.NewRequest(http.MethodGet, "/api/utxo-index"+query, nil))
+		var st utxoIndexStatus
+		_ = json.Unmarshal(w.Body.Bytes(), &st)
+		return w, st
+	}
+	if w, _ := get("?chain=dogecoin"); w.Code != http.StatusNotFound {
+		t.Fatalf("an unsupported chain = %d", w.Code)
+	}
+	if _, st := get("?chain=litecoin"); st.State != utxoStateOff || st.SeedNow {
+		t.Fatalf("litecoin without an index = %+v", st)
+	}
+	a.chainUtxo = map[string]*utxoManager{nodeLitecoin: utxoMgrNewChain(t, t.TempDir(), nil, newFakeUtxoNode(utxoMgrChain(2, "b")), io.Discard, utxoLitecoin)}
+	b, _ := json.Marshal(hostControlCapability{Timestamp: time.Now().Unix(), Platform: "linux", BootKind: "boot", UTXOSeedSupported: true})
+	if err := os.WriteFile(a.nodeControlPath("capability"), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, st := get("?chain=litecoin"); st.State != utxoStateNotSeeded || !st.Enabled || !st.SeedNow {
+		t.Fatalf("litecoin index = %+v", st)
 	}
 }

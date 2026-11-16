@@ -314,6 +314,13 @@ first — a live copy of `chainstate/` is corrupt by construction.
 
 ## Seeding the Bitcoin balance index
 
+The Litecoin balance index (`litecoin.utxo_index`) seeds the same way, through
+the same host helper, with `litecoin` after the command: `./stack utxo-seed
+litecoin`, `./stack utxo-seed litecoin cancel` and `./stack utxo-index remove
+litecoin`. Its seed time and size on mainnet are not measured yet. Only one
+balance index seeds at a time; a second request is refused with the `lock`
+guard until the first finishes.
+
 With `bitcoin.utxo_index` enabled the index starts empty. On APT and Homebrew
 installs it seeds itself: while the index has no seed (or its last seed failed),
 the dashboard checks the seed guards once an hour, and when they pass it asks the

@@ -925,7 +925,7 @@ grep -q 'docker-compose.utxo-index.yml' "$ltc_dir/.env" && fail "litecoin.utxo_i
 lseed() { (cd "$ltc_dir" && HOME="$tmp" BITCOIN_STACK_UTXO_SEED_POLL_SECONDS=1 BITCOIN_STACK_UTXO_SEED_ACK_SECONDS=2 PATH="$utxo_stub:$stub:$PATH" ./stack "$@"); }
 reset_useed
 lseed utxo-seed litecoin -y </dev/null >"$tmp/lseed.out" 2>&1 || {
-  cat "$tmp/lseed.out" "$FAKE_LOG"
+  cat "$tmp/lseed.out"
   fail "utxo-seed litecoin failed on the happy path"
 }
 grep -q 'Seeding the Litecoin balance index' "$tmp/lseed.out" || fail "utxo-seed litecoin did not print its own warning"
