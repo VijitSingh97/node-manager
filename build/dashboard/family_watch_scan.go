@@ -69,7 +69,7 @@ func (m *familyWatchManager) scanNode(parent context.Context, id string, store *
 		store.markWaiting()
 		return
 	}
-	for _, wallet := range store.walletsDue(now) {
+	for _, wallet := range store.walletsDue(now, tip) {
 		if ctx.Err() != nil {
 			store.markFailed(wallet.ID)
 			return
@@ -106,7 +106,7 @@ func familyWatchWarningsClear(raw json.RawMessage) bool {
 	return json.Unmarshal(raw, &warnings) == nil && len(warnings) == 0
 }
 
-func (s *familyWatchStore) walletsDue(now int64) []familyWatchEntry {
+func (s *familyWatchStore) walletsDue(now int64, tip familyWatchTip) []familyWatchEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	wallets := make([]familyWatchEntry, 0, len(s.wallets))
@@ -116,7 +116,7 @@ func (s *familyWatchStore) walletsDue(now int64) []familyWatchEntry {
 		}
 		balance, cached := s.balances[wallet.ID]
 		state := s.states[wallet.ID]
-		if !cached || state == "error" || state == "stale" || state == "rescanning" || balance.ScanTime > now || now-balance.ScanTime >= int64(familyWatchInterval/time.Second) {
+		if !cached || state == "error" || state == "stale" || state == "rescanning" || balance.ScanTime > now || now-balance.ScanTime >= int64(familyWatchInterval/time.Second) || s.backend.refreshOnTip && balance.BestBlock != tip.Best {
 			wallets = append(wallets, wallet)
 		}
 	}
@@ -160,7 +160,10 @@ func (s *familyWatchStore) record(id, amount string, height int64, bestBlock str
 		now := s.now().Unix()
 		balance := s.balances[id]
 		balance.Amount, balance.ScanHeight, balance.ScanTime, balance.BestBlock = amount, height, now, bestBlock
-		balance.History = append(balance.History, familyWatchHistory{Time: now, Amount: formatFamilyWatchAmount(amount)})
+		point := familyWatchHistory{Time: now, Amount: formatFamilyWatchAmount(amount)}
+		if last := len(balance.History) - 1; !s.backend.refreshOnTip || last < 0 || balance.History[last].Amount != point.Amount || now-balance.History[last].Time >= int64(familyWatchInterval/time.Second) {
+			balance.History = append(balance.History, point)
+		}
 		if len(balance.History) > maxFamilyWatchHistory {
 			balance.History = append([]familyWatchHistory(nil), balance.History[len(balance.History)-maxFamilyWatchHistory:]...)
 		}

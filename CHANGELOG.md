@@ -37,8 +37,13 @@ All notable changes to this project are documented here. Format follows
   control, from Appearance and alerts to launch at boot, both Network switches
   and the Balance index, and drops staged installs and moves. Nothing applies
   until Save. Cancel closes Settings, like ✕.
+- New Zcash installs from the dashboard turn on Zakura's address index so watch
+  wallets work from the start; existing installs keep their setting.
 - Up to 50 Bitcoin watch-only wallets instead of 20, and `utxo-index bench`
   takes up to 50 wallets.
+- Zcash watch-only wallets (`zcash.address_index`) refresh when the node's best
+  block changes, checked every minute, instead of once an hour; the lookup is a
+  local index read. Litecoin, Bitcoin Cash and Dogecoin keep the hourly scan.
 
 ### Removed
 

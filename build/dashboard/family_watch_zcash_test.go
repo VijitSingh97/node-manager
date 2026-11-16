@@ -18,16 +18,18 @@ import (
 const zcashTestAddress = "t1Hsc1LR8yKnbbe3twRp88p6vFfC5t7DLbs"
 
 type zcashWatchFixture struct {
-	mu         sync.Mutex
-	balance    uint64
-	balanceErr bool
-	tipMoves   bool
-	balanceHit bool
-	tipTime    int64
-	progress   float64
-	methods    []string
-	params     []any
-	auth       string
+	mu          sync.Mutex
+	balance     uint64
+	balanceErr  bool
+	tipMoves    bool
+	best        string
+	balanceHits int
+	balanceHit  bool
+	tipTime     int64
+	progress    float64
+	methods     []string
+	params      []any
+	auth        string
 }
 
 func (f *zcashWatchFixture) handler(w http.ResponseWriter, r *http.Request) {
@@ -45,6 +47,9 @@ func (f *zcashWatchFixture) handler(w http.ResponseWriter, r *http.Request) {
 	switch request.Method {
 	case "getblockchaininfo":
 		best := "abc"
+		if f.best != "" {
+			best = f.best
+		}
 		if f.tipMoves && f.balanceHit {
 			best = "def"
 		}
@@ -57,6 +62,7 @@ func (f *zcashWatchFixture) handler(w http.ResponseWriter, r *http.Request) {
 	case "getaddressbalance":
 		f.params = request.Params
 		f.balanceHit = true
+		f.balanceHits++
 		if f.balanceErr {
 			_ = json.NewEncoder(w).Encode(map[string]any{"result": nil, "error": map[string]any{"code": -1, "message": "transparent indexes unavailable"}})
 			return
@@ -199,5 +205,38 @@ func TestZcashWatchCapabilityFollowsIndexFlag(t *testing.T) {
 	}
 	if got := defaultFamilyWatchEntry(nodeZcash); got.Address != "t3cFfPt1Bcvgez9ZbMBFWeZsskxTkPzGCow" || !got.Example || got.SourceURL != "https://zips.z.cash/zip-0214" {
 		t.Fatalf("zcash seed = %+v", got)
+	}
+}
+
+func TestZcashWatchRefreshesOnTipChangeOnly(t *testing.T) {
+	manager, store, fixture := newZcashWatchTest(t, 5)
+	manager.scanNode(t.Context(), nodeZcash, store)
+	manager.scanNode(t.Context(), nodeZcash, store)
+	if fixture.balanceHits != 1 {
+		t.Fatalf("balance lookups with unchanged tip = %d", fixture.balanceHits)
+	}
+	fixture.mu.Lock()
+	fixture.best = "def"
+	fixture.mu.Unlock()
+	manager.scanNode(t.Context(), nodeZcash, store)
+	if fixture.balanceHits != 2 {
+		t.Fatalf("balance lookups after tip change = %d", fixture.balanceHits)
+	}
+	if got := store.balances[familyWatchID(zcashTestAddress)].BestBlock; got != "def" {
+		t.Fatalf("best block = %q", got)
+	}
+}
+
+func TestZcashWatchTipRefreshKeepsHourlyHistory(t *testing.T) {
+	manager, store, fixture := newZcashWatchTest(t, 5)
+	manager.scanNode(t.Context(), nodeZcash, store)
+	for _, best := range []string{"def", "ghi"} {
+		fixture.mu.Lock()
+		fixture.best = best
+		fixture.mu.Unlock()
+		manager.scanNode(t.Context(), nodeZcash, store)
+	}
+	if got := len(store.balances[familyWatchID(zcashTestAddress)].History); got != 1 {
+		t.Fatalf("history points = %d", got)
 	}
 }
