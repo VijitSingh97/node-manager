@@ -27,5 +27,6 @@ Formula export-ignore
 formula_renames.json export-ignore
 scripts/build-homebrew-formula.sh export-ignore
 scripts/lint.sh export-ignore
+scripts/measure-block-latency.sh export-ignore
 ruff.toml export-ignore
 docs/adr export-ignore
