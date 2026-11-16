@@ -59,6 +59,9 @@ type utxoSeedState struct {
 	StartedAt   time.Time       `json:"started_at"`
 	AlertsUntil time.Time       `json:"alerts_suppressed_until"`
 	Last        *utxoSeedResult `json:"last_seed"`
+
+	AutoRequestID string `json:"auto_request_id,omitempty"`
+	AutoFailures  int    `json:"auto_failures,omitempty"`
 }
 
 type utxoSeedJob struct {
@@ -101,6 +104,7 @@ type utxoManager struct {
 	nodeTip      int64
 	indexTip     *uint32
 	seeding      bool
+	autoSeedAt   time.Time
 	seedProgress *float64
 	seedLogged   int
 	phase        string
@@ -123,6 +127,7 @@ type utxoIndexStatus struct {
 	LastSeed              *utxoSeedResult `json:"last_seed"`
 	AlertsSuppressedUntil *time.Time      `json:"alerts_suppressed_until"`
 	NodePruned            *bool           `json:"node_pruned"`
+	SeedNow               bool            `json:"seed_now"`
 }
 
 func newUtxoManager(dir string, fs vfs.FS, rpc utxoRPC, logger *log.Logger, chain *utxoChainParams) *utxoManager {
@@ -325,6 +330,7 @@ func (m *utxoManager) run(ctx context.Context) {
 				break wait
 			case <-poll:
 				m.pollSeed(ctx)
+				m.maybeAutoSeed(ctx)
 			}
 		}
 	}
@@ -394,6 +400,7 @@ func (m *utxoManager) finishSeed(err error) {
 		m.seed.AlertsUntil = time.Time{}
 	}
 	m.seed.Last = &utxoSeedResult{Outcome: outcome, Reason: seedErrorClass(err), FinishedAt: now, DurationSeconds: now.Sub(m.seed.StartedAt).Seconds()}
+	m.countAutoSeedLocked(err == nil)
 	m.persistSeedLocked()
 	m.log.Printf("utxo index: seed outcome=%s duration=%.0fs", outcome, m.seed.Last.DurationSeconds)
 	if err == nil {
@@ -479,6 +486,7 @@ func (m *utxoManager) setSeedStatePath(path string) {
 	m.seed.SeedState, m.seed.Phase, m.seed.Progress = utxoOutcomeFailed, "", nil
 	if interrupted {
 		m.seed.Last = &utxoSeedResult{Outcome: utxoOutcomeFailed, Reason: errSeedInterrupted.Error(), FinishedAt: now, DurationSeconds: now.Sub(m.seed.StartedAt).Seconds()}
+		m.countAutoSeedLocked(false)
 		_ = m.wipeLocked()
 	}
 	m.persistSeedLocked()
@@ -737,7 +745,8 @@ func (a *app) newChainUtxo(node nodeConfig, chain *utxoChainParams, logger *log.
 		if store := a.familyWatch.stores[node.ID]; store != nil {
 			hold, release = store.scanMu.TryLock, store.scanMu.Unlock
 		}
-		m.configureSeed(utxoSeedHost{prefix: node.ID + "-", stateDir: a.cfg.stateDir, dataDir: node.DataDir, dump: &dump, hold: hold, release: release, lock: &a.utxoSeedLock})
+		m.configureSeed(utxoSeedHost{prefix: node.ID + "-", stateDir: a.cfg.stateDir, dataDir: node.DataDir, dump: &dump, hold: hold, release: release, lock: &a.utxoSeedLock,
+			autoSeed: func() (string, string) { return a.queueSeedHostAction(node.ID) }})
 	}
 	return m
 }
@@ -752,5 +761,6 @@ func (a *app) apiUtxoIndex(w http.ResponseWriter, r *http.Request) {
 			st.NodePruned = &chain.Pruned
 		}
 	}
+	st.SeedNow = a.seedNow(nodeBitcoin)
 	writeJSON(w, st)
 }

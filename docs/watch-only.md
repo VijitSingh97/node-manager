@@ -412,11 +412,13 @@ xpub.
   must be enabled before the first prune. It is not required for the default
   UTXO-set scan.
 
-## Bitcoin balance index (opt-in)
+## Bitcoin balance index
 
-On a pruned node, `bitcoin.utxo_index` (off by default) keeps a local index of
-the coin set, so a watched wallet's balance comes from a lookup instead of a
-`scantxoutset` walk. It starts empty: seed it once with `./stack utxo-seed`, as
+On a pruned node, `bitcoin.utxo_index` keeps a local index of the coin set, so a
+watched wallet's balance comes from a lookup instead of a `scantxoutset` walk.
+New APT and Homebrew installs, and Bitcoin installed from the dashboard, turn it
+on for a pruned node; other installs opt in. It starts empty and seeds itself
+once the node has synced, or you can seed it with `./stack utxo-seed`, as
 [Operations](operations.md#seeding-the-bitcoin-balance-index) describes. The
 design and its measurements are in
 [ADR 0001](adr/0001-bitcoin-utxo-index.md). Operations also covers the
@@ -457,7 +459,8 @@ measured seed budget, a "Needs a new seed" card, upgrades and removal.
   refuses to turn it off while a seed runs; cancel it first). A badge
   in the heading of the watch-only wallets card shows the index state (ready,
   catching up, seeding, needs a seed, degraded or off) and links to the index
-  card. After turning it on, seed it once from the host.
+  card. After turning it on, the index seeds itself once the node has synced;
+  **Seed now**, here and on the index card, starts a seed straight away.
 - **Turning it off.** Switch it off in Settings, or set `bitcoin.utxo_index` to
   false and run `./stack apply`.
   The scan serves again and the volume is kept; `./stack utxo-index remove`

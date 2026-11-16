@@ -314,8 +314,17 @@ first — a live copy of `chainstate/` is corrupt by construction.
 
 ## Seeding the Bitcoin balance index
 
-With `bitcoin.utxo_index` enabled the index starts empty. Seed it from the
-host, with the stack running and the node synced:
+With `bitcoin.utxo_index` enabled the index starts empty. On APT and Homebrew
+installs it seeds itself: while the index has no seed (or its last seed failed),
+the dashboard checks the seed guards once an hour, and when they pass it asks the
+host helper (`node-control`) to create the seed pipe and request, the same
+preparation `utxo-seed` does. A refused check stays in the index status with its
+reason. A seed that starts and then fails is retried after 6 hours, then 24
+hours, and not again after a third failure until you start one; a guard refusal
+costs nothing and is re-checked hourly. The automatic seed holds node-down alerts
+like a manual one. **Seed now** on the index card or in Settings starts a seed
+through the same host helper. A source checkout has no host helper, so seed it by
+hand. To seed it from the host, with the stack running and the node synced:
 
 ```
 ./stack utxo-seed        # asks for y; -y skips the question

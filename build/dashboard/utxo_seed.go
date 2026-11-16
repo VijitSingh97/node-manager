@@ -22,6 +22,8 @@ const (
 	seedPollEvery       = 2 * time.Second
 	seedCheckEvery      = time.Second
 	seedRequestMaxBytes = 4096
+	utxoAutoSeedEvery   = time.Hour
+	utxoAutoSeedTries   = 3
 
 	utxoSeedChecking = "checking"
 	utxoSeedRunning  = "seeding"
@@ -48,7 +50,11 @@ type utxoSeedHost struct {
 	hold     func() bool
 	release  func()
 	lock     *sync.Mutex
+	autoSeed func() (id, refusal string)
 }
+
+// A failed automatic seed stalls the node's RPC for minutes, so retries back off and stop after utxoAutoSeedTries.
+var utxoAutoSeedBackoff = []time.Duration{6 * time.Hour, 24 * time.Hour}
 
 type seedRequest struct {
 	ID          string `json:"id"`
@@ -238,13 +244,13 @@ func (m *utxoManager) pollSeed(ctx context.Context) {
 		return
 	}
 	_ = os.Remove(filepath.Join(h.stateDir, h.prefix+seedCancelName))
-	m.markSeedRequest(req.ID, utxoSeedChecking, nil)
-	in := m.guards(ctx)
-	refusals := evaluateSeedGuards(in)
-	network, known := m.chain.Networks[in.Chain.Chain]
-	if in.ChainErr == nil && !known {
-		refusals = append(refusals, seedRefusal{"node", "this chain cannot be seeded"})
+	m.mu.Lock()
+	if req.ID != m.seed.AutoRequestID {
+		m.seed.AutoFailures = 0
 	}
+	m.mu.Unlock()
+	m.markSeedRequest(req.ID, utxoSeedChecking, nil)
+	network, refusals := m.checkSeed(ctx)
 	if r := seedFIFOGuard(h.dataDir); r != nil {
 		refusals = append(refusals, *r)
 	}
@@ -268,6 +274,63 @@ func (m *utxoManager) pollSeed(ctx context.Context) {
 	}
 	if err := m.execSeed(ctx, func(ctx context.Context) error { return m.seedFromDump(ctx, network) }); errors.Is(err, errUtxoSeedState) {
 		m.markSeedRequest(req.ID, utxoSeedRefused, []seedRefusal{{"state", "the index state does not allow a seed"}})
+	}
+}
+
+func (m *utxoManager) checkSeed(ctx context.Context) ([4]byte, []seedRefusal) {
+	in := m.guards(ctx)
+	refusals := evaluateSeedGuards(in)
+	network, known := m.chain.Networks[in.Chain.Chain]
+	if in.ChainErr == nil && !known {
+		refusals = append(refusals, seedRefusal{"node", "this chain cannot be seeded"})
+	}
+	return network, refusals
+}
+
+// maybeAutoSeed asks the host for a seed once an hour while the index has none; a refusal stays in the status.
+func (m *utxoManager) maybeAutoSeed(ctx context.Context) {
+	if m.host.autoSeed == nil {
+		return
+	}
+	m.mu.Lock()
+	now := m.now()
+	due := m.state == utxoStateNotSeeded && !m.seeding && now.Sub(m.autoSeedAt) >= utxoAutoSeedEvery && m.autoSeedBackedOffLocked(now)
+	if due {
+		m.autoSeedAt = now
+	}
+	m.mu.Unlock()
+	if !due {
+		return
+	}
+	_, refusals := m.checkSeed(ctx)
+	if len(refusals) == 0 {
+		id, detail := m.host.autoSeed()
+		if detail == "" {
+			m.mu.Lock()
+			m.seed.AutoRequestID = id
+			m.persistSeedLocked()
+			m.mu.Unlock()
+			return
+		}
+		refusals = append(refusals, seedRefusal{"host", detail})
+	}
+	m.markSeedRequest(m.lastSeedRequest(), utxoSeedRefused, refusals)
+}
+
+func (m *utxoManager) autoSeedBackedOffLocked(now time.Time) bool {
+	f := m.seed.AutoFailures
+	if f >= utxoAutoSeedTries {
+		return false
+	}
+	return f == 0 || m.seed.Last == nil || !now.Before(m.seed.Last.FinishedAt.Add(utxoAutoSeedBackoff[f-1]))
+}
+
+func (m *utxoManager) countAutoSeedLocked(ok bool) {
+	switch {
+	case ok:
+		m.seed.AutoFailures = 0
+	case m.seed.AutoRequestID != "" && m.seed.RequestID == m.seed.AutoRequestID:
+		m.seed.AutoFailures++
 	}
 }
 

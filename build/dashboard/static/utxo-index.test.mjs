@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { badgeClickTarget, indexBadge, indexView, offHint, OFF_HINT, OFF_HINT_DOCS, SEED_COMMAND, SEED_WARNING, CONFIRMED_ONLY } from "./utxo-index.js";
+import { badgeClickTarget, indexBadge, indexView, offHint, requestSeed, OFF_HINT, OFF_HINT_DOCS, SEED_COMMAND, SEED_WARNING, CONFIRMED_ONLY } from "./utxo-index.js";
 
 test("every endpoint state renders its label, and the confirmed-only row is always present", () => {
   const cases = [
@@ -99,4 +99,21 @@ test("the wallet card badge names each index state and its tone", () => {
 test("the badge scrolls to the index card when it shows and opens Settings when it is hidden", () => {
   assert.equal(badgeClickTarget(false), "anchor");
   assert.equal(badgeClickTarget(true), "settings");
+});
+
+test("Seed now replaces the host command when the host can prepare a seed", async () => {
+  for (const state of ["not_seeded", "invalid"]) {
+    const view = indexView({ enabled: true, state, seed_now: true });
+    assert.equal(view.seedNow, true);
+    assert.equal(view.command, "");
+  }
+  assert.equal(indexView({ enabled: true, state: "not_seeded" }).seedNow, false);
+  assert.equal(indexView({ enabled: true, state: "seeding", seed_now: true }).seedNow, false);
+  let sent;
+  const reply = (ok, text) => async (url, init) => { sent = { url, init }; return { ok, text: async () => text }; };
+  assert.match(await requestSeed(reply(true, "")), /Seed requested/);
+  assert.equal(sent.url, "/api/settings/host");
+  assert.deepEqual(JSON.parse(sent.init.body), { action: "utxo_seed", node: "bitcoin" });
+  assert.equal(await requestSeed(reply(false, "The balance index cannot be seeded now.\n")), "The balance index cannot be seeded now.");
+  assert.equal(await requestSeed(async () => { throw new Error("offline"); }), "Could not request a seed.");
 });

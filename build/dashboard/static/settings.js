@@ -1,5 +1,6 @@
 import { credentialSettingsController } from "./credentials.js";
 import { dashboardFetch as fetch } from "./session.js";
+import { requestSeed } from "./utxo-index.js";
 
 const extraNodes = ["tari", "litecoin", "dogecoin", "bitcoincash", "zcash"];
 const allNodes = ["bitcoin", "monero", ...extraNodes];
@@ -64,6 +65,7 @@ export function configurationAccess(data) {
 }
 
 const networkActions = ["clearnet_over_tor", "inbound_connections"];
+const balanceActions = ["utxo_index", "utxo_seed"];
 const toggleFields = { launch_at_boot: "boot_enabled", clearnet_over_tor: "clearnet_over_tor", inbound_connections: "inbound_connections", utxo_index: "utxo_index" };
 export const hostToggleDefaults = { launch_at_boot: false, clearnet_over_tor: true, inbound_connections: true, utxo_index: false };
 export const UTXO_INDEX_OFF_PROMPT = "Turn off instant Bitcoin balances? Wallets go back to the slower scan. The index volume stays on disk until you run utxo-index remove.";
@@ -120,7 +122,7 @@ export function hostControlModel(data = {}) {
       interfaces,
     };
   }
-  const action = ["install", "migrate", "launch_at_boot", "apply_config", "utxo_index", ...networkActions].includes(data?.status?.action) ? data.status.action : "";
+  const action = ["install", "migrate", "launch_at_boot", "apply_config", ...balanceActions, ...networkActions].includes(data?.status?.action) ? data.status.action : "";
   const state = ["pending", "applied", "rejected", "failed"].includes(data?.status?.state) ? data.status.state : "";
   const bootKind = ["boot", "login", "unsupported"].includes(data.boot_kind) ? data.boot_kind : "unsupported";
   const revision = data.config_pending === true && /^[0-9a-f]{64}$/.test(String(data.config_revision || "")) ? data.config_revision : "";
@@ -134,6 +136,7 @@ export function hostControlModel(data = {}) {
     clearnet_over_tor: data.clearnet_over_tor === true,
     inbound_connections: data.inbound_connections === true,
     utxo_index: data.utxo_index === true,
+    utxo_seed_now: data.utxo_seed_now === true,
     config_pending: !!revision,
     config_revision: revision,
     config_path: typeof data.config_path === "string" && data.config_path.startsWith("/") ? data.config_path : "",
@@ -409,18 +412,21 @@ if (typeof document !== "undefined") {
   byId("network").insertAdjacentHTML("afterend", `<fieldset id="settings-balance-index" hidden>
     <legend>Balance index</legend>
     <label class="settings-check"><input id="settings-utxo-index" type="checkbox" role="switch"> Instant Bitcoin balances</label>
-    <p class="settings-note">For pruned nodes. Uses about 7.5 GiB of disk, up to about 17 GiB while it seeds, and the seed needs 27 GB free. After turning it on, seed it once (about 20 minutes; Bitcoin RPC pauses for about 5 minutes) from the host: <code id="settings-utxo-seed-command"></code>. Turning it off keeps the volume until <code>utxo-index remove</code>, and is refused while a seed runs. Applying restarts the dashboard.</p>
+    <p class="settings-note">For pruned nodes. Uses about 7.5 GiB of disk, up to about 17 GiB while it seeds, and the seed needs 27 GB free. After turning it on, it seeds itself once the node has synced (about 20 minutes; Bitcoin RPC pauses for about 5 minutes).<span id="settings-utxo-seed-cli" hidden> Without host controls, seed it from the host: <code id="settings-utxo-seed-command"></code>.</span> Turning it off keeps the volume until <code>utxo-index remove</code>, and is refused while a seed runs. Applying restarts the dashboard.</p>
+    <button id="settings-utxo-seed-now" type="button" hidden>Seed now</button>
     <p id="settings-utxo-index-status" class="settings-note" role="status" aria-live="polite"></p>
   </fieldset>`);
   const utxoIndex = byId("utxo-index");
   const balanceSettings = byId("balance-index");
   const balanceStatus = byId("utxo-index-status");
   const utxoSeedCommand = byId("utxo-seed-command");
+  const utxoSeedCli = byId("utxo-seed-cli");
+  const utxoSeedNow = byId("utxo-seed-now");
   const clearnetOverTor = byId("clearnet-over-tor");
   const inboundConnections = byId("inbound-connections");
   const networkStatus = byId("network-status");
   const networkSettings = byId("network");
-  const hostStatusTarget = (action) => action === "utxo_index" ? balanceStatus : networkActions.includes(action) ? networkStatus : hostStatus;
+  const hostStatusTarget = (action) => balanceActions.includes(action) ? balanceStatus : networkActions.includes(action) ? networkStatus : hostStatus;
   const configPath = byId("config-path");
   const installDialog = byId("install-dialog");
   const installForm = byId("install-form");
@@ -635,9 +641,12 @@ if (typeof document !== "undefined") {
     utxoIndex.checked = balanceControl.checked;
     utxoIndex.disabled = balanceControl.disabled;
     utxoSeedCommand.textContent = seedCommand(hostView.boot_kind);
+    utxoSeedCli.hidden = hostView.available;
+    utxoSeedNow.hidden = !hostView.utxo_seed_now;
+    utxoSeedNow.disabled = busy;
     configChange.hidden = !hostView.config_pending;
     const networkMessage = networkActions.includes(hostView.status.action);
-    const balanceMessage = hostView.status.action === "utxo_index";
+    const balanceMessage = balanceActions.includes(hostView.status.action);
     networkStatus.textContent = networkMessage ? hostView.status.message : "";
     balanceStatus.textContent = balanceMessage ? hostView.status.message : "";
     hostStatus.textContent = networkMessage || balanceMessage ? "" : hostView.status.message || (!hostView.available ? "Host controls require the installed helper." : "");
@@ -747,6 +756,12 @@ if (typeof document !== "undefined") {
     installSubmit.textContent = "Install on Save";
     installDialog.showModal();
   };
+
+  utxoSeedNow.addEventListener("click", async () => {
+    utxoSeedNow.disabled = true;
+    balanceStatus.textContent = await requestSeed();
+    await loadHost();
+  });
 
   async function loadHost() {
     await hostRequests.run(requestHost, renderHost, (error) => {

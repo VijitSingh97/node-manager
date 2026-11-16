@@ -271,6 +271,7 @@ printf '%s' "$out" | grep -q 'sudo apt install --only-upgrade node-manager' || f
 init_out=$(BITCOIN_STACK_DEFAULT_BIND_IP=192.168.1.116 FAKE_IMAGES_MISSING=1 "$wrapper" init)
 [ "$(jq -r '.bitcoin.enabled' "$config_dir/config.json")" = true ] || fail "package init did not default to Bitcoin"
 [ "$(jq -r '.bitcoin.resource_profile' "$config_dir/config.json")" = compact ] || fail "package init did not select the compact Bitcoin profile"
+[ "$(jq -r '.bitcoin.utxo_index' "$config_dir/config.json")" = true ] || fail "package init did not turn on the balance index for the pruned Bitcoin node"
 dashboard_password=$(jq -r '.dashboard.password' "$config_dir/config.json")
 [[ "$dashboard_password" =~ ^[a-f0-9]{32}$ ]] || fail "package init did not generate a 32-character dashboard password"
 [ "$(stat -c '%a' "$config_dir/config.json" 2>/dev/null || stat -f '%Lp' "$config_dir/config.json")" = 600 ] || fail "package init config is not mode 600"
@@ -306,7 +307,7 @@ grep -q '^MONERO_RESOURCE_PROFILE=off$' "$env_file" || fail "package init enable
 grep -q '^BITCOIN_STEADY_CPUS=1$' "$env_file" || fail "package init did not render the Bitcoin steady CPU default"
 grep -q '^BITCOIN_STEADY_MEM_LIMIT_MB=2048$' "$env_file" || fail "package init did not render the Bitcoin steady memory default"
 grep -q '^STACK_RESTART_POLICY=on-failure:5$' "$env_file" || fail "fresh package install enabled launch at boot"
-grep -q '^COMPOSE_FILE=docker-compose.yml$' "$env_file" || fail "fresh package install enabled an optional Compose override"
+grep -q '^COMPOSE_FILE=docker-compose.yml:docker-compose.utxo-index.yml$' "$env_file" || fail "fresh package install did not add only the balance index overlay"
 grep -q "^STACK_ROOT=$runtime$" "$env_file" || fail "immutable payload path was not rendered"
 wallets=$(sed -n 's/^WATCH_WALLETS_B64=//p' "$env_file" | base64 -d)
 [ "$wallets" = '[]' ] || fail "fresh pruned package seeded a wallet it cannot scan"
@@ -322,7 +323,7 @@ grep -q -- "--project-directory $state_dir" "$log" || fail "Compose project dire
 grep -q '^COMPOSE_PROJECT_NAME=node-manager-apt$' "$env_file" || fail "fresh package did not persist its Compose identity"
 grep -q -- "--project-name node-manager-apt" "$log" || fail "package Compose project is not isolated from source installs"
 grep -q -- "--env-file $env_file" "$log" || fail "Compose did not use package state env"
-grep -q -- "-f $runtime/docker-compose.yml up -d" "$log" || fail "Compose did not use immutable payload"
+grep -q -- "-f $runtime/docker-compose.yml -f $runtime/docker-compose.utxo-index.yml up -d" "$log" || fail "Compose did not use immutable payload"
 grep -q -- "-f $runtime/docker-compose.rpc.yml" "$log" && fail "default package startup loaded the RPC override"
 
 preset_config_dir=$tmp/preset/etc/node-manager

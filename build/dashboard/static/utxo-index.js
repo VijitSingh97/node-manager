@@ -60,13 +60,30 @@ export function indexView(status) {
   if (!seeding && last && last.outcome !== "ok") {
     rows.push(`Last seed ${last.outcome}${last.reason ? `: ${last.reason}` : ""}.`);
   }
+  const seedNow = idle && status.seed_now === true;
   return {
     rows,
     progress: seeding && status.seed_progress != null ? status.seed_progress : null,
     refusals: (status.refusals || []).map(r => `${r.guard}: ${r.detail}`),
-    command: idle ? SEED_COMMAND : "",
+    seedNow,
+    command: idle && !seedNow ? SEED_COMMAND : "",
     warning: idle || seeding ? SEED_WARNING : "",
   };
+}
+
+export async function requestSeed(post = fetch) {
+  try {
+    const res = await post("/api/settings/host", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
+      body: JSON.stringify({ action: "utxo_seed", node: "bitcoin" }),
+    });
+    if (res.ok) return "Seed requested; the host starts it within a minute.";
+    const message = (await res.text()).trim();
+    return message && message.length <= 200 ? message : "Could not request a seed.";
+  } catch {
+    return "Could not request a seed.";
+  }
 }
 
 let renderBadge = () => {};
@@ -120,6 +137,17 @@ if (typeof document !== "undefined") {
         card.append(bar);
       }
       for (const refusal of view.refusals) card.append(el("div", "watch-warn", refusal));
+      if (view.seedNow) {
+        const button = el("button", null, "Seed now");
+        button.type = "button";
+        const note = el("div", "watch-hint", "");
+        button.addEventListener("click", async () => {
+          button.disabled = true;
+          note.textContent = await requestSeed();
+          button.disabled = false;
+        });
+        card.append(button, note);
+      }
       if (view.command) card.append(el("div", "watch-hint", "Start a seed on the host:"), el("code", null, view.command));
       if (view.warning) card.append(el("div", "watch-hint", view.warning));
     };

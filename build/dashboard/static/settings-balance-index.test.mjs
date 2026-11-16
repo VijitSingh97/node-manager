@@ -45,3 +45,10 @@ test("saving the balance index off drops only that change on a cancelled confirm
   assert.equal(balanceIndexControl({ ...bitcoin, config_pending: true }, false).disabled, true);
   assert.equal(balanceIndexControl(bitcoin, true).disabled, true);
 });
+
+test("Seed now follows the host view and routes its status to the balance index", () => {
+  assert.equal(hostControlModel({}).utxo_seed_now, false);
+  assert.equal(hostControlModel({ utxo_seed_now: true }).utxo_seed_now, true);
+  assert.equal(hostControlModel({ utxo_seed_now: "true" }).utxo_seed_now, false);
+  assert.equal(hostControlModel({ status: { action: "utxo_seed", state: "applied", message: "Balance index seed started." } }).status.action, "utxo_seed");
+});

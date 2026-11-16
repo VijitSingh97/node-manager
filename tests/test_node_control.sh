@@ -69,6 +69,10 @@ cat >"$tmp/docker" <<'EOF'
 set -eu
 if [ "$1" = ps ]; then
   case "$*" in *com.docker.compose.service=dashboard*) [ "${FAKE_DASHBOARD_MISSING:-0}" = 1 ] || printf 'dashboard-id\n' ;; esac
+  case "$*" in *com.docker.compose.service=bitcoin* | *com.docker.compose.service=litecoin*)
+    all="$*"
+    [ "${FAKE_NODE_RUNNING:-0}" != 1 ] || printf '%s-node\n' "${all##*com.docker.compose.service=}" ;;
+  esac
   exit 0
 fi
 if [ "$1" = inspect ]; then
@@ -92,6 +96,9 @@ fi
 shift
 [ "${1:-}" != -i ] || shift
 if [ "${1:-}" = -u ]; then shift 2; fi
+if [ "${1%-node}" != "$1" ] && [ "$2" = sh ] && [ "$3" = -c ]; then
+  exec sh -c "${4//\/data/$FAKE_NODE_DATA/${1%-node}}"
+fi
 [ "$1" = dashboard-id ]
 shift
 if [ "$1" = sh ] && [ "$2" = -c ]; then
@@ -111,7 +118,7 @@ printf 'DASHBOARD_BIND_IP=192.168.1.20\n' >>"$state/.env"
 jq -S . "$config/config.json" >"$state/.approved-config.json"
 cp "$state/.env" "$state/.approved.env"
 export BITCOIN_STACK_ROOT=$root BITCOIN_STACK_STATE_DIR=$state BITCOIN_STACK_CONFIG_DIR=$config
-export DOCKER_BIN=$tmp/docker FAKE_DASH_STATE=$dashboard_state FAKE_STACK_LOG=$tmp/stack.log NODE_CONTROL_NOW_EPOCH=1000
+export DOCKER_BIN=$tmp/docker FAKE_DASH_STATE=$dashboard_state FAKE_STACK_LOG=$tmp/stack.log NODE_CONTROL_NOW_EPOCH=1000 FAKE_NODE_DATA=$tmp/node-data
 export FAKE_STACK_FAIL_ONCE=0 FAKE_STACK_FAIL_MARKER=$tmp/stack-failed
 export FAKE_CONFIGURE_FAIL_ONCE=0 FAKE_CONFIGURE_FAIL_MARKER=$tmp/configure-failed
 export FAKE_DOCKER_UPDATE_FAIL_ONCE=0 FAKE_DOCKER_UPDATE_FAIL_MARKER=$tmp/docker-update-failed
@@ -310,6 +317,39 @@ request '{"action":"utxo_index","enabled":false,"id":"e8e8e8e8e8e8e8e8e8e8e8e8e8
 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 [ "$(status .error_code)" = seed_running ] || fail "balance index turned off during a seed"
 [ "$(jq -r .bitcoin.utxo_index "$config/config.json")" = true ] || fail "rejected turn-off changed config"
+
+jq -e '.utxo_seed_supported' "$dashboard_state/node-control.capability" >/dev/null || fail "seed support was not published"
+mkdir -p "$FAKE_NODE_DATA/bitcoin" "$FAKE_NODE_DATA/litecoin"
+: >"$FAKE_NODE_DATA/bitcoin/utxo-seed.dat"
+request '{"action":"utxo_seed","id":"f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1","node":"bitcoin","requested_at":1000}'
+FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .error_code)" = seed_running ] || fail "a seed was prepared while one was running"
+[ -f "$FAKE_NODE_DATA/bitcoin/utxo-seed.dat" ] || fail "a running seed lost its dump file"
+rm -f "$dashboard_state/utxo-seed.json"
+request '{"action":"utxo_seed","id":"f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2","node":"bitcoin","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .error_code)" = apply_failed ] || fail "a seed was prepared for a stopped node"
+request '{"action":"utxo_seed","id":"f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3","node":"bitcoin","requested_at":1000}'
+FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state):$(status .node)" = applied:bitcoin ] || { cat "$dashboard_state/node-control.status"; fail "bitcoin seed was not prepared"; }
+[ -p "$FAKE_NODE_DATA/bitcoin/utxo-seed.dat.incomplete" ] && [ ! -e "$FAKE_NODE_DATA/bitcoin/utxo-seed.dat" ] || fail "the seed pipe was not made fresh"
+jq -e 'keys==["id","requested_at"] and .requested_at==1000 and .id=="f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3"' "$dashboard_state/utxo-seed.request" >/dev/null || fail "the bitcoin seed request did not carry the host request id"
+request '{"action":"utxo_seed","id":"f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4","node":"litecoin","requested_at":1000}'
+FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .error_code)" = validation_failed ] || fail "a seed was prepared for an index that is off"
+[ ! -e "$dashboard_state/litecoin-utxo-seed.request" ] && [ ! -e "$FAKE_NODE_DATA/litecoin/utxo-seed.dat.incomplete" ] || fail "a refused seed left files"
+cp "$config/config.json" "$tmp/config.keep"
+jq '.litecoin.utxo_index=true' "$tmp/config.keep" >"$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+request '{"action":"utxo_seed","id":"f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5","node":"litecoin","requested_at":1000}'
+FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state)" = applied ] && [ -p "$FAKE_NODE_DATA/litecoin/utxo-seed.dat.incomplete" ] || fail "litecoin seed was not prepared"
+jq -e '.requested_at==1000' "$dashboard_state/litecoin-utxo-seed.request" >/dev/null || fail "the litecoin seed request was not written under its prefix"
+cp "$tmp/config.keep" "$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+request '{"action":"utxo_seed","id":"f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6","node":"dogecoin","requested_at":1000}'
+FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .error_code)" = invalid_request ] || fail "a seed request for an unsupported node was accepted"
 rm -f "$dashboard_state/utxo-seed.json"
 request '{"action":"utxo_index","enabled":false,"id":"e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6","requested_at":1000}'
 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
@@ -475,5 +515,15 @@ NODE_CONTROL_FORCE_MIGRATE_MODE=copy BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTRO
 [ -f "$thirddisk/blocks.dat" ] || fail "copy migrate did not copy the data"
 [ ! -e "$newdisk" ] || fail "copy migrate did not remove the old copy"
 [ ! -e "$dashboard_state/node-control.progress" ] || fail "finished migrate left the progress file behind"
+
+for case in pruned:true archival:null; do
+  jq --argjson archival "$([ "${case%%:*}" = archival ] && echo true || echo false)" '.bitcoin={"enabled":false} | if $archival then .bitcoin.prune_mb=0 else . end' "$config/config.json" >"$tmp/config.next"
+  mv "$tmp/config.next" "$config/config.json"
+  jq -S . "$config/config.json" >"$state/.approved-config.json"
+  request "{\"action\":\"install\",\"id\":\"$([ "${case%%:*}" = archival ] && echo 85 || echo 86)858585858585858585858585858585\",\"node\":\"bitcoin\",\"requested_at\":1000}"
+  BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+  [ "$(status .state)" = applied ] || fail "bitcoin install (${case%%:*}) was not applied: $(status .message)"
+  [ "$(jq -c .bitcoin.utxo_index "$config/config.json")" = "${case#*:}" ] || fail "a ${case%%:*} bitcoin install set utxo_index to $(jq -c .bitcoin.utxo_index "$config/config.json")"
+done
 
 echo "PASS: test_node_control.sh"

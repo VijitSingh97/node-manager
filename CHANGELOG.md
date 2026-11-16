@@ -14,6 +14,19 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
+- The Bitcoin balance index is on by default for new pruned installs. APT and
+  Homebrew setup, and installing Bitcoin from the dashboard, write
+  `bitcoin.utxo_index: true` when the node is pruned; existing installs and
+  archival nodes keep their setting. An enabled index that has never been seeded,
+  or whose last seed failed, now seeds itself: once an hour the dashboard checks
+  the seed guards and, when they pass, asks the host helper to prepare the seed
+  pipe and request, so no `utxo-seed` command is needed. A refused check stays
+  in the index status with its reason. A seed that starts and fails is retried
+  after 6 hours, then 24 hours, and not again after a third failure until you
+  start one. The automatic seed holds node-down alerts as a manual seed does.
+- A **Seed now** button on the balance index card and in Settings → Balance
+  index starts a seed through the host helper when the index needs one. The
+  `utxo-seed` command is shown only where host controls are unavailable.
 - A node whose container is stopped outside the dashboard (`node-manager stop`,
   `docker stop`, a crash that exhausted its restarts) now shows its tower greyed
   with a Stopped status and a Start node button instead of Connecting forever.

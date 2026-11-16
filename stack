@@ -770,7 +770,7 @@ init() {
     if [ "$package_managed" = "0" ]; then
       jq -cn --arg password "$dashboard_password" '{bitcoin:{enabled:true},dashboard:{password:$password,bind_ip:"auto",launch_at_boot:false}}' >"$config_source"
     else
-      jq -cn --arg password "$dashboard_password" '{bitcoin:{enabled:true,resource_profile:"compact"},dashboard:{password:$password,bind_ip:"auto",launch_at_boot:false}}' >"$config_source"
+      jq -cn --arg password "$dashboard_password" '{bitcoin:{enabled:true,resource_profile:"compact",utxo_index:true},dashboard:{password:$password,bind_ip:"auto",launch_at_boot:false}}' >"$config_source"
     fi
     replace_config "$config_source"
     rm -f "$config_source"
