@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -39,6 +40,7 @@ var (
 	errSeedThermal     = errors.New("temperature rose above the start limit before the dump")
 	errSeedInterrupted = errors.New("dashboard restarted during the seed")
 	errSeedPipeGone    = errors.New("the seed pipe was replaced during the seed")
+	errSeedUserCancel  = fmt.Errorf("%w by the user", context.Canceled)
 )
 
 // prefix names the request and cancel files per chain; lock is shared by every index so two seeds never overlap.
@@ -293,7 +295,7 @@ func (m *utxoManager) maybeAutoSeed(ctx context.Context) {
 		return
 	}
 	m.mu.Lock()
-	now := m.now()
+	now, last := m.now(), m.autoSeedAt
 	due := m.state == utxoStateNotSeeded && !m.seeding && now.Sub(m.autoSeedAt) >= utxoAutoSeedEvery && m.autoSeedBackedOffLocked(now)
 	if due {
 		m.autoSeedAt = now
@@ -309,6 +311,13 @@ func (m *utxoManager) maybeAutoSeed(ctx context.Context) {
 			m.mu.Lock()
 			m.seed.AutoRequestID = id
 			m.persistSeedLocked()
+			m.mu.Unlock()
+			return
+		}
+		// Another index's seed request is usually gone within seconds, so try again on the next poll.
+		if detail == hostChangePending {
+			m.mu.Lock()
+			m.autoSeedAt = last
 			m.mu.Unlock()
 			return
 		}
@@ -346,7 +355,7 @@ func (m *utxoManager) watchSeedCancel(ctx context.Context, cancel context.Cancel
 			if _, err := os.Stat(path); err == nil {
 				_ = os.Remove(path)
 				m.setSeedPhase(utxoPhaseCancelling)
-				cancel(nil)
+				cancel(errSeedUserCancel)
 				return
 			}
 		}

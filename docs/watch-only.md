@@ -235,9 +235,9 @@ stores no private spend key.
 
 Dogecoin displays **Wallet balance not available** with no public reference
 address or balance card by default, because its current pruned daemon cannot discover
-arbitrary address UTXOs; the opt-in archival mode below changes that. Zcash shows the same message unless you opt in to the
-transparent address index described below, because Zakura's default
-checkpoint-pruned mode omits it. The dashboard does not query an external
+arbitrary address UTXOs; the opt-in archival mode below changes that. Zcash shows the same message when the
+transparent address index described below is off, because Zakura's
+checkpoint-pruned mode omits it; the index is on for new installs. The dashboard does not query an external
 explorer to fill those gaps.
 
 **Dogecoin:** an address watched before initial sync or before its first payment
@@ -255,8 +255,8 @@ claim that every pruned Zcash implementation lacks wallet support. Zakura 1.7.0
 can retain transparent address indexes while pruning transaction bodies, but
 requires a fresh database with checkpoint sync disabled. Upstream describes
 that mode as slower and less secure against some chain attacks; it also retains
-extra indexes with no published sizing estimate. We keep the default profile and
-offer the index as an opt-in; see the next section. See the [release notes](https://github.com/zakura-core/zakura/releases/tag/v1.7.0)
+extra indexes with no published sizing estimate. New dashboard and package installs turn the
+index on, existing installs keep their setting; see the next section. See the [release notes](https://github.com/zakura-core/zakura/releases/tag/v1.7.0)
 and [checkpoint configuration](https://github.com/zakura-core/zakura/blob/v1.7.0/crates/zakura-consensus/src/config.rs).
 Shielded addresses additionally need a viewing key and wallet scanner; a public
 address alone is insufficient. Zallet and lightwalletd are separate wallet/index
@@ -312,16 +312,18 @@ With the option on, the dashboard seeds the Dogecoin Foundation address from the
 example, excluded from personal totals and never imported or scanned, so it does
 not delay your own addresses. Without the option, Dogecoin has no example.
 
-## Zcash transparent addresses (opt-in)
+## Zcash transparent addresses
 
-Set `"address_index": true` under `zcash` in `config.json` to run Zakura with
+A Zcash node installed from the dashboard sets `"address_index": true` under `zcash`, so it syncs without checkpoints and the index is available from the start. Existing installs keep their setting; an upgrade never flips it. Setting `"address_index": true` under `zcash` in `config.json` runs Zakura with
 `build/zcash/zakurad-address-index.toml`. It is the default config with
 `checkpoint_sync = false` and the same pruned storage. The dashboard then accepts
 transparent `t1` and `t3` addresses and reads each balance from your own node with
 `getaddressbalance`. Shielded and unified addresses are rejected because they need
 a viewing key and a wallet scanner. Balances cover confirmed transparent funds only.
+Because the lookup is a local index read, each wallet is refreshed within a minute of
+the node's best block changing instead of once an hour.
 
-Limits to accept before enabling it:
+Limits to accept when the index is on, or before enabling it later:
 
 - The node must resync from genesis into a fresh data directory. `configure.sh`
   refuses the option when `zcash.data_dir` already holds files and has no

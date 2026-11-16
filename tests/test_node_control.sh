@@ -25,6 +25,8 @@ cat >"$root/configure.sh" <<'EOF'
 #!/bin/sh
 set -eu
 jq -e 'type=="object"' "$BITCOIN_STACK_CONFIG_DIR/config.json" >/dev/null
+zdir=$(jq -r 'select(.zcash.address_index == true) | .zcash.data_dir // empty' "$BITCOIN_STACK_CONFIG_DIR/config.json")
+[ -z "$zdir" ] || [ ! -e "$zdir/old.db" ] || exit 1
 if [ "${BITCOIN_STACK_VALIDATE_ONLY:-0}" != 1 ]; then
   if [ "${FAKE_CONFIGURE_FAIL_ONCE:-0}" = 1 ] && [ ! -e "$FAKE_CONFIGURE_FAIL_MARKER" ]; then
     : >"$FAKE_CONFIGURE_FAIL_MARKER"
@@ -424,7 +426,27 @@ for interface_case in \
   jq -e --arg node "$node" ".[\$node].enabled == true and .[\$node].active == true and ($closed)" "$config/config.json" >/dev/null ||
     fail "$node install did not close every optional LAN interface"
   [ "$(status .state)" = applied ] || fail "$node install status was not applied"
+  if [ "$node" = zcash ]; then
+    jq -e '.zcash.address_index == true' "$config/config.json" >/dev/null || fail "zcash install did not turn on the address index"
+  else
+    jq -e '.zcash.address_index == null' "$config/config.json" >/dev/null || fail "$node install set the zcash address index"
+  fi
 done
+
+jq -n '{bitcoin:{enabled:false},zcash:{enabled:false,address_index:false}}' >"$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+cp "$state/.env" "$state/.approved.env"
+request '{"action":"install","id":"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1","node":"zcash","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+jq -e '.zcash.enabled == true and .zcash.address_index == false' "$config/config.json" >/dev/null || fail "zcash install overrode an explicit address_index false"
+
+mkdir -p "$state/zdata"; : >"$state/zdata/old.db"
+jq -n --arg d "$state/zdata" '{bitcoin:{enabled:false},zcash:{enabled:false,data_dir:$d}}' >"$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+cp "$state/.env" "$state/.approved.env"
+request '{"action":"install","id":"a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2","node":"zcash","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+jq -e '.zcash.enabled == true and .zcash.address_index == null' "$config/config.json" >/dev/null || fail "zcash reinstall over a used data dir did not fall back to index off"
 
 jq -n '{bitcoin:{enabled:false},monero:{enabled:false,node_password:"moneropassword1234567890123456"}}' >"$config/config.json"
 jq -S . "$config/config.json" >"$state/.approved-config.json"
@@ -516,11 +538,13 @@ NODE_CONTROL_FORCE_MIGRATE_MODE=copy BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTRO
 [ ! -e "$newdisk" ] || fail "copy migrate did not remove the old copy"
 [ ! -e "$dashboard_state/node-control.progress" ] || fail "finished migrate left the progress file behind"
 
-for case in pruned:true archival:null; do
-  jq --argjson archival "$([ "${case%%:*}" = archival ] && echo true || echo false)" '.bitcoin={"enabled":false} | if $archival then .bitcoin.prune_mb=0 else . end' "$config/config.json" >"$tmp/config.next"
+install_id=85
+for case in pruned:true archival:null off:false; do
+  jq --arg case "${case%%:*}" '.bitcoin={"enabled":false} | if $case=="archival" then .bitcoin.prune_mb=0 elif $case=="off" then .bitcoin.utxo_index=false else . end' "$config/config.json" >"$tmp/config.next"
   mv "$tmp/config.next" "$config/config.json"
   jq -S . "$config/config.json" >"$state/.approved-config.json"
-  request "{\"action\":\"install\",\"id\":\"$([ "${case%%:*}" = archival ] && echo 85 || echo 86)858585858585858585858585858585\",\"node\":\"bitcoin\",\"requested_at\":1000}"
+  install_id=$((install_id + 1))
+  request "{\"action\":\"install\",\"id\":\"${install_id}858585858585858585858585858585\",\"node\":\"bitcoin\",\"requested_at\":1000}"
   BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
   [ "$(status .state)" = applied ] || fail "bitcoin install (${case%%:*}) was not applied: $(status .message)"
   [ "$(jq -c .bitcoin.utxo_index "$config/config.json")" = "${case#*:}" ] || fail "a ${case%%:*} bitcoin install set utxo_index to $(jq -c .bitcoin.utxo_index "$config/config.json")"

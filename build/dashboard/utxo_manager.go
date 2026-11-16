@@ -400,7 +400,12 @@ func (m *utxoManager) finishSeed(err error) {
 		m.seed.AlertsUntil = time.Time{}
 	}
 	m.seed.Last = &utxoSeedResult{Outcome: outcome, Reason: seedErrorClass(err), FinishedAt: now, DurationSeconds: now.Sub(m.seed.StartedAt).Seconds()}
-	m.countAutoSeedLocked(err == nil)
+	if errors.Is(err, errSeedUserCancel) {
+		// The user stopped it, so no automatic seed starts until they ask for one.
+		m.seed.AutoFailures = utxoAutoSeedTries
+	} else {
+		m.countAutoSeedLocked(err == nil)
+	}
 	m.persistSeedLocked()
 	m.log.Printf("utxo index: seed outcome=%s duration=%.0fs", outcome, m.seed.Last.DurationSeconds)
 	if err == nil {
