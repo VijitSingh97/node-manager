@@ -7,6 +7,7 @@ import {
   panelCurrency,
   priceURL,
   priceView,
+  scaledPrice,
   towerPriceView,
 } from "./prices.js";
 
@@ -79,6 +80,7 @@ test("priceView never renders zero for unavailable or bad data", () => {
   ]) {
     assert.deepEqual(priceView(data, "USD"), {
       currency: "USD",
+      quantity: "",
       value: "—",
       status: "Price unavailable",
       stale: false,
@@ -89,4 +91,47 @@ test("priceView never renders zero for unavailable or bad data", () => {
     status: "Price unavailable",
     stale: false,
   });
+});
+
+test("scaledPrice picks the smallest power of ten worth at least one unit of currency", () => {
+  const close = (actual, quantity, amount) => {
+    assert.equal(actual.quantity, quantity);
+    assert.ok(Math.abs(actual.amount - amount) < 1e-9, `${actual.amount} != ${amount}`);
+  };
+  close(scaledPrice(0.0008032), 10000, 8.032);
+  close(scaledPrice(0.15), 10, 1.5);
+  close(scaledPrice(1), 1, 1);
+  close(scaledPrice(57690.48), 1, 57690.48);
+  close(scaledPrice(1.01), 1, 1.01);
+  close(scaledPrice(0.999), 10, 9.99);
+  close(scaledPrice(0.001), 1000, 1);
+  close(scaledPrice(1e-7), 10000000, 1);
+  close(scaledPrice(1e-11), 100000000000, 1);
+  close(scaledPrice(3e-9), 1000000000, 3);
+  close(scaledPrice("0.0008032"), 10000, 8.032);
+  for (const bad of [0, -0.5, null, undefined, "", "abc", NaN, Infinity]) {
+    assert.equal(scaledPrice(bad), null, String(bad));
+  }
+});
+
+test("priceView labels a scaled quantity and keeps whole-unit prices plain", () => {
+  const data = (usd) => ({ available: true, stale: false, updated_at: 1_700_000_000, prices: { usd } });
+  const tari = priceView(data(0.0008032), "USD", () => "now");
+  assert.equal(tari.quantity, (10000).toLocaleString());
+  assert.equal(tari.value, formatPrice(8.032, "USD"));
+  assert.equal(tari.status, "As of now");
+  assert.equal(priceView(data(0.15), "USD").quantity, (10).toLocaleString());
+  assert.equal(priceView(data(1), "USD").quantity, "");
+  assert.equal(priceView(data(57690.48), "USD").value, formatPrice(57690.48, "USD"));
+  assert.equal(priceView(data(57690.48), "USD").quantity, "");
+  assert.equal(towerPriceView(data(0.0008032), "USD").text, `${formatPrice(8.032, "USD")} per ${(10000).toLocaleString()}`);
+  assert.equal(towerPriceView(data(2), "USD").text, formatPrice(2, "USD"));
+  assert.equal(towerPriceView({ ...data(0.15), stale: true }, "USD").text,
+    `${formatPrice(1.5, "USD")} per ${(10).toLocaleString()} · stale`);
+});
+
+test("priceView rescales from the selected currency's quote", () => {
+  const data = { available: true, stale: false, updated_at: 1_700_000_000, prices: { usd: 0.0008032, jpy: 0.12 } };
+  assert.equal(priceView(data, "USD").quantity, (10000).toLocaleString());
+  assert.equal(priceView(data, "JPY").quantity, (10).toLocaleString());
 });
