@@ -50,9 +50,9 @@ sys.exit(result.returncode)' "$limit" "$@"
 }
 
 bounded_log() {
-  local limit=$1 output=$2
+  local limit=$1 output=$2 status=0
   shift 2
-  python3 - "$limit" "$output" "$@" <<'PY'
+  python3 - "$limit" "$output" "$@" <<'PY' || status=$?
 import subprocess
 import sys
 
@@ -64,6 +64,8 @@ with open(sys.argv[2], "wb") as output:
         sys.exit(124)
 sys.exit(result.returncode)
 PY
+  if ((status)); then tail -n 20 "$output" >&2; fi
+  return "$status"
 }
 
 resource_exists() {
@@ -121,6 +123,7 @@ finish() {
   exit "$status"
 }
 trap finish EXIT
+trap 'echo "native wallet smoke: line $LINENO exited $?" >&2' ERR
 
 public_fixture_hashes() {
   python3 - <<'PY'

@@ -182,6 +182,12 @@ type hostStatsFile struct {
 	Nodes         map[string]hostStatsUsage `json:"nodes"`
 	Other         hostStatsUsage            `json:"other"`
 	Disks         []*hostDisk               `json:"disks,omitempty"`
+	CPUTempC      *float64                  `json:"cpu_temp_c,omitempty"`
+	BoardTempC    *float64                  `json:"board_temp_c,omitempty"`
+	FansRPM       []int                     `json:"fans_rpm,omitempty"`
+	UptimeS       int64                     `json:"uptime_s,omitempty"`
+	NetRxBps      *float64                  `json:"net_rx_bps,omitempty"`
+	NetTxBps      *float64                  `json:"net_tx_bps,omitempty"`
 }
 
 type hostDisk struct {
