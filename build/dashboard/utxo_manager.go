@@ -69,6 +69,7 @@ type utxoManager struct {
 	dir       string
 	fs        vfs.FS
 	rpc       utxoRPC
+	chain     *utxoChainParams
 	log       *log.Logger
 	freeBytes func() uint64
 
@@ -126,7 +127,7 @@ func newUtxoManager(dir string, fs vfs.FS, rpc utxoRPC, logger *log.Logger) *utx
 	if fs == nil {
 		fs = vfs.Default
 	}
-	m := &utxoManager{dir: dir, fs: fs, rpc: rpc, log: logger,
+	m := &utxoManager{dir: dir, fs: fs, rpc: rpc, chain: utxoBitcoin, log: logger,
 		now: time.Now, seedJobs: make(chan utxoSeedJob), wake: make(chan struct{}, 1), blockWaitRetry: utxoFollowInterval, checkEvery: seedCheckEvery,
 		temp: func() (float64, error) { return hottestThermalC(seedThermalGlob) },
 		freeBytes: func() uint64 {
@@ -165,7 +166,7 @@ func (m *utxoManager) openLocked() {
 	}
 	m.store = store
 	m.follower = newUtxoFollower(store, m.rpc)
-	m.follower.onBlock = m.progress
+	m.follower.chain, m.follower.onBlock = m.chain, m.progress
 	switch height, _, hasTip, _ := store.Tip(); {
 	case !store.Valid():
 		m.setLocked(utxoStateInvalid, store.InvalidReason())
@@ -634,10 +635,7 @@ func (m *utxoManager) waitBlocks(ctx context.Context) {
 			}
 			continue
 		}
-		params := []any{utxoBlockWait.Milliseconds()}
-		if tip != "" {
-			params = append(params, tip)
-		}
+		params := m.chain.waitArgs(tip)
 		var res struct {
 			Hash string `json:"hash"`
 		}
