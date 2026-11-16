@@ -356,12 +356,8 @@ func (m *Monitor) settingsView(canConfigure bool) (map[string]any, error) {
 	if m.settingsErr != nil {
 		return nil, ErrSettingsUnavailable
 	}
-	return map[string]any{
-		"telegram_enabled":            m.settings.TelegramEnabled,
-		"telegram_bot_token":          m.settings.TelegramBotToken,
-		"telegram_chat_id":            m.settings.TelegramChatID,
-		"healthchecks_enabled":        m.settings.HealthchecksEnabled,
-		"healthchecks_url":            m.settings.HealthchecksURL,
+	view := globalSettingsView(m.settings)
+	for field, value := range map[string]any{
 		"alert_new_block":             m.settings.AlertNewBlock,
 		"alert_new_block_bitcoin":     m.settings.AlertNewBlock,
 		"alert_new_block_monero":      m.settings.AlertNewBlockMonero,
@@ -370,14 +366,6 @@ func (m *Monitor) settingsView(canConfigure bool) (map[string]any, error) {
 		"alert_new_block_dogecoin":    m.settings.AlertNewBlockDogecoin,
 		"alert_new_block_bitcoincash": m.settings.AlertNewBlockBitcoinCash,
 		"alert_new_block_zcash":       m.settings.AlertNewBlockZcash,
-		"alert_monitor_online":        m.settings.AlertMonitorOnline,
-		"alert_node_down":             m.settings.AlertNodeDown,
-		"alert_node_recovered":        m.settings.AlertNodeRecovered,
-		"alert_sync_complete":         m.settings.AlertSyncComplete,
-		"alert_low_disk":              m.settings.AlertLowDisk,
-		"alert_updates":               m.settings.AlertUpdates,
-		"node_down_after_minutes":     m.settings.NodeDownAfterMinutes,
-		"low_disk_gib":                m.settings.LowDiskGiB,
 		"bitcoin_enabled":             m.bitcoinEnabled,
 		"monero_enabled":              m.moneroEnabled,
 		"tari_enabled":                m.extraEnabled[nodeTari],
@@ -385,14 +373,36 @@ func (m *Monitor) settingsView(canConfigure bool) (map[string]any, error) {
 		"dogecoin_enabled":            m.extraEnabled[nodeDogecoin],
 		"bitcoincash_enabled":         m.extraEnabled[nodeBitcoinCash],
 		"zcash_enabled":               m.extraEnabled[nodeZcash],
-		"tower_labels":                m.settings.TowerLabels,
-		"computer_stats":              m.settings.ComputerStats,
-		"thermal_throttle":            m.settings.ThermalThrottle,
-		"default_currency":            m.settings.DefaultCurrency,
-		"health_endpoints":            m.settings.HealthEndpoints,
 		"overridden":                  m.settingsOverridden,
 		"can_configure":               canConfigure,
-	}, nil
+		"defaults":                    globalSettingsView(m.settingsBaseline),
+	} {
+		view[field] = value
+	}
+	return view, nil
+}
+
+func globalSettingsView(settings notificationSettings) map[string]any {
+	return map[string]any{
+		"telegram_enabled":        settings.TelegramEnabled,
+		"telegram_bot_token":      settings.TelegramBotToken,
+		"telegram_chat_id":        settings.TelegramChatID,
+		"healthchecks_enabled":    settings.HealthchecksEnabled,
+		"healthchecks_url":        settings.HealthchecksURL,
+		"alert_monitor_online":    settings.AlertMonitorOnline,
+		"alert_node_down":         settings.AlertNodeDown,
+		"alert_node_recovered":    settings.AlertNodeRecovered,
+		"alert_sync_complete":     settings.AlertSyncComplete,
+		"alert_low_disk":          settings.AlertLowDisk,
+		"alert_updates":           settings.AlertUpdates,
+		"node_down_after_minutes": settings.NodeDownAfterMinutes,
+		"low_disk_gib":            settings.LowDiskGiB,
+		"tower_labels":            settings.TowerLabels,
+		"computer_stats":          settings.ComputerStats,
+		"thermal_throttle":        settings.ThermalThrottle,
+		"default_currency":        settings.DefaultCurrency,
+		"health_endpoints":        settings.HealthEndpoints,
+	}
 }
 
 func (m *Monitor) updateSettings(update settingsUpdate) error {
@@ -521,6 +531,7 @@ func (a *app) apiSettingsGet(w http.ResponseWriter, r *http.Request) {
 		delete(view, "telegram_bot_token")
 		delete(view, "telegram_chat_id")
 		delete(view, "healthchecks_url")
+		delete(view, "defaults")
 	}
 	writeJSON(w, view)
 }
@@ -567,6 +578,7 @@ func (a *app) apiSettingsPost(w http.ResponseWriter, r *http.Request) {
 		delete(view, "telegram_bot_token")
 		delete(view, "telegram_chat_id")
 		delete(view, "healthchecks_url")
+		delete(view, "defaults")
 	}
 	writeJSON(w, view)
 }

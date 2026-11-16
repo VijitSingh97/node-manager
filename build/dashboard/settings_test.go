@@ -241,6 +241,41 @@ func TestSettingsPersistRestartAndResetToServerConfig(t *testing.T) {
 	}
 }
 
+func TestSettingsViewDefaultsFollowServerConfigWhileOverridden(t *testing.T) {
+	t.Setenv("TELEGRAM_BOT_TOKEN", "123:server-token")
+	t.Setenv("TELEGRAM_CHAT_ID", "server-chat")
+	t.Setenv("HEALTHCHECKS_URL", "https://hc-ping.com/server-id")
+	m := NewMonitor("dev", t.TempDir(), t.TempDir())
+	if err := m.updateSettings(settingsUpdate{
+		TelegramEnabled: boolPointer(true), TelegramBotToken: stringPointer("456:dashboard-token"), TelegramChatID: stringPointer("dashboard-chat"),
+		HealthchecksEnabled: boolPointer(false), AlertNewBlock: boolPointer(false),
+		TowerLabels: boolPointer(true), ComputerStats: boolPointer(true), ThermalThrottle: boolPointer(true), HealthEndpoints: boolPointer(true),
+		DefaultCurrency: stringPointer("EUR"), AlertNodeDown: boolPointer(false), NodeDownAfterMinutes: intPointer(9), LowDiskGiB: intPointer(7),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	view, err := m.settingsView(true)
+	if err != nil || view["overridden"] != true || view["thermal_throttle"] != true || view["default_currency"] != "EUR" {
+		t.Fatalf("overridden view = %#v, %v", view, err)
+	}
+	defaults, ok := view["defaults"].(map[string]any)
+	want := map[string]any{
+		"telegram_enabled": true, "telegram_bot_token": "123:server-token", "telegram_chat_id": "server-chat",
+		"healthchecks_enabled": true, "healthchecks_url": "https://hc-ping.com/server-id",
+		"alert_monitor_online": true, "alert_node_down": true, "alert_node_recovered": true, "alert_sync_complete": true, "alert_low_disk": true, "alert_updates": true,
+		"node_down_after_minutes": defaultNodeDownAfterMinutes, "low_disk_gib": defaultLowDiskGiB,
+		"tower_labels": false, "computer_stats": false, "thermal_throttle": false, "default_currency": "USD", "health_endpoints": false,
+	}
+	if !ok || len(defaults) != len(want) {
+		t.Fatalf("defaults = %#v", view["defaults"])
+	}
+	for field, value := range want {
+		if defaults[field] != value {
+			t.Fatalf("defaults[%s] = %#v, want %#v", field, defaults[field], value)
+		}
+	}
+}
+
 func TestSettingsLoadOldOverrideDefaultsTowerLabelsOff(t *testing.T) {
 	stateDir := t.TempDir()
 	old := `{"telegram_enabled":false,"telegram_bot_token":"","telegram_chat_id":"","healthchecks_enabled":false,"healthchecks_url":"","alert_new_block":true}`

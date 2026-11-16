@@ -7,8 +7,8 @@ Network, Balance index, Appearance, Telegram, and Healthchecks. The person icon
 above it holds Account (sign out) and Dashboard password. Each tower contains
 its own separate Alerts and LAN access sections under Node controls. Nothing in
 Settings takes effect until you press **Save**, including Install, Move data,
-Run new config and Use server config; their dialogs only check the values.
-Reopening Settings discards anything unsaved. Host changes then apply one
+Run new config and Reset to default; their dialogs only check the values.
+**Cancel**, like ✕, closes Settings, and reopening it discards anything unsaved. Host changes then apply one
 after another: a pending config first, then switches, installs and data moves.
 A dashboard password protects the
 gear and the rest of the dashboard. The gear works from localhost, a
@@ -20,8 +20,15 @@ Dashboard changes are written atomically to `notification_settings.json` in the
 persistent `dashboard_state` volume, with owner-only permissions. They survive
 reboots, container recreation, and upgrades, and the existing stack backup/restore
 includes them. Saved overrides take priority over the notification values in
-`config.json`. **Use server config** followed by **Save** removes the override
-and restores those values. After editing the server file, apply it and reset the override if needed.
+`config.json`. **Reset to default** followed by **Save** removes the override
+and restores those values, including each node's new-block alert (off unless
+`config.json` turns it on). It also fills in the default for every other
+Settings control: Label towers, Node manager usage and Thermal throttle off,
+USD, all six Alert preferences on with 3 minutes and 50 GiB, health endpoints
+off, launch at boot/login off, both Network switches on, and the Balance index
+off. It drops staged installs, data
+moves and a pending config run. LAN access, installed nodes, data folders and
+the dashboard password stay as they are. After editing the server file, apply it and reset the override if needed.
 
 The gear displays the saved bot token and Healthchecks ping URL so they can be
 edited directly. Anyone with dashboard access can view those values. Disabling a

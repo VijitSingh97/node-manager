@@ -65,6 +65,7 @@ export function configurationAccess(data) {
 
 const networkActions = ["clearnet_over_tor", "inbound_connections"];
 const toggleFields = { launch_at_boot: "boot_enabled", clearnet_over_tor: "clearnet_over_tor", inbound_connections: "inbound_connections", utxo_index: "utxo_index" };
+export const hostToggleDefaults = { launch_at_boot: false, clearnet_over_tor: true, inbound_connections: true, utxo_index: false };
 export const UTXO_INDEX_OFF_PROMPT = "Turn off instant Bitcoin balances? Wallets go back to the slower scan. The index volume stays on disk until you run utxo-index remove.";
 
 export function balanceIndexPayload(enabled, confirmFn) {
@@ -226,6 +227,12 @@ export function scopedSettingsPayload(scope, values) {
   const payload = notificationPayload(values || {});
   for (const field of Object.keys(payload)) if (field.startsWith("alert_new_block")) delete payload[field];
   return payload;
+}
+
+export function resetSaveRequests(defaults, payload) {
+  const restored = scopedSettingsPayload("global", defaults);
+  const edited = Object.keys({ ...restored, ...payload }).some((field) => restored[field] !== payload[field]);
+  return edited ? [{ reset: true }, payload] : [{ reset: true }];
 }
 
 export async function requestSettings(scope = "global", method = "GET", payload, fetcher = fetch) {
@@ -525,7 +532,7 @@ if (typeof document !== "undefined") {
     }
     save.textContent = "Save";
     save.disabled = !allowed || pending;
-    reset.disabled = !allowed || pending || !saved.overridden;
+    reset.disabled = !allowed || pending || !saved.defaults;
     return changes;
   };
 
@@ -682,11 +689,6 @@ if (typeof document !== "undefined") {
     applyConfig.disabled = !hostView.available || busy;
   };
 
-  const renderResetStage = () => {
-    reset.textContent = resetStaged ? "Server config on Save" : "Use server config";
-    reset.setAttribute("aria-pressed", String(resetStaged));
-  };
-
   const submitNextHostChange = () => {
     const next = hostQueue.shift();
     hostQueueAction = next.action;
@@ -787,18 +789,24 @@ if (typeof document !== "undefined") {
     token.required = chat.required && !saved.telegram_bot_token;
     url.required = allowed && healthchecksEnabled.checked && !saved.healthchecks_url;
   };
+  const renderGlobalFields = (data) => {
+    telegramEnabled.checked = !!data.telegram_enabled;
+    healthchecksEnabled.checked = !!data.healthchecks_enabled;
+    const preferences = alertPreferenceModel(data);
+    for (const [field, input] of Object.entries(alertPreferences)) input.checked = preferences[field];
+    nodeDownAfterMinutes.value = preferences.node_down_after_minutes;
+    lowDiskGiB.value = preferences.low_disk_gib;
+    towerLabels.checked = !!data.tower_labels;
+    computerStats.checked = !!data.computer_stats;
+    thermalThrottle.checked = !!data.thermal_throttle;
+    defaultCurrency.value = normalizeDefaultCurrency(data.default_currency);
+    healthEndpoints.checked = !!data.health_endpoints;
+  };
   const render = (data, scope = "global") => {
     saved = { ...saved, ...data };
     allowed = configurationAccess(data);
     if (Object.hasOwn(data, "dashboard_password_set")) credentialSettings.setPasswordConfigured(data.dashboard_password_set === true);
-    if (scope === "global") {
-      telegramEnabled.checked = !!data.telegram_enabled;
-      healthchecksEnabled.checked = !!data.healthchecks_enabled;
-      const preferences = alertPreferenceModel(data);
-      for (const [field, input] of Object.entries(alertPreferences)) input.checked = preferences[field];
-      nodeDownAfterMinutes.value = preferences.node_down_after_minutes;
-      lowDiskGiB.value = preferences.low_disk_gib;
-    }
+    if (scope === "global") renderGlobalFields(data);
     if (Object.hasOwn(data, "alert_new_block_bitcoin") || Object.hasOwn(data, "alert_new_block")) bitcoinNewBlock.checked = !!(data.alert_new_block_bitcoin ?? data.alert_new_block);
     if (Object.hasOwn(data, "alert_new_block_monero")) moneroNewBlock.checked = !!data.alert_new_block_monero;
     const nodes = configuredNodeVisibility(data);
@@ -812,11 +820,6 @@ if (typeof document !== "undefined") {
     }
     renderPortControl(data.port_control);
     if (scope === "global") {
-      towerLabels.checked = !!data.tower_labels;
-      computerStats.checked = !!data.computer_stats;
-      thermalThrottle.checked = !!data.thermal_throttle;
-      defaultCurrency.value = normalizeDefaultCurrency(data.default_currency);
-      healthEndpoints.checked = !!data.health_endpoints;
       applyAppearance(data);
       if (Object.hasOwn(data, "telegram_chat_id")) chat.value = data.telegram_chat_id || "";
       if (dialog.open) {
@@ -826,7 +829,7 @@ if (typeof document !== "undefined") {
     }
     token.placeholder = "Paste your bot token";
     url.placeholder = "https://hc-ping.com/…";
-    reset.disabled = !allowed || !data.overridden;
+    reset.disabled = !allowed || !saved.defaults;
     telegramEnabled.disabled = healthchecksEnabled.disabled = bitcoinNewBlock.disabled = moneroNewBlock.disabled = towerLabels.disabled = computerStats.disabled = thermalThrottle.disabled = defaultCurrency.disabled = healthEndpoints.disabled = !allowed;
     updateInputs();
     updatePortPlan();
@@ -899,12 +902,11 @@ if (typeof document !== "undefined") {
       renderHostActions();
     }
     resetStaged = false;
-    renderResetStage();
     dialog.showModal();
     load();
     loadHost();
   });
-  byId("close").addEventListener("click", () => dialog.close());
+  for (const id of ["close", "cancel"]) byId(id).addEventListener("click", () => dialog.close());
   document.getElementById("account-open").addEventListener("click", () => { accountDialog.showModal(); credentialSettings.openPassword(); });
   document.getElementById("account-close").addEventListener("click", () => accountDialog.close());
   accountDialog.addEventListener("close", () => credentialSettings.closePassword());
@@ -996,10 +998,10 @@ if (typeof document !== "undefined") {
     const formValid = scopeForm.reportValidity();
     if (!portPlanValid || !formValid) return;
     const payload = settingsPayload(scope);
-    const resetNow = scope === "global" && resetStaged;
-    const saveNotifications = !resetNow && notificationChanged(saved, payload);
+    const resetRequests = scope === "global" && resetStaged ? resetSaveRequests(saved.defaults, payload) : [];
+    const saveNotifications = !resetRequests.length && notificationChanged(saved, payload);
     let hostChanges = scope === "global" && !hostQueueAction ? savedHostActions(hostView, hostDraft, hostStaged) : [];
-    if (!resetNow && !saveNotifications && changes.length === 0 && hostChanges.length === 0) {
+    if (!resetRequests.length && !saveNotifications && changes.length === 0 && hostChanges.length === 0) {
       targetStatus.textContent = "No changes.";
       return;
     }
@@ -1015,16 +1017,15 @@ if (typeof document !== "undefined") {
     if (scope === "global") reset.disabled = true;
     targetStatus.textContent = "Saving…";
     let settingsView = saved;
-    if (resetNow || saveNotifications) {
+    if (resetRequests.length || saveNotifications) {
       try {
-        settingsView = await request("POST", resetNow ? { reset: true } : payload, scope);
+        for (const body of resetRequests.length ? resetRequests : [payload]) settingsView = await request("POST", body, scope);
         resetStaged = false;
-        renderResetStage();
       } catch (error) {
         clearSecrets();
         targetStatus.textContent = error.message;
         targetSave.disabled = !allowed;
-        reset.disabled = !allowed || !saved.overridden;
+        reset.disabled = !allowed || !saved.defaults;
         updateInputs();
         updatePortPlan();
         return;
@@ -1032,7 +1033,7 @@ if (typeof document !== "undefined") {
     }
     if (changes.length === 0) {
       render(settingsView, scope);
-      targetStatus.textContent = hostChanges.length ? "Applying host changes…" : resetNow ? "Using the server configuration." : saveNotifications ? "Settings saved." : "No changes.";
+      targetStatus.textContent = hostChanges.length ? "Applying host changes…" : resetRequests.length === 1 ? "Defaults restored." : resetRequests.length || saveNotifications ? "Settings saved." : "No changes.";
       if (hostChanges.length) {
         hostQueue = hostChanges;
         submitNextHostChange();
@@ -1075,10 +1076,21 @@ if (typeof document !== "undefined") {
     });
   }
   reset.addEventListener("click", () => {
-    if (!allowed) return;
-    resetStaged = !resetStaged;
-    renderResetStage();
-    status.textContent = resetStaged ? "Save switches these settings to the server configuration and discards edits to them." : "";
+    if (!allowed || !saved.defaults) return;
+    resetStaged = true;
+    renderGlobalFields(saved.defaults);
+    token.value = saved.defaults.telegram_bot_token || "";
+    chat.value = saved.defaults.telegram_chat_id || "";
+    url.value = saved.defaults.healthchecks_url || "";
+    hostStaged = {};
+    for (const [action, input] of Object.entries(hostToggles)) {
+      if (input.disabled) continue;
+      hostDraft[action] = hostToggleDefaults[action];
+      input.checked = hostToggleDefaults[action];
+    }
+    renderHostActions();
+    updateInputs();
+    status.textContent = "Defaults filled in. Save applies them; Cancel keeps your current settings.";
   });
   fetch("/api/settings?scope=appearance")
     .then((response) => response.ok ? response.json() : Promise.reject())

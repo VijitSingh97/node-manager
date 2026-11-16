@@ -6,6 +6,15 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Settings ends with **Reset to default**, **Cancel** and **Save**, and that
+  bar stays at the bottom of the dialog while it scrolls. Reset to default
+  replaces Use server config: it fills in the default of every Settings
+  control, from Appearance and alerts to launch at boot, both Network switches
+  and the Balance index, and drops staged installs and moves. Nothing applies
+  until Save. Cancel closes Settings, like ✕.
+
 ## [1.36.0] - 2026-11-16
 
 ### Added
