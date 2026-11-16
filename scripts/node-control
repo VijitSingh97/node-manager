@@ -836,7 +836,7 @@ if [ "$(printf '%s' "$current" | jq -r --arg node "$node" '.[$node].enabled // (
   exit 0
 fi
 old_active=$(printf '%s' "$current" | jq -r --arg node "$node" 'if (.[$node] // {} | has("active")) then .[$node].active else true end')
-if [ "$old_active" = "$active" ]; then
+if [ "$old_active" = "$active" ] && [ "$active" != true ]; then
   write_status "$id" "$node" "$active" rejected "Node is already in that state." unchanged
   remember_seen
   clear_request

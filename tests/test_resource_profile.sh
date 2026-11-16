@@ -115,6 +115,9 @@ case "$1" in
       *State.ExitCode*) printf '%s\n' "${FAKE_EXIT_CODE:-0}" ;;
     esac
     ;;
+  ps)
+    printf 'monero running\nmonero-wallet running\nbitcoin exited\ntari restarting\nlitecoin created\ndashboard running\n'
+    ;;
   stats)
     if [ "${3:-}" = --no-trunc ]; then
       printf 'cid-monero\tbitcoin-starter-stack-apt-monero-1\t170.00%%\t3.2GiB / 8GiB\ncid-dash\tbitcoin-starter-stack-apt-dashboard-1\t8.00%%\t50MiB / 8GiB\n'
@@ -421,6 +424,7 @@ run_profile
 unset FAKE_HOST_STATS_OUT
 [ -s "$tmp/host-stats-payload.json" ] || fail "collector wrote no host stats payload"
 jq -e '.cpus == 4 and .nodes.monero.cpu_pct > 40 and .nodes.bitcoin.disk_bytes > 0 and .nodes.bitcoin.cpu_pct == 0 and (.nodes | has("tari") | not) and .nodes.stack.disk_bytes > 0 and .nodes.stack.disk_bytes < 10000000 and (.host_cpu_pct // 0) >= 0 and (.host_mem_bytes // 0) >= 0' "$tmp/host-stats-payload.json" >/dev/null || fail "host stats payload lost disk bytes or kept an empty placeholder dir"
+jq -e '.running == {monero: true, bitcoin: false, tari: true, litecoin: true}' "$tmp/host-stats-payload.json" >/dev/null || fail "host stats did not report container running state, or reported an unknown node"
 jq -e '.nodes.monero.mem_bytes > 3000000000' "$tmp/host-stats-payload.json" >/dev/null || fail "docker-stats memory fallback was lost"
 mkdir -p "$case_root/cgroup/system.slice/docker-cid-monero.scope"
 printf 'anon 1234567890\nfile 99\n' >"$case_root/cgroup/system.slice/docker-cid-monero.scope/memory.stat"

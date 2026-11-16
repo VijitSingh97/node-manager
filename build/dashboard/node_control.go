@@ -28,6 +28,7 @@ type nodeControlNode struct {
 	Available  bool   `json:"available"`
 	Supported  bool   `json:"supported"`
 	Configured bool   `json:"configured"`
+	Stopped    bool   `json:"stopped"`
 }
 
 type nodeControlInput struct {
@@ -146,14 +147,27 @@ func (a *app) nodeAvailable(id string, active bool) bool {
 	return true
 }
 
+func (a *app) nodeStopped(id string, stats *hostStatsFile) bool {
+	running, known := false, false
+	if stats != nil {
+		running, known = stats.Running[id]
+	}
+	if !known || running {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(a.cfg.stateDir, "node-runtime.json"))
+	return err != nil || !info.ModTime().After(time.Unix(stats.Updated, 0))
+}
+
 func (a *app) apiNodes(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	runtime := a.nodeRuntime()
+	stats := a.hostStats()
 	nodes := make([]nodeControlNode, 0, len(nodeOrder))
 	for _, id := range nodeOrder {
 		configured, supported := a.nodeConfigured(id)
 		active := configured && supported && runtime[id]
-		nodes = append(nodes, nodeControlNode{ID: id, Active: active, Available: a.nodeAvailable(id, active), Supported: supported, Configured: configured})
+		nodes = append(nodes, nodeControlNode{ID: id, Active: active, Available: a.nodeAvailable(id, active), Supported: supported, Configured: configured, Stopped: active && a.nodeStopped(id, stats)})
 	}
 	status, pending := a.pendingNodeControlStatus()
 	if !pending {
@@ -161,7 +175,7 @@ func (a *app) apiNodes(w http.ResponseWriter, _ *http.Request) {
 	}
 	disk := diskUsage(a.cfg.dataDir)
 	host := map[string]any{"disk_available": disk.Total > 0, "disk_total_bytes": disk.Total, "disk_free_bytes": disk.Free, "disks": a.hostDisks()}
-	if stats := a.hostStats(); stats != nil {
+	if stats != nil {
 		host["stats"] = stats
 	}
 	writeJSON(w, map[string]any{"nodes": nodes, "control_available": a.nodeControlAvailable(), "control_pending": pending, "status": status, "host": host})
@@ -180,6 +194,7 @@ type hostStatsFile struct {
 	HostCPUPct    float64                   `json:"host_cpu_pct,omitempty"`
 	HostMemBytes  uint64                    `json:"host_mem_bytes,omitempty"`
 	Nodes         map[string]hostStatsUsage `json:"nodes"`
+	Running       map[string]bool           `json:"running,omitempty"`
 	Other         hostStatsUsage            `json:"other"`
 	Disks         []*hostDisk               `json:"disks,omitempty"`
 	CPUTempC      *float64                  `json:"cpu_temp_c,omitempty"`

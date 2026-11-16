@@ -416,6 +416,7 @@ write_host_stats() {
   case "$mem_total" in '' | 0 | *[!0-9]*) return 0 ;; esac
   stats_raw=$("$docker_bin" stats --no-stream --no-trunc --format '{{.ID}}\t{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}' 2>/dev/null)
   [ -n "$stats_raw" ] || return 0
+  containers=$("$docker_bin" ps -a --filter "label=com.docker.compose.project=$project_name" --format '{{.Label "com.docker.compose.service"}} {{.State}}' 2>/dev/null)
   cgroup_root=${RESOURCE_CGROUP_ROOT:-/sys/fs/cgroup}
   stats=$(printf '%s\n' "$stats_raw" | while IFS="$(printf '\t')" read -r row_id row_name row_cpu row_mem; do
     [ -n "$row_name" ] || continue
@@ -551,7 +552,7 @@ write_host_stats() {
         then .nodes[$row.service] = {cpu_pct: $row.cpu, mem_bytes: $row.mem}
         else .other = {cpu_pct: (.other.cpu_pct + $row.cpu), mem_bytes: (.other.mem_bytes + $row.mem)}
         end) |
-      {updated: $now, cpus: $cpus, mem_total_bytes: $mem_total, host_cpu_pct: $hostcpu, host_mem_bytes: $hostmem, nodes: .nodes, other: .other} |
+      {updated: $now, cpus: $cpus, mem_total_bytes: $mem_total, host_cpu_pct: $hostcpu, host_mem_bytes: $hostmem, nodes: .nodes, other: .other, running: (reduce (rows($containers)[] | select(length == 2 and (.[0] | IN("bitcoin", "monero", "tari", "litecoin", "dogecoin", "bitcoincash", "zcash")))) as $c ({}; .[$c[0]] = ((.[$c[0]] // false) or ($c[1] | IN("exited", "dead") | not))))} |
       reduce (rows($nodesizes)[]) as $row (.;
         .nodes[$row[0]] = ((.nodes[$row[0]] // {cpu_pct: 0, mem_bytes: 0}) + {disk_bytes: ($row[1] | tonumber? // 0)})) |
       . + {disks: (
@@ -572,7 +573,7 @@ write_host_stats() {
         } + (([$group[].label | select(. != null)] | .[0]) as $label | if $label then {label: $label} else {} end))
       )} +
       (rows($health) | map({(.[0]): (.[1] | tonumber? // empty)}) | add // {}) +
-      (if $fans == "" then {} else {fans_rpm: ($fans | split(" ") | map(tonumber))} end)' --arg hostdisks "$host_disks" --arg nodedirs "$node_dirs" --arg nodesizes "$node_sizes" --arg disklabels "$disk_labels" --arg health "$health" --arg fans "$fans") || return 0
+      (if $fans == "" then {} else {fans_rpm: ($fans | split(" ") | map(tonumber))} end)' --arg hostdisks "$host_disks" --arg nodedirs "$node_dirs" --arg nodesizes "$node_sizes" --arg containers "$containers" --arg disklabels "$disk_labels" --arg health "$health" --arg fans "$fans") || return 0
   [ -n "$payload" ] || return 0
   printf '%s' "$payload" | "$docker_bin" exec -i -u 1000 "$dashboard" sh -c 'umask 077; cat > /state/host-stats.json.tmp && mv /state/host-stats.json.tmp /state/host-stats.json' 2>/dev/null || true
 }

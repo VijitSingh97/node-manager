@@ -19,6 +19,17 @@ test('deactivation requires the exact confirmation and inactive nodes can reacti
   assert.equal(powerView({...active,supported:false}).disabled,true);
   assert.equal(powerView({...active,configured:false}).disabled,true);
 });
+test('an active node whose container is stopped greys like inactive but offers Start without confirmation',()=>{
+  const stopped={...active,stopped:true};
+  const view=powerView(stopped);
+  assert.deepEqual([view.active,view.stopped,view.button,view.disabled],[false,true,'Start node',false]);
+  assert.match(view.status,/not running/);
+  assert.deepEqual(powerRequest(stopped),{active:true,confirmation:''});
+  assert.equal(powerView({...active,active:false}).stopped,undefined);
+  assert.equal(powerView({...active,available:false}).button,'Deactivate node');
+  assert.equal(nodeBecameActive(stopped,active),true);
+  assert.equal(nodeBecameActive(undefined,stopped),false);
+});
 test('a queued state change remains pending until the host confirms its outcome',()=>{
   const status={id:'a'.repeat(32),node:'litecoin',active:false,state:'pending'};
   assert.equal(controlView({control_available:true,status}).pending,true);

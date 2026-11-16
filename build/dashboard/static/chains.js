@@ -14,12 +14,13 @@ export const NODE_LABELS = {
 export function powerView(node) {
   if (!node?.configured) return {active:false,disabled:true,button:"Not configured",status:"This node is not configured."};
   if (!node?.supported) return { active: false, disabled: true, button: "Unavailable", status: "This node is unavailable in this build." };
+  if (node.active && node.stopped) return { active: false, stopped: true, disabled: false, button: "Start node", status: "Stopped: the node's container is not running." };
   if (node.active) return { active: true, disabled: false, button: "Deactivate node", status: "Deactivate this node to free its CPU and memory. Stored blockchain data is kept." };
   return { active: false, disabled: false, button: "Activate node", status: "Node is inactive" };
 }
 
 export function powerRequest(node, confirmation = "") {
-  const active = node?.active === true;
+  const active = node?.active === true && node.stopped !== true;
   if (active && confirmation !== "deactivate") throw new Error('Type "deactivate" to continue.');
   return { active: !active, confirmation: active ? confirmation : "" };
 }
@@ -51,7 +52,7 @@ function setNodeActive(id, node) {
     choice.hidden = node.configured !== true;
     choice.dataset.nodeActive = view.active ? "1" : "0";
     choice.classList.toggle("inactive", !view.active);
-    choice.setAttribute("aria-label", `${NODE_LABELS[id]}${view.active ? "" : " — inactive"}`);
+    choice.setAttribute("aria-label", `${NODE_LABELS[id]}${view.active ? "" : view.stopped ? " — stopped" : " — inactive"}`);
   }
   const panel = byId(`${id}-panel`);
   if (panel) panel.dataset.nodeActive = view.active ? "1" : "0";
@@ -62,8 +63,13 @@ function setNodeActive(id, node) {
     button.dataset.active = view.active ? "true" : "false";
   }
   setText(`${id}-power-status`, view.status);
+  const inactiveNote = panel?.querySelector(".node-inactive-state .node-state");
+  if (inactiveNote) {
+    inactiveNote.dataset.inactive ??= inactiveNote.textContent;
+    inactiveNote.textContent = view.stopped ? view.status : inactiveNote.dataset.inactive;
+  }
   if (!view.active) {
-    setText(`${id}-badge`, view.disabled ? "Unavailable" : "Inactive");
+    setText(`${id}-badge`, view.disabled ? "Unavailable" : view.stopped ? "Stopped" : "Inactive");
     setText(`${id}-state`, view.status);
     const details = byId(`${id}-details`);
     if (details) details.hidden = true;
@@ -116,7 +122,7 @@ export function controlView(payload) {
 }
 
 export function nodeBecameActive(previous, current) {
-  return current?.active === true && previous?.active !== true;
+  return current?.active === true && current.stopped !== true && (previous?.active !== true || previous.stopped === true);
 }
 
 if (typeof document !== "undefined") {
@@ -128,7 +134,7 @@ if (typeof document !== "undefined") {
 
   const refreshNode=async(id)=>{
     const node=state.get(id);
-    if(!node?.configured || !node.active || !node.supported || id==="bitcoin" || id==="monero") return;
+    if(!node?.configured || !node.active || node.stopped || !node.supported || id==="bitcoin" || id==="monero") return;
     try {
       const response=await fetch(`/api/${id}`,{headers:{"X-Requested-With":"fetch"}});
       const data=await response.json();
@@ -144,7 +150,7 @@ if (typeof document !== "undefined") {
       if(!button || !node) continue;
       const view=powerView(node), pending=control.pending && control.status?.node===id;
       button.disabled=view.disabled || !control.available || control.pending || busy;
-      button.textContent=pending ? (control.status.active ? "Activating…" : "Deactivating…") : view.button;
+      button.textContent=pending ? (control.status.active ? (node.stopped ? "Starting…" : "Activating…") : "Deactivating…") : view.button;
       if(pending) setText(`${id}-power-status`, "Applying node state change…");
       else if(node.configured && !control.available) setText(`${id}-power-status`, "Node controls require the installed host helper.");
     }
@@ -188,7 +194,7 @@ if (typeof document !== "undefined") {
 
   const updateSubmit=()=>{
     const node=state.get(selected);
-    if(submit) submit.disabled=busy || !control.available || control.pending || !node || node.active===true && input?.value!=="deactivate";
+    if(submit) submit.disabled=busy || !control.available || control.pending || !node || node.active===true && !node.stopped && input?.value!=="deactivate";
   };
 
   document.addEventListener("click",event=>{
@@ -197,12 +203,13 @@ if (typeof document !== "undefined") {
     selected=button.dataset.nodePower;
     const node=state.get(selected);
     if(!node) return;
-    const action=node.active ? "Deactivate" : "Activate";
+    const stopping=node.active && !node.stopped;
+    const action=stopping ? "Deactivate" : node.stopped ? "Start" : "Activate";
     setText("node-power-title",`${action} ${NODE_LABELS[selected]}`);
-    setText("node-power-description",node.active ? "The node will stop. Its stored data will be kept, and you can activate it again." : "The node will start using its existing data and settings.");
+    setText("node-power-description",stopping ? "The node will stop. Its stored data will be kept, and you can activate it again." : "The node will start using its existing data and settings.");
     setText("node-power-error","");
     submit.textContent=`${action} node`;
-    confirmLabel.hidden=!node.active;
+    confirmLabel.hidden=!stopping;
     input.value="";
     updateSubmit();
     dialog.showModal();

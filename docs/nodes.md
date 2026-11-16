@@ -290,3 +290,13 @@ keeps its data and configuration, and leaves its tower visible but inactive.
 Activating it starts the same configured service again. At least one node must
 remain configured; deactivation is different from deleting a chain or its data.
 Reactivate the node before attempting an RPC credential reset.
+
+If an active node's container stops for any other reason (`node-manager stop`,
+`docker stop`, a crash after its restarts ran out), the host helper reports it
+within about a minute. The tower turns grey, the panel shows Stopped, and
+**Start node** brings its services back without changing its configuration.
+Without a fresh host report the dashboard assumes the node is running; alerts
+still treat a stopped node as offline. The report comes from the resource-profile
+host helper, which runs on Homebrew and on APT whenever a node uses the
+`compact` resource profile (the default for setup selections and dashboard
+installs).
