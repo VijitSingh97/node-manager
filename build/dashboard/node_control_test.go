@@ -216,6 +216,42 @@ func TestNodesHostStatsServedOnlyWhenFresh(t *testing.T) {
 	}
 }
 
+func TestNodesHostStatsHealthReadingsKeepZeroAndOmitMissing(t *testing.T) {
+	dir := t.TempDir()
+	a := &app{cfg: config{bitcoinDisabled: true, dashboardPassword: "secret", stateDir: dir, dataDir: dir}}
+	initializeTestDashboardAuth(t, a)
+	read := func(extra string) map[string]any {
+		t.Helper()
+		stats := fmt.Sprintf(`{"updated":%d,"cpus":4,"mem_total_bytes":8589934592,"nodes":{},"other":{}%s}`, time.Now().Unix(), extra)
+		if err := os.WriteFile(filepath.Join(dir, "host-stats.json"), []byte(stats), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		response := nodeControlHTTP(a, http.MethodGet, "/api/nodes", "", false)
+		var view struct {
+			Host struct {
+				Stats map[string]any `json:"stats"`
+			} `json:"host"`
+		}
+		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &view) != nil || view.Host.Stats == nil {
+			t.Fatalf("nodes view = %d %s", response.Code, response.Body.String())
+		}
+		return view.Host.Stats
+	}
+	got := read(`,"cpu_temp_c":59.5,"board_temp_c":45,"fans_rpm":[0,2506],"uptime_s":89878,"net_rx_bps":0,"net_tx_bps":1536`)
+	want := map[string]any{"cpu_temp_c": 59.5, "board_temp_c": 45.0, "fans_rpm": []any{0.0, 2506.0}, "uptime_s": 89878.0, "net_rx_bps": 0.0, "net_tx_bps": 1536.0}
+	for key, value := range want {
+		if fmt.Sprint(got[key]) != fmt.Sprint(value) {
+			t.Fatalf("%s = %#v, want %#v (stats %#v)", key, got[key], value, got)
+		}
+	}
+	got = read("")
+	for key := range want {
+		if _, ok := got[key]; ok {
+			t.Fatalf("missing sensor %s was served as %#v", key, got[key])
+		}
+	}
+}
+
 func TestMountDevicePicksLongestMountpointPrefix(t *testing.T) {
 	mounts := "/dev/nvme0n1p2 / ext4 rw 0 0\n/dev/sdb2 /home ext4 rw 0 0\ntmpfs /run tmpfs rw 0 0\n/dev/sdb2 /home/nodes ext4 rw 0 0\n"
 	if got := mountDevice(mounts, "/home/nodes/bitcoin"); got != "/dev/sdb2" {

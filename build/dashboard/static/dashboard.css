@@ -594,6 +594,10 @@ body:not([data-computer-stats="1"]) .host-stats { display: none; }
 .host-stats-pies figure { margin: 0; flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .host-stats-pies figcaption { color: var(--muted); font-size: 0.85rem; }
 
+.host-stats-health { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 14px 0 0; font-size: 0.85rem; }
+.host-stats-health dd { margin: 0; color: var(--text); font-variant-numeric: tabular-nums; }
+.host-stats-health[hidden] { display: none; }
+
 .badge {
   background: var(--tag-bg);
   color: var(--accent);
