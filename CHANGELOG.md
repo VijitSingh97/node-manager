@@ -84,6 +84,21 @@ All notable changes to this project are documented here. Format follows
 
 ### Changed
 
+- The two actuator endpoints now have separate switches in Settings → Actuator
+  (**Serve /actuator/health** and **Serve /actuator/info**, both off by
+  default), and both always need HTTP Basic auth with a generated actuator
+  username and random password. Settings shows both with a Copy button. The
+  anonymous overall-status answer is gone, the dashboard `admin` login no
+  longer opens them, wrong logins get a 401 with a `WWW-Authenticate`
+  challenge, and a switched-off endpoint answers 404 whatever is sent. Saved
+  settings with the old single switch on turn both on after the upgrade.
+- `GET /actuator/info` lists, per node, every private-LAN service it offers:
+  whether it is exposed, protocol, bind address, port, a ready-to-use URI and
+  the login a LAN client needs (none for Monero ZMQ and Tari gRPC). The
+  response now contains the RPC passwords of exposed services, so it stays
+  behind the actuator login.
+- Settings no longer carry the explanatory notes under Network, Balance index
+  and the actuator endpoints.
 - The Litecoin and Bitcoin Cash watch-only cards scan every due address in one
   `scantxoutset` walk instead of one walk per address, and the Litecoin card holds
   up to 50 addresses (was 25). The Litecoin card notes that funds inside MWEB are

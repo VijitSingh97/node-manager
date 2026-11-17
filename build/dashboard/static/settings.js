@@ -49,7 +49,8 @@ export function notificationPayload(values) {
     computer_stats: !!values.computer_stats,
     thermal_throttle: !!values.thermal_throttle,
     default_currency: normalizeDefaultCurrency(values.default_currency),
-    health_endpoints: !!values.health_endpoints,
+    actuator_health: !!values.actuator_health,
+    actuator_info: !!values.actuator_info,
     ...alertPreferenceModel(values),
   };
   for (const node of extraNodes) payload[`alert_new_block_${node}`] = !!values[`alert_new_block_${node}`];
@@ -58,6 +59,16 @@ export function notificationPayload(values) {
   if (payload.telegram_enabled && token) payload.telegram_bot_token = token;
   if (payload.healthchecks_enabled && url) payload.healthchecks_url = url;
   return payload;
+}
+
+export async function copyField(input, clipboard = globalThis.navigator?.clipboard) {
+  try {
+    await clipboard.writeText(input.value);
+    return true;
+  } catch {
+    input.select();
+    return false;
+  }
 }
 
 export function configurationAccess(data) {
@@ -103,10 +114,6 @@ export function hostQueueSettled(view, action) {
 
 export function balanceIndexControl(view, busy) {
   return { hidden: !view.available || !view.nodes.bitcoin.installed, checked: view.utxo_index, disabled: !view.available || view.config_pending || busy };
-}
-
-export function seedCommand(bootKind) {
-  return { boot: "sudo node-manager utxo-seed", login: "node-manager utxo-seed" }[bootKind] || "./stack utxo-seed";
 }
 
 export function hostControlModel(data = {}) {
@@ -403,7 +410,10 @@ if (typeof document !== "undefined") {
   const computerStats = byId("computer-stats");
   const thermalThrottle = byId("thermal-throttle");
   const defaultCurrency = byId("default-currency");
-  const healthEndpoints = byId("health-endpoints");
+  const actuatorHealth = byId("actuator-health");
+  const actuatorInfo = byId("actuator-info");
+  const actuatorUsername = byId("actuator-username");
+  const actuatorPassword = byId("actuator-password");
   const save = byId("save");
   const reset = byId("reset");
   const hostNodes = byId("host-nodes");
@@ -416,14 +426,12 @@ if (typeof document !== "undefined") {
     <legend>Network</legend>
     <label class="settings-check"><input id="settings-clearnet-over-tor" type="checkbox"> Reach clearnet peers through Tor</label>
     <label class="settings-check"><input id="settings-inbound-connections" type="checkbox"> Accept incoming connections over Tor</label>
-    <p class="settings-note">All traffic stays on Tor and your IP stays hidden. Changes restart the nodes. Monero and Zcash always reach clearnet peers through Tor; incoming connections apply to Bitcoin, Litecoin and Bitcoin Cash.</p>
     <p id="settings-network-status" class="settings-note" role="status" aria-live="polite"></p>
   </fieldset>`);
   byId("network").insertAdjacentHTML("afterend", `<fieldset id="settings-balance-index" hidden>
     <legend>Balance index</legend>
     <label class="settings-check"><input id="settings-utxo-index" type="checkbox" role="switch"> Instant Bitcoin balances</label>
     <label id="settings-utxo-index-litecoin-label" class="settings-check" hidden><input id="settings-utxo-index-litecoin" type="checkbox" role="switch"> Instant Litecoin balances</label>
-    <p class="settings-note">For pruned nodes. Uses about 7.5 GiB of disk, up to about 17 GiB while it seeds, and the seed needs 27 GB free. After turning it on, it seeds itself once the node has synced (about 20 minutes; Bitcoin RPC pauses for about 5 minutes).<span id="settings-utxo-seed-cli" hidden> Without host controls, seed it from the host: <code id="settings-utxo-seed-command"></code>.</span> Turning it off keeps the volume until <code>utxo-index remove</code>, and is refused while a seed runs. Applying restarts the dashboard.</p>
     <button id="settings-utxo-seed-now" type="button" hidden>Seed now</button>
     <button id="settings-utxo-seed-now-litecoin" type="button" hidden>Seed Litecoin now</button>
     <p id="settings-utxo-index-status" class="settings-note" role="status" aria-live="polite"></p>
@@ -431,8 +439,6 @@ if (typeof document !== "undefined") {
   const utxoIndex = byId("utxo-index");
   const balanceSettings = byId("balance-index");
   const balanceStatus = byId("utxo-index-status");
-  const utxoSeedCommand = byId("utxo-seed-command");
-  const utxoSeedCli = byId("utxo-seed-cli");
   const utxoSeedNow = byId("utxo-seed-now");
   const utxoIndexLitecoin = byId("utxo-index-litecoin");
   const utxoIndexLitecoinLabel = byId("utxo-index-litecoin-label");
@@ -657,8 +663,6 @@ if (typeof document !== "undefined") {
     balanceSettings.hidden = balanceControl.hidden;
     utxoIndex.checked = balanceControl.checked;
     utxoIndex.disabled = balanceControl.disabled;
-    utxoSeedCommand.textContent = seedCommand(hostView.boot_kind);
-    utxoSeedCli.hidden = hostView.available;
     utxoSeedNow.hidden = !hostView.utxo_seed_now;
     utxoSeedNow.disabled = busy || saving();
     utxoIndex.closest("label").hidden = balanceControl.hidden;
@@ -852,7 +856,8 @@ if (typeof document !== "undefined") {
     computerStats.checked = !!data.computer_stats;
     thermalThrottle.checked = !!data.thermal_throttle;
     defaultCurrency.value = normalizeDefaultCurrency(data.default_currency);
-    healthEndpoints.checked = !!data.health_endpoints;
+    actuatorHealth.checked = !!data.actuator_health;
+    actuatorInfo.checked = !!data.actuator_info;
   };
   const render = (data, scope = "global") => {
     saved = { ...saved, ...data };
@@ -873,6 +878,8 @@ if (typeof document !== "undefined") {
     renderPortControl(data.port_control);
     if (scope === "global") {
       applyAppearance(data);
+      actuatorUsername.value = data.actuator_username || "";
+      actuatorPassword.value = dialog.open ? data.actuator_password || "" : "";
       if (Object.hasOwn(data, "telegram_chat_id")) chat.value = data.telegram_chat_id || "";
       if (dialog.open) {
         if (Object.hasOwn(data, "telegram_bot_token")) token.value = data.telegram_bot_token || "";
@@ -882,7 +889,7 @@ if (typeof document !== "undefined") {
     token.placeholder = "Paste your bot token";
     url.placeholder = "https://hc-ping.com/…";
     reset.disabled = !allowed || !saved.defaults;
-    telegramEnabled.disabled = healthchecksEnabled.disabled = bitcoinNewBlock.disabled = moneroNewBlock.disabled = towerLabels.disabled = computerStats.disabled = thermalThrottle.disabled = defaultCurrency.disabled = healthEndpoints.disabled = !allowed;
+    telegramEnabled.disabled = healthchecksEnabled.disabled = bitcoinNewBlock.disabled = moneroNewBlock.disabled = towerLabels.disabled = computerStats.disabled = thermalThrottle.disabled = defaultCurrency.disabled = actuatorHealth.disabled = actuatorInfo.disabled = !allowed;
     updateInputs();
     updatePortPlan();
   };
@@ -933,7 +940,7 @@ if (typeof document !== "undefined") {
   async function load(scope = "global") {
     allowed = false;
     save.disabled = reset.disabled = true;
-    telegramEnabled.disabled = healthchecksEnabled.disabled = bitcoinNewBlock.disabled = moneroNewBlock.disabled = towerLabels.disabled = computerStats.disabled = thermalThrottle.disabled = defaultCurrency.disabled = healthEndpoints.disabled = true;
+    telegramEnabled.disabled = healthchecksEnabled.disabled = bitcoinNewBlock.disabled = moneroNewBlock.disabled = towerLabels.disabled = computerStats.disabled = thermalThrottle.disabled = defaultCurrency.disabled = actuatorHealth.disabled = actuatorInfo.disabled = true;
     for (const input of Object.values(alertPreferences)) input.disabled = true;
     nodeDownAfterMinutes.disabled = lowDiskGiB.disabled = true;
     updateInputs();
@@ -989,7 +996,7 @@ if (typeof document !== "undefined") {
     installDialog.close();
     renderHostActions();
   });
-  dialog.addEventListener("close", () => { clearSecrets(); delete saved.telegram_bot_token; delete saved.telegram_chat_id; delete saved.healthchecks_url; });
+  dialog.addEventListener("close", () => { clearSecrets(); actuatorPassword.value = ""; delete saved.actuator_password; delete saved.telegram_bot_token; delete saved.telegram_chat_id; delete saved.healthchecks_url; });
   window.addEventListener("node-selected", (event) => {
     credentialSettings.closeNode();
     if (event.detail?.node) {
@@ -997,6 +1004,10 @@ if (typeof document !== "undefined") {
       load("nodes");
     }
   });
+  for (const field of ["username", "password"]) {
+    const input = byId(`actuator-${field}`);
+    byId(`actuator-${field}-copy`).addEventListener("click", () => copyField(input));
+  }
   telegramEnabled.addEventListener("change", updateInputs);
   healthchecksEnabled.addEventListener("change", updateInputs);
   for (const [action, input] of Object.entries(hostToggles)) input.addEventListener("change", () => { hostDraft[action] = input.checked; });
@@ -1019,7 +1030,8 @@ if (typeof document !== "undefined") {
       computer_stats: computerStats.checked,
       thermal_throttle: thermalThrottle.checked,
       default_currency: defaultCurrency.value,
-      health_endpoints: healthEndpoints.checked,
+      actuator_health: actuatorHealth.checked,
+      actuator_info: actuatorInfo.checked,
       ...Object.fromEntries(Object.entries(alertPreferences).map(([field, input]) => [field, input.checked])),
       node_down_after_minutes: Number(nodeDownAfterMinutes.value),
       low_disk_gib: Number(lowDiskGiB.value),

@@ -145,7 +145,7 @@ func (a *app) auth(next http.Handler) http.Handler {
 			http.Error(w, "same-origin request required", http.StatusForbidden)
 			return
 		}
-		if r.URL.Path == "/login" || r.URL.Path == "/logout" || strings.HasPrefix(r.URL.Path, "/static/") {
+		if actuatorRequest(r) || r.URL.Path == "/login" || r.URL.Path == "/logout" || strings.HasPrefix(r.URL.Path, "/static/") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -166,10 +166,6 @@ func (a *app) auth(next http.Handler) http.Handler {
 				return
 			}
 			writeAuthError(w, status, retry)
-			return
-		}
-		if anonymousHealthRequest(r) && a.healthEndpointsEnabled() {
-			next.ServeHTTP(w, r)
 			return
 		}
 		if (r.Method == http.MethodGet || r.Method == http.MethodHead) && r.URL.Path == "/" {
