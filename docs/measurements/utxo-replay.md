@@ -35,7 +35,13 @@ The same test with `UTXO_REPLAY_CHAIN=bitcoincash BCH_REGTEST_IMAGE=ghcr.io/viji
 
 Both modes matched `scantxoutset` on 18,795 coins in every run. One batched busy run fell to 215 blocks/s, and the other two ran at 544 and 607 blocks/s. Bitcoin Cash blocks decode faster than Bitcoin's here, since they carry no witness data.
 
-`TestUtxoBitcoinCashReplayRegtestLive` also replays through the dashboard's seed path, with CashTokens outputs. A minting NFT with fungible tokens is created, then moved by a second transaction. The index matched `scantxoutset` after the replay and again after a one-block reorg. The token output's BCH is counted for its holder, and the spent token output leaves the index.
+`TestUtxoBitcoinCashRawReplayRegtestLive` checks the raw parser against BCHN's own verbose view of every block, with CashTokens activated at height 200 (`-upgrade9activationheight=200`).
+
+- **Before activation** it plants, by rewriting output scripts, a fungible-only prefix, an NFT without a commitment, an NFT with one, a fungible NFT, and a malformed prefix.
+- **After activation** the wallet writes the same shapes: fungible only, an NFT with a commitment, a mutable NFT without one, and a minting NFT with a commitment and an amount. A second transaction moves the fungible tokens.
+- **Parity:** the parser matched `getblock` verbosity 3 on all 226 outputs of 211 blocks. BCHN reads a well-formed prefix before activation too, so the parser strips it at any height; a parser gated on the activation height fails at height 111. A malformed prefix stays the whole script.
+- **After activation BCHN refuses a malformed prefix** with `bad-txns-vout-tokenprefix`, and accepts the same transaction without it.
+- **Seed path:** replayed through the dashboard's seed path, the index matched `scantxoutset` on 219 coins across 12 scripts, and on 220 after a one-block reorg. Every token holder's output is counted under its plain script, and the spent token output leaves the index.
 
 ### Large Bitcoin Cash blocks
 
@@ -48,7 +54,23 @@ Bitcoin Cash's 2018 stress tests produced mainnet blocks of 8 to 32 MB. `UTXO_BC
 
 1. **The node pays about 2.6 GiB to serve one such block at verbosity 3.** In the four-block run, BCHN closed the connection on the fourth block's request. A Bitcoin Cash node under the default 2 GiB steady memory limit would likely be killed. The raw form costs it about 40 MiB.
 2. **The JSON is about 10.7 times the block's size, five times the 64 MiB RPC body limit.** The dashboard would also need roughly 0.8 GB to hold the body, its copy and the decoded block, against a 1 GB limit.
-3. **The replay of those blocks was not reached.** The test stopped when the node dropped the fourth request, so the dashboard's peak memory on large blocks is not measured.
+3. **The index reads raw blocks.** Raw reading is the design the Bitcoin Cash index ships with: verbosity 0, parsed in Go, with spends resolved through the reverse outpoint key.
+
+The raw replay of the saved chain is measured below: 115 blocks and 3,621,114 coins, at 0.5 CPU. `UTXO_BCH_LARGE_DATA=<dir>` reuses a saved chain, and `UTXO_BCH_LARGE_MEM` and `UTXO_BCH_LARGE_GOMEMLIMIT` set the replay container's limits. The live heap is `runtime/metrics` `/gc/heap/live:bytes`, sampled every 200 ms; BCHN's memory comes from `docker stats`, sampled every second.
+
+| Dashboard limit | Result | Replay time | Peak RSS (VmHWM) | Largest live heap | BCHN peak |
+| --- | --- | --- | --- | --- | --- |
+| 1 GiB, no `GOMEMLIMIT` | killed, exit 137 | n/a | n/a | n/a | n/a |
+| 1 GiB, `GOMEMLIMIT=850MiB` | still running at the 60-minute timeout | over 3,600 s | n/a | n/a | n/a |
+| uncapped, before copy reductions | finished | 1,259 s | 2,145,016 KiB (2.05 GiB) | not sampled | about 1,100 MiB |
+| uncapped | finished | 1,482 s | 2,050,576 KiB (1.96 GiB) | not sampled | about 1,090 MiB |
+| uncapped, live heap sampled | finished | 2,138 s | 1,877,744 KiB (1.79 GiB) | 951 MiB | about 1,248 MiB |
+| **2 GiB, `GOMEMLIMIT=1600MiB` (shipped)** | finished | 2,017 s | 1,559,216 KiB (1.49 GiB) | 953 MiB | about 1,239 MiB |
+
+4. **Applying one 31 MB block needs about 950 MiB of live heap.** That covers the block's coin operations, its Pebble batch and its undo record, all held for the whole block. A 1 GiB limit kills the replay. With a `GOMEMLIMIT` under 1 GiB the replay crawled, likely because the garbage collector ran almost without pause; that was not profiled. The Bitcoin Cash overlay therefore caps the dashboard at 2 GiB with `GOMEMLIMIT=1600MiB`. Applying such blocks in pieces to fit 1 GiB is #363.
+5. **The replay's peak host memory is about 2.7 GiB** for the dashboard and BCHN together: 1.49 GiB plus about 1.22 GiB, the two peaks added. On ordinary blocks the dashboard stays far below its cap.
+6. **The index came to 635.9 MB for 3,621,114 coins: 175.6 bytes per coin.** That includes the reverse key and the undo journal of every block in this chain. The chain is synthetic: every coin has a 25-byte P2PKH script, and the four large blocks carry nearly all of them. Bitcoin Cash's mainnet coin count and per-coin cost are not measured.
+7. **Replay times vary between runs of the same chain**, from 1,259 to 2,138 s. The cause is not measured; other load on the machine is likely.
 
 ## Findings
 

@@ -31,8 +31,8 @@ func TestUtxoReplayRegtestRate(t *testing.T) {
 	image := seedLiveDocker(t, "inspect", n.name, "--format", "{{.Config.Image}}")
 	arch := seedLiveDocker(t, "version", "--format", "{{.Server.Arch}}")
 	mine, mineScript := newScript(2)
-	for i := 0; i < 10; i++ {
-		n.do("generatetoaddress", 2000, mine)
+	for i := 0; i < 40; i++ {
+		n.do("generatetoaddress", 500, mine)
 	}
 	small := n.height()
 
@@ -60,8 +60,12 @@ func TestUtxoReplayRegtestRate(t *testing.T) {
 	}
 	name := n.name + "-replay"
 	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", "-v", name).Run() })
+	mem, goMem := "1g", "off"
+	if chain == nodeBitcoinCash {
+		mem, goMem = "2g", "1600MiB"
+	}
 	out, err := exec.Command("docker", "run", "--rm", "--name", name, "--network", "container:"+n.name,
-		"--cpus", "0.5", "--memory", "1g", "-v", bin+":/t:ro",
+		"--cpus", "0.5", "--memory", mem, "-e", "GOMEMLIMIT="+goMem, "-v", bin+":/t:ro",
 		"-e", "UTXO_REPLAY_IN_CONTAINER=1", "-e", "UTXO_REPLAY_CHAIN="+chain, "-e", "REPLAY_SMALL_TIP="+strconv.Itoa(small), "-e", "REPLAY_SCRIPTS="+strings.Join(scripts, ","),
 		"--entrypoint", "/t/replay.test", image,
 		"-test.run", "^TestUtxoReplayRateInContainer$", "-test.count", "3", "-test.v", "-test.timeout", "20m").CombinedOutput()
@@ -85,6 +89,9 @@ func TestUtxoReplayRateInContainer(t *testing.T) {
 	tip := uint32(n.height())
 	for _, replay := range []bool{false, true} {
 		store := openFollowStore(t)
+		if os.Getenv("UTXO_REPLAY_CHAIN") == nodeBitcoinCash {
+			store = utxoTestOpenReverse(t, t.TempDir())
+		}
 		f := newUtxoFollower(store, rpc)
 		apply, mode := f.applyHeights, "per block"
 		if replay {

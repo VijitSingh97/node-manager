@@ -25,7 +25,13 @@ All notable changes to this project are documented here. Format follows
   the node has synced: a long one-time job that keeps its progress across stops
   and restarts. A Bitcoin Cash install from the dashboard is now archival with the
   index on, and the install dialog shows the archival size. Existing installs keep
-  their setting. The Bitcoin Cash card now holds 50 addresses.
+  their setting. The Bitcoin Cash card now holds 50 addresses. With the index on,
+  the dashboard's memory limit is 2 GiB with `GOMEMLIMIT=1600MiB`, not 1 GiB.
+  That is a cap, not memory set aside: on ordinary blocks the dashboard stays
+  near today's use, and it only climbs while it applies a block of tens of MB,
+  such as the 2018 stress-test blocks (1.49 GiB at peak on regtest). Plan about
+  2.7 GiB of RAM for the dashboard and Bitcoin Cash Node together while it
+  replays such blocks. These are regtest figures; mainnet is not measured yet.
 - Instant Litecoin balances: `litecoin.utxo_index` (Settings → Balance index →
   "Instant Litecoin balances") keeps a Litecoin balance index, and the Litecoin
   watch-only card reads its balances from it once it is seeded, updating within a
