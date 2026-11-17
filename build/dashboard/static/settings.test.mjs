@@ -27,11 +27,13 @@ test("host controls expose installed nodes, platform startup wording, and revisi
     available: true, install_supported: true, boot_supported: true, boot_enabled: true, boot_kind: "login",
     config_pending: true, config_revision: revision,
     config_path: "/etc/node-manager/config.json",
-    nodes: [{ id: "bitcoin", name: "Bitcoin", installed: true, data_dir: "/var/lib/node-manager/data/bitcoin", disk_estimate: "28–56 GiB", disk_note: "Estimate", interfaces: [{ id: "bitcoin_rpc", name: "RPC", host_port: 8332 }] }, { id: "unknown", installed: true }],
+    nodes: [{ id: "bitcoin", name: "Bitcoin", installed: true, data_dir: "/var/lib/node-manager/data/bitcoin", disk_estimate: "28–56 GiB", disk_note: "Estimate", interfaces: [{ id: "bitcoin_rpc", name: "RPC", host_port: 8332 }] }, { id: "zcash", name: "Zcash", unsupported: "Zcash needs a processor with the BMI2 and ADX instructions." }, { id: "unknown", installed: true }],
     status: { action: "install", state: "pending", message: "Installing…" },
   });
   assert.equal(view.nodes.bitcoin.installed, true);
   assert.equal(view.nodes.monero.installed, false);
+  assert.match(view.nodes.zcash.unsupported, /BMI2 and ADX/);
+  assert.equal(view.nodes.monero.unsupported, "");
   assert.equal(view.config_pending, true);
   assert.equal(view.boot_kind, "login");
   assert.equal(view.config_path, "/etc/node-manager/config.json");
@@ -59,6 +61,9 @@ test("host controls expose installed nodes, platform startup wording, and revisi
 });
 
 test("completed installs reveal each new node without treating pending work as installed", () => {
+  const failed = hostControlModel({ status: { action: "install", state: "failed", node: "dogecoin", message: "The host could not apply that change.", detail: "Error response from daemon: manifest unknown" } });
+  assert.equal(failed.status.message, "The host could not apply that change. Error response from daemon: manifest unknown");
+  assert.equal(hostControlModel({ status: { action: "install", state: "applied", message: "Dogecoin installed." } }).status.message, "Dogecoin installed.");
   const empty = hostControlModel({ nodes: [] });
   const pending = hostControlModel({
     nodes: [], status: { action: "install", state: "pending", message: "Installing Bitcoin…" },

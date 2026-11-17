@@ -285,6 +285,39 @@ host helper, which runs on Homebrew and on APT whenever a node uses the
 `compact` resource profile (the default for setup selections and dashboard
 installs).
 
+A node that fails to start is stopped instead of retried forever. With launch
+at boot on, Docker restarts a crashing container indefinitely. When a node's
+container keeps exiting with an error within a minute of each start for 10
+minutes, with at least 5 restarts since the host helper first saw it failing,
+the helper stops it. With launch at boot off, Docker gives up by itself after 5
+restarts. Either way the helper logs one Host event, "<Node> is not coming up
+… Last error: <reason>", which Telegram receives when it is set up, and the
+panel shows Stopped with the same reason: the container's last log line before
+it exited, or "It ran out of memory while starting." **Start node** tries
+again. A run of a minute or longer clears the
+record, so a node that crashes after running a while keeps Docker's normal
+restarts, and a boot-time problem that clears within 10 minutes is retried as
+before.
+
+When installing a node from Settings fails after its configuration was written
+(an image that cannot be pulled, a configuration that does not apply), the prior
+configuration is restored, Settings shows the last error line from the failing
+step, and a Host event "<Node> install failed: <error>" is logged and sent to
+Telegram.
+
+Error lines shown or sent this way never carry credentials: a line that
+mentions a password, secret, token, login, auth, cookie, key, seed or onion
+address, or that holds any 40-character run of letters and digits, is replaced
+by a generic message ("It exited with an error." for a node that fails to
+start; no detail for an install). An alert that cannot be written because the
+dashboard is down is retried each minute until it is.
+
+Zcash's Zakura images for x86-64 need a processor with the BMI2 and ADX
+instructions (Intel Core 5th generation or newer, or AMD Ryzen); without them
+`zakurad` exits at startup. On such a host Settings disables Zcash's Install
+button with that reason, and the host helper rejects the install. ARM hosts are
+not affected.
+
 ## Deleting a node
 
 **Settings → Node set → Delete…**, next to **Move data…**, removes a node so it

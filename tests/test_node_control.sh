@@ -45,6 +45,7 @@ printf '%s\n' "$*" >>"$FAKE_STACK_LOG"
 [ "${FAKE_STACK_FAIL_ONCE:-0}" != 1 ] || {
   if [ ! -e "$FAKE_STACK_FAIL_MARKER" ]; then
     : >"$FAKE_STACK_FAIL_MARKER"
+    [ -z "${FAKE_STACK_STDERR:-}" ] || printf '%s\n' "$FAKE_STACK_STDERR" >&2
     [ "${1:-}" != apply ] || printf 'PARTIAL=1\n' >"$BITCOIN_STACK_STATE_DIR/.env"
     exit 1
   fi
@@ -151,6 +152,7 @@ export FAKE_DOCKER_UPDATE_FAIL=0
 export FAKE_STACK_INTERRUPT_ON_PULL=0
 export FAKE_DASHBOARD_MISSING=0
 export FAKE_DOCKER_LOG=$tmp/stack.log FAKE_VOLUMES=$tmp/volumes FAKE_CONTAINERS='' FAKE_VOLUME_IN_USE=0 FAKE_VOLUME_RM_FAIL=0
+export NODE_CONTROL_ARCH=x86_64 NODE_CONTROL_CPU_FLAGS="fpu sse4_2 avx2 bmi1 bmi2 adx"
 
 request() { printf '%s\n' "$1" >"$dashboard_state/node-control.request"; }
 status() { jq -r "$1" "$dashboard_state/node-control.status"; }
@@ -416,11 +418,19 @@ BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-contro
 approved_before=$(shasum -a 256 "$state/.approved-config.json" "$state/.approved.env")
 rm -f "$FAKE_STACK_FAIL_MARKER"
 request '{"action":"install","id":"78787878787878787878787878787878","node":"dogecoin","requested_at":1000}'
-FAKE_STACK_FAIL_ONCE=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+FAKE_STACK_STDERR="$(printf 'Pulling dogecoin\n\033[31mError response from daemon: manifest unknown\033[0m\n')" FAKE_STACK_FAIL_ONCE=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 [ "$(jq -r .dogecoin.enabled "$config/config.json")" = false ] || fail "failed install left Dogecoin configured"
 [ "$(status .error_code)" = apply_failed ] || fail "failed install lacked typed status"
+[ "$(status .detail)" = 'Error response from daemon: manifest unknown' ] || fail "failed install did not report its last error: $(status .detail)"
+grep -q 'Host: Dogecoin install failed: Error response from daemon: manifest unknown$' "$dashboard_state/events.log" || fail "failed install was not logged as a host event"
 [ "$(shasum -a 256 "$state/.approved-config.json" "$state/.approved.env")" = "$approved_before" ] || fail "failed install advanced approved snapshots"
 grep -qx 'stop dogecoin' "$tmp/stack.log" || fail "failed install did not stop its partial service"
+rm -f "$FAKE_STACK_FAIL_MARKER"
+request '{"action":"install","id":"79797979797979797979797979797979","node":"dogecoin","requested_at":1000}'
+FAKE_STACK_STDERR='invalid rpc password abc123' FAKE_STACK_FAIL_ONCE=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .error_code)" = apply_failed ] || fail "second failed install lacked typed status"
+[ -z "$(status '.detail // ""')" ] || fail "a failure line naming a password was reported"
+! grep -q 'abc123' "$dashboard_state/events.log" || fail "a failure line naming a password reached the event log"
 
 jq '.dashboard.external_edit=true' "$config/config.json" >"$config/config.tmp" && mv "$config/config.tmp" "$config/config.json"
 request '{"action":"install","id":"88888888888888888888888888888888","node":"dogecoin","requested_at":1000}'
@@ -490,6 +500,18 @@ cp "$state/.env" "$state/.approved.env"
 request '{"action":"install","id":"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1","node":"zcash","requested_at":1000}'
 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 jq -e '.zcash.enabled == true and .zcash.address_index == false' "$config/config.json" >/dev/null || fail "zcash install overrode an explicit address_index false"
+jq -e 'has("unsupported_nodes") | not' "$dashboard_state/node-control.capability" >/dev/null || fail "a CPU with BMI2 and ADX was marked unsupported"
+
+jq -n '{bitcoin:{enabled:false},zcash:{enabled:false}}' >"$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+cp "$state/.env" "$state/.approved.env"
+request '{"action":"install","id":"a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3","node":"zcash","requested_at":1000}'
+NODE_CONTROL_CPU_FLAGS="fpu sse4_2 avx2 bmi1 bmi2" BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+jq -e '.unsupported_nodes == ["zcash"]' "$dashboard_state/node-control.capability" >/dev/null || fail "a CPU without ADX did not mark Zcash unsupported"
+[ "$(status '.state + " " + .error_code')" = "rejected unsupported_cpu" ] || fail "Zcash install on a CPU without ADX was not rejected"
+jq -e '.zcash.enabled == false' "$config/config.json" >/dev/null || fail "a rejected Zcash install still changed the config"
+NODE_CONTROL_ARCH=aarch64 NODE_CONTROL_CPU_FLAGS='' BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+jq -e 'has("unsupported_nodes") | not' "$dashboard_state/node-control.capability" >/dev/null || fail "an ARM host was checked for x86 CPU features"
 
 mkdir -p "$state/zdata"; : >"$state/zdata/old.db"
 jq -n --arg d "$state/zdata" '{bitcoin:{enabled:false},zcash:{enabled:false,data_dir:$d}}' >"$config/config.json"

@@ -11,8 +11,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
+	"unicode"
 )
 
 type hostControlCapability struct {
@@ -33,6 +35,16 @@ type hostControlCapability struct {
 	ConfigRevision    string            `json:"config_revision"`
 	ConfigPath        string            `json:"config_path,omitempty"`
 	DataPaths         map[string]string `json:"data_paths,omitempty"`
+	UnsupportedNodes  []string          `json:"unsupported_nodes,omitempty"`
+}
+
+const zcashCPUMessage = "Zcash needs a processor with the BMI2 and ADX instructions (Intel Core 5th generation or newer, or AMD Ryzen), and this one lacks them."
+
+func (c hostControlCapability) unsupportedReason(node string) string {
+	if node == nodeZcash && slices.Contains(c.UnsupportedNodes, node) {
+		return zcashCPUMessage
+	}
+	return ""
 }
 
 type hostInstallInterface struct {
@@ -52,6 +64,7 @@ type hostControlNode struct {
 	DiskEstimate string                 `json:"disk_estimate"`
 	DiskNote     string                 `json:"disk_note"`
 	Interfaces   []hostInstallInterface `json:"interfaces"`
+	Unsupported  string                 `json:"unsupported,omitempty"`
 }
 
 type hostControlInput struct {
@@ -85,6 +98,23 @@ type hostControlStatus struct {
 	Message   string `json:"message,omitempty"`
 	ErrorCode string `json:"error_code,omitempty"`
 	Port      string `json:"port,omitempty"`
+	Detail    string `json:"detail,omitempty"`
+}
+
+func hostStatusDetail(status hostControlStatus) string {
+	if status.State != "failed" {
+		return ""
+	}
+	detail := strings.TrimSpace(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, status.Detail))
+	if runes := []rune(detail); len(runes) > 240 {
+		detail = string(runes[:240])
+	}
+	return detail
 }
 
 type hostControlView struct {
@@ -316,6 +346,7 @@ func canonicalHostStatusMessage(status hostControlStatus) string {
 		"delete_incomplete":  "The node was removed from the configuration, but some of its data could not be deleted. Remove what is left by hand before installing it again.",
 		"data_path_invalid":  "The data folder must be a new or empty writable folder outside the app and config roots, without symbolic links.",
 		"insufficient_space": "The destination disk does not have enough free space.",
+		"unsupported_cpu":    zcashCPUMessage,
 		"move_failed":        "The data move failed; the node was restarted in place.",
 		"verify_failed":      "The copied data failed verification; the node was restarted in place.",
 	}
@@ -381,6 +412,7 @@ func (a *app) hostControlStatus() (*hostControlStatus, bool) {
 		return nil, false
 	}
 	status.Message = canonicalHostStatusMessage(status)
+	status.Detail = hostStatusDetail(status)
 	status.ErrorCode = ""
 	return &status, false
 }
@@ -394,7 +426,7 @@ func (a *app) hostControlView() hostControlView {
 		configured, _ := a.nodeConfigured(id)
 		catalog := hostInstallCatalog[id]
 		interfaces := append([]hostInstallInterface(nil), catalog.Interfaces...)
-		nodes = append(nodes, hostControlNode{ID: id, Name: nodeDisplayName(id), Installed: configured, DataDir: capability.DataPaths[id], Active: configured && runtime[id], LastEnabled: configured && installed <= 1, DiskEstimate: catalog.DiskEstimate, DiskNote: catalog.DiskNote, Interfaces: interfaces})
+		nodes = append(nodes, hostControlNode{ID: id, Name: nodeDisplayName(id), Installed: configured, DataDir: capability.DataPaths[id], Active: configured && runtime[id], LastEnabled: configured && installed <= 1, DiskEstimate: catalog.DiskEstimate, DiskNote: catalog.DiskNote, Interfaces: interfaces, Unsupported: capability.unsupportedReason(id)})
 	}
 	return hostControlView{Available: available, InstallSupported: available && capability.InstallSupported, MigrateSupported: available && capability.MigrateSupported, DeleteSupported: available && capability.DeleteSupported, BootSupported: available && capability.BootSupported, BootEnabled: capability.BootEnabled, BootKind: capability.BootKind, ClearnetOverTor: capability.ClearnetOverTor, InboundTor: capability.InboundTor, UtxoIndex: capability.UtxoIndex, UtxoSeedNow: a.seedNow(nodeBitcoin), UtxoIndexLTC: capability.UtxoIndexLTC, UtxoSeedNowLTC: a.seedNow(nodeLitecoin), ConfigPending: capability.ConfigPending, ConfigRevision: capability.ConfigRevision, ConfigPath: capability.ConfigPath, Nodes: nodes, Status: status}
 }
@@ -491,6 +523,10 @@ func (a *app) apiHostControlPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if input.Action == "install" {
+		if reason := capability.unsupportedReason(input.Node); reason != "" {
+			http.Error(w, reason, http.StatusConflict)
+			return
+		}
 		configured, _ := a.nodeConfigured(input.Node)
 		if configured {
 			http.Error(w, "node is already installed", http.StatusConflict)

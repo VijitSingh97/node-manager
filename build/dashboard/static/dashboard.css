@@ -242,6 +242,7 @@ body:not([data-node=""]) .node-close-backdrop { display: block; }
 .settings-host-nodes { display: grid; gap: 8px; }
 .settings-host-node { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .settings-host-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, monospace; font-size: 0.78rem; opacity: 0.75; }
+.settings-host-note { flex: 1; min-width: 0; font-size: 0.78rem; opacity: 0.75; }
 .settings-host-node button { min-width: 76px; }
 .settings-delete-warning { color: #e5534b; }
 .settings-dialog ul { margin: 8px 0; padding-left: 20px; line-height: 1.5; }
