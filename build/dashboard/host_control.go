@@ -417,8 +417,8 @@ func decodeHostControlInput(w http.ResponseWriter, r *http.Request) (hostControl
 	configuredInstall := input.Action == "install" && validInstallOptions(normalizeNodeID(input.Node), input.DataDir, input.Interfaces)
 	valid := (legacyInstall || configuredInstall) && normalizeNodeID(input.Node) != "" && input.Enabled == nil && input.Revision == "" ||
 		input.Action == "migrate" && normalizeNodeID(input.Node) != "" && input.Enabled == nil && input.Revision == "" && safeHostPath(input.DataDir) && input.Interfaces == nil || toggleHostAction(input.Action) && input.Node == "" && input.Enabled != nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil ||
-		input.Action == "utxo_index" && input.Node == nodeLitecoin && input.Enabled != nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil || input.Action == "apply_config" && input.Node == "" && input.Enabled == nil && validRevision && input.DataDir == "" && input.Interfaces == nil ||
-		input.Action == "utxo_seed" && (input.Node == nodeBitcoin || input.Node == nodeLitecoin) && input.Enabled == nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil
+		input.Action == "utxo_index" && utxoChains[input.Node] != nil && input.Enabled != nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil || input.Action == "apply_config" && input.Node == "" && input.Enabled == nil && validRevision && input.DataDir == "" && input.Interfaces == nil ||
+		input.Action == "utxo_seed" && (input.Node == nodeBitcoin || utxoChains[input.Node] != nil) && input.Enabled == nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil
 	if !valid {
 		return input, errors.New("invalid host control request")
 	}
@@ -435,9 +435,28 @@ func (a *app) seedNow(node string) bool {
 	if m == nil {
 		return false
 	}
-	state := m.Status().State
+	st := m.Status()
+	if m.chain.Replay {
+		// A replay needs no seed pipe, so the dashboard starts it without the host helper, also to resume a far-behind index.
+		return m.host != nil && (st.State == utxoStateNotSeeded || st.State == utxoStateInvalid || st.State == utxoStateCatching && st.Behind != nil && *st.Behind > utxoReplayGap)
+	}
 	capability, ok := a.hostControlCapability()
-	return (state == utxoStateNotSeeded || state == utxoStateInvalid) && ok && capability.UTXOSeedSupported && !capability.ConfigPending
+	return (st.State == utxoStateNotSeeded || st.State == utxoStateInvalid) && ok && capability.UTXOSeedSupported && !capability.ConfigPending
+}
+
+func (a *app) requestReplaySeed(w http.ResponseWriter, m *utxoManager, node string) {
+	if !a.seedNow(node) {
+		http.Error(w, "The balance index cannot be seeded now.", http.StatusConflict)
+		return
+	}
+	id := newSeedRequestID()
+	raw, _ := json.Marshal(seedRequest{ID: id, RequestedAt: m.now().Unix()})
+	if writePrivateFileAtomic(filepath.Join(m.host.stateDir, m.host.prefix+seedRequestName), raw) != nil {
+		http.Error(w, "The seed request could not be written.", http.StatusServiceUnavailable)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+	writeJSON(w, hostControlStatus{ID: id, Action: "utxo_seed", Node: node, State: "applied", Message: "Balance index replay requested."})
 }
 
 const hostChangePending = "another host change is pending"
@@ -472,6 +491,10 @@ func (a *app) apiHostControlPost(w http.ResponseWriter, r *http.Request) {
 	input, err := decodeHostControlInput(w, r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if m := a.chainUtxo[input.Node]; input.Action == "utxo_seed" && m != nil && m.chain.Replay {
+		a.requestReplaySeed(w, m, input.Node)
 		return
 	}
 	capability, available := a.hostControlCapability()
