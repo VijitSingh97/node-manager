@@ -29,6 +29,14 @@ All notable changes to this project are documented here. Format follows
 - A weekly, on-demand test that starts every node (Tari and its wallet, Litecoin,
   Dogecoin, Bitcoin Cash and Zcash as well as Bitcoin and Monero) and checks that
   none can reach the internet or resolve a public name while Tor is stopped.
+- `utxo-index bench --chain litecoin` measures the Litecoin balance index the
+  same way as Bitcoin's; `--chain bitcoin` is the default. With `--scan` the
+  bench now runs `scantxoutset` for each wallet alone as well as for all of them,
+  prints each wallet's scan time next to its index p50 with the speedup, and
+  exits non-zero when a wallet's index balance differs from its scan at the same
+  block. A CI test per indexed chain checks the index against a fake node's scan
+  on pseudo-random wallets and that it is faster by at least 50 times for a single
+  address and 2 times for a 2,000-script wallet (synthetic, #367).
 
 ## [1.37.0] - 2026-11-17
 
