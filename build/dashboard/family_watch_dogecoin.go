@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
 	"os"
 	"sort"
 	"strconv"
@@ -97,7 +96,7 @@ func (s *familyWatchStore) startRescan(address string) {
 
 func (s *familyWatchStore) importAddress(address string) {
 	long := *s.rpc
-	long.client = &http.Client{Timeout: dogecoinRescanTimeout}
+	long.client = newInternalHTTPClient(dogecoinRescanTimeout)
 	ctx, cancel := context.WithTimeout(context.Background(), dogecoinRescanTimeout)
 	defer cancel()
 	err := long.call(ctx, "importaddress", []any{address, "", true}, new(json.RawMessage))

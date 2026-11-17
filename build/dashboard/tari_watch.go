@@ -445,7 +445,7 @@ func (s *TariWatchStore) refresh(ctx context.Context, node tariWatchNodeSnapshot
 		s.markUnreadyFor(expected.ID, "error")
 		return
 	}
-	connection, err := grpc.NewClient(endpoint.Host, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithPerRPCCredentials(tariWalletBasicAuth{user: s.walletRPCUser, password: s.walletRPCPassword}))
+	connection, err := grpc.NewClient(endpoint.Host, grpc.WithNoProxy(), internalGRPCDialer, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithPerRPCCredentials(tariWalletBasicAuth{user: s.walletRPCUser, password: s.walletRPCPassword}))
 	if err != nil {
 		s.markUnreadyFor(expected.ID, "error")
 		return

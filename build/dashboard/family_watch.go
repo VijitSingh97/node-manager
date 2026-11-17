@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -103,7 +102,7 @@ func newFamilyWatchManager(a *app) *familyWatchManager {
 			rosterPath: filepath.Join(a.cfg.stateDir, "family_watch_"+id+".json"), cachePath: filepath.Join(a.cfg.stateDir, "family_watch_"+id+"_cache.json"),
 			balances: make(map[string]familyWatchBalance), states: make(map[string]string), trigger: make(chan struct{}, 1), now: time.Now,
 			// One batched scan lists every coin of every due wallet, well past the default 4 MiB for busy addresses.
-			rpc:       &rpcClient{url: node.RPCURL, user: node.RPCUser, password: node.RPCPassword, maxBody: 64 << 20, client: &http.Client{Timeout: familyWatchRPCTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}},
+			rpc:       &rpcClient{url: node.RPCURL, user: node.RPCUser, password: node.RPCPassword, maxBody: 64 << 20, client: newInternalHTTPClient(familyWatchRPCTimeout)},
 			maxSupply: 21_000_000 * 100_000_000, backend: utxoFamilyWatchBackend(false), maxWallets: maxFamilyWatchWallets, scripts: map[string][]byte{}, logf: func(format string, args ...any) {
 				if a.log != nil {
 					a.log.Printf(format, args...)

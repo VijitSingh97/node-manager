@@ -1,5 +1,8 @@
 # Tor-only runtime networking
 
+The [Tor boundary](tor-boundary.md) page lists every egress path, the gaps found
+in it, and the tests that fail when the boundary breaks.
+
 Bitcoin, Monero and its wallet service, Tari and its wallet service, Litecoin, Dogecoin, Bitcoin Cash,
 Zcash through Zakura, and the dashboard have no direct external network route.
 Their Docker network is internal; only the Tor container also joins an external

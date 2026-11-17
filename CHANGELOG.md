@@ -8,6 +8,19 @@ All notable changes to this project are documented here. Format follows
 
 ### Fixed
 
+- Every dashboard connection to a node or wallet, including both Tari gRPC
+  channels, now ignores proxy settings, never follows a redirect, and refuses to
+  connect to a public address. The Bitcoin, Monero, Monero wallet and Tari wallet
+  URLs are now checked as internal addresses even when that node is off.
+- UPnP, NAT-PMP and update checks are now switched off in the node configs instead
+  of relying on defaults: `natpmp=0` for Bitcoin Core, `upnp=0` for Litecoin,
+  Dogecoin and Bitcoin Cash (plus `natpmp=0` for Bitcoin Cash), and
+  `check_interval = 0` for the Tari node. Monero also gets `no-igd=1`; the pinned
+  0.18.5.4 has no UPnP code, so this only keeps port mapping off if a later
+  release restores it.
+- The Tari wallet config no longer names a Tor control port the stack never
+  opens. The wallet does not use that setting in Tari v6.2.0. This was checked
+  against the Tari source only; the wallet image was not started with the new file.
 - Saving LAN port changes, or resetting a node's RPC password, reported
   "Request already processed." even though the change applied. Both recreate
   the dashboard, and the host helper then wrote its result into the old
@@ -29,6 +42,12 @@ All notable changes to this project are documented here. Format follows
   Host event, forwarded to Telegram), and the panel shows Stopped with the same
   reason; **Start node** tries again. Nodes that crash after running a while, or
   recover within 10 minutes, keep Docker's normal restarts.
+- "Price unavailable" no longer appears for a minute or two after a settings
+  change restarts Tor and the dashboard. The dashboard now saves its last good
+  prices in its state directory (`prices.json`), shows them as stale with their
+  original time after a restart, and replaces them when the next fetch over Tor
+  succeeds. While prices are unavailable or stale the page checks every 10
+  seconds instead of every minute, so fresh prices appear as soon as Tor is up.
 - A failed node install now says why. Settings shows the last error line from
   the step that failed (for example an image that could not be pulled), and a
   "<Node> install failed" Host event reaches Telegram. Host events other than
@@ -37,6 +56,11 @@ All notable changes to this project are documented here. Format follows
   ADX instructions (before Intel Core 5th generation or AMD Ryzen). Zakura 1.8
   images require them and exit at startup otherwise; Settings now disables the
   Install button with the reason, and the host helper rejects the install.
+- Adding a watch-only wallet right after the dashboard starts could leave it in
+  an error state until removed and re-added. The startup pass and the add request
+  could both create and import into the same Bitcoin Core wallet at once, leaving
+  extra descriptors that later checks reject. Provisioning is now serialized per
+  wallet key.
 - The usage pies attribute CPU and memory to the right owner. The Monero and Tari
   wallet containers now count toward their node instead of the Node Manager
   slice, which is now labelled "Node Manager (dashboard and Tor)". Each
@@ -54,6 +78,17 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
+- Tests that fail when anything in the scripts or the Docker stack could leave
+  the Tor boundary, and `docs/tor-boundary.md`, which lists every egress path
+  with file and line evidence, the gaps found, and how to extend the tests. A
+  stdlib-only Python test checks the Compose files (only `tor` has an external
+  network, loopback-only DNS, no published node ports, no proxy overrides), the
+  Tor relays, and the Tor settings of every node, and scans scripts,
+  entrypoints and Dockerfiles for network commands against
+  `tests/tor_boundary_allowlist.txt`. A Go test walks the dashboard sources and
+  fails on any new direct network use (including the Tari wallet launcher), and the container end-to-end test now
+  probes every running service for direct TCP, IPv6 and DNS egress with Tor
+  stopped, with a positive control from the Tor container.
 - Settings → Node set has a **Delete…** button next to **Move data…** that
   removes a deactivated node so it can be installed again from scratch. It is
   disabled for an active node, a node that is not installed, and the last
@@ -76,6 +111,19 @@ All notable changes to this project are documented here. Format follows
   dashboard, seeds itself like the Bitcoin index, and has `utxo-seed litecoin`
   and `utxo-index remove litecoin`. Only one balance index seeds at a time.
   Balances cover transparent outputs only; funds inside MWEB are not counted.
+- Nodes that are restarting because of a settings change now turn grey with a
+  **Restarting** badge and "Restarting after a settings change…" on the panel,
+  instead of looking down or connecting. A node counts as restarting from the
+  moment an apply of the pending configuration, a network setting change (clearnet
+  over Tor, incoming connections), a node install or data move, a node
+  activation, or an RPC password reset is requested until its RPC answers again,
+  for at most 10 minutes. `/api/nodes` reports it as `restarting`, so it survives
+  a page reload, and node-down alerts stay quiet meanwhile; the dashboard keeps
+  probing restarting nodes so the flag clears as soon as they answer. After an
+  apply the host helper lists the services it recreated in the status file, so
+  only those nodes show as restarting. A node that is known to
+  have failed to start still shows Stopped with the reason. LAN port changes
+  restart only Tor and the dashboard, so nodes stay as they are.
 - The Bitcoin balance index is on by default for new pruned installs. APT and
   Homebrew setup, and installing Bitcoin from the dashboard, write
   `bitcoin.utxo_index: true` when the node is pruned; existing installs and

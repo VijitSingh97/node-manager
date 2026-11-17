@@ -14,12 +14,25 @@ export const NODE_LABELS = {
 export function powerView(node) {
   if (!node?.configured) return {active:false,disabled:true,button:"Not configured",status:"This node is not configured."};
   if (!node?.supported) return { active: false, disabled: true, button: "Unavailable", status: "This node is unavailable in this build." };
+  if (node.active && node.restarting) return { active: false, restarting: true, disabled: true, button: "Restarting…", status: "Restarting after a settings change…" };
   if (node.active && node.stopped) {
     const status = node.failure ? `Stopped: the node failed to start. ${node.failure}` : "Stopped: the node's container is not running.";
     return { active: false, stopped: true, disabled: false, button: "Start node", status };
   }
   if (node.active) return { active: true, disabled: false, button: "Deactivate node", status: "Deactivate this node to free its CPU and memory. Stored blockchain data is kept." };
   return { active: false, disabled: false, button: "Activate node", status: "Node is inactive" };
+}
+
+export function nodePollDelay(pending, nodes) {
+  return pending ? 2000 : nodes.some((node) => node.restarting) ? 5000 : 30000;
+}
+
+export function nodeRefreshable(id, node) {
+  return !!node?.configured && !!node.active && !node.stopped && !node.restarting && !!node.supported && id !== "bitcoin" && id !== "monero";
+}
+
+export function powerBadge(view) {
+  return view.restarting ? "Restarting" : view.disabled ? "Unavailable" : view.stopped ? "Stopped" : "Inactive";
 }
 
 export function powerRequest(node, confirmation = "") {
@@ -49,13 +62,13 @@ function announceNodeStatus(id) {
   window.dispatchEvent(new CustomEvent("node-status-updated", { detail: { node: id } }));
 }
 
-function setNodeActive(id, node) {
+export function setNodeActive(id, node) {
   const view = powerView(node);
   for (const choice of document.querySelectorAll(`[data-select-node="${id}"]`)) {
     choice.hidden = node.configured !== true;
     choice.dataset.nodeActive = view.active ? "1" : "0";
     choice.classList.toggle("inactive", !view.active);
-    choice.setAttribute("aria-label", `${NODE_LABELS[id]}${view.active ? "" : view.stopped ? " — stopped" : " — inactive"}`);
+    choice.setAttribute("aria-label", `${NODE_LABELS[id]}${view.active ? "" : view.restarting ? " — restarting" : view.stopped ? " — stopped" : " — inactive"}`);
   }
   const panel = byId(`${id}-panel`);
   if (panel) panel.dataset.nodeActive = view.active ? "1" : "0";
@@ -69,10 +82,10 @@ function setNodeActive(id, node) {
   const inactiveNote = panel?.querySelector(".node-inactive-state .node-state");
   if (inactiveNote) {
     inactiveNote.dataset.inactive ??= inactiveNote.textContent;
-    inactiveNote.textContent = view.stopped ? view.status : inactiveNote.dataset.inactive;
+    inactiveNote.textContent = view.stopped || view.restarting ? view.status : inactiveNote.dataset.inactive;
   }
   if (!view.active) {
-    setText(`${id}-badge`, view.disabled ? "Unavailable" : view.stopped ? "Stopped" : "Inactive");
+    setText(`${id}-badge`, powerBadge(view));
     setText(`${id}-state`, view.status);
     const details = byId(`${id}-details`);
     if (details) details.hidden = true;
@@ -135,7 +148,7 @@ if (typeof document !== "undefined") {
 
   const refreshNode=async(id)=>{
     const node=state.get(id);
-    if(!node?.configured || !node.active || node.stopped || !node.supported || id==="bitcoin" || id==="monero") return;
+    if(!nodeRefreshable(id,node)) return;
     try {
       const response=await fetch(`/api/${id}`,{headers:{"X-Requested-With":"fetch"}});
       const data=await response.json();
@@ -153,7 +166,7 @@ if (typeof document !== "undefined") {
       button.disabled=view.disabled || !control.available || control.pending || busy;
       button.textContent=pending ? (control.status.active ? (node.stopped ? "Starting…" : "Activating…") : "Deactivating…") : view.button;
       if(pending) setText(`${id}-power-status`, "Applying node state change…");
-      else if(node.configured && !control.available) setText(`${id}-power-status`, "Node controls require the installed host helper.");
+      else if(node.configured && !control.available && !view.restarting) setText(`${id}-power-status`, "Node controls require the installed host helper.");
     }
   };
 
@@ -190,7 +203,7 @@ if (typeof document !== "undefined") {
       updateButtons();
       updateSubmit();
     }
-    poll=setTimeout(loadNodes,control.pending || requestID ? 2000 : 30000);
+    poll=setTimeout(loadNodes,nodePollDelay(control.pending || !!requestID,[...state.values()]));
   };
 
   const updateSubmit=()=>{
