@@ -8,6 +8,12 @@ All notable changes to this project are documented here. Format follows
 
 ### Fixed
 
+- Exposing a node's RPC, ZMQ or gRPC port on the LAN failed with "Port
+  availability could not be checked." on hosts running Tailscale. The port check
+  could not read listeners that `ss` prints with an interface scope, such as
+  `[fd7a:…]%tailscale0:56603`, so it refused every change. It now reads them, and an
+  IPv4 listener written as `address%interface:port` is still caught as a port in
+  use.
 - A node that fails to start no longer restarts forever. With launch at boot
   on, Docker retried a crashing container indefinitely and the dashboard showed
   it as connecting. The host helper now stops a node whose container keeps

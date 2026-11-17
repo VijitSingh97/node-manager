@@ -477,6 +477,19 @@ scripts/node-port-control
 [ "$(cat "$case_root/config/config.json")" = "$original_config" ] || fail "IPv4-mapped listener changed config"
 [ ! -s "$FAKE_STACK_LOG" ] || fail "IPv4-mapped listener invoked apply"
 
+new_case scoped-listeners
+jq '.monero.rpc_expose=false' "$case_root/config/config.json" >"$case_root/config/config.next"
+mv "$case_root/config/config.next" "$case_root/config/config.json"
+export FAKE_SS_LISTENERS='LISTEN 0 4096 [fd7a:115c:a1e0::bf2c:2d51]%tailscale0:56603 [::]:*
+LISTEN 0 4096 127.0.0.53%lo:53 0.0.0.0:*
+LISTEN 0 4096 192.168.1.10%eth0:28083 0.0.0.0:*'
+request '{"id":"30303030303030303030303030303039","changes":[{"port":"monero_zmq","enabled":true,"bind_ip":"192.168.1.10","host_port":28083}],"requested_at":1000}'
+scripts/node-port-control
+[ "$(status .error_code)" = port_in_use ] || fail "an interface-scoped IPv4 listener was missed: $(status .error_code)"
+request '{"id":"3030303030303030303030303030303a","changes":[{"port":"monero_rpc","enabled":true,"bind_ip":"192.168.1.10","host_port":28081}],"requested_at":1000}'
+scripts/node-port-control
+[ "$(status .state)" = applied ] || fail "a scoped IPv6 listener such as Tailscale's blocked an unrelated port: $(status .error_code)"
+
 new_case own-port-swap
 export FAKE_SS_LISTENERS='LISTEN 0 4096 192.168.1.10:8332 0.0.0.0:*'
 request '{"id":"30303030303030303030303030303033","changes":[{"port":"bitcoin_rpc","enabled":false},{"port":"monero_rpc","enabled":true,"bind_ip":"192.168.1.10","host_port":8332}],"requested_at":1000}'
