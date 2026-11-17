@@ -202,7 +202,7 @@ func TestSeedNowQueuesOnlyWhenTheIndexNeedsASeed(t *testing.T) {
 	if got := hostControlHTTP(a, http.MethodGet, "", false, "192.168.1.20:4321"); json.Unmarshal(got.Body.Bytes(), &view) != nil || !view.UtxoSeedNow {
 		t.Fatalf("host view %s", got.Body.String())
 	}
-	for _, body := range []string{`{"action":"utxo_seed"}`, `{"action":"utxo_seed","node":"dogecoin"}`, `{"action":"utxo_seed","node":"bitcoin","enabled":true}`} {
+	for _, body := range []string{`{"action":"utxo_seed"}`, `{"action":"utxo_seed","node":"zcash"}`, `{"action":"utxo_seed","node":"bitcoin","enabled":true}`} {
 		if got := post(body); got != http.StatusBadRequest {
 			t.Fatalf("%s = %d", body, got)
 		}
@@ -238,7 +238,7 @@ func TestHostControlQueuesTheLitecoinIndexToggle(t *testing.T) {
 	if got := hostControlHTTP(a, http.MethodPost, on, true, "192.168.1.20:4321"); got.Code != http.StatusConflict || !strings.Contains(got.Body.String(), "Litecoin is not installed") {
 		t.Fatalf("toggle without Litecoin = %d %s", got.Code, got.Body.String())
 	}
-	if got := hostControlHTTP(a, http.MethodPost, `{"action":"utxo_index","node":"dogecoin","enabled":true}`, true, "192.168.1.20:4321"); got.Code != http.StatusBadRequest {
+	if got := hostControlHTTP(a, http.MethodPost, `{"action":"utxo_index","node":"zcash","enabled":true}`, true, "192.168.1.20:4321"); got.Code != http.StatusBadRequest {
 		t.Fatalf("toggle for an unsupported chain = %d", got.Code)
 	}
 	a.cfg.nodes = map[string]nodeConfig{nodeLitecoin: {ID: nodeLitecoin, Enabled: true, Supported: true}}
@@ -261,7 +261,7 @@ func TestUtxoIndexAPIServesTheLitecoinIndex(t *testing.T) {
 		_ = json.Unmarshal(w.Body.Bytes(), &st)
 		return w, st
 	}
-	if w, _ := get("?chain=dogecoin"); w.Code != http.StatusNotFound {
+	if w, _ := get("?chain=zcash"); w.Code != http.StatusNotFound {
 		t.Fatalf("an unsupported chain = %d", w.Code)
 	}
 	if _, st := get("?chain=litecoin"); st.State != utxoStateOff || st.SeedNow {

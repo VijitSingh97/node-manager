@@ -32,6 +32,7 @@ type hostControlCapability struct {
 	UtxoIndex         bool              `json:"utxo_index"`
 	UtxoIndexLTC      bool              `json:"utxo_index_litecoin,omitempty"`
 	UtxoIndexBCH      bool              `json:"utxo_index_bitcoincash,omitempty"`
+	UtxoIndexDOGE     bool              `json:"utxo_index_dogecoin,omitempty"`
 	ConfigPending     bool              `json:"config_pending"`
 	ConfigRevision    string            `json:"config_revision"`
 	ConfigPath        string            `json:"config_path,omitempty"`
@@ -135,6 +136,8 @@ type hostControlView struct {
 	UtxoSeedNowLTC   bool               `json:"utxo_seed_now_litecoin"`
 	UtxoIndexBCH     bool               `json:"utxo_index_bitcoincash"`
 	UtxoSeedNowBCH   bool               `json:"utxo_seed_now_bitcoincash"`
+	UtxoIndexDOGE    bool               `json:"utxo_index_dogecoin"`
+	UtxoSeedNowDOGE  bool               `json:"utxo_seed_now_dogecoin"`
 	ConfigPending    bool               `json:"config_pending"`
 	ConfigRevision   string             `json:"config_revision,omitempty"`
 	ConfigPath       string             `json:"config_path,omitempty"`
@@ -281,7 +284,7 @@ func validHostControlShape(action, node string, enabled *bool, dataDir string, i
 		action == "migrate" && normalizeNodeID(node) != "" && enabled == nil && safeHostPath(dataDir) && interfaces == nil ||
 		toggleHostAction(action) && node == "" && enabled != nil && dataDir == "" && interfaces == nil ||
 		action == "utxo_index" && utxoChains[node] != nil && enabled != nil && dataDir == "" && interfaces == nil ||
-		action == "utxo_seed" && (node == nodeBitcoin || node == nodeLitecoin) && enabled == nil && dataDir == "" && interfaces == nil ||
+		action == "utxo_seed" && (node == nodeBitcoin || node == nodeLitecoin || node == nodeDogecoin) && enabled == nil && dataDir == "" && interfaces == nil ||
 		action == "apply_config" && node == "" && enabled == nil && dataDir == "" && interfaces == nil
 }
 
@@ -432,7 +435,7 @@ func (a *app) hostControlView() hostControlView {
 		interfaces := append([]hostInstallInterface(nil), catalog.Interfaces...)
 		nodes = append(nodes, hostControlNode{ID: id, Name: nodeDisplayName(id), Installed: configured, DataDir: capability.DataPaths[id], Active: configured && runtime[id], LastEnabled: configured && installed <= 1, DiskEstimate: catalog.DiskEstimate, DiskNote: catalog.DiskNote, Interfaces: interfaces, Unsupported: capability.unsupportedReason(id)})
 	}
-	return hostControlView{Available: available, InstallSupported: available && capability.InstallSupported, MigrateSupported: available && capability.MigrateSupported, DeleteSupported: available && capability.DeleteSupported, BootSupported: available && capability.BootSupported, BootEnabled: capability.BootEnabled, BootKind: capability.BootKind, ClearnetOverTor: capability.ClearnetOverTor, InboundTor: capability.InboundTor, UtxoIndex: capability.UtxoIndex, UtxoSeedNow: a.seedNow(nodeBitcoin), UtxoIndexLTC: capability.UtxoIndexLTC, UtxoSeedNowLTC: a.seedNow(nodeLitecoin), UtxoIndexBCH: capability.UtxoIndexBCH, UtxoSeedNowBCH: a.seedNow(nodeBitcoinCash), ConfigPending: capability.ConfigPending, ConfigRevision: capability.ConfigRevision, ConfigPath: capability.ConfigPath, Nodes: nodes, Status: status}
+	return hostControlView{Available: available, InstallSupported: available && capability.InstallSupported, MigrateSupported: available && capability.MigrateSupported, DeleteSupported: available && capability.DeleteSupported, BootSupported: available && capability.BootSupported, BootEnabled: capability.BootEnabled, BootKind: capability.BootKind, ClearnetOverTor: capability.ClearnetOverTor, InboundTor: capability.InboundTor, UtxoIndex: capability.UtxoIndex, UtxoSeedNow: a.seedNow(nodeBitcoin), UtxoIndexLTC: capability.UtxoIndexLTC, UtxoSeedNowLTC: a.seedNow(nodeLitecoin), UtxoIndexBCH: capability.UtxoIndexBCH, UtxoSeedNowBCH: a.seedNow(nodeBitcoinCash), UtxoIndexDOGE: capability.UtxoIndexDOGE, UtxoSeedNowDOGE: a.seedNow(nodeDogecoin), ConfigPending: capability.ConfigPending, ConfigRevision: capability.ConfigRevision, ConfigPath: capability.ConfigPath, Nodes: nodes, Status: status}
 }
 
 func (a *app) apiHostControlGet(w http.ResponseWriter, r *http.Request) {
