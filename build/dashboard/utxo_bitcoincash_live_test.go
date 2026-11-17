@@ -10,6 +10,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -117,29 +118,41 @@ func TestUtxoBitcoinCashRawReplayRegtestLive(t *testing.T) {
 		return "", 0, 0
 	}
 
-	// Before activation: a well-formed and a malformed 0xef prefix, planted by rewriting the scripts.
-	pre, preScript := w.cashScript()
-	bad, _ := w.cashScript()
+	// Before activation: every token shape and a malformed prefix, planted by rewriting the scripts.
 	change, changeScript := w.cashScript()
-	scripts = append(scripts, preScript, changeScript)
+	scripts = append(scripts, changeScript)
 	txid, vout, amount := coin(false)
-	p2pkh, _ := hex.DecodeString(preScript)
 	category, _ := hex.DecodeString(txid)
-	wellFormed := append(append(append([]byte{cashTokenPrefix}, category...), 0x10, 5), p2pkh...)
-	malformed := append([]byte{cashTokenPrefix, 0x00, 0x01}, p2pkh...)
+	planted := map[int][]byte{}
+	var plantedOuts []any
+	var oneCoin []string
+	fungible, nftBare, nftCommitment, fungibleAndNFT := []byte{0x10, 5}, []byte{0x20}, []byte{0x60, 2, 0xbe, 0xef}, []byte{0x71, 1, 0xaa, 7}
+	for i, field := range [][]byte{fungible, nftBare, nftCommitment, fungibleAndNFT, nil} {
+		a, s := w.cashScript()
+		p2pkh, _ := hex.DecodeString(s)
+		planted[i] = append(append(append([]byte{cashTokenPrefix}, category...), field...), p2pkh...)
+		if field == nil {
+			planted[i] = append([]byte{cashTokenPrefix, 0x00, 0x01}, p2pkh...)
+			s = hex.EncodeToString(planted[i])
+		}
+		scripts, oneCoin = append(scripts, s), append(oneCoin, s)
+		plantedOuts = append(plantedOuts, map[string]any{a: "0.10000000"})
+	}
 	rawTx := w.str("createrawtransaction", []any{map[string]any{"txid": txid, "vout": vout}},
-		[]any{map[string]any{pre: "0.10000000"}, map[string]any{bad: "0.10000000"}, map[string]any{change: bchAmount(amount - 2e7 - 10_000)}})
-	w.sendRaw(withOutputScripts(t, rawTx, map[int][]byte{0: wellFormed, 1: malformed}))
-	scripts = append(scripts, hex.EncodeToString(malformed))
+		append(plantedOuts, map[string]any{change: bchAmount(amount - 5e7 - 10_000)}))
+	w.sendRaw(withOutputScripts(t, rawTx, planted))
 	n.do("generatetoaddress", 95, mine)
 
 	// After activation: every token shape the wallet can write, then a spend that moves tokens on.
 	holders := map[string]map[string]any{}
 	var holderAddrs []string
 	var ftMint, ftCategory string
-	for _, nft := range []map[string]any{nil, {"capability": "none", "commitment": "beef"}, {"capability": "mutable"}, {"capability": "minting", "commitment": "cafe"}} {
+	for i, nft := range []map[string]any{nil, {"capability": "none", "commitment": "beef"}, {"capability": "mutable"}, {"capability": "minting", "commitment": "cafe"}} {
 		a, s := w.cashScript()
 		scripts = append(scripts, s)
+		if i > 0 {
+			oneCoin = append(oneCoin, s)
+		}
 		token := map[string]any{}
 		if nft == nil || nft["capability"] == "minting" {
 			token["amount"] = 1000
@@ -167,6 +180,39 @@ func TestUtxoBitcoinCashRawReplayRegtestLive(t *testing.T) {
 		map[string]any{mover: map[string]any{"amount": bchAmount(1000), "tokenData": map[string]any{"category": ftCategory, "amount": 400}}},
 		map[string]any{change: bchAmount(feeSats - 10_000)}})
 	n.do("generatetoaddress", 1, mine)
+	oneCoin = append(oneCoin, moverScript)
+
+	// After activation a malformed prefix breaks consensus, so the node must refuse it.
+	badTxid, badVout, badSats := coin(false)
+	badAddr, badScript := w.cashScript()
+	badP2pkh, _ := hex.DecodeString(badScript)
+	rawBad := w.str("createrawtransaction", []any{map[string]any{"txid": badTxid, "vout": badVout}},
+		[]any{map[string]any{badAddr: "0.10000000"}, map[string]any{change: bchAmount(badSats - 1e7 - 10_000)}})
+	accept := func(raw string) (bool, string) {
+		t.Helper()
+		var signed struct {
+			Hex string `json:"hex"`
+		}
+		var res []struct {
+			Allowed bool   `json:"allowed"`
+			Reason  string `json:"reject-reason"`
+		}
+		if err := json.Unmarshal(w.do("signrawtransactionwithwallet", raw), &signed); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(n.do("testmempoolaccept", []string{signed.Hex}), &res); err != nil || len(res) != 1 {
+			t.Fatalf("testmempoolaccept: %v", err)
+		}
+		return res[0].Allowed, res[0].Reason
+	}
+	if ok, why := accept(rawBad); !ok {
+		t.Fatalf("the transaction without a prefix was refused: %s", why)
+	}
+	if ok, why := accept(withOutputScripts(t, rawBad, map[int][]byte{0: append([]byte{cashTokenPrefix, 0x00, 0x01}, badP2pkh...)})); ok || !strings.Contains(why, "bad-txns-vout-tokenprefix") {
+		t.Fatalf("after activation a malformed token prefix should fail bad-txns-vout-tokenprefix: allowed %v, %q", ok, why)
+	} else {
+		t.Logf("after activation the node refuses a malformed token prefix (%s); the same transaction without it is accepted", why)
+	}
 
 	compared := 0
 	for h := 0; h <= n.height(); h++ {
@@ -234,11 +280,10 @@ func TestUtxoBitcoinCashRawReplayRegtestLive(t *testing.T) {
 		t.Logf("%s: index matched scantxoutset on %d coins across %d scripts", when, checked, len(scripts))
 	}
 	compare("after the replay")
-	if got := lookupAmounts(t, m.currentStore(), moverScript); len(got) != 1 {
-		t.Fatalf("the moved token output is not indexed for its holder: %v", got)
-	}
-	if got := lookupAmounts(t, m.currentStore(), hex.EncodeToString(malformed)); len(got) != 1 {
-		t.Fatalf("the malformed-prefix output is not indexed under its full script: %v", got)
+	for _, s := range oneCoin {
+		if got := lookupAmounts(t, m.currentStore(), s); len(got) != 1 {
+			t.Fatalf("token output not indexed for its holder script %s: %v", s, got)
+		}
 	}
 
 	n.invalidate(n.str("getbestblockhash"))
