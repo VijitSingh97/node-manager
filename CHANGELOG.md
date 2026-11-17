@@ -6,6 +6,158 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- Instant Bitcoin Cash balances: `bitcoincash.utxo_index` (Settings → Balance
+  index → "Instant Bitcoin Cash balances") keeps a Bitcoin Cash balance index, and
+  the Bitcoin Cash watch-only card reads its balances from it once it is at the
+  node's tip. It needs an archival node (`bitcoincash.prune_mb: 0`). Bitcoin Cash
+  Node has no coin-set export, so the index replays every block from genesis once
+  the node has synced: a long one-time job that keeps its progress across stops
+  and restarts. A Bitcoin Cash install from the dashboard is now archival with the
+  index on, and the install dialog shows the archival size. Existing installs keep
+  their setting. The Bitcoin Cash card now holds 50 addresses. With the index on,
+  the dashboard's memory limit is 2 GiB with `GOMEMLIMIT=1600MiB`, not 1 GiB:
+  plan for the dashboard using up to 2 GiB on top of the Bitcoin Cash node's own
+  plan in docs/nodes.md. That is a cap, not memory set aside: on ordinary blocks
+  the dashboard should stay near today's use, and it only climbs while it applies
+  a block of tens of MB. It applies a block of up to 1.2 million coin operations;
+  a larger block, or one over 32 MB, stops the index at that height without
+  discarding it, until such blocks can be applied in pieces (#363). On regtest,
+  31 MB blocks of about 0.9 million operations peaked at 1.50 GiB; these are
+  lower bounds, and mainnet is not measured yet.
+
+## [1.37.0] - 2026-11-17
+
+### Added
+
+- Tests that fail when anything in the scripts or the Docker stack could leave
+  the Tor boundary, and `docs/tor-boundary.md`, which lists every egress path
+  with file and line evidence, the gaps found, and how to extend the tests. A
+  stdlib-only Python test checks the Compose files (only `tor` has an external
+  network, loopback-only DNS, no published node ports, no proxy overrides), the
+  Tor relays, and the Tor settings of every node, and scans scripts,
+  entrypoints and Dockerfiles for network commands against
+  `tests/tor_boundary_allowlist.txt`. A Go test walks the dashboard sources and
+  fails on any new direct network use (including the Tari wallet launcher), and the container end-to-end test now
+  probes every running service for direct TCP, IPv6 and DNS egress with Tor
+  stopped, with a positive control from the Tor container.
+- Settings → Node set has a **Delete…** button next to **Move data…** that
+  removes a deactivated node so it can be installed again from scratch. It is
+  disabled for an active node, a node that is not installed, and the last
+  installed node. A dialog warns that the step cannot be undone, names the data
+  folder, balance-index or wallet volumes, configuration and credentials, and
+  watch-only wallets with their saved balances and history that will go, and
+  needs the node's name typed before it enables **Delete on Save**. The host
+  re-checks the request, applies the smaller configuration first (a failed apply
+  restores the old one and deletes nothing), refuses unsafe data folders
+  (symbolic links, `/`, your home, the app, state, config or Docker
+  directories, another node's folder), then removes the node's containers,
+  volumes and data, clears its resource-profile and seed state, and logs a
+  `Host: <Node> deleted` event. The dashboard drops that coin's watch-only
+  wallets and balance history and keeps retrying across restarts; a failed
+  handoff of that removal to the dashboard is retried on the next helper run.
+- Instant Litecoin balances: `litecoin.utxo_index` (Settings → Balance index →
+  "Instant Litecoin balances") keeps a Litecoin balance index, and the Litecoin
+  watch-only card reads its balances from it once it is seeded, updating within a
+  minute of each block. It is on by default when Litecoin is installed from the
+  dashboard, seeds itself like the Bitcoin index, and has `utxo-seed litecoin`
+  and `utxo-index remove litecoin`. Only one balance index seeds at a time.
+  Balances cover transparent outputs only; funds inside MWEB are not counted.
+- Nodes that are restarting because of a settings change now turn grey with a
+  **Restarting** badge and "Restarting after a settings change…" on the panel,
+  instead of looking down or connecting. A node counts as restarting from the
+  moment an apply of the pending configuration, a network setting change (clearnet
+  over Tor, incoming connections), a node install or data move, a node
+  activation, or an RPC password reset is requested until its RPC answers again,
+  for at most 10 minutes. `/api/nodes` reports it as `restarting`, so it survives
+  a page reload, and node-down alerts stay quiet meanwhile; the dashboard keeps
+  probing restarting nodes so the flag clears as soon as they answer. After an
+  apply the host helper lists the services it recreated in the status file, so
+  only those nodes show as restarting. A node that is known to
+  have failed to start still shows Stopped with the reason. LAN port changes
+  restart only Tor and the dashboard, so nodes stay as they are.
+- The Bitcoin balance index is on by default for new pruned installs. APT and
+  Homebrew setup, and installing Bitcoin from the dashboard, write
+  `bitcoin.utxo_index: true` when the node is pruned; existing installs and
+  archival nodes keep their setting. An enabled index that has never been seeded,
+  or whose last seed failed, now seeds itself: once an hour the dashboard checks
+  the seed guards and, when they pass, asks the host helper to prepare the seed
+  pipe and request, so no `utxo-seed` command is needed. A refused check stays
+  in the index status with its reason. A seed that starts and fails, or is cut
+  short by a dashboard restart, is retried after 6 hours, then 24 hours, and not
+  again after a third failure until you start one. Cancelling a seed with
+  `utxo-seed cancel` stops automatic seeding until you start one. The automatic
+  seed holds node-down alerts as a manual seed does.
+- A **Seed now** button on the balance index card and in Settings → Balance
+  index starts a seed through the host helper when the index needs one. The
+  `utxo-seed` command is shown only where host controls are unavailable.
+- UI flow tests drive the real dashboard in headless Chrome: they flip every
+  Settings control on and off through the page, save, and check both what the
+  server or host helper received and what the reopened dialog shows, covering
+  appearance, Telegram, Healthchecks, health endpoints, new-block alerts, the
+  host switches and balance indexes (including a cancelled turn-off), Run new
+  config, Install and Move data staging, and node Activate, Deactivate and Start.
+  They run in CI as a "UI flows" step; see CONTRIBUTING.md. This is the first
+  phase: the password form, LAN ports, credential reveal, sign out, theme toggle,
+  per-card currency selects and wallet add and remove are not covered yet.
+- A node whose container is stopped outside the dashboard (`node-manager stop`,
+  `docker stop`, a crash that exhausted its restarts) now shows its tower greyed
+  with a Stopped status and a Start node button instead of Connecting forever.
+  The resource-profile host helper reports each node container's running state,
+  and the dashboard treats missing or stale reports as running. Starting an
+  already-active node re-runs its services.
+- The Node manager usage panel now shows the host's CPU and board temperature,
+  fan speed, uptime and network rate (received and sent, summed over the
+  physical interfaces). The resource-profile host helper collects them with the
+  other host figures, reading the same thermal zones as the thermal throttle;
+  each reading the host cannot provide, such as every sensor on Homebrew for
+  macOS, shows "not available". No interface names or addresses are shown.
+
+### Changed
+
+- The two actuator endpoints now have separate switches in Settings → Actuator
+  (**Serve /actuator/health** and **Serve /actuator/info**, both off by
+  default), and both always need HTTP Basic auth with a generated actuator
+  username and random password. Settings shows both with a Copy button. The
+  anonymous overall-status answer is gone, the dashboard `admin` login no
+  longer opens them, wrong logins get a 401 with a `WWW-Authenticate`
+  challenge, and a switched-off endpoint answers 404 whatever is sent. Saved
+  settings with the old single switch on turn both on after the upgrade.
+  Upgrade note: a monitor that polled `/actuator/health` without a login now
+  gets a 401 until it sends the actuator credentials shown in Settings.
+- `GET /actuator/info` lists, per node, every private-LAN service it offers:
+  whether it is exposed, protocol, bind address, port, a ready-to-use URI and
+  the login a LAN client needs (none for Monero ZMQ and Tari gRPC). The
+  response now contains the RPC passwords of exposed services, so it stays
+  behind the actuator login.
+- Settings no longer carry the explanatory notes under Network, Balance index
+  and the actuator endpoints.
+- The Litecoin and Bitcoin Cash watch-only cards scan every due address in one
+  `scantxoutset` walk instead of one walk per address, and the Litecoin card holds
+  up to 50 addresses (was 25). The Litecoin card notes that funds inside MWEB are
+  not counted.
+- The new-version notice and Settings now link to the README's Updating section
+  instead of repeating the update commands.
+- Settings ends with **Reset to default**, **Cancel** and **Save**, and that
+  bar stays at the bottom of the dialog while it scrolls. Reset to default
+  replaces Use server config: it fills in the default of every Settings
+  control, from Appearance and alerts to launch at boot, both Network switches
+  and the Balance index, and drops staged installs and moves. Nothing applies
+  until Save. Cancel closes Settings, like ✕.
+- New Zcash installs from the dashboard turn on Zakura's address index so watch
+  wallets work from the start; existing installs keep their setting.
+- Up to 50 Bitcoin watch-only wallets instead of 20, and `utxo-index bench`
+  takes up to 50 wallets.
+- Zcash watch-only wallets (`zcash.address_index`) refresh when the node's best
+  block changes, checked every minute, instead of once an hour; the lookup is a
+  local index read. Litecoin, Bitcoin Cash and Dogecoin keep the hourly scan.
+
+### Removed
+
+- The Zcash panel no longer shows the Zakura end-of-support warning; the
+  new-version notice is the only update prompt.
+
 ### Fixed
 
 - Every dashboard connection to a node or wallet, including both Tari gRPC
@@ -28,9 +180,10 @@ All notable changes to this project are documented here. Format follows
   on its next run. It now finds the current dashboard container for every
   write.
 - Exposing a node's RPC, ZMQ or gRPC port on the LAN failed with "Port
-  availability could not be checked." on hosts running Tailscale. The port check
-  could not read listeners that `ss` prints with an interface scope, such as
-  `[fd7a:…]%tailscale0:56603`, so it refused every change. It now reads them, and an
+  availability could not be checked." on any host with a listener that `ss`
+  prints with an interface scope, such as Tailscale's `[fd7a:…]%tailscale0:56603`
+  or a link-local service. The port check could not read such lines, so it
+  refused every change. It now reads them, and an
   IPv4 listener written as `address%interface:port` is still caught as a port in
   use.
 - A node that fails to start no longer restarts forever. With launch at boot
@@ -74,142 +227,6 @@ All notable changes to this project are documented here. Format follows
 - `utxo-index bench` reads a relative wallet file path from the directory it was
   run in. On APT installs it looked in `/var/lib/node-manager` instead and
   reported a valid file as malformed; a missing file is now named as unreadable.
-
-### Added
-
-- Tests that fail when anything in the scripts or the Docker stack could leave
-  the Tor boundary, and `docs/tor-boundary.md`, which lists every egress path
-  with file and line evidence, the gaps found, and how to extend the tests. A
-  stdlib-only Python test checks the Compose files (only `tor` has an external
-  network, loopback-only DNS, no published node ports, no proxy overrides), the
-  Tor relays, and the Tor settings of every node, and scans scripts,
-  entrypoints and Dockerfiles for network commands against
-  `tests/tor_boundary_allowlist.txt`. A Go test walks the dashboard sources and
-  fails on any new direct network use (including the Tari wallet launcher), and the container end-to-end test now
-  probes every running service for direct TCP, IPv6 and DNS egress with Tor
-  stopped, with a positive control from the Tor container.
-- Settings → Node set has a **Delete…** button next to **Move data…** that
-  removes a deactivated node so it can be installed again from scratch. It is
-  disabled for an active node, a node that is not installed, and the last
-  installed node. A dialog warns that the step cannot be undone, names the data
-  folder, balance-index or wallet volumes, configuration and credentials, and
-  watch-only wallets with their saved balances and history that will go, and
-  needs the node's name typed before it enables **Delete on Save**. The host
-  re-checks the request, applies the smaller configuration first (a failed apply
-  restores the old one and deletes nothing), refuses unsafe data folders
-  (symbolic links, `/`, your home, the app, state, config or Docker
-  directories, another node's folder), then removes the node's containers,
-  volumes and data, clears its resource-profile and seed state, and logs a
-  `Host: <Node> deleted` event. The dashboard drops that coin's watch-only
-  wallets and balance history and keeps retrying across restarts; a failed
-  handoff of that removal to the dashboard is retried on the next helper run.
-- Instant Bitcoin Cash balances: `bitcoincash.utxo_index` (Settings → Balance
-  index → "Instant Bitcoin Cash balances") keeps a Bitcoin Cash balance index, and
-  the Bitcoin Cash watch-only card reads its balances from it once it is at the
-  node's tip. It needs an archival node (`bitcoincash.prune_mb: 0`). Bitcoin Cash
-  Node has no coin-set export, so the index replays every block from genesis once
-  the node has synced: a long one-time job that keeps its progress across stops
-  and restarts. A Bitcoin Cash install from the dashboard is now archival with the
-  index on, and the install dialog shows the archival size. Existing installs keep
-  their setting. The Bitcoin Cash card now holds 50 addresses. With the index on,
-  the dashboard's memory limit is 2 GiB with `GOMEMLIMIT=1600MiB`, not 1 GiB:
-  plan for the dashboard using up to 2 GiB on top of the Bitcoin Cash node's own
-  plan in docs/nodes.md. That is a cap, not memory set aside: on ordinary blocks
-  the dashboard should stay near today's use, and it only climbs while it applies
-  a block of tens of MB. It applies a block of up to 1.2 million coin operations;
-  a larger block, or one over 32 MB, stops the index at that height without
-  discarding it, until such blocks can be applied in pieces (#363). On regtest,
-  31 MB blocks of about 0.9 million operations peaked at 1.50 GiB; these are
-  lower bounds, and mainnet is not measured yet.
-- Instant Litecoin balances: `litecoin.utxo_index` (Settings → Balance index →
-  "Instant Litecoin balances") keeps a Litecoin balance index, and the Litecoin
-  watch-only card reads its balances from it once it is seeded, updating within a
-  minute of each block. It is on by default when Litecoin is installed from the
-  dashboard, seeds itself like the Bitcoin index, and has `utxo-seed litecoin`
-  and `utxo-index remove litecoin`. Only one balance index seeds at a time.
-  Balances cover transparent outputs only; funds inside MWEB are not counted.
-- Nodes that are restarting because of a settings change now turn grey with a
-  **Restarting** badge and "Restarting after a settings change…" on the panel,
-  instead of looking down or connecting. A node counts as restarting from the
-  moment an apply of the pending configuration, a network setting change (clearnet
-  over Tor, incoming connections), a node install or data move, a node
-  activation, or an RPC password reset is requested until its RPC answers again,
-  for at most 10 minutes. `/api/nodes` reports it as `restarting`, so it survives
-  a page reload, and node-down alerts stay quiet meanwhile; the dashboard keeps
-  probing restarting nodes so the flag clears as soon as they answer. After an
-  apply the host helper lists the services it recreated in the status file, so
-  only those nodes show as restarting. A node that is known to
-  have failed to start still shows Stopped with the reason. LAN port changes
-  restart only Tor and the dashboard, so nodes stay as they are.
-- The Bitcoin balance index is on by default for new pruned installs. APT and
-  Homebrew setup, and installing Bitcoin from the dashboard, write
-  `bitcoin.utxo_index: true` when the node is pruned; existing installs and
-  archival nodes keep their setting. An enabled index that has never been seeded,
-  or whose last seed failed, now seeds itself: once an hour the dashboard checks
-  the seed guards and, when they pass, asks the host helper to prepare the seed
-  pipe and request, so no `utxo-seed` command is needed. A refused check stays
-  in the index status with its reason. A seed that starts and fails, or is cut
-  short by a dashboard restart, is retried after 6 hours, then 24 hours, and not
-  again after a third failure until you start one. Cancelling a seed with
-  `utxo-seed cancel` stops automatic seeding until you start one. The automatic
-  seed holds node-down alerts as a manual seed does.
-- A **Seed now** button on the balance index card and in Settings → Balance
-  index starts a seed through the host helper when the index needs one. The
-  `utxo-seed` command is shown only where host controls are unavailable.
-- A node whose container is stopped outside the dashboard (`node-manager stop`,
-  `docker stop`, a crash that exhausted its restarts) now shows its tower greyed
-  with a Stopped status and a Start node button instead of Connecting forever.
-  The resource-profile host helper reports each node container's running state,
-  and the dashboard treats missing or stale reports as running. Starting an
-  already-active node re-runs its services.
-- The Node manager usage panel now shows the host's CPU and board temperature,
-  fan speed, uptime and network rate (received and sent, summed over the
-  physical interfaces). The resource-profile host helper collects them with the
-  other host figures, reading the same thermal zones as the thermal throttle;
-  each reading the host cannot provide, such as every sensor on Homebrew for
-  macOS, shows "not available". No interface names or addresses are shown.
-
-### Changed
-
-- The two actuator endpoints now have separate switches in Settings → Actuator
-  (**Serve /actuator/health** and **Serve /actuator/info**, both off by
-  default), and both always need HTTP Basic auth with a generated actuator
-  username and random password. Settings shows both with a Copy button. The
-  anonymous overall-status answer is gone, the dashboard `admin` login no
-  longer opens them, wrong logins get a 401 with a `WWW-Authenticate`
-  challenge, and a switched-off endpoint answers 404 whatever is sent. Saved
-  settings with the old single switch on turn both on after the upgrade.
-- `GET /actuator/info` lists, per node, every private-LAN service it offers:
-  whether it is exposed, protocol, bind address, port, a ready-to-use URI and
-  the login a LAN client needs (none for Monero ZMQ and Tari gRPC). The
-  response now contains the RPC passwords of exposed services, so it stays
-  behind the actuator login.
-- Settings no longer carry the explanatory notes under Network, Balance index
-  and the actuator endpoints.
-- The Litecoin and Bitcoin Cash watch-only cards scan every due address in one
-  `scantxoutset` walk instead of one walk per address, and the Litecoin card holds
-  up to 50 addresses (was 25). The Litecoin card notes that funds inside MWEB are
-  not counted.
-- The new-version notice and Settings now link to the README's Updating section
-  instead of repeating the update commands.
-- Settings ends with **Reset to default**, **Cancel** and **Save**, and that
-  bar stays at the bottom of the dialog while it scrolls. Reset to default
-  replaces Use server config: it fills in the default of every Settings
-  control, from Appearance and alerts to launch at boot, both Network switches
-  and the Balance index, and drops staged installs and moves. Nothing applies
-  until Save. Cancel closes Settings, like ✕.
-- New Zcash installs from the dashboard turn on Zakura's address index so watch
-  wallets work from the start; existing installs keep their setting.
-- Up to 50 Bitcoin watch-only wallets instead of 20, and `utxo-index bench`
-  takes up to 50 wallets.
-- Zcash watch-only wallets (`zcash.address_index`) refresh when the node's best
-  block changes, checked every minute, instead of once an hour; the lookup is a
-  local index read. Litecoin, Bitcoin Cash and Dogecoin keep the hourly scan.
-
-### Removed
-
-- The Zcash panel no longer shows the Zakura end-of-support warning; the
-  new-version notice is the only update prompt.
 
 ## [1.36.0] - 2026-11-16
 
@@ -1752,7 +1769,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.36.0...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.37.0...HEAD
+[1.37.0]: https://github.com/VijitSingh97/node-manager/compare/v1.36.0...v1.37.0
 [1.36.0]: https://github.com/VijitSingh97/node-manager/compare/v1.35.1...v1.36.0
 [1.35.1]: https://github.com/VijitSingh97/node-manager/compare/v1.35.0...v1.35.1
 [1.35.0]: https://github.com/VijitSingh97/node-manager/compare/v1.34.0...v1.35.0
