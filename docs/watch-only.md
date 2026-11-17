@@ -82,8 +82,8 @@ the node is fully synced, the dashboard validates the address with that daemon a
 scans every address that is due in one native `scantxoutset` walk. The result is a
 confirmed UTXO snapshot at the displayed scan height, not transaction history.
 Extended public keys, descriptors, Litecoin MWEB addresses, private keys, and seeds
-are not accepted in these forms. The Litecoin card holds up to 50 addresses and the
-Bitcoin Cash card up to 25.
+are not accepted in these forms. The Litecoin and Bitcoin Cash cards each hold up
+to 50 addresses.
 
 Scans run in the background and a confirmed result is reused for up to one hour.
 When the Litecoin balance index (Settings → Balance index → "Instant Litecoin
@@ -99,10 +99,40 @@ a later scan fails, a prior confirmed amount remains visible as **Stale** or
 **Error**; an unverified failure is never displayed as a zero balance. Saved
 snapshot charts and watch lists survive dashboard restarts.
 
-A Bitcoin Cash balance index is not planned, by the owner's decision on
-2026-11-15 (#239). A pruned Bitcoin Cash node keeps answering with
-`scantxoutset`. There is no archival resync, and no parse of a stopped
-chainstate copy.
+The Bitcoin Cash balance index (Settings → Balance index → "Instant Bitcoin Cash
+balances", or `bitcoincash.utxo_index`) needs an archival node
+(`bitcoincash.prune_mb: 0`). Bitcoin Cash Node has no coin-set export, so once the
+node has synced the index replays every block from genesis. It reads raw blocks
+(`getblock` verbosity 0), which costs the node far less memory than verbose JSON on
+Bitcoin Cash's 32 MB stress-test blocks (measured on regtest: about 1.1 to 1.2 GiB
+at peak while replaying four 31 MB blocks, against about 2.9 GiB serving one of them
+as JSON), and resolves spends through a reverse outpoint
+key, as the Litecoin index does. That is a long one-time job: the regtest rates are in
+[the replay measurement](measurements/utxo-replay.md), and a mainnet replay has not
+been timed. When the index is at the node's tip, Bitcoin Cash balances come from it
+and update within a minute of each block; until then the scan answers. Outputs
+that carry CashTokens count their BCH like any other output; token amounts are
+not shown. A pruned Bitcoin Cash node keeps the hourly scan.
+
+With the Bitcoin Cash index on, the dashboard's memory limit is 2 GiB, with
+`GOMEMLIMIT=1600MiB`, instead of the 1 GiB the Bitcoin and Litecoin indexes set.
+Plan for the dashboard using up to 2 GiB on top of what [Nodes](nodes.md) plans
+for Bitcoin Cash Node itself. The limit is a cap, not memory set aside. The cap
+changes no allocation, so on ordinary blocks the dashboard should stay near what
+it uses today; that is inferred, not measured on Bitcoin Cash mainnet (the Bitcoin
+index peaked at 0.25 GiB RSS, #217). It only climbs while it applies a large
+block, at about 1 KiB of heap per coin operation. On regtest, replaying four 31 MB
+blocks of about 0.9 million operations each under the 2 GiB cap peaked at 954 MiB
+of live heap and 1.50 GiB RSS, and Bitcoin Cash Node peaked at about 1.21 GiB;
+under 1 GiB without `GOMEMLIMIT` the same replay was killed. These regtest peaks
+are lower bounds, and mainnet is not measured.
+
+The index applies a block of up to 1.2 million coin operations and 32 MB. A
+larger block, such as a miner's block of millions of tiny outputs, stops the
+index at that height: the card reads Degraded with the block's height and
+operation count, the index keeps what it has and is not marked invalid, and it
+tries again only after the dashboard restarts. Applying such blocks in pieces is
+issue #363.
 
 Fresh state includes two sourced public examples:
 

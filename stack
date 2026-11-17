@@ -214,7 +214,7 @@ compose() {
     local compose_args=()
     for compose_file in "${compose_files[@]}"; do
       case "$compose_file" in
-        docker-compose.yml | docker-compose.tari-wallet.yml | docker-compose.rpc.yml | docker-compose.monero-rpc.yml | docker-compose.monero-zmq.yml | docker-compose.tari-grpc.yml | docker-compose.litecoin-rpc.yml | docker-compose.dogecoin-rpc.yml | docker-compose.bitcoincash-rpc.yml | docker-compose.zcash-rpc.yml | docker-compose.utxo-index.yml | docker-compose.litecoin-utxo-index.yml)
+        docker-compose.yml | docker-compose.tari-wallet.yml | docker-compose.rpc.yml | docker-compose.monero-rpc.yml | docker-compose.monero-zmq.yml | docker-compose.tari-grpc.yml | docker-compose.litecoin-rpc.yml | docker-compose.dogecoin-rpc.yml | docker-compose.bitcoincash-rpc.yml | docker-compose.zcash-rpc.yml | docker-compose.utxo-index.yml | docker-compose.litecoin-utxo-index.yml | docker-compose.bitcoincash-utxo-index.yml)
           compose_args+=( -f "$stack_root/$compose_file" )
           ;;
         *)
@@ -276,11 +276,14 @@ guard_package_containers() {
 }
 utxo_select_chain() {
   utxo_chain=$1 utxo_arg='' utxo_prefix='' utxo_overlay=docker-compose.utxo-index.yml utxo_volume=utxo_index
-  utxo_cli=bitcoin-cli utxo_conf='' utxo_daemon=bitcoind utxo_name=Bitcoin
+  utxo_cli=bitcoin-cli utxo_conf='' utxo_daemon=bitcoind utxo_name=Bitcoin utxo_replay=0
   # The family images write their RPC credentials to /tmp/<bin>.conf, not the data directory.
   if [ "$1" = litecoin ]; then
     utxo_arg="litecoin " utxo_prefix=litecoin- utxo_overlay=docker-compose.litecoin-utxo-index.yml utxo_volume=utxo_index_litecoin
     utxo_cli=litecoin-cli utxo_conf=-conf=/tmp/litecoin.conf utxo_daemon=litecoind utxo_name=Litecoin
+  elif [ "$1" = bitcoincash ]; then
+    utxo_arg="bitcoincash " utxo_prefix=bitcoincash- utxo_overlay=docker-compose.bitcoincash-utxo-index.yml utxo_volume=utxo_index_bitcoincash
+    utxo_conf=-conf=/tmp/bitcoin.conf utxo_name="Bitcoin Cash" utxo_replay=1
   fi
 }
 utxo_select_chain bitcoin
@@ -324,6 +327,7 @@ utxo_seed_unpark() {
 }
 
 utxo_seed_finish_pipe() {
+  [ "$utxo_replay" = 1 ] && return 0
   utxo_seed_unpark
   utxo_seed_remove_pipe
 }
@@ -339,14 +343,20 @@ utxo_seed_cancel() {
     return 1
   fi
   utxo_seed_request_cancel || return 1
-  echo "Cancel requested. The dashboard stops the seed within a few seconds and discards the partial index."
+  if [ "$utxo_replay" = 1 ]; then
+    echo "Cancel requested. The dashboard stops the replay within a few seconds and keeps the blocks it has applied."
+  else
+    echo "Cancel requested. The dashboard stops the seed within a few seconds and discards the partial index."
+  fi
 }
 
 utxo_seed() {
-  if [ "${1:-}" = litecoin ]; then
-    utxo_select_chain litecoin
-    shift
-  fi
+  case "${1:-}" in
+    litecoin | bitcoincash)
+      utxo_select_chain "$1"
+      shift
+      ;;
+  esac
   if [ "${1:-}" = cancel ] && [ $# = 1 ]; then
     utxo_seed_cancel
     return
@@ -355,7 +365,7 @@ utxo_seed() {
   if [ "${1:-}" = -y ] && [ $# = 1 ]; then
     assume_yes=1
   elif [ $# != 0 ]; then
-    echo "Usage: $stack_command utxo-seed [litecoin] [-y | cancel]" >&2
+    echo "Usage: $stack_command utxo-seed [litecoin | bitcoincash] [-y | cancel]" >&2
     return 1
   fi
   command -v jq >/dev/null || {
@@ -373,7 +383,16 @@ utxo_seed() {
       return 1
     }
   done
-  if [ "$utxo_chain" = litecoin ]; then
+  if [ "$utxo_replay" = 1 ]; then
+    cat <<EOF
+Replaying the $utxo_name balance index from genesis
+  - Applies every block through the node's RPC: a one-time job whose mainnet duration is not measured yet.
+  - Needs an archival node ($utxo_chain.prune_mb 0); a pruned node is refused.
+  - $utxo_name RPC keeps answering and node-down alerts are not held; heat pauses the replay.
+  - A stop keeps the blocks already applied, and the next seed resumes from there.
+  - Only one balance index seeds at a time. Cancel with: $stack_command utxo-seed ${utxo_arg}cancel
+EOF
+  elif [ "$utxo_chain" = litecoin ]; then
     cat <<EOF
 Seeding the Litecoin balance index
   - Litecoin RPC stops answering while litecoind writes the coin set, then answers slowly until the seed ends.
@@ -413,7 +432,7 @@ EOF
     echo "$utxo_name RPC did not answer; nothing was changed." >&2
     return 1
   }
-  if printf '%s\n' "$methods" | grep -Eqx 'dumptxoutset|scantxoutset'; then
+  if [ "$utxo_replay" != 1 ] && printf '%s\n' "$methods" | grep -Eqx 'dumptxoutset|scantxoutset'; then
     echo "A UTXO dump or scan is already running in $utxo_daemon; nothing was changed." >&2
     return 1
   fi
@@ -423,13 +442,15 @@ EOF
       return 1
       ;;
   esac
-  utxo_seed_remove_pipe
   trap 'trap - INT TERM; compose exec -T -u 1000 dashboard rm -f "/state/${utxo_prefix}utxo-seed.request" >/dev/null 2>&1 || true; utxo_seed_finish_pipe; echo; exit 130' INT TERM
-  compose exec -T "$utxo_chain" mkfifo -m 600 /data/utxo-seed.dat.incomplete || {
-    trap - INT TERM
-    echo "Could not create the seed pipe in the $utxo_chain container." >&2
-    return 1
-  }
+  if [ "$utxo_replay" != 1 ]; then
+    utxo_seed_remove_pipe
+    compose exec -T "$utxo_chain" mkfifo -m 600 /data/utxo-seed.dat.incomplete || {
+      trap - INT TERM
+      echo "Could not create the seed pipe in the $utxo_chain container." >&2
+      return 1
+    }
+  fi
   local id
   id=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
   if ! jq -nc --arg id "$id" --argjson at "$(date +%s)" '{id:$id,requested_at:$at}' |
@@ -492,12 +513,14 @@ EOF
     ok)
       echo "Seed finished. The index now follows new blocks."
       ;;
-    failed)
-      echo "Seed failed: $(jq -r '.last_seed.reason // "unknown"' <<<"$status"). The partial index was discarded." >&2
-      return 1
-      ;;
-    cancelled)
-      echo "Seed cancelled. The partial index was discarded." >&2
+    failed | cancelled)
+      local kept="The partial index was discarded."
+      [ "$utxo_replay" = 1 ] && kept="The index keeps the blocks it applied; the next seed resumes from there."
+      if [ "$state" = failed ]; then
+        echo "Seed failed: $(jq -r '.last_seed.reason // "unknown"' <<<"$status"). $kept" >&2
+      else
+        echo "Seed cancelled. $kept" >&2
+      fi
       return 1
       ;;
     *) return 1 ;;
@@ -505,15 +528,17 @@ EOF
 }
 
 utxo_index_remove() {
-  if [ "${1:-}" = litecoin ]; then
-    utxo_select_chain litecoin
-    shift
-  fi
+  case "${1:-}" in
+    litecoin | bitcoincash)
+      utxo_select_chain "$1"
+      shift
+      ;;
+  esac
   local assume_yes=0
   if [ "${1:-}" = -y ] && [ $# = 1 ]; then
     assume_yes=1
   elif [ $# != 0 ]; then
-    echo "Usage: $stack_command utxo-index remove [litecoin] [-y]" >&2
+    echo "Usage: $stack_command utxo-index remove [litecoin | bitcoincash] [-y]" >&2
     return 1
   fi
   if utxo_seed_overlay_enabled; then

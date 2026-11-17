@@ -317,6 +317,20 @@ func TestHostControlShowsMigrateProgressWhileProcessing(t *testing.T) {
 	}
 }
 
+func TestHostControlShowsAPendingIndexRequestForEveryIndexedChain(t *testing.T) {
+	a, _ := testApp(t, &rpcFixture{}, "")
+	writeHostCapability(t, a, false)
+	for _, node := range []string{nodeLitecoin, nodeBitcoinCash} {
+		request, _ := json.Marshal(map[string]any{"id": strings.Repeat("cd", 16), "action": "utxo_index", "node": node, "enabled": true, "requested_at": time.Now().Unix()})
+		if err := os.WriteFile(a.nodeControlPath("request"), request, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if status, pending := a.hostControlStatus(); !pending || status == nil || status.State != "pending" || status.Action != "utxo_index" || status.Node != node {
+			t.Fatalf("a pending %s index request shows as %#v", node, status)
+		}
+	}
+}
+
 func deleteTestApp(t *testing.T) *app {
 	t.Helper()
 	a, _ := testApp(t, &rpcFixture{}, "")

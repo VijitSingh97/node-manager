@@ -64,6 +64,7 @@ test("the confirmation names the data folder, volumes, credentials and watch-onl
   assert.match(text("litecoin"), /configuration and credentials/);
   assert.match(text("litecoin"), /watch-only wallets.*saved balances and history/);
   assert.match(text("bitcoin"), /utxo_index\)/);
+  assert.match(text("bitcoincash"), /utxo_index_bitcoincash/);
   assert.match(text("monero"), /monero_wallets/);
   assert.match(text("tari"), /tari_wallet, tari_wallet_data/);
   assert.doesNotMatch(text("zcash"), /volume/);

@@ -8,9 +8,13 @@ export const SEED_WARNING = "Seeding takes about 20 minutes, longer if heat paus
 export const LITECOIN_SEED_COMMAND = "./stack utxo-seed litecoin";
 export const LITECOIN_SEED_WARNING = "Litecoin RPC stops answering while litecoind writes the coin set, then answers slowly until the seed ends. Its time and size on mainnet are not measured yet; 27 GB must be free. Litecoin node-down alerts are held for up to 15 minutes, and only one balance index seeds at a time.";
 
+export const BITCOINCASH_SEED_COMMAND = "./stack utxo-seed bitcoincash";
+export const BITCOINCASH_SEED_WARNING = "Bitcoin Cash has no coin-set export, so the index replays every block from genesis on an archival node: a long one-time job whose mainnet duration is not measured yet. Bitcoin Cash RPC keeps answering, node-down alerts are not held, heat pauses it, and a stop keeps the blocks already applied. Only one balance index seeds at a time.";
+
 const CHAINS = {
   bitcoin: { card: "utxo-index", heading: "#watch h2", title: "Bitcoin balance index", command: SEED_COMMAND, warning: SEED_WARNING, api: "/api/utxo-index" },
   litecoin: { card: "utxo-index-litecoin", heading: '[data-family-watch="litecoin"] h2', title: "Litecoin balance index", command: LITECOIN_SEED_COMMAND, warning: LITECOIN_SEED_WARNING, api: "/api/utxo-index?chain=litecoin" },
+  bitcoincash: { card: "utxo-index-bitcoincash", heading: '[data-family-watch="bitcoincash"] h2', title: "Bitcoin Cash balance index", command: BITCOINCASH_SEED_COMMAND, warning: BITCOINCASH_SEED_WARNING, api: "/api/utxo-index?chain=bitcoincash" },
 };
 
 export const CONFIRMED_ONLY = "Balances are confirmed only; unconfirmed and mempool activity is not included.";

@@ -60,7 +60,7 @@ type utxoSeedHost struct {
 // A failed automatic seed stalls the node's RPC for minutes, so retries back off and stop after utxoAutoSeedTries.
 var utxoAutoSeedBackoff = []time.Duration{6 * time.Hour, 24 * time.Hour}
 
-// A node restart, an RPC timeout or a reorg near the tip is retried within the replay for about five minutes before it waits for the hourly check.
+// A node restart, an RPC timeout or a reorg near the tip is retried within the replay; only this many attempts in a row without progress make it wait for the hourly check.
 var (
 	utxoReplayRetries   = 30
 	utxoReplayRetryWait = utxoFollowInterval
@@ -87,7 +87,7 @@ func (m *utxoManager) configureSeed(h utxoSeedHost) {
 }
 
 func seedErrorClass(err error) string {
-	for _, target := range []error{errSeedDump, errSeedLowDisk, errSeedMismatch, errSeedThermal, errSeedInterrupted, errSeedPipeGone} {
+	for _, target := range []error{errSeedDump, errSeedLowDisk, errSeedMismatch, errSeedThermal, errSeedInterrupted, errSeedPipeGone, errUtxoBlockTooLarge} {
 		if errors.Is(err, target) {
 			return target.Error()
 		}
@@ -442,6 +442,8 @@ func (m *utxoManager) seedFromReplay(parent context.Context) error {
 			continue
 		case context.Cause(ctx) != nil:
 			return context.Cause(ctx)
+		case errors.Is(err, errUtxoBlockTooLarge):
+			return err
 		case f.Status().State == utxoFollowError || utxoIntegrityError(err) || errors.Is(err, errUtxoChainMismatch) || errors.Is(err, syscall.ENOSPC):
 			m.fail(err)
 			return err

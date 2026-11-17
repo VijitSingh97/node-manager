@@ -31,6 +31,7 @@ type hostControlCapability struct {
 	InboundTor        bool              `json:"inbound_connections"`
 	UtxoIndex         bool              `json:"utxo_index"`
 	UtxoIndexLTC      bool              `json:"utxo_index_litecoin,omitempty"`
+	UtxoIndexBCH      bool              `json:"utxo_index_bitcoincash,omitempty"`
 	ConfigPending     bool              `json:"config_pending"`
 	ConfigRevision    string            `json:"config_revision"`
 	ConfigPath        string            `json:"config_path,omitempty"`
@@ -132,6 +133,8 @@ type hostControlView struct {
 	UtxoSeedNow      bool               `json:"utxo_seed_now"`
 	UtxoIndexLTC     bool               `json:"utxo_index_litecoin"`
 	UtxoSeedNowLTC   bool               `json:"utxo_seed_now_litecoin"`
+	UtxoIndexBCH     bool               `json:"utxo_index_bitcoincash"`
+	UtxoSeedNowBCH   bool               `json:"utxo_seed_now_bitcoincash"`
 	ConfigPending    bool               `json:"config_pending"`
 	ConfigRevision   string             `json:"config_revision,omitempty"`
 	ConfigPath       string             `json:"config_path,omitempty"`
@@ -149,7 +152,7 @@ var hostInstallCatalog = map[string]struct {
 	"tari":        {"Not measured", "Use expandable storage; a pruned full sync has not been qualified.", []hostInstallInterface{{ID: "tari_grpc", Name: "gRPC", HostPort: 18142}}},
 	"litecoin":    {"28–56 GiB", "Provisional planning estimate; a full sync has not been qualified.", []hostInstallInterface{{ID: "litecoin_rpc", Name: "RPC", HostPort: 9332}}},
 	"dogecoin":    {"28–56 GiB", "Provisional planning estimate; a full sync has not been qualified.", []hostInstallInterface{{ID: "dogecoin_rpc", Name: "RPC", HostPort: 22555}}},
-	"bitcoincash": {"28–56 GiB", "Provisional planning estimate; a full sync has not been qualified.", []hostInstallInterface{{ID: "bitcoincash_rpc", Name: "RPC", HostPort: 8332}}},
+	"bitcoincash": {"231 GiB or more", "A dashboard install is archival, which the balance index needs: a public Bitcoin Cash Node reported 231 GiB of block files on 2026-11-16. Chainstate and the index come on top and are not measured by this stack; use expandable storage.", []hostInstallInterface{{ID: "bitcoincash_rpc", Name: "RPC", HostPort: 8332}}},
 	"zcash":       {"28–56 GiB", "Expandable-volume estimate; a full sync has not been qualified.", []hostInstallInterface{{ID: "zcash_rpc", Name: "Read-only RPC", HostPort: 8232}}},
 }
 
@@ -277,7 +280,7 @@ func validHostControlShape(action, node string, enabled *bool, dataDir string, i
 		action == "install" && normalizeNodeID(node) != "" && enabled == nil && (dataDir == "" && interfaces == nil || validInstallOptions(node, dataDir, interfaces)) ||
 		action == "migrate" && normalizeNodeID(node) != "" && enabled == nil && safeHostPath(dataDir) && interfaces == nil ||
 		toggleHostAction(action) && node == "" && enabled != nil && dataDir == "" && interfaces == nil ||
-		action == "utxo_index" && node == nodeLitecoin && enabled != nil && dataDir == "" && interfaces == nil ||
+		action == "utxo_index" && utxoChains[node] != nil && enabled != nil && dataDir == "" && interfaces == nil ||
 		action == "utxo_seed" && (node == nodeBitcoin || node == nodeLitecoin) && enabled == nil && dataDir == "" && interfaces == nil ||
 		action == "apply_config" && node == "" && enabled == nil && dataDir == "" && interfaces == nil
 }
@@ -429,7 +432,7 @@ func (a *app) hostControlView() hostControlView {
 		interfaces := append([]hostInstallInterface(nil), catalog.Interfaces...)
 		nodes = append(nodes, hostControlNode{ID: id, Name: nodeDisplayName(id), Installed: configured, DataDir: capability.DataPaths[id], Active: configured && runtime[id], LastEnabled: configured && installed <= 1, DiskEstimate: catalog.DiskEstimate, DiskNote: catalog.DiskNote, Interfaces: interfaces, Unsupported: capability.unsupportedReason(id)})
 	}
-	return hostControlView{Available: available, InstallSupported: available && capability.InstallSupported, MigrateSupported: available && capability.MigrateSupported, DeleteSupported: available && capability.DeleteSupported, BootSupported: available && capability.BootSupported, BootEnabled: capability.BootEnabled, BootKind: capability.BootKind, ClearnetOverTor: capability.ClearnetOverTor, InboundTor: capability.InboundTor, UtxoIndex: capability.UtxoIndex, UtxoSeedNow: a.seedNow(nodeBitcoin), UtxoIndexLTC: capability.UtxoIndexLTC, UtxoSeedNowLTC: a.seedNow(nodeLitecoin), ConfigPending: capability.ConfigPending, ConfigRevision: capability.ConfigRevision, ConfigPath: capability.ConfigPath, Nodes: nodes, Status: status}
+	return hostControlView{Available: available, InstallSupported: available && capability.InstallSupported, MigrateSupported: available && capability.MigrateSupported, DeleteSupported: available && capability.DeleteSupported, BootSupported: available && capability.BootSupported, BootEnabled: capability.BootEnabled, BootKind: capability.BootKind, ClearnetOverTor: capability.ClearnetOverTor, InboundTor: capability.InboundTor, UtxoIndex: capability.UtxoIndex, UtxoSeedNow: a.seedNow(nodeBitcoin), UtxoIndexLTC: capability.UtxoIndexLTC, UtxoSeedNowLTC: a.seedNow(nodeLitecoin), UtxoIndexBCH: capability.UtxoIndexBCH, UtxoSeedNowBCH: a.seedNow(nodeBitcoinCash), ConfigPending: capability.ConfigPending, ConfigRevision: capability.ConfigRevision, ConfigPath: capability.ConfigPath, Nodes: nodes, Status: status}
 }
 
 func (a *app) apiHostControlGet(w http.ResponseWriter, r *http.Request) {

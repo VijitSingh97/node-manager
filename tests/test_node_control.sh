@@ -27,6 +27,8 @@ set -eu
 jq -e 'type=="object"' "$BITCOIN_STACK_CONFIG_DIR/config.json" >/dev/null
 zdir=$(jq -r 'select(.zcash.address_index == true) | .zcash.data_dir // empty' "$BITCOIN_STACK_CONFIG_DIR/config.json")
 [ -z "$zdir" ] || [ ! -e "$zdir/old.db" ] || exit 1
+bdir=$(jq -r 'select(.bitcoincash.prune_mb == 0) | .bitcoincash.data_dir // empty' "$BITCOIN_STACK_CONFIG_DIR/config.json")
+[ -z "$bdir" ] || [ ! -e "$bdir/blocks/index" ] || [ -e "$bdir/blocks/blk00000.dat" ] || exit 1
 if [ "${BITCOIN_STACK_VALIDATE_ONLY:-0}" != 1 ]; then
   if [ "${FAKE_CONFIGURE_FAIL_ONCE:-0}" = 1 ] && [ ! -e "$FAKE_CONFIGURE_FAIL_MARKER" ]; then
     : >"$FAKE_CONFIGURE_FAIL_MARKER"
@@ -643,6 +645,35 @@ BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-contro
 [ "$(status .state)" = applied ] || fail "litecoin reinstall was not applied: $(status .message)"
 [ "$(jq -c .litecoin.utxo_index "$config/config.json")" = false ] || fail "a Litecoin reinstall turned an explicitly off index back on"
 
+bch_install() {
+  jq --argjson bch "$1" '.bitcoincash=$bch' "$config/config.json" >"$tmp/config.next"
+  mv "$tmp/config.next" "$config/config.json"
+  jq -S . "$config/config.json" >"$state/.approved-config.json"
+  request "{\"action\":\"install\",\"id\":\"$2\",\"node\":\"bitcoincash\",\"requested_at\":1000}"
+  BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+  [ "$(status .state)" = applied ] || fail "bitcoin cash install $2 was not applied: $(status .message)"
+}
+bch_fresh=$resolved_tmp/bch-fresh
+bch_install "{\"enabled\":false,\"data_dir\":\"$bch_fresh\"}" 8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b
+[ "$(jq -c '[.bitcoincash.prune_mb, .bitcoincash.utxo_index]' "$config/config.json")" = '[0,true]' ] || fail "a fresh Bitcoin Cash install did not go archival with its balance index on"
+bch_pruned=$resolved_tmp/bch-pruned
+mkdir -p "$bch_pruned/blocks/index"
+bch_install "{\"enabled\":false,\"data_dir\":\"$bch_pruned\"}" 8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c
+[ "$(jq -c '.bitcoincash | [has("prune_mb"), has("utxo_index")]' "$config/config.json")" = '[false,false]' ] || fail "a Bitcoin Cash install over a pruned chain kept the archival defaults"
+bch_install "{\"enabled\":false,\"prune_mb\":10000,\"data_dir\":\"$bch_fresh\"}" 8d8d8d8d8d8d8d8d8d8d8d8d8d8d8d8d
+[ "$(jq -c '[.bitcoincash.prune_mb, .bitcoincash.utxo_index]' "$config/config.json")" = '[10000,null]' ] || fail "a Bitcoin Cash install overrode an explicit prune_mb"
+jq -e '.utxo_index_bitcoincash == false' "$dashboard_state/node-control.capability" >/dev/null || fail "Bitcoin Cash index capability was not published off"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+request '{"action":"utxo_index","enabled":true,"id":"8e8e8e8e8e8e8e8e8e8e8e8e8e8e8e8e","node":"bitcoincash","requested_at":1000}'
+"$root/scripts/node-control"
+[ "$(status .state):$(status .error_code)" = rejected:validation_failed ] || fail "the Bitcoin Cash index was turned on for a pruned node: $(status .message)"
+status .message | grep -q 'archival node' || fail "the pruned refusal did not name the archival requirement: $(status .message)"
+jq '.bitcoincash.prune_mb=0' "$config/config.json" >"$tmp/config.next" && mv "$tmp/config.next" "$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+request '{"action":"utxo_index","enabled":true,"id":"8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f","node":"bitcoincash","requested_at":1000}'
+"$root/scripts/node-control"
+[ "$(status .state)" = applied ] && [ "$(jq -r .bitcoincash.utxo_index "$config/config.json")" = true ] || fail "the Bitcoin Cash index was not turned on for an archival node: $(status .message)"
+jq -e '.utxo_index_bitcoincash' "$dashboard_state/node-control.capability" >/dev/null || fail "Bitcoin Cash index capability was stale after turning it on"
 # --- delete ---
 export BITCOIN_STACK_PROJECT_NAME=ds
 run_nc() { BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"; }
@@ -846,6 +877,19 @@ FAKE_CONTAINERS="tari tari-wallet" run_nc
 [ "$(status .state)" = applied ] || fail "Tari delete was not applied"
 { [ "$(volume_removals)" = 2 ] && grep -qx 'docker volume rm ds_tari_wallet' "$tmp/stack.log" && grep -qx 'docker volume rm ds_tari_wallet_data' "$tmp/stack.log"; } || fail "the Tari wallet volumes were not removed"
 { grep -qx 'docker rm -f tari-wallet-ctr' "$tmp/stack.log" && grep -qx 'docker rm -f tari-ctr' "$tmp/stack.log"; } || fail "Tari's containers were not removed"
+
+delete_setup
+mkdir -p "$del_base/bitcoincash" && printf 'chain' >"$del_base/bitcoincash/blocks.dat"
+jq --arg d "$del_base" '.bitcoincash={enabled:true,active:false,prune_mb:0,utxo_index:true,data_dir:($d+"/bitcoincash")}' "$config/config.json" >"$tmp/config.delete"
+write_config "$tmp/config.delete"
+printf '%s\n' ds_utxo_index_bitcoincash >>"$FAKE_VOLUMES"
+printf '{"seed_state":"seeded"}\n' >"$dashboard_state/bitcoincash-utxo-seed.json"
+del_request bitcoincash
+FAKE_CONTAINERS=bitcoincash run_nc
+[ "$(status .state)" = applied ] || fail "Bitcoin Cash delete was not applied: $(cat "$dashboard_state/node-control.status")"
+{ [ "$(volume_removals)" = 1 ] && grep -qx 'docker volume rm ds_utxo_index_bitcoincash' "$tmp/stack.log"; } || fail "Bitcoin Cash's balance index volume was not removed alone"
+[ ! -e "$dashboard_state/bitcoincash-utxo-seed.json" ] && [ -e "$dashboard_state/litecoin-utxo-seed.json" ] || fail "delete did not clear exactly the Bitcoin Cash replay state"
+tail -n 1 "$dashboard_state/events.log" | grep -q 'Host: Bitcoin Cash deleted$' || fail "Bitcoin Cash's Host event is wrong"
 
 delete_setup
 jq '.bitcoin.active=false' "$config/config.json" >"$tmp/config.delete"
