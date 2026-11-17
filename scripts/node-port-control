@@ -921,5 +921,6 @@ fi
 rm -f "$committed_snapshot" "$rollback_snapshot"
 remember_seen
 rm -f "$inflight_file"
+dashboard_id=$(container_id dashboard)
 clear_processing
 write_status "$request_id" "$final_state" "$final_message"
