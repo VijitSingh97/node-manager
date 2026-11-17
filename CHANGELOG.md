@@ -8,6 +8,12 @@ All notable changes to this project are documented here. Format follows
 
 ### Fixed
 
+- Exposing a node's RPC, ZMQ or gRPC port on the LAN failed with "Port
+  availability could not be checked." on hosts running Tailscale. The port check
+  could not read listeners that `ss` prints with an interface scope, such as
+  `[fd7a:…]%tailscale0:56603`, so it refused every change. It now reads them, and an
+  IPv4 listener written as `address%interface:port` is still caught as a port in
+  use.
 - `utxo-seed litecoin` checked litecoind's running commands without the node's
   RPC configuration, so it stopped with "Litecoin RPC did not answer". It now
   passes the same configuration file the node's health check uses.

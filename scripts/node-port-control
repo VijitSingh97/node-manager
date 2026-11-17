@@ -241,15 +241,18 @@ host_tcp_listeners() {
         {
           endpoint=$4
           if (endpoint ~ /^\[/) {
-            sub(/^\[/, "", endpoint)
-            count=split(endpoint, parts, /\]:/)
-            if (count == 2 && parts[2] ~ /^[0-9]+$/) print parts[1] "\t" parts[2]
+            close_at=index(endpoint, "]")
+            address=substr(endpoint, 2, close_at - 2)
+            port=substr(endpoint, close_at + 1)
+            sub(/^%[^:]*/, "", port)
+            if (close_at > 2 && port ~ /^:[0-9]+$/) print address "\t" substr(port, 2)
             else bad=1
           } else {
             port=endpoint
             sub(/^.*:/, "", port)
             address=endpoint
             sub(/:[^:]*$/, "", address)
+            sub(/%.*$/, "", address)
             if (port ~ /^[0-9]+$/ && address != "") print address "\t" port
             else bad=1
           }
