@@ -69,6 +69,7 @@ for required in \
   ./usr/lib/node-manager/docker-compose.zcash-rpc.yml \
   ./usr/lib/node-manager/docker-compose.utxo-index.yml \
   ./usr/lib/node-manager/docker-compose.litecoin-utxo-index.yml \
+  ./usr/lib/node-manager/docker-compose.bitcoincash-utxo-index.yml \
   ./usr/lib/node-manager/runtime-images.json \
   ./usr/lib/node-manager/build/dashboard/main.go \
   ./usr/lib/node-manager/build/dashboard/login.go \

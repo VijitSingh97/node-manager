@@ -67,9 +67,12 @@ export function configurationAccess(data) {
 const networkActions = ["clearnet_over_tor", "inbound_connections"];
 const balanceActions = ["utxo_index", "utxo_seed"];
 export const UTXO_INDEX_LITECOIN_OFF_PROMPT = "Turn off instant Litecoin balances? Wallets go back to the slower scan. The index volume stays on disk until you run utxo-index remove litecoin.";
-const toggleKey = (change) => change?.action === "utxo_index" && change?.node === "litecoin" ? "utxo_index_litecoin" : change?.action;
-const toggleFields = { launch_at_boot: "boot_enabled", clearnet_over_tor: "clearnet_over_tor", inbound_connections: "inbound_connections", utxo_index: "utxo_index", utxo_index_litecoin: "utxo_index_litecoin" };
-export const hostToggleDefaults = { launch_at_boot: false, clearnet_over_tor: true, inbound_connections: true, utxo_index: false, utxo_index_litecoin: false };
+export const UTXO_INDEX_BITCOINCASH_OFF_PROMPT = "Turn off instant Bitcoin Cash balances? Wallets go back to the slower scan. The index volume stays on disk until you run utxo-index remove bitcoincash.";
+const chainIndexOffPrompts = { litecoin: UTXO_INDEX_LITECOIN_OFF_PROMPT, bitcoincash: UTXO_INDEX_BITCOINCASH_OFF_PROMPT };
+const chainIndexNode = (action) => String(action || "").startsWith("utxo_index_") && chainIndexOffPrompts[action.slice(11)] ? action.slice(11) : "";
+const toggleKey = (change) => change?.action === "utxo_index" && chainIndexOffPrompts[change?.node] ? `utxo_index_${change.node}` : change?.action;
+const toggleFields = { launch_at_boot: "boot_enabled", clearnet_over_tor: "clearnet_over_tor", inbound_connections: "inbound_connections", utxo_index: "utxo_index", utxo_index_litecoin: "utxo_index_litecoin", utxo_index_bitcoincash: "utxo_index_bitcoincash" };
+export const hostToggleDefaults = { launch_at_boot: false, clearnet_over_tor: true, inbound_connections: true, utxo_index: false, utxo_index_litecoin: false, utxo_index_bitcoincash: false };
 export const UTXO_INDEX_OFF_PROMPT = "Turn off instant Bitcoin balances? Wallets go back to the slower scan. The index volume stays on disk until you run utxo-index remove.";
 
 export function balanceIndexPayload(enabled, confirmFn) {
@@ -91,7 +94,8 @@ export function savedHostActions(view, draft, staged = {}) {
 export function confirmedHostChanges(changes, confirmFn) {
   return changes.map((change) => {
     if (change.action !== "utxo_index") return change;
-    if (change.node === "litecoin") return change.enabled === false && !confirmFn(UTXO_INDEX_LITECOIN_OFF_PROMPT) ? undefined : change;
+    const prompt = chainIndexOffPrompts[change.node];
+    if (prompt) return change.enabled === false && !confirmFn(prompt) ? undefined : change;
     return balanceIndexPayload(change.enabled, confirmFn);
   }).filter(Boolean);
 }
@@ -145,6 +149,8 @@ export function hostControlModel(data = {}) {
     utxo_seed_now: data.utxo_seed_now === true,
     utxo_index_litecoin: data.utxo_index_litecoin === true,
     utxo_seed_now_litecoin: data.utxo_seed_now_litecoin === true,
+    utxo_index_bitcoincash: data.utxo_index_bitcoincash === true,
+    utxo_seed_now_bitcoincash: data.utxo_seed_now_bitcoincash === true,
     config_pending: !!revision,
     config_revision: revision,
     config_path: typeof data.config_path === "string" && data.config_path.startsWith("/") ? data.config_path : "",
@@ -199,7 +205,7 @@ export function hostActionPayload(action, value, options) {
     if (!dataDir.startsWith("/") || dataDir.length < 2 || dataDir.includes("\n") || dataDir.includes("\r")) return undefined;
     return { action, node: value, data_dir: dataDir };
   }
-  if (action === "utxo_index_litecoin" && typeof value === "boolean") return { action: "utxo_index", node: "litecoin", enabled: value };
+  if (chainIndexNode(action) && typeof value === "boolean") return { action: "utxo_index", node: chainIndexNode(action), enabled: value };
   if (toggleFields[action] && typeof value === "boolean") return { action, enabled: value };
   if (action === "apply_config" && /^[0-9a-f]{64}$/.test(String(value || ""))) return { action, config_revision: value };
   return undefined;
@@ -422,9 +428,12 @@ if (typeof document !== "undefined") {
     <legend>Balance index</legend>
     <label class="settings-check"><input id="settings-utxo-index" type="checkbox" role="switch"> Instant Bitcoin balances</label>
     <label id="settings-utxo-index-litecoin-label" class="settings-check" hidden><input id="settings-utxo-index-litecoin" type="checkbox" role="switch"> Instant Litecoin balances</label>
+    <label id="settings-utxo-index-bitcoincash-label" class="settings-check" hidden><input id="settings-utxo-index-bitcoincash" type="checkbox" role="switch"> Instant Bitcoin Cash balances (archival node)</label>
     <p class="settings-note">For pruned nodes. Uses about 7.5 GiB of disk, up to about 17 GiB while it seeds, and the seed needs 27 GB free. After turning it on, it seeds itself once the node has synced (about 20 minutes; Bitcoin RPC pauses for about 5 minutes).<span id="settings-utxo-seed-cli" hidden> Without host controls, seed it from the host: <code id="settings-utxo-seed-command"></code>.</span> Turning it off keeps the volume until <code>utxo-index remove</code>, and is refused while a seed runs. Applying restarts the dashboard.</p>
     <button id="settings-utxo-seed-now" type="button" hidden>Seed now</button>
     <button id="settings-utxo-seed-now-litecoin" type="button" hidden>Seed Litecoin now</button>
+    <button id="settings-utxo-seed-now-bitcoincash" type="button" hidden>Replay Bitcoin Cash now</button>
+    <p id="settings-utxo-index-bitcoincash-note" class="settings-note" hidden>Bitcoin Cash has no coin-set export, so its index replays every block from genesis once the node has synced: a long one-time job. It needs an archival node (<code>bitcoincash.prune_mb</code> 0); a pruned node is refused. Bitcoin Cash RPC keeps answering and node-down alerts are not held.</p>
     <p id="settings-utxo-index-status" class="settings-note" role="status" aria-live="polite"></p>
   </fieldset>`);
   const utxoIndex = byId("utxo-index");
@@ -436,6 +445,10 @@ if (typeof document !== "undefined") {
   const utxoIndexLitecoin = byId("utxo-index-litecoin");
   const utxoIndexLitecoinLabel = byId("utxo-index-litecoin-label");
   const utxoSeedNowLitecoin = byId("utxo-seed-now-litecoin");
+  const utxoIndexBitcoinCash = byId("utxo-index-bitcoincash");
+  const utxoIndexBitcoinCashLabel = byId("utxo-index-bitcoincash-label");
+  const utxoIndexBitcoinCashNote = byId("utxo-index-bitcoincash-note");
+  const utxoSeedNowBitcoinCash = byId("utxo-seed-now-bitcoincash");
   const clearnetOverTor = byId("clearnet-over-tor");
   const inboundConnections = byId("inbound-connections");
   const networkStatus = byId("network-status");
@@ -505,7 +518,7 @@ if (typeof document !== "undefined") {
   let hostQueue = [];
   let hostQueueAction = "";
   const saving = () => hostQueue.length > 0 || hostQueueAction !== "";
-  const hostToggles = { launch_at_boot: launchAtStart, clearnet_over_tor: clearnetOverTor, inbound_connections: inboundConnections, utxo_index: utxoIndex, utxo_index_litecoin: utxoIndexLitecoin };
+  const hostToggles = { launch_at_boot: launchAtStart, clearnet_over_tor: clearnetOverTor, inbound_connections: inboundConnections, utxo_index: utxoIndex, utxo_index_litecoin: utxoIndexLitecoin, utxo_index_bitcoincash: utxoIndexBitcoinCash };
   const hostRequests = latestRequestGate();
   let installNode = "";
   try { portRequestID = localStorage.getItem("nodeStackPortRequest") || ""; } catch {}
@@ -626,8 +639,8 @@ if (typeof document !== "undefined") {
       if (failed || nextHostView[field] === pendingToggle.enabled) pendingToggle = undefined;
       else {
         nextHostView[field] = pendingToggle.enabled;
-        const litecoin = pendingToggle.action === "utxo_index_litecoin";
-        nextHostView.status = { action: litecoin ? "utxo_index" : pendingToggle.action, node: litecoin ? "litecoin" : "", state: "pending", message: hostView.status.message || "Applying host change…" };
+        const node = chainIndexNode(pendingToggle.action);
+        nextHostView.status = { action: node ? "utxo_index" : pendingToggle.action, node, state: "pending", message: hostView.status.message || "Applying host change…" };
       }
     }
     const queueResult = hostQueueSettled(nextHostView, hostQueueAction);
@@ -664,9 +677,14 @@ if (typeof document !== "undefined") {
     utxoIndexLitecoinLabel.hidden = !hostView.available || !hostView.nodes.litecoin.installed;
     utxoIndexLitecoin.checked = shown("utxo_index_litecoin");
     utxoIndexLitecoin.disabled = balanceControl.disabled;
-    balanceSettings.hidden = balanceControl.hidden && utxoIndexLitecoinLabel.hidden;
+    utxoIndexBitcoinCashLabel.hidden = utxoIndexBitcoinCashNote.hidden = !hostView.available || !hostView.nodes.bitcoincash.installed;
+    utxoIndexBitcoinCash.checked = shown("utxo_index_bitcoincash");
+    utxoIndexBitcoinCash.disabled = balanceControl.disabled;
+    balanceSettings.hidden = balanceControl.hidden && utxoIndexLitecoinLabel.hidden && utxoIndexBitcoinCashLabel.hidden;
     utxoSeedNowLitecoin.hidden = !hostView.utxo_seed_now_litecoin;
     utxoSeedNowLitecoin.disabled = busy || saving();
+    utxoSeedNowBitcoinCash.hidden = !hostView.utxo_seed_now_bitcoincash;
+    utxoSeedNowBitcoinCash.disabled = busy || saving();
     configChange.hidden = !hostView.config_pending;
     const networkMessage = networkActions.includes(hostView.status.action);
     const balanceMessage = balanceActions.includes(hostView.status.action);
@@ -792,6 +810,12 @@ if (typeof document !== "undefined") {
     balanceStatus.textContent = await requestSeed(undefined, "litecoin");
     await loadHost();
   });
+  utxoSeedNowBitcoinCash.addEventListener("click", async () => {
+    if (saving()) return;
+    utxoSeedNowBitcoinCash.disabled = true;
+    balanceStatus.textContent = await requestSeed(undefined, "bitcoincash");
+    await loadHost();
+  });
 
   async function loadHost() {
     await hostRequests.run(requestHost, renderHost, (error) => {
@@ -808,7 +832,7 @@ if (typeof document !== "undefined") {
     const status = hostStatusTarget(payload.action);
     status.textContent = "Applying…";
     for (const button of hostNodes.querySelectorAll("button")) button.disabled = true;
-    launchAtStart.disabled = applyConfig.disabled = clearnetOverTor.disabled = inboundConnections.disabled = utxoIndex.disabled = utxoIndexLitecoin.disabled = true;
+    launchAtStart.disabled = applyConfig.disabled = clearnetOverTor.disabled = inboundConnections.disabled = utxoIndex.disabled = utxoIndexLitecoin.disabled = utxoIndexBitcoinCash.disabled = true;
     if (toggleFields[toggleKey(payload)]) pendingToggle = { action: toggleKey(payload), enabled: payload.enabled };
     try {
       const statusView = await requestHost(payload);
@@ -1055,8 +1079,10 @@ if (typeof document !== "undefined") {
       if (confirmed.length < hostChanges.length) {
         delete hostDraft.utxo_index;
         delete hostDraft.utxo_index_litecoin;
+        delete hostDraft.utxo_index_bitcoincash;
         utxoIndex.checked = hostView.utxo_index;
         utxoIndexLitecoin.checked = hostView.utxo_index_litecoin;
+        utxoIndexBitcoinCash.checked = hostView.utxo_index_bitcoincash;
       }
       hostChanges = confirmed;
     }

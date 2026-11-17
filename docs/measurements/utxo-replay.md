@@ -22,6 +22,19 @@ The node itself is not capped. Each figure is the median of three runs.
 | 20,001 coinbase-only | 2,094 blocks/s (2,088 to 2,303) | 3,828 blocks/s (3,291 to 3,958) | 1.83x |
 | 300 with a 200-output transaction | 231 blocks/s (226 to 244) | 256 blocks/s (231 to 260) | 1.11x |
 
+## Bitcoin Cash Node 29.2.0
+
+The same test with `UTXO_REPLAY_CHAIN=bitcoincash BCH_REGTEST_IMAGE=ghcr.io/vijitsingh97/node-manager-bitcoincash:1.34.0` replays a BCHN regtest chain with the Bitcoin Cash chain parameters, under the same caps. Each figure is the median of three runs.
+
+| Blocks | Per block | Batched | Batched / per block |
+| --- | --- | --- | --- |
+| 20,001 coinbase-only | 2,853 blocks/s (2,106 to 3,042) | 5,848 blocks/s (4,783 to 6,328) | 2.05x |
+| 300 with a 200-output transaction | 456 blocks/s (419 to 533) | 544 blocks/s (215 to 607) | 1.19x |
+
+Both modes matched `scantxoutset` on 18,795 coins in every run. One batched busy run fell to 215 blocks/s, and the other two ran at 544 and 607 blocks/s. Bitcoin Cash blocks decode faster than Bitcoin's here, since they carry no witness data.
+
+`TestUtxoBitcoinCashReplayRegtestLive` also replays through the dashboard's seed path, with CashTokens outputs. A minting NFT with fungible tokens is created, then moved by a second transaction. The index matched `scantxoutset` after the replay and again after a one-block reorg. The token output's BCH is counted for its holder, and the spent token output leaves the index.
+
 ## Findings
 
 1. **Batching nearly doubles the rate on small blocks.** Per-block overhead dominates there: two RPC round trips, a sync, an undo record and a meta rewrite. Pipelining and batching take most of it away.

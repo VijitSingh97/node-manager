@@ -28,6 +28,7 @@ type hostControlCapability struct {
 	InboundTor        bool              `json:"inbound_connections"`
 	UtxoIndex         bool              `json:"utxo_index"`
 	UtxoIndexLTC      bool              `json:"utxo_index_litecoin,omitempty"`
+	UtxoIndexBCH      bool              `json:"utxo_index_bitcoincash,omitempty"`
 	ConfigPending     bool              `json:"config_pending"`
 	ConfigRevision    string            `json:"config_revision"`
 	ConfigPath        string            `json:"config_path,omitempty"`
@@ -95,6 +96,8 @@ type hostControlView struct {
 	UtxoSeedNow      bool               `json:"utxo_seed_now"`
 	UtxoIndexLTC     bool               `json:"utxo_index_litecoin"`
 	UtxoSeedNowLTC   bool               `json:"utxo_seed_now_litecoin"`
+	UtxoIndexBCH     bool               `json:"utxo_index_bitcoincash"`
+	UtxoSeedNowBCH   bool               `json:"utxo_seed_now_bitcoincash"`
 	ConfigPending    bool               `json:"config_pending"`
 	ConfigRevision   string             `json:"config_revision,omitempty"`
 	ConfigPath       string             `json:"config_path,omitempty"`
@@ -112,7 +115,7 @@ var hostInstallCatalog = map[string]struct {
 	"tari":        {"Not measured", "Use expandable storage; a pruned full sync has not been qualified.", []hostInstallInterface{{ID: "tari_grpc", Name: "gRPC", HostPort: 18142}}},
 	"litecoin":    {"28–56 GiB", "Provisional planning estimate; a full sync has not been qualified.", []hostInstallInterface{{ID: "litecoin_rpc", Name: "RPC", HostPort: 9332}}},
 	"dogecoin":    {"28–56 GiB", "Provisional planning estimate; a full sync has not been qualified.", []hostInstallInterface{{ID: "dogecoin_rpc", Name: "RPC", HostPort: 22555}}},
-	"bitcoincash": {"28–56 GiB", "Provisional planning estimate; a full sync has not been qualified.", []hostInstallInterface{{ID: "bitcoincash_rpc", Name: "RPC", HostPort: 8332}}},
+	"bitcoincash": {"231 GiB or more", "A dashboard install is archival, which the balance index needs: a public Bitcoin Cash Node reported 231 GiB of block files on 2026-11-16. Chainstate and the index come on top and are not measured by this stack; use expandable storage.", []hostInstallInterface{{ID: "bitcoincash_rpc", Name: "RPC", HostPort: 8332}}},
 	"zcash":       {"28–56 GiB", "Expandable-volume estimate; a full sync has not been qualified.", []hostInstallInterface{{ID: "zcash_rpc", Name: "Read-only RPC", HostPort: 8232}}},
 }
 
@@ -361,7 +364,7 @@ func (a *app) hostControlView() hostControlView {
 		interfaces := append([]hostInstallInterface(nil), catalog.Interfaces...)
 		nodes = append(nodes, hostControlNode{ID: id, Name: nodeDisplayName(id), Installed: configured, DataDir: capability.DataPaths[id], DiskEstimate: catalog.DiskEstimate, DiskNote: catalog.DiskNote, Interfaces: interfaces})
 	}
-	return hostControlView{Available: available, InstallSupported: available && capability.InstallSupported, MigrateSupported: available && capability.MigrateSupported, BootSupported: available && capability.BootSupported, BootEnabled: capability.BootEnabled, BootKind: capability.BootKind, ClearnetOverTor: capability.ClearnetOverTor, InboundTor: capability.InboundTor, UtxoIndex: capability.UtxoIndex, UtxoSeedNow: a.seedNow(nodeBitcoin), UtxoIndexLTC: capability.UtxoIndexLTC, UtxoSeedNowLTC: a.seedNow(nodeLitecoin), ConfigPending: capability.ConfigPending, ConfigRevision: capability.ConfigRevision, ConfigPath: capability.ConfigPath, Nodes: nodes, Status: status}
+	return hostControlView{Available: available, InstallSupported: available && capability.InstallSupported, MigrateSupported: available && capability.MigrateSupported, BootSupported: available && capability.BootSupported, BootEnabled: capability.BootEnabled, BootKind: capability.BootKind, ClearnetOverTor: capability.ClearnetOverTor, InboundTor: capability.InboundTor, UtxoIndex: capability.UtxoIndex, UtxoSeedNow: a.seedNow(nodeBitcoin), UtxoIndexLTC: capability.UtxoIndexLTC, UtxoSeedNowLTC: a.seedNow(nodeLitecoin), UtxoIndexBCH: capability.UtxoIndexBCH, UtxoSeedNowBCH: a.seedNow(nodeBitcoinCash), ConfigPending: capability.ConfigPending, ConfigRevision: capability.ConfigRevision, ConfigPath: capability.ConfigPath, Nodes: nodes, Status: status}
 }
 
 func (a *app) apiHostControlGet(w http.ResponseWriter, r *http.Request) {
@@ -385,8 +388,8 @@ func decodeHostControlInput(w http.ResponseWriter, r *http.Request) (hostControl
 	configuredInstall := input.Action == "install" && validInstallOptions(normalizeNodeID(input.Node), input.DataDir, input.Interfaces)
 	valid := (legacyInstall || configuredInstall) && normalizeNodeID(input.Node) != "" && input.Enabled == nil && input.Revision == "" ||
 		input.Action == "migrate" && normalizeNodeID(input.Node) != "" && input.Enabled == nil && input.Revision == "" && safeHostPath(input.DataDir) && input.Interfaces == nil || toggleHostAction(input.Action) && input.Node == "" && input.Enabled != nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil ||
-		input.Action == "utxo_index" && input.Node == nodeLitecoin && input.Enabled != nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil || input.Action == "apply_config" && input.Node == "" && input.Enabled == nil && validRevision && input.DataDir == "" && input.Interfaces == nil ||
-		input.Action == "utxo_seed" && (input.Node == nodeBitcoin || input.Node == nodeLitecoin) && input.Enabled == nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil
+		input.Action == "utxo_index" && utxoChains[input.Node] != nil && input.Enabled != nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil || input.Action == "apply_config" && input.Node == "" && input.Enabled == nil && validRevision && input.DataDir == "" && input.Interfaces == nil ||
+		input.Action == "utxo_seed" && (input.Node == nodeBitcoin || utxoChains[input.Node] != nil) && input.Enabled == nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil
 	if !valid {
 		return input, errors.New("invalid host control request")
 	}
@@ -403,9 +406,28 @@ func (a *app) seedNow(node string) bool {
 	if m == nil {
 		return false
 	}
-	state := m.Status().State
+	st := m.Status()
+	if m.chain.Replay {
+		// A replay needs no seed pipe, so the dashboard starts it without the host helper, also to resume a far-behind index.
+		return m.host != nil && (st.State == utxoStateNotSeeded || st.State == utxoStateInvalid || st.State == utxoStateCatching && st.Behind != nil && *st.Behind > utxoReplayGap)
+	}
 	capability, ok := a.hostControlCapability()
-	return (state == utxoStateNotSeeded || state == utxoStateInvalid) && ok && capability.UTXOSeedSupported && !capability.ConfigPending
+	return (st.State == utxoStateNotSeeded || st.State == utxoStateInvalid) && ok && capability.UTXOSeedSupported && !capability.ConfigPending
+}
+
+func (a *app) requestReplaySeed(w http.ResponseWriter, m *utxoManager, node string) {
+	if !a.seedNow(node) {
+		http.Error(w, "The balance index cannot be seeded now.", http.StatusConflict)
+		return
+	}
+	id := newSeedRequestID()
+	raw, _ := json.Marshal(seedRequest{ID: id, RequestedAt: time.Now().Unix()})
+	if writePrivateFileAtomic(filepath.Join(m.host.stateDir, m.host.prefix+seedRequestName), raw) != nil {
+		http.Error(w, "The seed request could not be written.", http.StatusServiceUnavailable)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+	writeJSON(w, hostControlStatus{ID: id, Action: "utxo_seed", Node: node, State: "applied", Message: "Balance index replay requested."})
 }
 
 const hostChangePending = "another host change is pending"
@@ -440,6 +462,10 @@ func (a *app) apiHostControlPost(w http.ResponseWriter, r *http.Request) {
 	input, err := decodeHostControlInput(w, r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if m := a.chainUtxo[input.Node]; input.Action == "utxo_seed" && m != nil && m.chain.Replay {
+		a.requestReplaySeed(w, m, input.Node)
 		return
 	}
 	capability, available := a.hostControlCapability()

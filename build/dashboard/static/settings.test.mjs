@@ -476,7 +476,7 @@ test("host switch defaults match the host helper and the configuration reference
   const reference = await readFile(new URL("../../../docs/configuration.md", import.meta.url), "utf8");
   assert.match(helper, new RegExp(`clearnet_over_tor=${hostToggleDefaults.clearnet_over_tor}\\n\\s*inbound_connections=${hostToggleDefaults.inbound_connections}\\n\\s*utxo_index=${hostToggleDefaults.utxo_index}\\n`));
   assert.match(reference, new RegExp(`\\| \`dashboard\\.launch_at_boot\` \\| \`${hostToggleDefaults.launch_at_boot}\` \\|`));
-  assert.deepEqual(Object.keys(hostToggleDefaults).sort(), ["clearnet_over_tor", "inbound_connections", "launch_at_boot", "utxo_index", "utxo_index_litecoin"]);
+  assert.deepEqual(Object.keys(hostToggleDefaults).sort(), ["clearnet_over_tor", "inbound_connections", "launch_at_boot", "utxo_index", "utxo_index_bitcoincash", "utxo_index_litecoin"]);
 });
 
 test("Settings ends with Reset to default, Cancel and Save, and Cancel closes like the X", async () => {

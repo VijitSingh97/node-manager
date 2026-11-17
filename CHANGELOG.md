@@ -8,12 +8,24 @@ All notable changes to this project are documented here. Format follows
 
 ### Fixed
 
+- `utxo-seed litecoin` checked litecoind's running commands without the node's
+  RPC configuration, so it stopped with "Litecoin RPC did not answer". It now
+  passes the same configuration file the node's health check uses.
 - `utxo-index bench` reads a relative wallet file path from the directory it was
   run in. On APT installs it looked in `/var/lib/node-manager` instead and
   reported a valid file as malformed; a missing file is now named as unreadable.
 
 ### Added
 
+- Instant Bitcoin Cash balances: `bitcoincash.utxo_index` (Settings → Balance
+  index → "Instant Bitcoin Cash balances") keeps a Bitcoin Cash balance index, and
+  the Bitcoin Cash watch-only card reads its balances from it once it is at the
+  node's tip. It needs an archival node (`bitcoincash.prune_mb: 0`). Bitcoin Cash
+  Node has no coin-set export, so the index replays every block from genesis once
+  the node has synced: a long one-time job that keeps its progress across stops
+  and restarts. A Bitcoin Cash install from the dashboard is now archival with the
+  index on, and the install dialog shows the archival size. Existing installs keep
+  their setting. The Bitcoin Cash card now holds 50 addresses.
 - Instant Litecoin balances: `litecoin.utxo_index` (Settings → Balance index →
   "Instant Litecoin balances") keeps a Litecoin balance index, and the Litecoin
   watch-only card reads its balances from it once it is seeded, updating within a

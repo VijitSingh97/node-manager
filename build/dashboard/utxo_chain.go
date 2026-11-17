@@ -32,10 +32,16 @@ var (
 		Descriptors:    []string{"addr(", "pkh(", "wpkh(", "sh(wpkh(", "wsh("},
 		ReverseIndex:   true,
 	}
+	// Bitcoin Cash Node 29.2.0 has no dumptxoutset, so the index replays every block; getblock verbosity 3 carries prevouts.
+	utxoBitcoinCash = &utxoChainParams{
+		Networks:       map[string][4]byte{"main": {0xe3, 0xe1, 0xf3, 0xe8}, "regtest": {0xda, 0xb5, 0xbf, 0xfa}},
+		BlockVerbosity: 3,
+		Replay:         true,
+	}
 )
 
 // utxoChains lists the chains besides Bitcoin that can keep a balance index, by node id.
-var utxoChains = map[string]*utxoChainParams{nodeLitecoin: utxoLitecoin}
+var utxoChains = map[string]*utxoChainParams{nodeLitecoin: utxoLitecoin, nodeBitcoinCash: utxoBitcoinCash}
 
 func (c *utxoChainParams) dumpArgs(path string) []any {
 	if c.DumpLatest {

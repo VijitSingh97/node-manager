@@ -27,6 +27,8 @@ set -eu
 jq -e 'type=="object"' "$BITCOIN_STACK_CONFIG_DIR/config.json" >/dev/null
 zdir=$(jq -r 'select(.zcash.address_index == true) | .zcash.data_dir // empty' "$BITCOIN_STACK_CONFIG_DIR/config.json")
 [ -z "$zdir" ] || [ ! -e "$zdir/old.db" ] || exit 1
+bdir=$(jq -r 'select(.bitcoincash.prune_mb == 0) | .bitcoincash.data_dir // empty' "$BITCOIN_STACK_CONFIG_DIR/config.json")
+[ -z "$bdir" ] || [ ! -e "$bdir/blocks/index" ] || [ -e "$bdir/blocks/blk00000.dat" ] || exit 1
 if [ "${BITCOIN_STACK_VALIDATE_ONLY:-0}" != 1 ]; then
   if [ "${FAKE_CONFIGURE_FAIL_ONCE:-0}" = 1 ] && [ ! -e "$FAKE_CONFIGURE_FAIL_MARKER" ]; then
     : >"$FAKE_CONFIGURE_FAIL_MARKER"
@@ -584,5 +586,35 @@ request '{"action":"install","id":"8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a","node":"lit
 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 [ "$(status .state)" = applied ] || fail "litecoin reinstall was not applied: $(status .message)"
 [ "$(jq -c .litecoin.utxo_index "$config/config.json")" = false ] || fail "a Litecoin reinstall turned an explicitly off index back on"
+
+bch_install() {
+  jq --argjson bch "$1" '.bitcoincash=$bch' "$config/config.json" >"$tmp/config.next"
+  mv "$tmp/config.next" "$config/config.json"
+  jq -S . "$config/config.json" >"$state/.approved-config.json"
+  request "{\"action\":\"install\",\"id\":\"$2\",\"node\":\"bitcoincash\",\"requested_at\":1000}"
+  BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+  [ "$(status .state)" = applied ] || fail "bitcoin cash install $2 was not applied: $(status .message)"
+}
+bch_fresh=$resolved_tmp/bch-fresh
+bch_install "{\"enabled\":false,\"data_dir\":\"$bch_fresh\"}" 8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b
+[ "$(jq -c '[.bitcoincash.prune_mb, .bitcoincash.utxo_index]' "$config/config.json")" = '[0,true]' ] || fail "a fresh Bitcoin Cash install did not go archival with its balance index on"
+bch_pruned=$resolved_tmp/bch-pruned
+mkdir -p "$bch_pruned/blocks/index"
+bch_install "{\"enabled\":false,\"data_dir\":\"$bch_pruned\"}" 8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c
+[ "$(jq -c '.bitcoincash | [has("prune_mb"), has("utxo_index")]' "$config/config.json")" = '[false,false]' ] || fail "a Bitcoin Cash install over a pruned chain kept the archival defaults"
+bch_install "{\"enabled\":false,\"prune_mb\":10000,\"data_dir\":\"$bch_fresh\"}" 8d8d8d8d8d8d8d8d8d8d8d8d8d8d8d8d
+[ "$(jq -c '[.bitcoincash.prune_mb, .bitcoincash.utxo_index]' "$config/config.json")" = '[10000,null]' ] || fail "a Bitcoin Cash install overrode an explicit prune_mb"
+jq -e '.utxo_index_bitcoincash == false' "$dashboard_state/node-control.capability" >/dev/null || fail "Bitcoin Cash index capability was not published off"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+request '{"action":"utxo_index","enabled":true,"id":"8e8e8e8e8e8e8e8e8e8e8e8e8e8e8e8e","node":"bitcoincash","requested_at":1000}'
+"$root/scripts/node-control"
+[ "$(status .state):$(status .error_code)" = rejected:validation_failed ] || fail "the Bitcoin Cash index was turned on for a pruned node: $(status .message)"
+status .message | grep -q 'archival node' || fail "the pruned refusal did not name the archival requirement: $(status .message)"
+jq '.bitcoincash.prune_mb=0' "$config/config.json" >"$tmp/config.next" && mv "$tmp/config.next" "$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+request '{"action":"utxo_index","enabled":true,"id":"8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f","node":"bitcoincash","requested_at":1000}'
+"$root/scripts/node-control"
+[ "$(status .state)" = applied ] && [ "$(jq -r .bitcoincash.utxo_index "$config/config.json")" = true ] || fail "the Bitcoin Cash index was not turned on for an archival node: $(status .message)"
+jq -e '.utxo_index_bitcoincash' "$dashboard_state/node-control.capability" >/dev/null || fail "Bitcoin Cash index capability was stale after turning it on"
 
 echo "PASS: test_node_control.sh"

@@ -14,11 +14,11 @@ import (
 )
 
 const (
-	maxFamilyWatchWallets   = 25
-	maxLitecoinWatchWallets = 50
-	maxFamilyWatchHistory   = 96
-	familyWatchInterval     = time.Hour
-	familyWatchRPCTimeout   = 10 * time.Minute
+	maxFamilyWatchWallets  = 25
+	maxIndexedWatchWallets = 50
+	maxFamilyWatchHistory  = 96
+	familyWatchInterval    = time.Hour
+	familyWatchRPCTimeout  = 10 * time.Minute
 )
 
 var errFamilyWatchUnavailable = errors.New("watch-only wallet storage unavailable")
@@ -112,7 +112,9 @@ func newFamilyWatchManager(a *app) *familyWatchManager {
 		}
 		switch id {
 		case nodeLitecoin:
-			store.maxSupply, store.backend, store.maxWallets = 84_000_000*100_000_000, utxoFamilyWatchBackend(true), maxLitecoinWatchWallets
+			store.maxSupply, store.backend, store.maxWallets = 84_000_000*100_000_000, utxoFamilyWatchBackend(true), maxIndexedWatchWallets
+		case nodeBitcoinCash:
+			store.maxWallets = maxIndexedWatchWallets
 		case nodeDogecoin:
 			store.maxSupply, store.backend, store.skipExample = dogecoinMaxSupply, dogecoinFamilyWatchBackend(), true
 			store.imported, store.retryAt = make(map[string]bool), make(map[string]int64)

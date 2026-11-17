@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { balanceIndexPayload, confirmedHostChanges, balanceIndexControl, seedCommand, UTXO_INDEX_OFF_PROMPT, UTXO_INDEX_LITECOIN_OFF_PROMPT, hostControlModel, hostActionPayload, hostToggleChanges } from "./settings.js";
+import { balanceIndexPayload, confirmedHostChanges, balanceIndexControl, seedCommand, UTXO_INDEX_OFF_PROMPT, UTXO_INDEX_LITECOIN_OFF_PROMPT, UTXO_INDEX_BITCOINCASH_OFF_PROMPT, hostControlModel, hostActionPayload, hostToggleChanges } from "./settings.js";
 
 test("the balance index switch reads its state, builds a boolean payload and routes its status", () => {
   assert.equal(hostControlModel({}).utxo_index, false);
@@ -65,4 +65,17 @@ test("the Litecoin balance index switch stages its own node-scoped payload", () 
   assert.deepEqual(asked, [UTXO_INDEX_LITECOIN_OFF_PROMPT]);
   assert.deepEqual(confirmedHostChanges([off], () => true), [off]);
   assert.equal(hostControlModel({ status: { action: "utxo_index", node: "litecoin", state: "applied", message: "ok" } }).status.node, "litecoin");
+});
+
+test("the Bitcoin Cash balance index switch stages its own payload, asks before turning off and shows its replay button", () => {
+  const view = hostControlModel({ utxo_index_bitcoincash: false, utxo_seed_now_bitcoincash: true });
+  assert.equal(view.utxo_seed_now_bitcoincash, true);
+  assert.deepEqual(hostActionPayload("utxo_index_bitcoincash", true), { action: "utxo_index", node: "bitcoincash", enabled: true });
+  assert.deepEqual(hostToggleChanges(view, { utxo_index_bitcoincash: true }), [{ action: "utxo_index", node: "bitcoincash", enabled: true }]);
+  assert.equal(hostActionPayload("utxo_index_dogecoin", true), undefined);
+  const off = { action: "utxo_index", node: "bitcoincash", enabled: false };
+  const asked = [];
+  assert.deepEqual(confirmedHostChanges([off], (m) => { asked.push(m); return false; }), []);
+  assert.deepEqual(asked, [UTXO_INDEX_BITCOINCASH_OFF_PROMPT]);
+  assert.match(UTXO_INDEX_BITCOINCASH_OFF_PROMPT, /utxo-index remove bitcoincash/);
 });

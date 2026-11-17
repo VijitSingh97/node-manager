@@ -456,4 +456,13 @@ echo "$ltc_dashboard" | grep -q 'cpus: 0.5' || fail "Litecoin index overlay did 
 echo "$ltc_dashboard" | grep -B2 -A2 'target: /utxo-index-litecoin' | grep -q 'source: utxo_index_litecoin' || fail "dashboard is missing the utxo_index_litecoin volume"
 echo "$ltc_render" | sed -n '/^  litecoin:$/,/^  [a-z][a-z-]*:$/p' | grep -q 'utxo' && fail "Litecoin index overlay changed the litecoin service"
 
+bch_render=$(docker compose --env-file /dev/null -f docker-compose.yml -f docker-compose.bitcoincash-utxo-index.yml config)
+bch_dashboard=$(echo "$bch_render" | sed -n '/^  dashboard:$/,/^  [a-z][a-z-]*:$/p')
+echo "$bch_dashboard" | grep -q 'BITCOINCASH_UTXO_INDEX_ENABLED: "1"' || fail "Bitcoin Cash index flag did not reach the dashboard"
+echo "$bch_dashboard" | grep -q 'BITCOINCASH_UTXO_INDEX_DIR: /utxo-index-bitcoincash' || fail "Bitcoin Cash index directory did not reach the dashboard"
+echo "$bch_dashboard" | grep -q 'mem_limit: "1073741824"' || fail "Bitcoin Cash index overlay did not set the dashboard memory limit"
+echo "$bch_dashboard" | grep -q 'cpus: 0.5' || fail "Bitcoin Cash index overlay did not set the dashboard CPU limit"
+echo "$bch_dashboard" | grep -B2 -A2 'target: /utxo-index-bitcoincash' | grep -q 'source: utxo_index_bitcoincash' || fail "dashboard is missing the utxo_index_bitcoincash volume"
+echo "$bch_render" | sed -n '/^  bitcoincash:$/,/^  [a-z][a-z-]*:$/p' | grep -q 'utxo' && fail "Bitcoin Cash index overlay changed the bitcoincash service"
+
 echo "PASS: test_compose.sh"

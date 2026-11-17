@@ -82,8 +82,8 @@ the node is fully synced, the dashboard validates the address with that daemon a
 scans every address that is due in one native `scantxoutset` walk. The result is a
 confirmed UTXO snapshot at the displayed scan height, not transaction history.
 Extended public keys, descriptors, Litecoin MWEB addresses, private keys, and seeds
-are not accepted in these forms. The Litecoin card holds up to 50 addresses and the
-Bitcoin Cash card up to 25.
+are not accepted in these forms. The Litecoin and Bitcoin Cash cards each hold up
+to 50 addresses.
 
 Scans run in the background and a confirmed result is reused for up to one hour.
 When the Litecoin balance index (Settings → Balance index → "Instant Litecoin
@@ -99,10 +99,16 @@ a later scan fails, a prior confirmed amount remains visible as **Stale** or
 **Error**; an unverified failure is never displayed as a zero balance. Saved
 snapshot charts and watch lists survive dashboard restarts.
 
-A Bitcoin Cash balance index is not planned, by the owner's decision on
-2026-11-15 (#239). A pruned Bitcoin Cash node keeps answering with
-`scantxoutset`. There is no archival resync, and no parse of a stopped
-chainstate copy.
+The Bitcoin Cash balance index (Settings → Balance index → "Instant Bitcoin Cash
+balances", or `bitcoincash.utxo_index`) needs an archival node
+(`bitcoincash.prune_mb: 0`). Bitcoin Cash Node has no coin-set export, so once the
+node has synced the index replays every block from genesis through `getblock`.
+That is a long one-time job: the regtest rates are in
+[the replay measurement](measurements/utxo-replay.md), and a mainnet replay has not
+been timed. When the index is at the node's tip, Bitcoin Cash balances come from it
+and update within a minute of each block; until then the scan answers. Outputs
+that carry CashTokens count their BCH like any other output; token amounts are
+not shown. A pruned Bitcoin Cash node keeps the hourly scan.
 
 Fresh state includes two sourced public examples:
 
