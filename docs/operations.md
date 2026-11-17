@@ -428,8 +428,8 @@ What happens:
   partial index and records `last_seed`; start again with the same command.
 
 To time lookups with and without the index on public test wallets, run
-`utxo-index bench`; the steps are in
-[the lookup benchmark](measurements/lookup-bench.md).
+`utxo-index bench`, with `--chain litecoin` for the Litecoin index; the steps
+are in [the lookup benchmark](measurements/lookup-bench.md).
 
 Measured budget, from the first mainnet seed on a 2018 Mac mini with bitcoind
 capped at 0.5 CPU and the Tari base node stopped (see

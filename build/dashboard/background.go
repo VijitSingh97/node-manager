@@ -44,6 +44,9 @@ func (a *app) startBackground(ctx context.Context) <-chan struct{} {
 	}
 	for _, m := range a.chainUtxo {
 		start(func() { m.run(ctx) })
+		if m.bench != nil {
+			start(func() { m.benchLoop(ctx) })
+		}
 	}
 	if a.utxo != nil {
 		start(func() { a.utxo.run(ctx) })

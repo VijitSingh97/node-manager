@@ -797,6 +797,7 @@ func (a *app) newChainUtxo(node nodeConfig, chain *utxoChainParams, logger *log.
 		}
 		m.configureSeed(utxoSeedHost{prefix: node.ID + "-", stateDir: a.cfg.stateDir, dataDir: node.DataDir, dump: &dump, hold: hold, release: release, lock: &a.utxoSeedLock,
 			autoSeed: func() (string, string) { return a.queueSeedHostAction(node.ID) }})
+		m.configureBench(a.chainBenchHost(node.ID, rpc, chain, hold, release))
 	}
 	return m
 }

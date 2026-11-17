@@ -6,6 +6,17 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- `utxo-index bench --chain litecoin` measures the Litecoin balance index the
+  same way as Bitcoin's; `--chain bitcoin` is the default. With `--scan` the
+  bench now runs `scantxoutset` for each wallet alone as well as for all of them,
+  prints each wallet's scan time next to its index p50 with the speedup, and
+  exits non-zero when a wallet's index balance differs from its scan at the same
+  block. A CI test per indexed chain checks the index against a fake node's scan
+  on pseudo-random wallets and that it is faster by at least 50 times for a single
+  address and 4 times for a 2,000-script wallet (synthetic, #367).
+
 ## [1.37.0] - 2026-11-17
 
 ### Added

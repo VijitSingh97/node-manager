@@ -546,23 +546,25 @@ case "$args" in
   *' ps -aq --filter volume='*) [ "${FAKE_VOL_MOUNTED:-0}" != 1 ] || echo dashboard-id ;;
   *'.utxo-seed.request.tmp'* | *'.litecoin-utxo-seed.request.tmp'*) cat >"$FAKE_UTXO/request.json" ;;
   *'/state/utxo-seed.cancel'* | *'/state/litecoin-utxo-seed.cancel'*) : >"$FAKE_UTXO/cancelled" ;;
-  *'.utxo-bench.request.tmp'*) cat >"$FAKE_UTXO/bench-request.json" ;;
-  *' exec -T -u 1000 dashboard cat /state/utxo-bench.result '*)
+  *'.utxo-bench.request.tmp'* | *'.litecoin-utxo-bench.request.tmp'*) cat >"$FAKE_UTXO/bench-request.json" ;;
+  *' exec -T -u 1000 dashboard cat /state/utxo-bench.result '* | *' exec -T -u 1000 dashboard cat /state/litecoin-utxo-bench.result '*)
     [ -f "$FAKE_UTXO/bench-request.json" ] || exit 1
     case "${FAKE_BENCH_SCENARIO:-ok}" in
       none) echo '{"id":"someone-else","wallets":[]}' ;;
       refused) jq -n --slurpfile req "$FAKE_UTXO/bench-request.json" '{id: $req[0].id, repeat: $req[0].repeat, state: "catching_up", refusals: ["the index is catching_up, not ready"]}' ;;
-      ok)
-        jq -n --slurpfile req "$FAKE_UTXO/bench-request.json" '
-          {lookup: {first_s: 0.4, p50_s: 0.3, p99_s: 0.5, max_s: 0.6}} as $t |
-          {id: $req[0].id, repeat: $req[0].repeat, state: "ready", node_tip_height: 900, index_tip_height: 900,
+      ok | mismatch | scanrefused)
+        jq -n --slurpfile req "$FAKE_UTXO/bench-request.json" --arg scenario "${FAKE_BENCH_SCENARIO:-ok}" '
+          {lookup: {first_s: 0.4, p50_s: 0.3, p99_s: 0.5, max_s: 0.6}} as $t | ($scenario == "mismatch") as $bad |
+          {id: $req[0].id, chain: $req[0].chain, repeat: $req[0].repeat, state: "ready", node_tip_height: 900, index_tip_height: 900,
            wallets: [{name: "alpha", derive_s: 0.5, scripts: 2000, fallback: false, lookup: $t.lookup, coins: 7, sats: 1234},
                      {name: "beta", derive_s: 0.01, scripts: 0, fallback: true, coins: 0, sats: 0}],
            batches: [{wallets: 1, scripts: 2000, expected_scripts: 2000, fallback_wallets: 0, coins: 7, lookup: $t.lookup}, {wallets: 2, scripts: 2000, expected_scripts: 2000, fallback_wallets: 1, coins: 7, lookup: $t.lookup}],
            cached_read: {first_s: 0.001, p50_s: 0.002, p99_s: 0.004, max_s: 0.005, roster_wallets: 3}} +
-          (if $req[0].scan then {scan: {height: 900, batch_s: 41.5, single_s: 20.25, wallets: [
-             {name: "alpha", coins: 7, sats: 1234, index_coins: 7, index_sats: 1234, match: true},
-             {name: "beta", coins: 3, sats: 5, index_coins: 0, index_sats: 0}]}} else {} end)'
+          (if $req[0].scan then {scan: {batch_s: 41.5, batch_height: 900, wallets: [
+             {name: "alpha", scan_s: 20.25, height: 900, coins: 7, sats: 1234, index_coins: 7, index_sats: (if $bad then 1235 else 1234 end), match: ($bad | not)},
+             {name: "beta", scan_s: 19.5, height: 900, coins: 3, sats: 5, index_coins: 0, index_sats: 0}]}} else {} end) +
+          (if $bad then {failures: ["wallet 1: the index and the scan differ at height 900"]} else {} end) +
+          (if $scenario == "scanrefused" then {scan: {batch_s: 41.5, batch_height: 900, wallets: null}, refusals: ["wallet 1: the scan failed or timed out"]} else {} end)'
         ;;
     esac
     ;;
@@ -784,7 +786,7 @@ for bad in "$tmp"/bad[1-7].json; do
   grep -q 'must be a JSON array of 1 to 50' "$tmp/ubench.out" || fail "utxo-index bench did not explain $bad"
   bench_written && fail "utxo-index bench wrote a request for $bad"
 done
-for args in "--repeat 0" "--repeat 201" "--repeat x" "--repeat" "--bogus" "extra.json"; do
+for args in "--repeat 0" "--repeat 201" "--repeat x" "--repeat" "--bogus" "extra.json" "--chain" "--chain dogecoin" "--chain zcash"; do
   reset_ubench
   # shellcheck disable=SC2086
   ubench utxo-index bench "$bench_wallets" $args >/dev/null 2>&1 && fail "utxo-index bench accepted arguments '$args'"
@@ -801,7 +803,7 @@ ubench utxo-index bogus >/dev/null 2>&1 && fail "utxo-index accepted an unknown 
 reset_ubench
 ubench utxo-index bench "$bench_wallets" >"$tmp/ubench.out" 2>&1 || fail "utxo-index bench failed on the happy path"
 grep -q ' -u 1000 dashboard sh -c umask 077; cat > /state/.utxo-bench.request.tmp' "$FAKE_LOG" || fail "utxo-index bench did not write the request privately as the dashboard user"
-jq -e '(.id | test("^[0-9a-f]{32}$")) and (.requested_at | . > 1e9 and . <= now + 5) and .repeat == 20 and .scan == false and (.wallets | length == 2) and .wallets[0].name == "alpha" and .wallets[1].key == "wpkh(xpubplaceholder/<0;1>/*)"' "$FAKE_UTXO/bench-request.json" >/dev/null || fail "utxo-index bench request is not {id, wallets, repeat, scan}"
+jq -e '(.id | test("^[0-9a-f]{32}$")) and .chain == "bitcoin" and (.requested_at | . > 1e9 and . <= now + 5) and .repeat == 20 and .scan == false and (.wallets | length == 2) and .wallets[0].name == "alpha" and .wallets[1].key == "wpkh(xpubplaceholder/<0;1>/*)"' "$FAKE_UTXO/bench-request.json" >/dev/null || fail "utxo-index bench request is not {id, chain, wallets, repeat, scan}"
 grep -q 'scantxoutset' "$tmp/ubench.out" && fail "utxo-index bench warned about a scan without --scan"
 grep -q 'alpha  *2000  *7  *1234' "$tmp/ubench.out" || fail "utxo-index bench did not print the per-wallet table"
 grep -q 'beta .*fallback' "$tmp/ubench.out" || fail "utxo-index bench did not mark the fallback wallet"
@@ -809,7 +811,13 @@ grep -q 'Batched lookups' "$tmp/ubench.out" || fail "utxo-index bench did not pr
 grep -q 'Cached read (seconds): p50 0.002, p99 0.004, max 0.005, roster wallets 3' "$tmp/ubench.out" || fail "utxo-index bench did not print the cached read and roster size"
 grep -q 'warning: 1 wallet(s) fell back' "$tmp/ubench.out" || fail "utxo-index bench did not warn about the fallback wallet"
 grep -q '^2  *2000  *2000  *1  *7' "$tmp/ubench.out" || fail "utxo-index bench did not print expected scripts and fallback wallets per batch"
-grep -q 'Scan at height' "$tmp/ubench.out" && fail "utxo-index bench printed a scan section without --scan"
+grep -q 'Without the index' "$tmp/ubench.out" && fail "utxo-index bench printed a scan section without --scan"
+grep -q '^bitcoin index ready at height 900' "$tmp/ubench.out" || fail "utxo-index bench did not name the chain"
+
+reset_ubench
+ubench utxo-index bench "$bench_wallets" --chain litecoin >"$tmp/ubench.out" 2>&1 && fail "utxo-index bench --chain litecoin ran without the Litecoin overlay"
+grep -q 'The Litecoin balance index is not enabled. Set litecoin.utxo_index' "$tmp/ubench.out" || fail "utxo-index bench --chain litecoin did not name the Litecoin setting"
+bench_written && fail "utxo-index bench --chain litecoin wrote a request without the overlay"
 
 reset_ubench
 mkdir -p "$tmp/bench-cwd"
@@ -836,9 +844,24 @@ reset_ubench
 ubench utxo-index bench "$bench_wallets" --repeat 7 --scan -y >"$tmp/ubench.out" 2>&1 || fail "utxo-index bench --scan -y failed"
 jq -e '.repeat == 7 and .scan == true' "$FAKE_UTXO/bench-request.json" >/dev/null || fail "utxo-index bench did not pass --repeat and --scan"
 grep -q 'owner approved' "$tmp/ubench.out" || fail "utxo-index bench --scan did not warn about the heavy scan"
-grep -q 'Scan at height 900: batch of 2 41.5 s, first wallet alone 20.25 s' "$tmp/ubench.out" || fail "utxo-index bench did not print the scan timings"
-grep -q 'alpha  *7  *7  *1234  *1234  *true' "$tmp/ubench.out" || fail "utxo-index bench did not print the scan match"
-grep -q 'beta .*n/a' "$tmp/ubench.out" || fail "utxo-index bench did not print n/a for the fallback wallet"
+grep -q 'Without the index (scantxoutset): batch of 2 41.5 s at height 900' "$tmp/ubench.out" || fail "utxo-index bench did not print the batch scan"
+grep -q 'alpha  *900  *20.25  *0.3  *68x  *7  *7  *1234  *1234  *true' "$tmp/ubench.out" || fail "utxo-index bench did not print the per-wallet scan, speedup and match"
+grep -q 'beta  *900  *19.5  *-  *-  .*n/a' "$tmp/ubench.out" || fail "utxo-index bench did not print n/a for the fallback wallet"
+grep -q 'FAILED' "$tmp/ubench.out" && fail "utxo-index bench printed a failure for matching balances"
+
+reset_ubench
+export FAKE_BENCH_SCENARIO=mismatch
+ubench utxo-index bench "$bench_wallets" --scan -y >"$tmp/ubench.out" 2>&1 && fail "a bench whose index and scan differ exited 0"
+grep -q '^FAILED: wallet 1: the index and the scan differ at height 900' "$tmp/ubench.out" || fail "utxo-index bench did not print the mismatch"
+grep -q 'alpha  .*1234  *1235  *false' "$tmp/ubench.out" || fail "utxo-index bench did not print the mismatching row"
+
+reset_ubench
+export FAKE_BENCH_SCENARIO=scanrefused
+rc=0
+ubench utxo-index bench "$bench_wallets" --scan -y >"$tmp/ubench.out" 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "a bench whose first wallet scan failed exited $rc, not 1"
+grep -q 'refused: wallet 1: the scan failed' "$tmp/ubench.out" || fail "utxo-index bench did not print the scan refusal"
+grep -q '^Saved ' "$tmp/ubench.out" || fail "utxo-index bench lost its result when no wallet scan finished"
 
 reset_ubench
 export FAKE_BENCH_SCENARIO=refused
@@ -936,5 +959,15 @@ grep -q 'cat > /state/.litecoin-utxo-seed.request.tmp' "$FAKE_LOG" || fail "utxo
 grep -q ' exec -T bitcoin ' "$FAKE_LOG" && fail "utxo-seed litecoin touched the bitcoin container"
 lseed utxo-index remove litecoin -y >"$tmp/lremove.out" 2>&1 && fail "utxo-index remove litecoin ran while the index was on"
 grep -q 'litecoin.utxo_index is still on' "$tmp/lremove.out" || fail "utxo-index remove litecoin did not name the litecoin setting"
+reset_ubench
+(cd "$ltc_dir" && HOME="$tmp" BITCOIN_STACK_UTXO_BENCH_POLL_SECONDS=1 BITCOIN_STACK_UTXO_BENCH_TIMEOUT_SECONDS=5 PATH="$utxo_stub:$stub:$PATH" ./stack utxo-index bench "$bench_wallets" --chain litecoin) >"$tmp/lbench.out" 2>&1 || {
+  cat "$tmp/lbench.out"
+  fail "utxo-index bench --chain litecoin failed on the happy path"
+}
+grep -q 'cat > /state/.litecoin-utxo-bench.request.tmp; mv /state/.litecoin-utxo-bench.request.tmp /state/litecoin-utxo-bench.request' "$FAKE_LOG" || fail "utxo-index bench --chain litecoin did not write its prefixed request"
+jq -e '.chain == "litecoin"' "$FAKE_UTXO/bench-request.json" >/dev/null || fail "utxo-index bench --chain litecoin did not name the chain in the request"
+grep -q '^litecoin index ready' "$tmp/lbench.out" || fail "utxo-index bench --chain litecoin did not print the chain"
+saved=$(sed -n 's/^Saved \(.*\) (mode 600)\.$/\1/p' "$tmp/lbench.out")
+case "$saved" in "$ltc_dir"/litecoin-utxo-bench-*.json) ;; *) fail "utxo-index bench --chain litecoin saved $saved" ;; esac
 
 echo "PASS: test_cli.sh"

@@ -27,6 +27,7 @@ func benchTestRequest(id string, keys []string, repeat int, scan bool) []byte {
 
 func benchTestHost(dir string) utxoBenchHost {
 	return utxoBenchHost{
+		chain:    nodeBitcoin,
 		stateDir: dir,
 		validate: func(context.Context, string) error { return nil },
 		resolve:  indexTestScripts(indexTestScript),
@@ -233,7 +234,7 @@ func TestBenchFullRunWithoutScan(t *testing.T) {
 		t.Fatalf("result file %v %v", info, err)
 	}
 	out := logs.String()
-	if !strings.Contains(out, "utxo bench: start wallets=6 repeat=4 scan=false") || !strings.Contains(out, "utxo bench: end wallets=6 refusals=0 duration=") {
+	if !strings.Contains(out, "utxo bench: start chain=bitcoin wallets=6 repeat=4 scan=false") || !strings.Contains(out, "utxo bench: end chain=bitcoin wallets=6 refusals=0 failures=0 duration=") {
 		t.Fatalf("log = %q", out)
 	}
 	for _, leak := range []string{genesisAddress, publicExampleAddress, "w0", formatBTC(wantBTC), indexTestScript} {
@@ -253,10 +254,11 @@ func TestBenchBatchSizesFollowWalletCount(t *testing.T) {
 	}
 }
 
-func TestBenchScanSectionComparesAgainstIndex(t *testing.T) {
+func TestBenchScanComparesEachWalletAtTheSameBlock(t *testing.T) {
 	m := indexTestManager(t, indexTestChain(nil))
 	wantCoins, wantBTC := indexExpected(t, m, indexTestScript)
 	sats := int64(wantBTC*1e8 + 0.5)
+	height, tipHash, _ := m.Tip()
 	dir := t.TempDir()
 	host := benchTestHost(dir)
 	var scans [][]string
@@ -265,33 +267,68 @@ func TestBenchScanSectionComparesAgainstIndex(t *testing.T) {
 	host.release = func() { releases.Add(1) }
 	host.scan = func(_ context.Context, keys []string) (benchScanRun, error) {
 		scans = append(scans, keys)
-		run := benchScanRun{Seconds: 1.5, Height: int64(*m.Status().IndexTip)}
-		for i := range keys {
-			run.Wallets = append(run.Wallets, benchTotals{Coins: wantCoins + i, Sats: sats})
+		run := benchScanRun{Seconds: float64(len(scans)), Height: int64(height), Best: reverseHex(tipHash), Totals: benchTotals{Coins: wantCoins, Sats: sats}}
+		switch len(scans) {
+		case 3:
+			run.Totals.Sats++
+		case 4:
+			run.Best, run.Totals = strings.Repeat("0", 64), benchTotals{}
 		}
 		return run, nil
 	}
+	const fallbackKey = "pkh(placeholder)"
+	inner := host.resolve
+	host.resolve = func(ctx context.Context, got []string) ([]walletScripts, error) {
+		out, err := inner(ctx, got)
+		if got[0] == fallbackKey {
+			out[0] = walletScripts{Fallback: true}
+		}
+		return out, err
+	}
 	m.configureBench(host)
-	res := benchTestPoll(t, m, dir, benchTestRequest(benchTestID(6), []string{genesisAddress, publicExampleAddress}, 2, true))
-	if len(res.Refusals) != 0 || res.Scan == nil || len(scans) != 2 || len(scans[0]) != 2 || len(scans[1]) != 1 || scans[1][0] != genesisAddress {
+	keys := []string{genesisAddress, publicExampleAddress, genesisAddress, fallbackKey}
+	res := benchTestPoll(t, m, dir, benchTestRequest(benchTestID(6), keys, 2, true))
+	if len(res.Refusals) != 0 || res.Scan == nil || len(scans) != 5 || len(scans[0]) != 4 {
 		t.Fatalf("result %+v, scans %v", res, scans)
+	}
+	for i, key := range keys {
+		if len(scans[i+1]) != 1 || scans[i+1][0] != key {
+			t.Fatalf("scan %d = %v, want wallet %d alone", i+1, scans[i+1], i+1)
+		}
 	}
 	if holds.Load() != 1 || releases.Load() != 1 {
 		t.Fatalf("hold/release = %d/%d", holds.Load(), releases.Load())
 	}
 	sw := res.Scan.Wallets
-	if len(sw) != 2 || sw[0].Match == nil || !*sw[0].Match || sw[1].Match == nil || *sw[1].Match || res.Scan.BatchSeconds != 1.5 || res.Scan.SingleSeconds != 1.5 || res.Scan.HeightSkew {
+	if len(sw) != 4 || sw[0].Match == nil || !*sw[0].Match || sw[1].Match == nil || *sw[1].Match || sw[2].Match != nil || sw[3].Match != nil || sw[3].Coins != wantCoins || sw[3].IndexCoins != 0 {
 		t.Fatalf("scan = %+v", res.Scan)
 	}
+	if res.Scan.BatchSeconds != 1 || res.Scan.BatchHeight != int64(height) || sw[0].Seconds != 2 || sw[2].Seconds != 4 || sw[0].Height != int64(height) || sw[0].IndexCoins != wantCoins || sw[0].IndexSats != sats {
+		t.Fatalf("scan timings = %+v", res.Scan)
+	}
+	if want := fmt.Sprintf("wallet 2: the index and the scan differ at height %d", height); len(res.Failures) != 1 || res.Failures[0] != want {
+		t.Fatalf("failures = %q, want %q", res.Failures, want)
+	}
 
-	host.hold = func() bool { return true }
-	host.scan = func(context.Context, []string) (benchScanRun, error) {
-		return benchScanRun{Height: 1, Wallets: make([]benchTotals, 2)}, nil
+	host.scan = func(_ context.Context, keys []string) (benchScanRun, error) {
+		if len(keys) == 1 {
+			return benchScanRun{}, fmt.Errorf("scan failed")
+		}
+		return benchScanRun{Best: reverseHex(tipHash)}, nil
 	}
 	m.configureBench(host)
-	res = benchTestPoll(t, m, dir, benchTestRequest(benchTestID(12), []string{genesisAddress, publicExampleAddress}, 2, true))
-	if res.Scan == nil || !res.Scan.HeightSkew || res.Scan.Wallets[0].Match != nil || res.Scan.Wallets[1].Match != nil {
-		t.Fatalf("a scan at another height still compared: %+v", res.Scan)
+	res = benchTestPoll(t, m, dir, benchTestRequest(benchTestID(12), keys, 2, true))
+	if len(res.Refusals) != 1 || !strings.Contains(res.Refusals[0], "wallet 1: the scan failed") || res.Failures != nil || res.Scan == nil || res.Scan.Wallets == nil {
+		t.Fatalf("a failed single scan = %+v", res)
+	}
+
+	host.scan = func(context.Context, []string) (benchScanRun, error) {
+		return benchScanRun{Best: strings.Repeat("0", 64)}, nil
+	}
+	m.configureBench(host)
+	res = benchTestPoll(t, m, dir, benchTestRequest(benchTestID(18), keys, 2, true))
+	if len(res.Refusals) != 1 || !strings.Contains(res.Refusals[0], "no wallet was compared") || res.Failures != nil || len(res.Scan.Wallets) != len(keys) {
+		t.Fatalf("a run that compared nothing = %+v", res)
 	}
 
 	host.hold = func() bool { return false }
@@ -299,6 +336,13 @@ func TestBenchScanSectionComparesAgainstIndex(t *testing.T) {
 	res = benchTestPoll(t, m, dir, benchTestRequest(benchTestID(8), []string{genesisAddress}, 2, true))
 	if res.Scan != nil || len(res.Refusals) != 1 || !strings.Contains(res.Refusals[0], "scan is running") || len(res.Wallets) != 1 {
 		t.Fatalf("busy scanner result = %+v", res)
+	}
+
+	host.scan = nil
+	m.configureBench(host)
+	res = benchTestPoll(t, m, dir, benchTestRequest(benchTestID(14), []string{genesisAddress}, 2, true))
+	if res.Scan != nil || len(res.Refusals) != 1 || !strings.Contains(res.Refusals[0], "no scan to compare against") || len(res.Wallets) != 1 {
+		t.Fatalf("scan-less chain result = %+v", res)
 	}
 }
 
@@ -309,19 +353,65 @@ func TestBenchRunsAgainstAppWithScan(t *testing.T) {
 	a.scanner.resolveScripts = indexTestScripts(indexTestScript)
 	m.configureBench(a.benchHost())
 	res := benchTestPoll(t, m, a.cfg.stateDir, benchTestRequest(benchTestID(9), []string{genesisAddress, publicExampleAddress}, 3, true))
-	if len(res.Refusals) != 0 || res.Scan == nil || res.CachedRead == nil || len(res.Wallets) != 2 {
+	if len(res.Refusals) != 0 || res.Scan == nil || res.CachedRead == nil || len(res.Wallets) != 2 || res.Chain != nodeBitcoin {
 		t.Fatalf("result = %+v", res)
 	}
-	if scanCalls(mock) != 2 {
-		t.Fatalf("scantxoutset starts = %d, want a batch and a single", scanCalls(mock))
+	if scanCalls(mock) != 3 {
+		t.Fatalf("scantxoutset starts = %d, want a batch and one per wallet", scanCalls(mock))
 	}
-	if sw := res.Scan.Wallets; len(sw) != 2 || sw[0].Coins != 1 || sw[0].Sats != 125_000_000 || sw[1].Coins != 1 || res.Scan.Height != 900000 {
+	sw := res.Scan.Wallets
+	if len(sw) != 2 || sw[0].Coins != 1 || sw[0].Sats != 125_000_000 || sw[1].Coins != 1 || sw[0].Height != 900000 || res.Scan.BatchHeight != 900000 {
 		t.Fatalf("scan = %+v", res.Scan)
+	}
+	if sw[0].Match == nil || *sw[0].Match || len(res.Failures) != 2 {
+		t.Fatalf("the mock's one coin does not match the index, yet match %v and failures %q", sw[0].Match, res.Failures)
 	}
 	if a.scanner.hold() == false {
 		t.Fatal("the scanner stayed held after the bench")
 	}
 	a.scanner.release()
+}
+
+func TestBenchChainHostUsesItsOwnFiles(t *testing.T) {
+	m := indexTestManager(t, indexTestChain(nil))
+	dir := t.TempDir()
+	host := benchTestHost(dir)
+	host.chain, host.prefix, host.cachedRead = nodeLitecoin, "litecoin-", nil
+	m.configureBench(host)
+	poll := func(raw []byte) benchResult {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, "litecoin-"+benchRequestName), raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		m.pollBench(context.Background())
+		out, err := os.ReadFile(filepath.Join(dir, "litecoin-"+benchResultName))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var res benchResult
+		if err := json.Unmarshal(out, &res); err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	if err := os.WriteFile(filepath.Join(dir, benchRequestName), benchTestRequest(benchTestID(15), []string{genesisAddress}, 1, false), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res := poll(benchTestRequest(benchTestID(16), []string{genesisAddress}, 1, false))
+	if len(res.Refusals) != 1 || !strings.Contains(res.Refusals[0], "another chain") || res.Chain != nodeLitecoin || res.Wallets != nil {
+		t.Fatalf("a request without a chain ran on the litecoin bench: %+v", res)
+	}
+	if _, err := os.Stat(filepath.Join(dir, benchRequestName)); err != nil {
+		t.Fatal("the litecoin bench took the bitcoin request")
+	}
+	var req benchRequest
+	_ = json.Unmarshal(benchTestRequest(benchTestID(17), []string{genesisAddress}, 1, false), &req)
+	req.Chain = nodeLitecoin
+	raw, _ := json.Marshal(req)
+	res = poll(raw)
+	if len(res.Refusals) != 0 || res.ID != benchTestID(17) || len(res.Wallets) != 1 || res.CachedRead != nil {
+		t.Fatalf("litecoin request = %+v", res)
+	}
 }
 
 func TestBenchRefusesStaleRequest(t *testing.T) {

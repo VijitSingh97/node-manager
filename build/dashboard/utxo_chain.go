@@ -14,6 +14,7 @@ type utxoChainParams struct {
 	Descriptors    []string
 	ReverseIndex   bool
 	Replay         bool
+	LocalScripts   bool
 }
 
 var (
@@ -23,6 +24,7 @@ var (
 		BlockVerbosity: 3,
 		WaitTip:        true,
 		Descriptors:    []string{"addr(", "pkh(", "wpkh(", "sh(wpkh(", "wsh(", "tr("},
+		LocalScripts:   true,
 	}
 	// Litecoin 0.21.5.8, measured on regtest in the #238 P0 spike.
 	utxoLitecoin = &utxoChainParams{
