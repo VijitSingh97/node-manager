@@ -40,6 +40,8 @@ var (
 	errUtxoFollowStop   = errors.New("follower stopped")
 	errUtxoChainMoved   = errors.New("chain changed while catching up")
 	errUtxoNodeBehind   = errors.New("node is further behind the index than the undo journal")
+	// A block too large to apply stops the index without invalidating it, so no retry fetches it again.
+	errUtxoBlockTooLarge = errors.New("the balance index cannot apply this block within its memory cap")
 )
 
 type utxoRPC interface {
@@ -378,6 +380,9 @@ func (f *utxoFollower) fetchRawBlock(ctx context.Context, height uint32, hash st
 		if err = f.rpc.call(ctx, "getblock", []any{hash, 0}, &hexBlock); err == nil {
 			raw, err = hex.DecodeString(hexBlock)
 		}
+	}
+	if errors.Is(err, errRPCTooLarge) {
+		return utxoBlock{}, fmt.Errorf("%w: block %d is larger than the dashboard reads over RPC; applying it in pieces is issue #363", errUtxoBlockTooLarge, height)
 	}
 	if err != nil {
 		return utxoBlock{}, err

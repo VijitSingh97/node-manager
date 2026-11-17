@@ -644,3 +644,57 @@ func TestReplaySeedNowResumesAReplayTheUserCancelled(t *testing.T) {
 	}
 	utxoMgrCheck(t, m.store, c, "u", 59)
 }
+
+func TestUtxoIndexParksAtABlockTooLargeWithoutInvalidating(t *testing.T) {
+	swapReplayKnobs(t, 5, 1000, 10)
+	swapReplayRetries(t, 30, time.Second)
+	ctx := t.Context()
+	a, _ := testApp(t, &rpcFixture{}, "")
+	c := utxoMgrChain(40, "z")
+	node := newFakeUtxoNode(c)
+	fx := newReplayFixture(t, t.TempDir(), node)
+	m := fx.m
+	a.chainUtxo = map[string]*utxoManager{nodeLitecoin: m}
+	tooLarge, fetches := uint32(25), 0
+	node.hook = func(method string, params any) error {
+		if method == "getblockhash" && params.([]any)[0].(uint32) == tooLarge {
+			fetches++
+			return fmt.Errorf("%w: block %d has 3500000 coin operations", errUtxoBlockTooLarge, tooLarge)
+		}
+		return nil
+	}
+	parked := func(when string, tip uint32) {
+		t.Helper()
+		st := m.Status()
+		if fetches != 1 || st.State != utxoStateDegraded || !strings.Contains(st.Reason, fmt.Sprintf("block %d has 3500000 coin operations", tooLarge)) ||
+			st.IndexTip == nil || *st.IndexTip != tip || m.currentStore().InvalidReason() != "" {
+			t.Fatalf("%s: %d fetches of the block, %+v, invalid %q", when, fetches, st, m.currentStore().InvalidReason())
+		}
+		fx.clock = fx.clock.Add(3 * time.Hour)
+		m.tick(ctx)
+		m.maybeAutoSeed(ctx)
+		if fetches != 1 || m.Status().State != utxoStateDegraded || a.seedNow(nodeLitecoin) {
+			t.Fatalf("%s: the parked index fetched the block again or offered a seed: %d fetches, %+v", when, fetches, m.Status())
+		}
+	}
+	m.tick(ctx)
+	m.maybeAutoSeed(ctx)
+	if st := m.Status(); st.LastSeed == nil || st.LastSeed.Reason != errUtxoBlockTooLarge.Error() {
+		t.Fatalf("the replay's outcome does not name the cause: %+v", st.LastSeed)
+	}
+	parked("replay", tooLarge-1)
+
+	fx = newReplayFixture(t, t.TempDir(), node)
+	m = fx.m
+	a.chainUtxo = map[string]*utxoManager{nodeLitecoin: m}
+	tooLarge, fetches = 40, 0
+	m.tick(ctx)
+	m.maybeAutoSeed(ctx)
+	m.tick(ctx)
+	if st := m.Status(); st.State != utxoStateReady {
+		t.Fatalf("before the large block: %+v", st)
+	}
+	utxoMgrAddBlock(c, "z", 40)
+	m.tick(ctx)
+	parked("following", 39)
+}

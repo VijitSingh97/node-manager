@@ -34,6 +34,8 @@ type rpcNoResultError struct{ method string }
 
 func (e rpcNoResultError) Error() string { return fmt.Sprintf("RPC %s returned no result", e.method) }
 
+var errRPCTooLarge = errors.New("RPC response too large")
+
 func (r *rpcClient) call(ctx context.Context, method string, params any, out any) error {
 	if params == nil {
 		params = []any{}
@@ -183,7 +185,7 @@ func (r *rpcClient) post(ctx context.Context, body []byte, label string) ([]byte
 		return nil, fmt.Errorf("read RPC %s: %w", label, err)
 	}
 	if int64(len(responseBody)) > limit {
-		return nil, fmt.Errorf("RPC %s response exceeds %d bytes", label, limit)
+		return nil, fmt.Errorf("%w: RPC %s response exceeds %d bytes", errRPCTooLarge, label, limit)
 	}
 	return responseBody, nil
 }

@@ -87,7 +87,7 @@ func (m *utxoManager) configureSeed(h utxoSeedHost) {
 }
 
 func seedErrorClass(err error) string {
-	for _, target := range []error{errSeedDump, errSeedLowDisk, errSeedMismatch, errSeedThermal, errSeedInterrupted, errSeedPipeGone} {
+	for _, target := range []error{errSeedDump, errSeedLowDisk, errSeedMismatch, errSeedThermal, errSeedInterrupted, errSeedPipeGone, errUtxoBlockTooLarge} {
 		if errors.Is(err, target) {
 			return target.Error()
 		}
@@ -442,6 +442,8 @@ func (m *utxoManager) seedFromReplay(parent context.Context) error {
 			continue
 		case context.Cause(ctx) != nil:
 			return context.Cause(ctx)
+		case errors.Is(err, errUtxoBlockTooLarge):
+			return err
 		case f.Status().State == utxoFollowError || utxoIntegrityError(err) || errors.Is(err, errUtxoChainMismatch) || errors.Is(err, syscall.ENOSPC):
 			m.fail(err)
 			return err

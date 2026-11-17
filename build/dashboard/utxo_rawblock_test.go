@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -114,5 +116,113 @@ func TestRPCCallHexDecodesTheResultWithoutCopying(t *testing.T) {
 		if tc.err == "" && (err != nil || hex.EncodeToString(got) != tc.want) || tc.err != "" && (err == nil || !strings.Contains(err.Error(), tc.err)) {
 			t.Errorf("%s: got %x, %v", tc.body, got, err)
 		}
+	}
+}
+
+type cashTestOut struct {
+	amount uint64
+	script []byte
+}
+
+func appendCompactSize(b []byte, n uint64) []byte {
+	switch {
+	case n < 0xfd:
+		return append(b, byte(n))
+	case n <= 0xffff:
+		return binary.LittleEndian.AppendUint16(append(b, 0xfd), uint16(n))
+	case n <= 0xffffffff:
+		return binary.LittleEndian.AppendUint32(append(b, 0xfe), uint32(n))
+	}
+	return binary.LittleEndian.AppendUint64(append(b, 0xff), n)
+}
+
+func cashTestTx(ins []utxoOutpoint, outs []cashTestOut) []byte {
+	tx := binary.LittleEndian.AppendUint32(nil, 2)
+	tx = appendCompactSize(tx, uint64(len(ins)))
+	for _, in := range ins {
+		tx = binary.LittleEndian.AppendUint32(append(tx, in.Txid[:]...), in.Vout)
+		tx = binary.LittleEndian.AppendUint32(append(tx, 1, 0x51), 0xffffffff)
+	}
+	tx = appendCompactSize(tx, uint64(len(outs)))
+	for _, o := range outs {
+		tx = appendCompactSize(binary.LittleEndian.AppendUint64(tx, o.amount), uint64(len(o.script)))
+		tx = append(tx, o.script...)
+	}
+	return binary.LittleEndian.AppendUint32(tx, 0)
+}
+
+func cashTestBlock(prev [32]byte, txs ...[]byte) []byte {
+	block := append(binary.LittleEndian.AppendUint32(nil, 0x20000000), prev[:]...)
+	block = appendCompactSize(append(block, make([]byte, 44)...), uint64(len(txs)))
+	for _, tx := range txs {
+		block = append(block, tx...)
+	}
+	return block
+}
+
+func TestParseCashBlockReadsSpendsCreatesAndTokenOutputs(t *testing.T) {
+	p2pkh := mustHex("76a914" + strings.Repeat("11", 20) + "88ac")
+	holder := mustHex("76a914" + strings.Repeat("22", 20) + "88ac")
+	token := append(append(append([]byte{cashTokenPrefix}, bytes.Repeat([]byte{0x33}, 32)...), 0x10, 7), holder...)
+	external := utxoOutpoint{Txid: [32]byte{0xaa}, Vout: 3}
+	prev := [32]byte{0x44}
+	coinbase := cashTestTx([]utxoOutpoint{{Vout: 0xffffffff}}, []cashTestOut{{50_0000_0000, p2pkh}})
+	first := cashTestTx([]utxoOutpoint{external}, []cashTestOut{{1000, p2pkh}, {2000, holder}})
+	firstID := doubleSHA256(first)
+	second := cashTestTx([]utxoOutpoint{{Txid: firstID, Vout: 1}}, []cashTestOut{{500, p2pkh}, {1500, token}})
+	secondID := doubleSHA256(second)
+	raw := cashTestBlock(prev, coinbase, first, second)
+	blk, err := parseCashBlock(raw, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blk.Height != 7 || blk.Hash != doubleSHA256(raw[:80]) || blk.PrevHash != prev {
+		t.Fatalf("header read as height %d hash %x prev %x", blk.Height, blk.Hash, blk.PrevHash)
+	}
+	if len(blk.Spends) != 2 || blk.Spends[0].utxoOutpoint != external || blk.Spends[1].utxoOutpoint != (utxoOutpoint{firstID, 1}) {
+		t.Fatalf("spends %+v", blk.Spends)
+	}
+	want := []utxoCreate{
+		{utxoOutpoint{doubleSHA256(coinbase), 0}, p2pkh, 50_0000_0000},
+		{utxoOutpoint{firstID, 0}, p2pkh, 1000},
+		{utxoOutpoint{firstID, 1}, holder, 2000},
+		{utxoOutpoint{secondID, 0}, p2pkh, 500},
+		{utxoOutpoint{secondID, 1}, holder, 1500},
+	}
+	if len(blk.Creates) != len(want) {
+		t.Fatalf("%d creates, want %d", len(blk.Creates), len(want))
+	}
+	for i, c := range blk.Creates {
+		if c.utxoOutpoint != want[i].utxoOutpoint || c.Amount != want[i].Amount || !bytes.Equal(c.Script, want[i].Script) {
+			t.Fatalf("create %d is %x:%d %d %x, want %x:%d %d %x", i, c.Txid, c.Vout, c.Amount, c.Script, want[i].Txid, want[i].Vout, want[i].Amount, want[i].Script)
+		}
+	}
+	for n := range len(raw) {
+		if _, err := parseCashBlock(raw[:n:n], 7); !errors.Is(err, errUtxoBadBlock) {
+			t.Fatalf("a block cut to %d of %d bytes gave %v", n, len(raw), err)
+		}
+	}
+	inputs := cashTestTx([]utxoOutpoint{external}, nil)
+	huge := binary.LittleEndian.AppendUint64(append(inputs[:len(inputs)-5], 1), 1)
+	huge = append(binary.LittleEndian.AppendUint64(append(huge, 0xff), 1<<62), 0x51, 0, 0, 0, 0)
+	if _, err := parseCashBlock(cashTestBlock(prev, coinbase, huge), 7); !errors.Is(err, errUtxoBadBlock) {
+		t.Fatalf("a script length past the end of the block gave %v", err)
+	}
+}
+
+func TestParseCashBlockRefusesABlockOverTheCoinOperationCap(t *testing.T) {
+	limit := utxoBlockOpsCap
+	utxoBlockOpsCap = 6
+	t.Cleanup(func() { utxoBlockOpsCap = limit })
+	coinbase := cashTestTx([]utxoOutpoint{{Vout: 0xffffffff}}, []cashTestOut{{1, nil}})
+	tiny := func(n int) []byte {
+		return cashTestTx([]utxoOutpoint{{Txid: [32]byte{byte(n)}}}, make([]cashTestOut, n))
+	}
+	if blk, err := parseCashBlock(cashTestBlock([32]byte{}, coinbase, tiny(4)), 9); err != nil || len(blk.Creates)+len(blk.Spends) != 6 {
+		t.Fatalf("a block at the cap: %v", err)
+	}
+	_, err := parseCashBlock(cashTestBlock([32]byte{}, coinbase, tiny(4), tiny(2)), 9)
+	if !errors.Is(err, errUtxoBlockTooLarge) || !strings.Contains(err.Error(), "block 9 has 9 coin operations, more than the 6") || !strings.Contains(err.Error(), "#363") {
+		t.Fatalf("a block of empty-script outputs over the cap gave %v", err)
 	}
 }
