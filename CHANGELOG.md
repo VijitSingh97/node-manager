@@ -6,6 +6,13 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Adding a Bitcoin watch-only wallet to the balance index derives its 2,000
+  scripts in four chunks per branch, up to three at a time (leaving one of bitcoind's default four RPC threads
+  free), instead of one sequential call per branch, to bring a cold add closer to 1 s. The same
+  scripts are derived. Not yet measured on a real node.
+
 ## [1.37.0] - 2026-11-17
 
 ### Added
