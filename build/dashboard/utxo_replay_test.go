@@ -6,10 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -289,8 +292,39 @@ func TestUtxoReplayIntegrityErrorInvalidatesTheIndex(t *testing.T) {
 	}
 }
 
+func swapReplayRetries(t *testing.T, retries int, wait time.Duration) {
+	r, w := utxoReplayRetries, utxoReplayRetryWait
+	utxoReplayRetries, utxoReplayRetryWait = retries, wait
+	t.Cleanup(func() { utxoReplayRetries, utxoReplayRetryWait = r, w })
+}
+
+func TestUtxoReplayRetriesTransientErrorsWithinTheSeed(t *testing.T) {
+	swapReplayKnobs(t, 5, 1000, 10)
+	swapReplayRetries(t, 3, time.Millisecond)
+	ctx := t.Context()
+	c := utxoMgrChain(40, "t")
+	node := newFakeUtxoNode(c)
+	fx := newReplayFixture(t, t.TempDir(), node)
+	failures := 0
+	node.hook = func(method string, params any) error {
+		if failures < 3 && (method == "getblockchaininfo" || method == "getblockhash" && params.([]any)[0].(uint32) == uint32(20+failures)) {
+			failures++
+			return errors.New("connection refused")
+		}
+		return nil
+	}
+	fx.m.tick(ctx)
+	fx.m.maybeAutoSeed(ctx)
+	if st := fx.m.Status(); failures != 3 || st.LastSeed == nil || st.LastSeed.Outcome != "ok" {
+		t.Fatalf("three node outages within the retry budget failed the replay: %+v after %d failures", st, failures)
+	}
+	fx.m.tick(ctx)
+	utxoMgrCheck(t, fx.m.store, c, "t", 39)
+}
+
 func TestUtxoReplayRetriesHourlyThroughNodeOutagesWithoutBackingOff(t *testing.T) {
 	swapReplayKnobs(t, 5, 1000, 10)
+	swapReplayRetries(t, 0, time.Millisecond)
 	ctx := t.Context()
 	c := utxoMgrChain(40, "o")
 	node := newFakeUtxoNode(c)
@@ -319,4 +353,122 @@ func TestUtxoReplayRetriesHourlyThroughNodeOutagesWithoutBackingOff(t *testing.T
 	}
 	m.tick(ctx)
 	utxoMgrCheck(t, m.store, c, "o", 39)
+}
+
+func TestFollowerReplayBoundsBlocksFetchedAheadByCoinOperations(t *testing.T) {
+	swapReplayKnobs(t, 1000, 8, utxoReplayGap)
+	budget := utxoReplayInflightOps
+	utxoReplayInflightOps = 8
+	t.Cleanup(func() { utxoReplayInflightOps = budget })
+	c := utxoMgrChain(40, "b")
+	node := newFakeUtxoNode(c)
+	s := openFollowStore(t)
+	s.beforeCommit = func() error { time.Sleep(2 * time.Millisecond); return nil }
+	var committed atomic.Int64
+	committed.Store(-1)
+	ahead := 0
+	node.hook = func(method string, params any) error {
+		if method == "getblockhash" {
+			ahead = max(ahead, int(int64(params.([]any)[0].(uint32))-committed.Load()))
+		}
+		return nil
+	}
+	f := newUtxoFollower(s, node)
+	f.chain = replayTestChain()
+	f.onBlock = func(h uint32) { committed.Store(int64(h)) }
+	stepOK(t, f)
+	utxoMgrCheck(t, s, c, "b", 39)
+	// Queued blocks within 8 operations, an open batch and one being committed, and the fetcher's own; without the budget it runs over 30 ahead.
+	if ahead > 10 {
+		t.Fatalf("the fetcher ran %d blocks past the last commit with 8 coin operations of queue budget (4 per block)", ahead)
+	}
+}
+
+func TestFollowerReplayPassesABlockLargerThanTheBudgetWhileABatchIsOpen(t *testing.T) {
+	swapReplayKnobs(t, 1000, 1000, utxoReplayGap)
+	budget := utxoReplayInflightOps
+	utxoReplayInflightOps = 8
+	t.Cleanup(func() { utxoReplayInflightOps = budget })
+	c := utxoMgrChain(10, "g")
+	var outs []fakeOut
+	for i := range 30 {
+		outs = append(outs, fakeOut{fmt.Sprintf("0014%02xccdd", i), "0.00010000"})
+	}
+	c.add("big", outs, nil)
+	s := openFollowStore(t)
+	f := newUtxoFollower(s, c)
+	f.chain = replayTestChain()
+	done := make(chan error, 1)
+	go func() { done <- f.Step(context.Background()) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("a block larger than the queue budget stalled the replay")
+	}
+	if h, _, _, _ := s.Tip(); h != 10 || len(lookupAmounts(t, s, "001400ccdd")) != 1 {
+		t.Fatalf("tip %d after the large block", h)
+	}
+}
+
+func TestReplaySeedNowResumesAReplayTheUserCancelled(t *testing.T) {
+	swapReplayKnobs(t, 5, 1000, 10)
+	ctx := t.Context()
+	a, _ := testApp(t, &rpcFixture{}, "")
+	c := utxoMgrChain(60, "u")
+	node := newFakeUtxoNode(c)
+	fx := newReplayFixture(t, t.TempDir(), node)
+	m := fx.m
+	a.chainUtxo = map[string]*utxoManager{nodeLitecoin: m}
+	cancelled := false
+	node.hook = func(method string, params any) error {
+		if !cancelled && method == "getblockhash" && params.([]any)[0].(uint32) == 30 {
+			cancelled = true
+			if err := os.WriteFile(filepath.Join(fx.state, "bitcoincash-"+seedCancelName), nil, 0o600); err != nil {
+				t.Error(err)
+			}
+			for end := time.Now().Add(5 * time.Second); m.Status().Phase != utxoPhaseCancelling && time.Now().Before(end); {
+				time.Sleep(time.Millisecond)
+			}
+		}
+		return nil
+	}
+
+	var view hostControlView
+	if got := hostControlHTTP(a, http.MethodGet, "", false, "192.168.1.20:4321"); json.Unmarshal(got.Body.Bytes(), &view) != nil || !view.UtxoSeedNowLTC {
+		t.Fatalf("a not-seeded replay chain is not offered Seed now without a host helper: %s", got.Body.String())
+	}
+	m.tick(ctx)
+	m.maybeAutoSeed(ctx)
+	st := m.Status()
+	if st.LastSeed == nil || st.LastSeed.Outcome != "cancelled" || st.State != utxoStateCatching || m.seed.AutoFailures != utxoAutoSeedTries {
+		t.Fatalf("after the user's cancel: %+v, failures %d", st, m.seed.AutoFailures)
+	}
+	m.tick(ctx)
+	cut := *m.Status().IndexTip
+	fx.clock = fx.clock.Add(2 * time.Hour)
+	m.maybeAutoSeed(ctx)
+	if cut == 0 || cut >= 59 || *m.Status().IndexTip != cut {
+		t.Fatalf("a cancelled replay moved on its own: tip %d after the cut at %d", *m.Status().IndexTip, cut)
+	}
+	if !a.seedNow(nodeLitecoin) {
+		t.Fatalf("Seed now is not offered for the cancelled replay: %+v", m.Status())
+	}
+	if got := hostControlHTTP(a, http.MethodPost, `{"action":"utxo_seed","node":"litecoin"}`, true, "192.168.1.20:4321").Code; got != http.StatusAccepted {
+		t.Fatalf("Seed now = %d", got)
+	}
+	if _, err := os.Stat(a.nodeControlPath("request")); !os.IsNotExist(err) {
+		t.Fatal("a replay seed went through the host helper")
+	}
+	m.pollSeed(ctx)
+	m.tick(ctx)
+	if st := m.Status(); st.State != utxoStateReady || st.LastSeed.Outcome != "ok" || m.seed.AutoFailures != 0 {
+		t.Fatalf("Seed now did not resume the replay: %+v, failures %d", st, m.seed.AutoFailures)
+	}
+	if a.seedNow(nodeLitecoin) || hostControlHTTP(a, http.MethodPost, `{"action":"utxo_seed","node":"litecoin"}`, true, "192.168.1.20:4321").Code != http.StatusConflict {
+		t.Fatal("Seed now was offered for a ready index")
+	}
+	utxoMgrCheck(t, m.store, c, "u", 59)
 }
