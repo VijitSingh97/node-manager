@@ -8,6 +8,12 @@ All notable changes to this project are documented here. Format follows
 
 ### Fixed
 
+- Saving LAN port changes, or resetting a node's RPC password, reported
+  "Request already processed." even though the change applied. Both recreate
+  the dashboard, and the host helper then wrote its result into the old
+  dashboard container, failed, and left the request to be seen again as a replay
+  on its next run. It now finds the current dashboard container for every
+  write.
 - Exposing a node's RPC, ZMQ or gRPC port on the LAN failed with "Port
   availability could not be checked." on hosts running Tailscale. The port check
   could not read listeners that `ss` prints with an interface scope, such as
