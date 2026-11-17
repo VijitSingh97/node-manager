@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"sort"
@@ -206,6 +207,8 @@ func resolveWalletScripts(ctx context.Context, rpc *rpcClient, chain *utxoChainP
 	if err != nil {
 		return nil, err
 	}
+	var scriptCalls []rpcBatchCall
+	var scriptOwners []int
 	for i, r := range derived {
 		w := deriveOwners[i]
 		if result[w].Fallback {
@@ -217,6 +220,11 @@ func resolveWalletScripts(ctx context.Context, rpc *rpcClient, chain *utxoChainP
 			continue
 		}
 		for _, a := range addresses {
+			if !chain.LocalScripts {
+				scriptCalls = append(scriptCalls, rpcBatchCall{"validateaddress", []any{a}})
+				scriptOwners = append(scriptOwners, w)
+				continue
+			}
 			script, err := addressScript(a)
 			if err != nil {
 				result[w] = walletScripts{Fallback: true}
@@ -224,6 +232,31 @@ func resolveWalletScripts(ctx context.Context, rpc *rpcClient, chain *utxoChainP
 			}
 			result[w].Scripts = append(result[w].Scripts, script)
 		}
+	}
+	validated, err := batchChunks(ctx, rpc, scriptCalls)
+	if err != nil {
+		return nil, err
+	}
+	for i, r := range validated {
+		w := scriptOwners[i]
+		if result[w].Fallback {
+			continue
+		}
+		var info struct {
+			IsValid      bool   `json:"isvalid"`
+			ScriptPubKey string `json:"scriptPubKey"`
+		}
+		var script []byte
+		if json.Unmarshal(r.Result, &info) == nil && info.IsValid {
+			if b, err := hex.DecodeString(info.ScriptPubKey); err == nil {
+				script = b
+			}
+		}
+		if len(script) == 0 {
+			result[w] = walletScripts{Fallback: true}
+			continue
+		}
+		result[w].Scripts = append(result[w].Scripts, script)
 	}
 	for w := range result {
 		result[w].Scripts = sortedUniqueScripts(result[w].Scripts)
