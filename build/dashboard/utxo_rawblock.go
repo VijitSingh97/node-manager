@@ -165,5 +165,16 @@ func parseCashBlock(raw []byte, height uint32) (utxoBlock, error) {
 	if r.err == nil && r.off != len(raw) {
 		r.err = fmt.Errorf("%w: %d trailing bytes after the transactions", errUtxoBadBlock, len(raw)-r.off)
 	}
+	// Copy the scripts out so a queued block does not keep the whole raw block, input padding included, alive.
+	size := 0
+	for _, c := range blk.Creates {
+		size += len(c.Script)
+	}
+	scripts := make([]byte, 0, size)
+	for i := range blk.Creates {
+		start := len(scripts)
+		scripts = append(scripts, blk.Creates[i].Script...)
+		blk.Creates[i].Script = scripts[start:len(scripts):len(scripts)]
+	}
 	return blk, r.err
 }

@@ -384,6 +384,41 @@ func TestFollowerReplayBoundsBlocksFetchedAheadByCoinOperations(t *testing.T) {
 	}
 }
 
+func TestFollowerReplayBoundsBlocksFetchedAheadByScriptBytes(t *testing.T) {
+	swapReplayKnobs(t, 1000, 1000, utxoReplayGap)
+	budget := utxoReplayInflightOps
+	utxoReplayInflightOps = 16
+	t.Cleanup(func() { utxoReplayInflightOps = budget })
+	c := newFakeUtxoChain()
+	genesis(c)
+	for i := range 40 {
+		c.add(fmt.Sprintf("pad%d", i), []fakeOut{{fmt.Sprintf("%02x", i) + strings.Repeat("ab", 8<<10), "0.00010000"}}, nil)
+	}
+	node := newFakeUtxoNode(c)
+	s := openFollowStore(t)
+	s.beforeCommit = func() error { time.Sleep(2 * time.Millisecond); return nil }
+	var committed atomic.Int64
+	committed.Store(-1)
+	ahead := 0
+	node.hook = func(method string, params any) error {
+		if method == "getblockhash" {
+			ahead = max(ahead, int(int64(params.([]any)[0].(uint32))-committed.Load()))
+		}
+		return nil
+	}
+	f := newUtxoFollower(s, node)
+	f.chain = replayTestChain()
+	f.onBlock = func(h uint32) { committed.Store(int64(h)) }
+	stepOK(t, f)
+	// One output per block but 8 KiB of script, so 16 of budget holds about two blocks; counting outputs alone it runs over 15 ahead.
+	if ahead > 6 {
+		t.Fatalf("the fetcher ran %d blocks past the last commit on blocks of one 8 KiB output each", ahead)
+	}
+	if got := lookupAmounts(t, s, "27"+strings.Repeat("ab", 8<<10)); len(got) != 1 {
+		t.Fatalf("the last padded output is not indexed: %v", got)
+	}
+}
+
 func TestFollowerReplayPassesABlockLargerThanTheBudgetWhileABatchIsOpen(t *testing.T) {
 	swapReplayKnobs(t, 1000, 1000, utxoReplayGap)
 	budget := utxoReplayInflightOps

@@ -104,8 +104,9 @@ balances", or `bitcoincash.utxo_index`) needs an archival node
 (`bitcoincash.prune_mb: 0`). Bitcoin Cash Node has no coin-set export, so once the
 node has synced the index replays every block from genesis. It reads raw blocks
 (`getblock` verbosity 0), which costs the node far less memory than verbose JSON on
-Bitcoin Cash's 32 MB stress-test blocks (measured on regtest: about 1.1 GiB at peak
-across four 31 MB blocks, against about 3 GiB for one block as JSON), and resolves spends through a reverse outpoint
+Bitcoin Cash's 32 MB stress-test blocks (measured on regtest: about 1.1 to 1.2 GiB
+at peak while replaying four 31 MB blocks, against about 2.9 GiB serving one of them
+as JSON), and resolves spends through a reverse outpoint
 key, as the Litecoin index does. That is a long one-time job: the regtest rates are in
 [the replay measurement](measurements/utxo-replay.md), and a mainnet replay has not
 been timed. When the index is at the node's tip, Bitcoin Cash balances come from it
@@ -115,14 +116,15 @@ not shown. A pruned Bitcoin Cash node keeps the hourly scan.
 
 With the Bitcoin Cash index on, the dashboard's memory limit is 2 GiB, with
 `GOMEMLIMIT=1600MiB`, instead of the 1 GiB the Bitcoin and Litecoin indexes set.
-The limit is a cap, not memory set aside. On ordinary blocks the dashboard stays
-near what it uses today; Bitcoin Cash mainnet has not been measured, and the
-Bitcoin index peaked at 0.25 GiB RSS (#217). It only climbs while it applies a block
-of tens of MB. On regtest, replaying four 31 MB blocks peaked at about 953 MiB of
-live heap and 1.49 GiB RSS; the same replay was killed under a 1 GiB limit. Bitcoin
-Cash Node, on regtest defaults, peaked at about 1.22 GiB serving those blocks. A
-host replaying such blocks therefore needs about 2.7 GiB of RAM for the two
-(the two peaks added), plus whatever else it runs.
+The limit is a cap, not memory set aside. The cap changes no allocation, so on
+ordinary blocks the dashboard should stay near what it uses today; that is inferred,
+not measured on Bitcoin Cash mainnet (the Bitcoin index peaked at 0.25 GiB RSS,
+#217). It only climbs while it applies a block of tens of MB. On regtest, replaying
+four 31 MB blocks under the 2 GiB cap peaked at 953 MiB of live heap and 1.49 GiB
+RSS; under 1 GiB without `GOMEMLIMIT` the same replay was killed. In that run
+Bitcoin Cash Node, on regtest defaults, peaked at about 1.21 GiB serving those
+blocks. A host replaying such blocks therefore needs about 2.7 GiB of RAM for the
+two (the two peaks added), plus whatever else it runs.
 
 Fresh state includes two sourced public examples:
 

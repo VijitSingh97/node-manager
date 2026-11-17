@@ -21,7 +21,7 @@ const utxoReplayPrefetch = 32
 var (
 	utxoReplayBatch    = 1000
 	utxoReplayBatchOps = 200_000
-	// Blocks fetched ahead plus the open batch stay within this many coin operations; a larger block waits until everything before it is committed.
+	// Blocks fetched ahead plus the open batch stay within this replayCost; a larger block waits until everything before it is committed.
 	utxoReplayInflightOps = 400_000
 )
 
@@ -452,7 +452,7 @@ func (f *utxoFollower) applyRange(ctx context.Context, from, to uint32) error {
 			}
 			start := time.Now()
 			blk, err := f.fetchBlock(ctx, h)
-			cost := int64(len(blk.Creates) + len(blk.Spends))
+			cost := replayCost(blk)
 			if !room(cost) {
 				return
 			}
@@ -469,7 +469,7 @@ func (f *utxoFollower) applyRange(ctx context.Context, from, to uint32) error {
 	})
 	var (
 		batch    []utxoBlock
-		ops      int
+		ops      int64
 		fetchDur time.Duration
 	)
 	flush := func() error {
@@ -477,7 +477,7 @@ func (f *utxoFollower) applyRange(ctx context.Context, from, to uint32) error {
 			return nil
 		}
 		err := f.applyBlocks(batch, fetchDur)
-		freed.Add(int64(ops))
+		freed.Add(ops)
 		select {
 		case wake <- struct{}{}:
 		default:
@@ -510,9 +510,9 @@ func (f *utxoFollower) applyRange(ctx context.Context, from, to uint32) error {
 			return item.err
 		}
 		batch = append(batch, item.blk)
-		ops += len(item.blk.Creates) + len(item.blk.Spends)
+		ops += replayCost(item.blk)
 		fetchDur += item.dur
-		if len(batch) >= utxoReplayBatch || ops >= utxoReplayBatchOps || waiting.Load() && len(queue) == 0 {
+		if len(batch) >= utxoReplayBatch || ops >= int64(utxoReplayBatchOps) || waiting.Load() && len(queue) == 0 {
 			if err := flush(); err != nil {
 				return err
 			}
@@ -522,6 +522,15 @@ func (f *utxoFollower) applyRange(ctx context.Context, from, to uint32) error {
 		return err
 	}
 	return ctx.Err()
+}
+
+// replayCost weighs a block by its coin operations plus one per KiB of output script, since a block of few outputs can still be 32 MB.
+func replayCost(blk utxoBlock) int64 {
+	var scripts int
+	for _, c := range blk.Creates {
+		scripts += len(c.Script)
+	}
+	return int64(len(blk.Creates)+len(blk.Spends)) + int64(scripts>>10)
 }
 
 // With reverse set, spends carry no script and the store resolves them through its reverse keys.

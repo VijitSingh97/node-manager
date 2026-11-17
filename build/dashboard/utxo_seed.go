@@ -60,7 +60,7 @@ type utxoSeedHost struct {
 // A failed automatic seed stalls the node's RPC for minutes, so retries back off and stop after utxoAutoSeedTries.
 var utxoAutoSeedBackoff = []time.Duration{6 * time.Hour, 24 * time.Hour}
 
-// A node restart, an RPC timeout or a reorg near the tip is retried within the replay for about five minutes before it waits for the hourly check.
+// A node restart, an RPC timeout or a reorg near the tip is retried within the replay; only this many attempts in a row without progress make it wait for the hourly check.
 var (
 	utxoReplayRetries   = 30
 	utxoReplayRetryWait = utxoFollowInterval

@@ -91,6 +91,12 @@ func TestParseCashBlockReadsTheRegtestGenesis(t *testing.T) {
 			t.Fatalf("a malformed block of %d bytes parsed", len(bad))
 		}
 	}
+	own := append([]byte{}, raw...)
+	parsed, _ := parseCashBlock(own, 1)
+	clear(own)
+	if string(parsed.Creates[0].Script) != string(blk.Creates[0].Script) {
+		t.Fatal("a parsed script still points into the raw block")
+	}
 }
 
 func TestRPCCallHexDecodesTheResultWithoutCopying(t *testing.T) {
