@@ -7,9 +7,9 @@ Network, Balance index, Appearance, Telegram, and Healthchecks. The person icon
 above it holds Account (sign out) and Dashboard password. Each tower contains
 its own separate Alerts and LAN access sections under Node controls. Nothing in
 Settings takes effect until you press **Save**, including Install, Move data,
-Run new config and Reset to default; their dialogs only check the values.
+Delete, Run new config and Reset to default; their dialogs only check the values.
 **Cancel**, like ✕, closes Settings, and reopening it discards anything unsaved. Host changes then apply one
-after another: a pending config first, then switches, installs and data moves.
+after another: a pending config first, then switches, installs, data moves and deletions.
 A dashboard password protects the
 gear and the rest of the dashboard. The gear works from localhost, a
 configured private LAN address, or the Tor onion dashboard (enable

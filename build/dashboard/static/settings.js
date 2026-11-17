@@ -96,7 +96,7 @@ export function hostToggleChanges(view, draft) {
 
 export function savedHostActions(view, draft, staged = {}) {
   const byAction = (action) => Object.values(staged).filter((payload) => payload?.action === action);
-  return [...byAction("apply_config"), ...hostToggleChanges(view, draft), ...byAction("install"), ...byAction("migrate")];
+  return [...byAction("apply_config"), ...hostToggleChanges(view, draft), ...byAction("install"), ...byAction("migrate"), ...byAction("delete")];
 }
 
 export function confirmedHostChanges(changes, confirmFn) {
@@ -116,8 +116,42 @@ export function balanceIndexControl(view, busy) {
   return { hidden: !view.available || !view.nodes.bitcoin.installed, checked: view.utxo_index, disabled: !view.available || view.config_pending || busy };
 }
 
+const deleteVolumes = {
+  bitcoin: "the balance index volume (utxo_index)",
+  litecoin: "the balance index volume (utxo_index_litecoin)",
+  monero: "the wallet volume (monero_wallets)",
+  tari: "the wallet volumes (tari_wallet, tari_wallet_data)",
+};
+
+export function deleteControl(view, node, staged = {}) {
+  const reason = !view?.available || !view.delete_supported ? "Deleting needs the installed host helper."
+    : view.config_pending ? "Run the new config first."
+    : view.status?.state === "pending" ? "Another host change is running."
+    : !node?.installed ? "This node is not installed."
+    : node.active ? "Deactivate the node first (node settings)."
+    : node.last_enabled || Object.values(view.nodes).filter((other) => other.installed && !staged[`delete:${other.id}`]).length <= 1 ? "At least one node must stay installed."
+    : !node.data_dir ? "The data folder is not known yet."
+    : staged[`migrate:${node.id}`] ? "Undo the staged data move first."
+    : "";
+  return { disabled: reason !== "", reason };
+}
+
+export function deleteImpact(node) {
+  const items = [
+    `the data folder ${node.data_dir}, including everything in it`,
+    ...(deleteVolumes[node.id] ? [deleteVolumes[node.id]] : []),
+    `its configuration and credentials for ${node.name}`,
+    `the watch-only wallets you added for ${node.name}, with their saved balances and history`,
+  ];
+  return items;
+}
+
+export function deleteConfirmed(node, typed) {
+  return !!node?.id && typed === node.id;
+}
+
 export function hostControlModel(data = {}) {
-  const nodes = Object.fromEntries(allNodes.map((id) => [id, { id, name: id, installed: false, data_dir: "", disk_estimate: "", disk_note: "", unsupported: "", interfaces: [] }]));
+  const nodes = Object.fromEntries(allNodes.map((id) => [id, { id, name: id, installed: false, active: false, last_enabled: false, data_dir: "", disk_estimate: "", disk_note: "", unsupported: "", interfaces: [] }]));
   for (const node of Array.isArray(data.nodes) ? data.nodes : []) {
     if (!allNodes.includes(node?.id)) continue;
     const interfaces = (Array.isArray(node.interfaces) ? node.interfaces : []).flatMap((item) => {
@@ -129,6 +163,8 @@ export function hostControlModel(data = {}) {
       id: node.id,
       name: String(node.name || node.id),
       installed: node.installed === true,
+      active: node.active === true,
+      last_enabled: node.last_enabled === true,
       data_dir: typeof node.data_dir === "string" && node.data_dir.startsWith("/") ? node.data_dir : "",
       disk_estimate: String(node.disk_estimate || ""),
       disk_note: String(node.disk_note || ""),
@@ -136,7 +172,7 @@ export function hostControlModel(data = {}) {
       interfaces,
     };
   }
-  const action = ["install", "migrate", "launch_at_boot", "apply_config", ...balanceActions, ...networkActions].includes(data?.status?.action) ? data.status.action : "";
+  const action = ["install", "migrate", "delete", "launch_at_boot", "apply_config", ...balanceActions, ...networkActions].includes(data?.status?.action) ? data.status.action : "";
   const state = ["pending", "applied", "rejected", "failed"].includes(data?.status?.state) ? data.status.state : "";
   const bootKind = ["boot", "login", "unsupported"].includes(data.boot_kind) ? data.boot_kind : "unsupported";
   const revision = data.config_pending === true && /^[0-9a-f]{64}$/.test(String(data.config_revision || "")) ? data.config_revision : "";
@@ -144,6 +180,7 @@ export function hostControlModel(data = {}) {
     available: data.available === true,
     install_supported: data.install_supported === true,
     migrate_supported: data.migrate_supported === true,
+    delete_supported: data.delete_supported === true,
     boot_supported: data.boot_supported === true && bootKind !== "unsupported",
     boot_enabled: data.boot_enabled === true,
     boot_kind: bootKind,
@@ -207,6 +244,7 @@ export function hostActionPayload(action, value, options) {
     if (!dataDir.startsWith("/") || dataDir.length < 2 || dataDir.includes("\n") || dataDir.includes("\r")) return undefined;
     return { action, node: value, data_dir: dataDir };
   }
+  if (action === "delete" && allNodes.includes(value) && options?.confirmation === value) return { action, node: value, confirmation: value };
   if (action === "utxo_index_litecoin" && typeof value === "boolean") return { action: "utxo_index", node: "litecoin", enabled: value };
   if (toggleFields[action] && typeof value === "boolean") return { action, enabled: value };
   if (action === "apply_config" && /^[0-9a-f]{64}$/.test(String(value || ""))) return { action, config_revision: value };
@@ -449,6 +487,14 @@ if (typeof document !== "undefined") {
   const networkSettings = byId("network");
   const hostStatusTarget = (action) => balanceActions.includes(action) ? balanceStatus : networkActions.includes(action) ? networkStatus : hostStatus;
   const configPath = byId("config-path");
+  const deleteDialog = byId("delete-dialog");
+  const deleteForm = byId("delete-form");
+  const deleteTitle = byId("delete-title");
+  const deleteList = byId("delete-list");
+  const deleteConfirmLabel = byId("delete-confirm-label");
+  const deleteConfirm = byId("delete-confirm");
+  const deleteSubmit = byId("delete-submit");
+  let deleteNode = "";
   const installDialog = byId("install-dialog");
   const installForm = byId("install-form");
   const installTitle = byId("install-title");
@@ -690,6 +736,7 @@ if (typeof document !== "undefined") {
     const busy = hostView.status.state === "pending";
     const installing = pendingHostNode(hostView, "install");
     const moving = pendingHostNode(hostView, "migrate");
+    const deleting = pendingHostNode(hostView, "delete");
     for (const node of Object.values(hostView.nodes)) {
       const row = document.createElement("div");
       row.className = "settings-host-node";
@@ -719,7 +766,24 @@ if (typeof document !== "undefined") {
         path.className = "settings-host-path";
         path.textContent = node.data_dir || "";
         path.title = "Current data folder";
-        row.append(name, path, button);
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "settings-delete-button";
+        const deleteKey = `delete:${node.id}`;
+        if (hostStaged[deleteKey]) {
+          remove.textContent = "Deletes on Save";
+          remove.title = "Click to undo";
+          remove.disabled = busy;
+          remove.addEventListener("click", () => { delete hostStaged[deleteKey]; renderHostActions(); });
+          button.disabled = true;
+        } else {
+          const control = deleteControl(hostView, node, hostStaged);
+          remove.textContent = node.id === deleting ? "Deleting…" : "Delete…";
+          remove.disabled = control.disabled;
+          remove.title = control.reason || `Delete ${node.name} and all its data`;
+          remove.addEventListener("click", () => openDelete(node.id));
+        }
+        row.append(name, path, button, remove);
       } else if (node.unsupported) {
         const note = document.createElement("span");
         note.className = "settings-host-note";
@@ -736,6 +800,23 @@ if (typeof document !== "undefined") {
     const next = hostQueue.shift();
     hostQueueAction = next.action;
     submitHost(next);
+  };
+
+  const openDelete = (nodeID) => {
+    const node = hostView.nodes[nodeID];
+    if (!node || deleteControl(hostView, node, hostStaged).disabled) return;
+    deleteNode = nodeID;
+    deleteTitle.textContent = `Delete ${node.name}?`;
+    deleteList.replaceChildren(...deleteImpact(node).map((text) => {
+      const item = document.createElement("li");
+      item.textContent = text;
+      return item;
+    }));
+    deleteConfirmLabel.querySelector("b").textContent = node.id;
+    deleteConfirm.value = "";
+    deleteSubmit.disabled = true;
+    deleteDialog.showModal();
+    deleteConfirm.focus();
   };
 
   const openMigrate = (nodeID) => {
@@ -970,6 +1051,16 @@ if (typeof document !== "undefined") {
   document.getElementById("account-close").addEventListener("click", () => accountDialog.close());
   accountDialog.addEventListener("close", () => credentialSettings.closePassword());
   byId("install-cancel").addEventListener("click", () => installDialog.close());
+  byId("delete-cancel").addEventListener("click", () => deleteDialog.close());
+  deleteConfirm.addEventListener("input", () => { deleteSubmit.disabled = !deleteConfirmed(hostView.nodes[deleteNode], deleteConfirm.value.trim()); });
+  deleteForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const payload = hostActionPayload("delete", deleteNode, { confirmation: deleteConfirm.value.trim() });
+    if (!payload) return;
+    hostStaged[`delete:${deleteNode}`] = payload;
+    deleteDialog.close();
+    renderHostActions();
+  });
   installForm.addEventListener("submit", (event) => {
     event.preventDefault();
     let payload;
