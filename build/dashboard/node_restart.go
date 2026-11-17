@@ -39,6 +39,11 @@ func hostRestartNodes(status hostControlStatus, pending bool) []string {
 		return nodes
 	case "install", "migrate":
 		return []string{status.Node}
+	case "utxo_seed":
+		// A chainstate seed stops the node while its chainstate is copied.
+		if chain := utxoChains[status.Node]; chain != nil && chain.Chainstate {
+			return []string{status.Node}
+		}
 	}
 	return nil
 }

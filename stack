@@ -314,32 +314,41 @@ utxo_chainstate_copy() {
     return 1
   }
   echo "Stopping $utxo_daemon to copy its chainstate..."
-  if ! compose stop "$node" >/dev/null 2>&1; then
-    compose start "$node" >/dev/null 2>&1 || true
-    return 1
-  fi
-  id=$(container_id "$node" 2>/dev/null || true)
-  if [ -z "$id" ] || [ "$(docker inspect --format '{{.State.Running}}' "$id" 2>/dev/null || true)" != false ] || ! rm -rf -- "$dst" || ! mkdir -m 700 "$dst"; then
-    ok=0
-  else
-    for file in "$src"/*; do
-      if [ -L "$file" ] || [ ! -f "$file" ]; then
-        ok=0
-        continue
+  # From here the node is down, so an interrupt or a failure starts it again and leaves no partial copy pinning its tables.
+  local saved
+  saved=$(trap -p INT TERM)
+  trap 'rm -rf -- "$dst"; compose start "$node" >/dev/null 2>&1; exit 130' INT TERM
+  if compose stop "$node" >/dev/null 2>&1; then
+    id=$(container_id "$node" 2>/dev/null || true)
+    # The node's container could swap the chainstate for a symlink until it stopped, so it is checked again now that it cannot.
+    if [ -n "$id" ] && [ "$(docker inspect --format '{{.State.Running}}' "$id" 2>/dev/null || true)" = false ] &&
+      [ -d "$src" ] && [ ! -L "$src" ] && rm -rf -- "$dst" && mkdir -m 700 "$dst"; then
+      for file in "$src"/*; do
+        if [ -L "$file" ] || [ ! -f "$file" ]; then
+          ok=0
+          continue
+        fi
+        case ${file##*/} in
+          LOCK | LOG | LOG.old) ;;
+          *.ldb) ln "$file" "$dst/$(basename "$file" .ldb).sst" || ok=0 ;;
+          *) cp -p "$file" "$dst/" || ok=0 ;;
+        esac
+      done
+      owner=$(stat -c %u:%g "$src" 2>/dev/null || stat -f %u:%g "$src" 2>/dev/null || true)
+      # The dashboard reads the copy as the node's user; if the owner cannot be set, the files' own modes still guard their contents.
+      if [ -z "$owner" ] || ! chown "$owner" "$dst" 2>/dev/null; then
+        chmod 755 "$dst"
       fi
-      case ${file##*/} in
-        LOCK | LOG | LOG.old) ;;
-        *.ldb) ln "$file" "$dst/$(basename "$file" .ldb).sst" || ok=0 ;;
-        *) cp -p "$file" "$dst/" || ok=0 ;;
-      esac
-    done
-    owner=$(stat -c %u:%g "$src" 2>/dev/null || stat -f %u:%g "$src" 2>/dev/null || true)
-    # The dashboard reads the copy as the node's user; if the owner cannot be set, the files' own modes still guard their contents.
-    if [ -z "$owner" ] || ! chown "$owner" "$dst" 2>/dev/null; then
-      chmod 755 "$dst"
+    else
+      ok=0
     fi
+  else
+    ok=0
   fi
+  [ "$ok" = 1 ] || rm -rf -- "$dst"
   compose start "$node" >/dev/null 2>&1 || ok=0
+  trap - INT TERM
+  [ -z "$saved" ] || eval "$saved"
   [ "$ok" = 1 ]
 }
 
@@ -742,6 +751,10 @@ utxo_index_bench() {
     return 1
   fi
   utxo_select_chain "$chain"
+  [ "$chain" != dogecoin ] || {
+    echo "Dogecoin is not in utxo-index bench: Dogecoin Core 1.14.9 has no getdescriptorinfo, deriveaddresses or scantxoutset to read wallets and compare against. Its index is checked by a regtest test against the node's gettxout instead." >&2
+    return 1
+  }
   [ "$chain" = bitcoin ] || [ -n "$utxo_prefix" ] || {
     echo "$usage" >&2
     echo "--chain takes a chain with a balance index." >&2

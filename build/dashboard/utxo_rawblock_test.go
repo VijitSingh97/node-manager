@@ -288,3 +288,27 @@ func TestParseRawBlockReadsPlainAndMergeMinedDogecoinBlocks(t *testing.T) {
 		t.Fatal("a chain without merge mining read past a proof")
 	}
 }
+
+func TestParseRawBlockGuardsTheMergeMinedProof(t *testing.T) {
+	p2pkh := mustHex("76a914" + strings.Repeat("11", 20) + "88ac")
+	coinbase := cashTestTx([]utxoOutpoint{{Vout: 0xffffffff}}, []cashTestOut{{1000, p2pkh}})
+	proof := func(parent []byte, branch []byte) []byte {
+		out := append(append(slices.Clone(parent), bytes.Repeat([]byte{0xbb}, 32)...), branch...)
+		out = append(binary.LittleEndian.AppendUint32(out, 0), 0)
+		return append(binary.LittleEndian.AppendUint32(out, 0), bytes.Repeat([]byte{0xee}, 80)...)
+	}
+	// 2^59 hashes of 32 bytes overflow to zero bytes, so without the count bound the rest of this block would read as valid.
+	huge := binary.LittleEndian.AppendUint64([]byte{0xff}, 1<<59)
+	if _, err := parseRawBlock(rawTestBlock(0x00620104, [32]byte{}, proof(coinbase, huge), coinbase), 5, utxoDogecoin); !errors.Is(err, errUtxoBadBlock) {
+		t.Fatalf("a merkle branch of 2^59 hashes gave %v", err)
+	}
+	// Dogecoin's deserializer reads a zero-input transaction with flags 0 as having no outputs either, and rejects any flag but the witness one.
+	empty := append(binary.LittleEndian.AppendUint32(nil, 1), 0, 0, 0, 0, 0, 0)
+	if blk, err := parseRawBlock(rawTestBlock(0x00620104, [32]byte{}, proof(empty, []byte{0}), coinbase), 5, utxoDogecoin); err != nil || len(blk.Creates) != 1 {
+		t.Fatalf("a parent coinbase with flags 0 gave %+v, %v", blk, err)
+	}
+	flagged := append(binary.LittleEndian.AppendUint32(nil, 1), 0, 2)
+	if _, err := parseRawBlock(rawTestBlock(0x00620104, [32]byte{}, proof(flagged, []byte{0}), coinbase), 5, utxoDogecoin); !errors.Is(err, errUtxoBadBlock) {
+		t.Fatalf("a parent coinbase with unknown flags 2 gave %v", err)
+	}
+}

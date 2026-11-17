@@ -507,8 +507,11 @@ remove_finished_chainstate_copy() {
   [ -d "$copy_dir" ] && [ -n "$(find "$copy_dir" -maxdepth 0 -mmin +2 2>/dev/null)" ] || return 0
   # Only a dashboard that answers, has no pending request and reports a finished seed lets the copy go.
   dashboard_exec test ! -e /state/dogecoin-utxo-seed.request >/dev/null 2>&1 || return 0
-  copy_seed=$(dashboard_exec cat /state/dogecoin-utxo-seed.json 2>/dev/null) || return 0
-  printf '%s' "$copy_seed" | jq -e '(.seed_state | type) == "string" and .seed_state != "seeding" and .seed_state != "checking"' >/dev/null 2>&1 || return 0
+  # With no seed state at all the copy was left by an interrupted copy, so it goes too.
+  if dashboard_exec test -e /state/dogecoin-utxo-seed.json >/dev/null 2>&1; then
+    copy_seed=$(dashboard_exec cat /state/dogecoin-utxo-seed.json 2>/dev/null) || return 0
+    printf '%s' "$copy_seed" | jq -e '(.seed_state | type) == "string" and .seed_state != "seeding" and .seed_state != "checking"' >/dev/null 2>&1 || return 0
+  fi
   rm -rf -- "$copy_dir"
 }
 remove_finished_chainstate_copy

@@ -163,3 +163,49 @@ func TestDogecoinSeedIsRefusedWhenTheChainstateSizeIsUnreadable(t *testing.T) {
 		t.Fatalf("an unreadable chainstate passed the free-space guard: %+v", in)
 	}
 }
+
+func TestChainstateSeedNeedsThreeTimesTheChainstateFree(t *testing.T) {
+	now := time.Now()
+	refused := func(in seedGuardInput) bool {
+		return slices.ContainsFunc(evaluateSeedGuards(in), func(r seedRefusal) bool { return r.Guard == "free_space" })
+	}
+	base := seedGuardInput{Chainstate: true, State: utxoStateNotSeeded, TempC: 50, CPUs: 0.5, Chain: blockchainInfo{Blocks: 1, Headers: 1}, TipTime: now, Now: now, RPCErr: errors.New("no getrpcinfo on 1.14")}
+	for _, tc := range []struct {
+		chainstate, free uint64
+		refused          bool
+	}{
+		{10_000_000_000, 30_000_000_000 - 1, true},
+		{10_000_000_000, 30_000_000_000, false},
+		{100_000_000, utxoMinFreeBytes - 1, true},
+		{100_000_000, utxoMinFreeBytes, false},
+	} {
+		in := base
+		in.ChainstateBytes, in.FreeBytes = tc.chainstate, tc.free
+		if refused(in) != tc.refused {
+			t.Fatalf("chainstate %d with %d free: refused %v", tc.chainstate, tc.free, !tc.refused)
+		}
+		if slices.ContainsFunc(evaluateSeedGuards(in), func(r seedRefusal) bool { return r.Guard == "rpc_idle" }) {
+			t.Fatal("a chainstate seed asked for getrpcinfo")
+		}
+	}
+	data := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(data, "chainstate"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, size := range map[string]int{"000005.ldb": 1000, "000006.log": 500} {
+		if err := os.WriteFile(filepath.Join(data, "chainstate", name), make([]byte, size), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := utxoMgrNewChain(t, t.TempDir(), nil, &chainstateSeedRPC{}, io.Discard, utxoDogecoin)
+	m.configureSeed(utxoSeedHost{prefix: "dogecoin-", stateDir: t.TempDir(), dataDir: data, lock: &sync.Mutex{}, hold: func() bool { return true }, release: func() {}})
+	if in := m.gatherSeedGuards(t.Context()); in.ChainstateBytes != 1500 || in.FreeErr != nil {
+		t.Fatalf("the guard read the chainstate as %d bytes (%v)", in.ChainstateBytes, in.FreeErr)
+	}
+}
+
+func TestHostControlAcceptsADogecoinSeedButNotZcash(t *testing.T) {
+	if !validHostControlShape("utxo_seed", nodeDogecoin, nil, "", nil, "") || validHostControlShape("utxo_seed", nodeZcash, nil, "", nil, "") {
+		t.Fatal("the pending seed shape is wrong for Dogecoin or Zcash")
+	}
+}

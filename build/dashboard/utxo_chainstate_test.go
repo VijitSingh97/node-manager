@@ -4,10 +4,13 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"os"
 	"slices"
 	"strconv"
 	"testing"
+
+	"github.com/cockroachdb/pebble"
 )
 
 func appendCoreVarInt(b []byte, n uint64) []byte {
@@ -130,5 +133,88 @@ func TestChainstateCopyReadsADogecoinRegtestChainstate(t *testing.T) {
 	}
 	if after, _ := os.ReadDir(dir); len(after) != len(before) {
 		t.Fatal("reading the copy wrote to it")
+	}
+}
+
+// writeTestChainstate writes a chainstate the way 1.14 lays it out, obfuscated with xor, using Pebble since the reader is format-blind.
+func writeTestChainstate(t *testing.T, key []byte, best []byte, rows map[string][]byte) string {
+	t.Helper()
+	dir := t.TempDir()
+	db, err := pebble.Open(dir, &pebble.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mask := func(v []byte) []byte {
+		out := bytes.Clone(v)
+		for i := range out {
+			if len(key) > 1 {
+				out[i] ^= key[1+i%(len(key)-1)]
+			}
+		}
+		return out
+	}
+	if key != nil {
+		_ = db.Set(chainstateObfuscateKey, key, nil)
+	}
+	if best != nil {
+		_ = db.Set([]byte{'B'}, mask(best), nil)
+	}
+	for k, row := range rows {
+		_ = db.Set([]byte(k), mask(row), nil)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestChainstateCopyReadsAnOversizedScriptAsUnspendable(t *testing.T) {
+	key := append([]byte{8}, 1, 2, 3, 4, 5, 6, 7, 8)
+	best := bytes.Repeat([]byte{0x42}, 32)
+	big := append(appendCoreVarInt(nil, 6+10001), make([]byte, 10001)...)
+	// Code 6: outputs 0 and 1 unspent, the first with a script over the limit, the second pay-to-script-hash.
+	row := append(append(append([]byte{1, 6, 9}, big...), 9, 1), bytes.Repeat([]byte{0x11}, 20)...)
+	row = append(row, appendCoreVarInt(nil, 77)...)
+	c, err := openChainstateCopy(writeTestChainstate(t, key, best, map[string][]byte{"c" + string(bytes.Repeat([]byte{0xab}, 32)): row}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	var coins []utxoRecord
+	h, err := c.parse(nil, func(r utxoRecord) error { coins = append(coins, r); return nil })
+	if err != nil || h.CoinsCount != 2 || len(coins) != 2 || !bytes.Equal(coins[0].ScriptPubKey, []byte{0x6a}) || utxoSpendable(coins[0].ScriptPubKey) || coins[1].Height != 77 {
+		t.Fatalf("an oversized script failed the seed or read wrongly: %+v %+v %v", h, coins, err)
+	}
+}
+
+func TestChainstateCopyRefusesACorruptChainstate(t *testing.T) {
+	key := append([]byte{8}, 1, 2, 3, 4, 5, 6, 7, 8)
+	best := bytes.Repeat([]byte{0x42}, 32)
+	for name, tc := range map[string]struct {
+		key, best []byte
+		rows      map[string][]byte
+		atOpen    bool
+	}{
+		"short obfuscation key": {key: []byte{4, 1, 2, 3, 4}, best: best, atOpen: true},
+		"long obfuscation key":  {key: append(slices.Clone(key), 9), best: best, atOpen: true},
+		"short best block":      {key: key, best: best[:16], atOpen: true},
+		"missing best block":    {key: key, atOpen: true},
+		"coins key of 31 bytes": {key: key, best: best, rows: map[string][]byte{"c" + string(bytes.Repeat([]byte{0xab}, 31)): {1, 2, 9, 0}}},
+	} {
+		c, err := openChainstateCopy(writeTestChainstate(t, tc.key, tc.best, tc.rows))
+		if tc.atOpen {
+			if !errors.Is(err, errChainstateFormat) {
+				t.Fatalf("%s: opened with %v", name, err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		_, err = c.parse(nil, func(utxoRecord) error { return nil })
+		_ = c.Close()
+		if !errors.Is(err, errChainstateFormat) {
+			t.Fatalf("%s: parsed with %v", name, err)
+		}
 	}
 }

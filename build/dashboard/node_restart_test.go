@@ -107,6 +107,14 @@ func TestInstallAndMigrateRestartOnlyTheirNode(t *testing.T) {
 	}
 }
 
+func TestDogecoinChainstateSeedMarksOnlyDogecoinRestarting(t *testing.T) {
+	a := restartTestApp(t)
+	hostRequestFile(t, a, "utxo_seed", nodeDogecoin, 0)
+	if got := restartingSet(a); !equalIDs(got, nodeDogecoin) {
+		t.Fatalf("a pending Dogecoin chainstate seed marks %v restarting", got)
+	}
+}
+
 func TestHostChangesThatLeaveNodesRunningDoNotMarkRestarting(t *testing.T) {
 	for _, action := range []string{"launch_at_boot", "utxo_index", "utxo_seed"} {
 		a := restartTestApp(t)
