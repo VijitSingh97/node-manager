@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strconv"
@@ -19,10 +20,12 @@ type familyWatchResult struct {
 	Best   string
 }
 
+// scanBatch, when set, scans every due wallet in one walk and returns each wallet's amount by id.
 type familyWatchBackend struct {
 	refreshOnTip bool
 	ready        func(ctx context.Context, s *familyWatchStore, now int64) (familyWatchTip, bool)
 	scan         func(ctx context.Context, s *familyWatchStore, address string, tip familyWatchTip) (familyWatchResult, string)
+	scanBatch    func(ctx context.Context, s *familyWatchStore, wallets []familyWatchEntry, tip familyWatchTip) (map[string]string, familyWatchResult, string)
 	validate     func(ctx context.Context, s *familyWatchStore, address string) (string, error)
 }
 
@@ -78,6 +81,49 @@ func utxoFamilyWatchBackend(litecoin bool) familyWatchBackend {
 				return familyWatchResult{}, "off_chain"
 			}
 			return familyWatchResult{atomic, scan.Height, scan.BestBlock}, "ok"
+		},
+		scanBatch: func(ctx context.Context, s *familyWatchStore, wallets []familyWatchEntry, tip familyWatchTip) (map[string]string, familyWatchResult, string) {
+			descriptors := make([]any, 0, len(wallets))
+			owners := map[string][]string{}
+			for _, wallet := range wallets {
+				script, ok := s.script(ctx, wallet.Address)
+				if !ok {
+					return nil, familyWatchResult{}, "failed"
+				}
+				descriptors = append(descriptors, "addr("+wallet.Address+")")
+				owners[string(script)] = append(owners[string(script)], wallet.ID)
+			}
+			var scan struct {
+				Success   bool   `json:"success"`
+				Height    int64  `json:"height"`
+				BestBlock string `json:"bestblock"`
+				Unspents  []struct {
+					ScriptPubKey string    `json:"scriptPubKey"`
+					Amount       rpcAmount `json:"amount"`
+				} `json:"unspents"`
+			}
+			if err := s.rpc.call(ctx, "scantxoutset", []any{"start", descriptors}, &scan); err != nil || !scan.Success || scan.Height < tip.Blocks || scan.BestBlock == "" {
+				return nil, familyWatchResult{}, "failed"
+			}
+			var mainChainBlock string
+			if s.rpc.call(ctx, "getblockhash", []any{scan.Height}, &mainChainBlock) != nil || mainChainBlock != scan.BestBlock {
+				return nil, familyWatchResult{}, "off_chain"
+			}
+			sums := map[string]uint64{}
+			for _, coin := range scan.Unspents {
+				script, err := hex.DecodeString(coin.ScriptPubKey)
+				if err != nil {
+					return nil, familyWatchResult{}, "failed"
+				}
+				for _, id := range owners[string(script)] {
+					sums[id] += uint64(coin.Amount)
+				}
+			}
+			amounts, ok := familyWatchAmounts(wallets, sums, s.maxSupply)
+			if !ok {
+				return nil, familyWatchResult{}, "failed"
+			}
+			return amounts, familyWatchResult{Height: scan.Height, Best: scan.BestBlock}, "ok"
 		},
 		validate: func(ctx context.Context, s *familyWatchStore, address string) (string, error) {
 			var validated struct {
@@ -143,4 +189,43 @@ func zcashFamilyWatchBackend() familyWatchBackend {
 func (s *familyWatchStore) tipFresh(ctx context.Context, best string, now int64) bool {
 	var header familyBlockHeader
 	return s.rpc.call(ctx, "getblockheader", []any{best}, &header) == nil && header.Time > 0 && header.Time <= now && now-header.Time <= int64(familyWatchTipMaxAge.Seconds())
+}
+
+func familyWatchAmounts(wallets []familyWatchEntry, sums map[string]uint64, maxSupply uint64) (map[string]string, bool) {
+	amounts := make(map[string]string, len(wallets))
+	for _, wallet := range wallets {
+		if sums[wallet.ID] > maxSupply {
+			return nil, false
+		}
+		amounts[wallet.ID] = strconv.FormatUint(sums[wallet.ID], 10)
+	}
+	return amounts, true
+}
+
+// script returns an address's scriptPubKey from the node, cached because an address never changes script.
+func (s *familyWatchStore) script(ctx context.Context, address string) ([]byte, bool) {
+	s.mu.RLock()
+	script, ok := s.scripts[address]
+	s.mu.RUnlock()
+	if ok {
+		return script, true
+	}
+	var validated struct {
+		IsValid      bool   `json:"isvalid"`
+		ScriptPubKey string `json:"scriptPubKey"`
+	}
+	if s.rpc.call(ctx, "validateaddress", []any{address}, &validated) != nil || !validated.IsValid {
+		return nil, false
+	}
+	script, err := hex.DecodeString(validated.ScriptPubKey)
+	if err != nil || len(script) == 0 {
+		return nil, false
+	}
+	s.mu.Lock()
+	if s.scripts == nil {
+		s.scripts = map[string][]byte{}
+	}
+	s.scripts[address] = script
+	s.mu.Unlock()
+	return script, true
 }

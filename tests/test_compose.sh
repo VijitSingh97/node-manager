@@ -447,4 +447,13 @@ for key in networks ports extra_hosts dns; do
   [ "$base_count" = "$utxo_count" ] || fail "UTXO index overlay changed $key settings"
 done
 
+ltc_render=$(docker compose --env-file /dev/null -f docker-compose.yml -f docker-compose.litecoin-utxo-index.yml config)
+ltc_dashboard=$(echo "$ltc_render" | sed -n '/^  dashboard:$/,/^  [a-z][a-z-]*:$/p')
+echo "$ltc_dashboard" | grep -q 'LITECOIN_UTXO_INDEX_ENABLED: "1"' || fail "Litecoin index flag did not reach the dashboard"
+echo "$ltc_dashboard" | grep -q 'LITECOIN_UTXO_INDEX_DIR: /utxo-index-litecoin' || fail "Litecoin index directory did not reach the dashboard"
+echo "$ltc_dashboard" | grep -q 'mem_limit: "1073741824"' || fail "Litecoin index overlay did not set the dashboard memory limit"
+echo "$ltc_dashboard" | grep -q 'cpus: 0.5' || fail "Litecoin index overlay did not set the dashboard CPU limit"
+echo "$ltc_dashboard" | grep -B2 -A2 'target: /utxo-index-litecoin' | grep -q 'source: utxo_index_litecoin' || fail "dashboard is missing the utxo_index_litecoin volume"
+echo "$ltc_render" | sed -n '/^  litecoin:$/,/^  [a-z][a-z-]*:$/p' | grep -q 'utxo' && fail "Litecoin index overlay changed the litecoin service"
+
 echo "PASS: test_compose.sh"

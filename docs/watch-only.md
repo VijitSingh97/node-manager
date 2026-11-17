@@ -79,11 +79,21 @@ Fresh Bitcoin state includes one clearly marked public example; see
 The Litecoin and Bitcoin Cash cards require one public address; the optional
 label defaults to **Litecoin wallet** or **Bitcoin Cash wallet**. After
 the node is fully synced, the dashboard validates the address with that daemon and
-runs its native `scantxoutset` call. The result is a confirmed UTXO snapshot at the
-displayed scan height, not transaction history. Extended public keys, descriptors,
-Litecoin MWEB addresses, private keys, and seeds are not accepted in these forms.
+scans every address that is due in one native `scantxoutset` walk. The result is a
+confirmed UTXO snapshot at the displayed scan height, not transaction history.
+Extended public keys, descriptors, Litecoin MWEB addresses, private keys, and seeds
+are not accepted in these forms. The Litecoin card holds up to 50 addresses and the
+Bitcoin Cash card up to 25.
 
 Scans run in the background and a confirmed result is reused for up to one hour.
+When the Litecoin balance index (Settings → Balance index → "Instant Litecoin
+balances", or `litecoin.utxo_index`) is on and at the node's tip, Litecoin balances come
+from the index instead and update within a minute of each block; the scan is the
+fallback while the index seeds or catches up. Litecoin balances cover transparent
+outputs only: funds inside MWEB are not counted, and the peg-in pool shows as one
+non-wallet coin. Balances that update on each block (Litecoin from the index, and
+Zcash transparent addresses) keep one chart point per hour, showing the latest
+balance within that hour.
 The row is **Pending** before its first successful scan. If the node is syncing or
 a later scan fails, a prior confirmed amount remains visible as **Stale** or
 **Error**; an unverified failure is never displayed as a zero balance. Saved
@@ -414,11 +424,13 @@ xpub.
   must be enabled before the first prune. It is not required for the default
   UTXO-set scan.
 
-## Bitcoin balance index (opt-in)
+## Bitcoin balance index
 
-On a pruned node, `bitcoin.utxo_index` (off by default) keeps a local index of
-the coin set, so a watched wallet's balance comes from a lookup instead of a
-`scantxoutset` walk. It starts empty: seed it once with `./stack utxo-seed`, as
+On a pruned node, `bitcoin.utxo_index` keeps a local index of the coin set, so a
+watched wallet's balance comes from a lookup instead of a `scantxoutset` walk.
+New APT and Homebrew installs, and Bitcoin installed from the dashboard, turn it
+on for a pruned node; other installs opt in. It starts empty and seeds itself
+once the node has synced, or you can seed it with `./stack utxo-seed`, as
 [Operations](operations.md#seeding-the-bitcoin-balance-index) describes. The
 design and its measurements are in
 [ADR 0001](adr/0001-bitcoin-utxo-index.md). Operations also covers the
@@ -459,7 +471,8 @@ measured seed budget, a "Needs a new seed" card, upgrades and removal.
   refuses to turn it off while a seed runs; cancel it first). A badge
   in the heading of the watch-only wallets card shows the index state (ready,
   catching up, seeding, needs a seed, degraded or off) and links to the index
-  card. After turning it on, seed it once from the host.
+  card. After turning it on, the index seeds itself once the node has synced;
+  **Seed now**, here and on the index card, starts a seed straight away.
 - **Turning it off.** Switch it off in Settings, or set `bitcoin.utxo_index` to
   false and run `./stack apply`.
   The scan serves again and the volume is kept; `./stack utxo-index remove`

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -22,6 +23,8 @@ const (
 	seedPollEvery       = 2 * time.Second
 	seedCheckEvery      = time.Second
 	seedRequestMaxBytes = 4096
+	utxoAutoSeedEvery   = time.Hour
+	utxoAutoSeedTries   = 3
 
 	utxoSeedChecking = "checking"
 	utxoSeedRunning  = "seeding"
@@ -37,6 +40,7 @@ var (
 	errSeedThermal     = errors.New("temperature rose above the start limit before the dump")
 	errSeedInterrupted = errors.New("dashboard restarted during the seed")
 	errSeedPipeGone    = errors.New("the seed pipe was replaced during the seed")
+	errSeedUserCancel  = fmt.Errorf("%w by the user", context.Canceled)
 )
 
 // prefix names the request and cancel files per chain; lock is shared by every index so two seeds never overlap.
@@ -48,7 +52,11 @@ type utxoSeedHost struct {
 	hold     func() bool
 	release  func()
 	lock     *sync.Mutex
+	autoSeed func() (id, refusal string)
 }
+
+// A failed automatic seed stalls the node's RPC for minutes, so retries back off and stop after utxoAutoSeedTries.
+var utxoAutoSeedBackoff = []time.Duration{6 * time.Hour, 24 * time.Hour}
 
 type seedRequest struct {
 	ID          string `json:"id"`
@@ -86,7 +94,7 @@ func seedFIFOGuard(dir string) *seedRefusal {
 	if _, err := os.Lstat(filepath.Join(dir, seedDumpName)); err == nil {
 		return &seedRefusal{"fifo", seedDumpName + " already exists"}
 	} else if !errors.Is(err, fs.ErrNotExist) {
-		return &seedRefusal{"fifo", "the bitcoin data directory cannot be inspected"}
+		return &seedRefusal{"fifo", "the node data directory cannot be inspected"}
 	}
 	fi, err := os.Lstat(filepath.Join(dir, seedIncompleteName))
 	switch {
@@ -97,11 +105,11 @@ func seedFIFOGuard(dir string) *seedRefusal {
 	}
 	st, err := os.Stat(dir)
 	if err != nil {
-		return &seedRefusal{"fifo", "the bitcoin data directory cannot be inspected"}
+		return &seedRefusal{"fifo", "the node data directory cannot be inspected"}
 	}
 	sys, ok := st.Sys().(*syscall.Stat_t)
 	if !ok || os.Getuid() != 0 && int(sys.Uid) != os.Getuid() {
-		return &seedRefusal{"fifo", "the dashboard user does not own the bitcoin data directory"}
+		return &seedRefusal{"fifo", "the dashboard user does not own the node data directory"}
 	}
 	return nil
 }
@@ -238,13 +246,13 @@ func (m *utxoManager) pollSeed(ctx context.Context) {
 		return
 	}
 	_ = os.Remove(filepath.Join(h.stateDir, h.prefix+seedCancelName))
-	m.markSeedRequest(req.ID, utxoSeedChecking, nil)
-	in := m.guards(ctx)
-	refusals := evaluateSeedGuards(in)
-	network, known := m.chain.Networks[in.Chain.Chain]
-	if in.ChainErr == nil && !known {
-		refusals = append(refusals, seedRefusal{"node", "this chain cannot be seeded"})
+	m.mu.Lock()
+	if req.ID != m.seed.AutoRequestID {
+		m.seed.AutoFailures = 0
 	}
+	m.mu.Unlock()
+	m.markSeedRequest(req.ID, utxoSeedChecking, nil)
+	network, refusals := m.checkSeed(ctx)
 	if r := seedFIFOGuard(h.dataDir); r != nil {
 		refusals = append(refusals, *r)
 	}
@@ -271,6 +279,70 @@ func (m *utxoManager) pollSeed(ctx context.Context) {
 	}
 }
 
+func (m *utxoManager) checkSeed(ctx context.Context) ([4]byte, []seedRefusal) {
+	in := m.guards(ctx)
+	refusals := evaluateSeedGuards(in)
+	network, known := m.chain.Networks[in.Chain.Chain]
+	if in.ChainErr == nil && !known {
+		refusals = append(refusals, seedRefusal{"node", "this chain cannot be seeded"})
+	}
+	return network, refusals
+}
+
+// maybeAutoSeed asks the host for a seed once an hour while the index has none; a refusal stays in the status.
+func (m *utxoManager) maybeAutoSeed(ctx context.Context) {
+	if m.host.autoSeed == nil {
+		return
+	}
+	m.mu.Lock()
+	now, last := m.now(), m.autoSeedAt
+	due := m.state == utxoStateNotSeeded && !m.seeding && now.Sub(m.autoSeedAt) >= utxoAutoSeedEvery && m.autoSeedBackedOffLocked(now)
+	if due {
+		m.autoSeedAt = now
+	}
+	m.mu.Unlock()
+	if !due {
+		return
+	}
+	_, refusals := m.checkSeed(ctx)
+	if len(refusals) == 0 {
+		id, detail := m.host.autoSeed()
+		if detail == "" {
+			m.mu.Lock()
+			m.seed.AutoRequestID = id
+			m.persistSeedLocked()
+			m.mu.Unlock()
+			return
+		}
+		// Another index's seed request is usually gone within seconds, so try again on the next poll.
+		if detail == hostChangePending {
+			m.mu.Lock()
+			m.autoSeedAt = last
+			m.mu.Unlock()
+			return
+		}
+		refusals = append(refusals, seedRefusal{"host", detail})
+	}
+	m.markSeedRequest(m.lastSeedRequest(), utxoSeedRefused, refusals)
+}
+
+func (m *utxoManager) autoSeedBackedOffLocked(now time.Time) bool {
+	f := m.seed.AutoFailures
+	if f >= utxoAutoSeedTries {
+		return false
+	}
+	return f == 0 || m.seed.Last == nil || !now.Before(m.seed.Last.FinishedAt.Add(utxoAutoSeedBackoff[f-1]))
+}
+
+func (m *utxoManager) countAutoSeedLocked(ok bool) {
+	switch {
+	case ok:
+		m.seed.AutoFailures = 0
+	case m.seed.AutoRequestID != "" && m.seed.RequestID == m.seed.AutoRequestID:
+		m.seed.AutoFailures++
+	}
+}
+
 func (m *utxoManager) watchSeedCancel(ctx context.Context, cancel context.CancelCauseFunc) {
 	path := filepath.Join(m.host.stateDir, m.host.prefix+seedCancelName)
 	t := time.NewTicker(m.checkEvery)
@@ -283,7 +355,7 @@ func (m *utxoManager) watchSeedCancel(ctx context.Context, cancel context.Cancel
 			if _, err := os.Stat(path); err == nil {
 				_ = os.Remove(path)
 				m.setSeedPhase(utxoPhaseCancelling)
-				cancel(nil)
+				cancel(errSeedUserCancel)
 				return
 			}
 		}

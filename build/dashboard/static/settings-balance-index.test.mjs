@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { balanceIndexPayload, confirmedHostChanges, balanceIndexControl, seedCommand, UTXO_INDEX_OFF_PROMPT, hostControlModel, hostActionPayload } from "./settings.js";
+import { balanceIndexPayload, confirmedHostChanges, balanceIndexControl, seedCommand, UTXO_INDEX_OFF_PROMPT, UTXO_INDEX_LITECOIN_OFF_PROMPT, hostControlModel, hostActionPayload, hostToggleChanges } from "./settings.js";
 
 test("the balance index switch reads its state, builds a boolean payload and routes its status", () => {
   assert.equal(hostControlModel({}).utxo_index, false);
@@ -44,4 +44,25 @@ test("saving the balance index off drops only that change on a cancelled confirm
   assert.equal(balanceIndexControl({ ...bitcoin, available: false }, false).hidden, true);
   assert.equal(balanceIndexControl({ ...bitcoin, config_pending: true }, false).disabled, true);
   assert.equal(balanceIndexControl(bitcoin, true).disabled, true);
+});
+
+test("Seed now follows the host view and routes its status to the balance index", () => {
+  assert.equal(hostControlModel({}).utxo_seed_now, false);
+  assert.equal(hostControlModel({ utxo_seed_now: true }).utxo_seed_now, true);
+  assert.equal(hostControlModel({ utxo_seed_now: "true" }).utxo_seed_now, false);
+  assert.equal(hostControlModel({ status: { action: "utxo_seed", state: "applied", message: "Balance index seed started." } }).status.action, "utxo_seed");
+});
+
+test("the Litecoin balance index switch stages its own node-scoped payload", () => {
+  const view = hostControlModel({ utxo_index: true, utxo_index_litecoin: false, utxo_seed_now_litecoin: true });
+  assert.equal(view.utxo_index_litecoin, false);
+  assert.equal(view.utxo_seed_now_litecoin, true);
+  assert.deepEqual(hostActionPayload("utxo_index_litecoin", true), { action: "utxo_index", node: "litecoin", enabled: true });
+  assert.deepEqual(hostToggleChanges(view, { utxo_index_litecoin: true }), [{ action: "utxo_index", node: "litecoin", enabled: true }]);
+  const off = { action: "utxo_index", node: "litecoin", enabled: false };
+  const asked = [];
+  assert.deepEqual(confirmedHostChanges([off], (m) => { asked.push(m); return false; }), []);
+  assert.deepEqual(asked, [UTXO_INDEX_LITECOIN_OFF_PROMPT]);
+  assert.deepEqual(confirmedHostChanges([off], () => true), [off]);
+  assert.equal(hostControlModel({ status: { action: "utxo_index", node: "litecoin", state: "applied", message: "ok" } }).status.node, "litecoin");
 });

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,10 +14,11 @@ import (
 )
 
 const (
-	maxFamilyWatchWallets = 25
-	maxFamilyWatchHistory = 96
-	familyWatchInterval   = time.Hour
-	familyWatchRPCTimeout = 10 * time.Minute
+	maxFamilyWatchWallets   = 25
+	maxLitecoinWatchWallets = 50
+	maxFamilyWatchHistory   = 96
+	familyWatchInterval     = time.Hour
+	familyWatchRPCTimeout   = 10 * time.Minute
 )
 
 var errFamilyWatchUnavailable = errors.New("watch-only wallet storage unavailable")
@@ -83,6 +85,9 @@ type familyWatchStore struct {
 	importedPath string
 	skipExample  bool
 	logf         func(format string, args ...any)
+	maxWallets   int
+	index        *utxoManager
+	scripts      map[string][]byte
 }
 
 type familyWatchManager struct {
@@ -97,8 +102,9 @@ func newFamilyWatchManager(a *app) *familyWatchManager {
 		store := &familyWatchStore{
 			rosterPath: filepath.Join(a.cfg.stateDir, "family_watch_"+id+".json"), cachePath: filepath.Join(a.cfg.stateDir, "family_watch_"+id+"_cache.json"),
 			balances: make(map[string]familyWatchBalance), states: make(map[string]string), trigger: make(chan struct{}, 1), now: time.Now,
-			rpc:       &rpcClient{url: node.RPCURL, user: node.RPCUser, password: node.RPCPassword, client: &http.Client{Timeout: familyWatchRPCTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}},
-			maxSupply: 21_000_000 * 100_000_000, backend: utxoFamilyWatchBackend(false), logf: func(format string, args ...any) {
+			// One batched scan lists every coin of every due wallet, well past the default 4 MiB for busy addresses.
+			rpc:       &rpcClient{url: node.RPCURL, user: node.RPCUser, password: node.RPCPassword, maxBody: 64 << 20, client: &http.Client{Timeout: familyWatchRPCTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}},
+			maxSupply: 21_000_000 * 100_000_000, backend: utxoFamilyWatchBackend(false), maxWallets: maxFamilyWatchWallets, scripts: map[string][]byte{}, logf: func(format string, args ...any) {
 				if a.log != nil {
 					a.log.Printf(format, args...)
 				}
@@ -106,7 +112,7 @@ func newFamilyWatchManager(a *app) *familyWatchManager {
 		}
 		switch id {
 		case nodeLitecoin:
-			store.maxSupply, store.backend = 84_000_000*100_000_000, utxoFamilyWatchBackend(true)
+			store.maxSupply, store.backend, store.maxWallets = 84_000_000*100_000_000, utxoFamilyWatchBackend(true), maxLitecoinWatchWallets
 		case nodeDogecoin:
 			store.maxSupply, store.backend, store.skipExample = dogecoinMaxSupply, dogecoinFamilyWatchBackend(), true
 			store.imported, store.retryAt = make(map[string]bool), make(map[string]int64)
@@ -134,7 +140,7 @@ func (s *familyWatchStore) load(seed familyWatchEntry) {
 			s.err = errFamilyWatchUnavailable
 			return
 		}
-	} else if err != nil || !decodeFamilyWatchRoster(data, &s.wallets, seed) {
+	} else if err != nil || !decodeFamilyWatchRoster(data, &s.wallets, seed, s.maxWallets) {
 		s.err = errFamilyWatchUnavailable
 		return
 	}
@@ -166,9 +172,9 @@ func (s *familyWatchStore) Err() error {
 	return s.err
 }
 
-func decodeFamilyWatchRoster(data []byte, wallets *[]familyWatchEntry, seed familyWatchEntry) bool {
+func decodeFamilyWatchRoster(data []byte, wallets *[]familyWatchEntry, seed familyWatchEntry, maxWallets int) bool {
 	var stored familyWatchFile
-	if !decodeStrictBytes(data, &stored) || len(stored.Wallets) > maxFamilyWatchWallets {
+	if !decodeStrictBytes(data, &stored) || len(stored.Wallets) > maxWallets {
 		return false
 	}
 	seen := make(map[string]bool, len(stored.Wallets))
@@ -255,8 +261,8 @@ func (s *familyWatchStore) add(label, address string) (familyWatchEntry, error) 
 	if s.err != nil {
 		return familyWatchEntry{}, s.err
 	}
-	if len(s.wallets) >= maxFamilyWatchWallets {
-		return familyWatchEntry{}, errors.New("At most 25 addresses can be monitored.")
+	if len(s.wallets) >= s.maxWallets {
+		return familyWatchEntry{}, fmt.Errorf("At most %d addresses can be monitored.", s.maxWallets)
 	}
 	id := familyWatchID(address)
 	for _, wallet := range s.wallets {

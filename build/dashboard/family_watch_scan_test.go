@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -62,13 +64,21 @@ func (f *familyScanRPCFixture) handler(w http.ResponseWriter, r *http.Request) {
 		result = map[string]any{"blocks": chainHeight, "headers": chainHeight, "bestblockhash": chainHash, "initialblockdownload": ibd, "warnings": warnings}
 	case "getblockheader":
 		result = map[string]any{"time": tipTime}
+	case "validateaddress":
+		address, _ := request.Params[0].(string)
+		result = map[string]any{"isvalid": true, "address": address, "scriptPubKey": hex.EncodeToString([]byte(address))}
 	case "scantxoutset":
 		descriptors, _ := request.Params[1].([]any)
-		descriptor, _ := descriptors[0].(string)
+		var unspents []any
 		f.mu.Lock()
-		f.scanned = append(f.scanned, descriptor)
+		for _, d := range descriptors {
+			descriptor, _ := d.(string)
+			f.scanned = append(f.scanned, descriptor)
+			address := strings.TrimSuffix(strings.TrimPrefix(descriptor, "addr("), ")")
+			unspents = append(unspents, map[string]any{"scriptPubKey": hex.EncodeToString([]byte(address)), "amount": json.RawMessage("1.25000000")})
+		}
 		f.mu.Unlock()
-		result = map[string]any{"success": true, "total_amount": json.RawMessage("1.25000000"), "height": scanHeight, "bestblock": scanHash}
+		result = map[string]any{"success": true, "total_amount": json.RawMessage("1.25000000"), "height": scanHeight, "bestblock": scanHash, "unspents": unspents}
 	case "getblockhash":
 		height, _ := request.Params[0].(float64)
 		result = canonical[int64(height)]
@@ -257,5 +267,50 @@ func TestFamilyWatchScantxoutsetWaitsForHourlyRescanWhenTipMoves(t *testing.T) {
 	manager.scanNode(t.Context(), nodeLitecoin, store)
 	if got := len(fixture.scans()); got != 1 {
 		t.Fatalf("scans = %d", got)
+	}
+}
+
+func TestFamilyWatchHistoryKeepsHourlyPointsForBlockDrivenBalances(t *testing.T) {
+	start := time.Unix(2_000_000_000, 0)
+	for _, tc := range []struct {
+		name   string
+		spaced bool
+		set    func(*familyWatchStore)
+	}{
+		{"zcash refreshes on each block", true, func(s *familyWatchStore) { s.backend = zcashFamilyWatchBackend() }},
+		{"litecoin reads the index", true, func(s *familyWatchStore) { s.index = &utxoManager{} }},
+		{"an hourly scan", false, func(*familyWatchStore) {}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wallet := familyWatchEntry{ID: "w", Address: "a"}
+			_, store, _ := newFamilyScanTest(t, start, wallet)
+			tc.set(store)
+			clock := start
+			store.now = func() time.Time { return clock }
+			for _, step := range []struct {
+				after  time.Duration
+				amount string
+			}{{0, "100"}, {10 * time.Minute, "200"}, {20 * time.Minute, "300"}, {30 * time.Minute, "300"}, {10 * time.Minute, "350"}, {50 * time.Minute, "400"}} {
+				clock = clock.Add(step.after)
+				store.record(wallet.ID, step.amount, 1, "best")
+			}
+			var got []string
+			for _, p := range store.balances[wallet.ID].History {
+				got = append(got, fmt.Sprintf("%d:%s", p.Time-start.Unix(), p.Amount))
+			}
+			want := []string{"0:" + formatFamilyWatchAmount("300"), "3600:" + formatFamilyWatchAmount("350"), "7200:" + formatFamilyWatchAmount("400")}
+			if !tc.spaced {
+				want = nil
+				for _, p := range []struct {
+					at     int
+					amount string
+				}{{0, "100"}, {600, "200"}, {1800, "300"}, {3600, "300"}, {4200, "350"}, {7200, "400"}} {
+					want = append(want, fmt.Sprintf("%d:%s", p.at, formatFamilyWatchAmount(p.amount)))
+				}
+			}
+			if strings.Join(got, " ") != strings.Join(want, " ") {
+				t.Fatalf("history %v, want %v", got, want)
+			}
+		})
 	}
 }

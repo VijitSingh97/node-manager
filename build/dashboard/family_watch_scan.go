@@ -69,7 +69,24 @@ func (m *familyWatchManager) scanNode(parent context.Context, id string, store *
 		store.markWaiting()
 		return
 	}
-	for _, wallet := range store.walletsDue(now, tip) {
+	if store.fromIndex(ctx, tip, now) {
+		return
+	}
+	due := store.walletsDue(now, tip)
+	if store.backend.scanBatch != nil && len(due) > 0 {
+		started := time.Now()
+		amounts, result, outcome := store.backend.scanBatch(ctx, store, due, tip)
+		for _, wallet := range due {
+			if outcome == "ok" {
+				store.record(wallet.ID, amounts[wallet.ID], result.Height, result.Best)
+			} else {
+				store.markFailed(wallet.ID)
+			}
+		}
+		m.logScan(id, outcome, started)
+		return
+	}
+	for _, wallet := range due {
 		if ctx.Err() != nil {
 			store.markFailed(wallet.ID)
 			return
@@ -161,7 +178,10 @@ func (s *familyWatchStore) record(id, amount string, height int64, bestBlock str
 		balance := s.balances[id]
 		balance.Amount, balance.ScanHeight, balance.ScanTime, balance.BestBlock = amount, height, now, bestBlock
 		point := familyWatchHistory{Time: now, Amount: formatFamilyWatchAmount(amount)}
-		if last := len(balance.History) - 1; !s.backend.refreshOnTip || last < 0 || balance.History[last].Amount != point.Amount || now-balance.History[last].Time >= int64(familyWatchInterval/time.Second) {
+		// Balances read on every block would fill the history in hours, so a change within the hour updates that hour's point.
+		if last := len(balance.History) - 1; (s.backend.refreshOnTip || s.index != nil) && last >= 0 && now-balance.History[last].Time < int64(familyWatchInterval/time.Second) {
+			balance.History[last].Amount = point.Amount
+		} else {
 			balance.History = append(balance.History, point)
 		}
 		if len(balance.History) > maxFamilyWatchHistory {
@@ -180,4 +200,54 @@ func (s *familyWatchStore) markRescanning(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.states[id] = "rescanning"
+}
+
+// fromIndex serves every wallet from the chain's balance index when it sits at the node's tip, recording a wallet
+// when its amount changed or its hourly point is due so the history keeps its spacing.
+func (s *familyWatchStore) fromIndex(ctx context.Context, tip familyWatchTip, now int64) bool {
+	if s.index == nil {
+		return false
+	}
+	s.mu.RLock()
+	wallets := append([]familyWatchEntry(nil), s.wallets...)
+	s.mu.RUnlock()
+	hashes := make(map[string][utxoPrefixLen]byte, len(wallets))
+	scripts := make([][]byte, 0, len(wallets))
+	for _, wallet := range wallets {
+		script, ok := s.script(ctx, wallet.Address)
+		if !ok {
+			return false
+		}
+		hashes[wallet.ID] = utxoScriptHash(script)
+		scripts = append(scripts, script)
+	}
+	coins, height, hash, ok := s.index.Lookup(scripts)
+	if !ok || reverseHex(hash) != tip.Best {
+		return false
+	}
+	byHash := map[[utxoPrefixLen]byte]uint64{}
+	for _, coin := range coins {
+		byHash[coin.ScriptHash] += coin.Amount
+	}
+	sums := make(map[string]uint64, len(wallets))
+	for _, wallet := range wallets {
+		sums[wallet.ID] = byHash[hashes[wallet.ID]]
+	}
+	amounts, ok := familyWatchAmounts(wallets, sums, s.maxSupply)
+	if !ok {
+		return false
+	}
+	due := map[string]bool{}
+	for _, wallet := range s.walletsDue(now, tip) {
+		due[wallet.ID] = true
+	}
+	for _, wallet := range wallets {
+		s.mu.RLock()
+		balance, cached := s.balances[wallet.ID]
+		s.mu.RUnlock()
+		if due[wallet.ID] || !cached || balance.Amount != amounts[wallet.ID] {
+			s.record(wallet.ID, amounts[wallet.ID], int64(height), tip.Best)
+		}
+	}
+	return true
 }

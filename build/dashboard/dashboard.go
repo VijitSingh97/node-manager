@@ -184,7 +184,8 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 			a.utxo.setSeedStatePath(filepath.Join(cfg.stateDir, "utxo-seed.json"))
 			dumpRPC := *rpc
 			dumpRPC.client, dumpRPC.maxBody = &http.Client{}, 1<<20
-			a.utxo.configureSeed(utxoSeedHost{stateDir: cfg.stateDir, dataDir: cfg.dataDir, dump: &dumpRPC, hold: a.scanner.hold, release: a.scanner.release, lock: &a.utxoSeedLock})
+			a.utxo.configureSeed(utxoSeedHost{stateDir: cfg.stateDir, dataDir: cfg.dataDir, dump: &dumpRPC, hold: a.scanner.hold, release: a.scanner.release, lock: &a.utxoSeedLock,
+				autoSeed: func() (string, string) { return a.queueSeedHostAction(nodeBitcoin) }})
 			a.utxo.configureBench(a.benchHost())
 		}
 	}
@@ -198,7 +199,11 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 			logger.Printf("%s balance index disabled: %s overlaps %s", node.Name, node.UTXOIndexDir, clash)
 			continue
 		}
-		a.chainUtxo[id] = a.newChainUtxo(node, chain, logger)
+		m := a.newChainUtxo(node, chain, logger)
+		a.chainUtxo[id] = m
+		if store := a.familyWatch.stores[id]; store != nil {
+			store.index, m.onApplied = m, store.requestScan
+		}
 	}
 	if a.moneroWatch.Err() != nil {
 		a.log.Print("Monero watch-only wallet state unavailable until the state file is repaired and the dashboard restarts")

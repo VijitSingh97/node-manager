@@ -1,5 +1,6 @@
 import { credentialSettingsController } from "./credentials.js";
 import { dashboardFetch as fetch } from "./session.js";
+import { requestSeed } from "./utxo-index.js";
 
 const extraNodes = ["tari", "litecoin", "dogecoin", "bitcoincash", "zcash"];
 const allNodes = ["bitcoin", "monero", ...extraNodes];
@@ -64,8 +65,11 @@ export function configurationAccess(data) {
 }
 
 const networkActions = ["clearnet_over_tor", "inbound_connections"];
-const toggleFields = { launch_at_boot: "boot_enabled", clearnet_over_tor: "clearnet_over_tor", inbound_connections: "inbound_connections", utxo_index: "utxo_index" };
-export const hostToggleDefaults = { launch_at_boot: false, clearnet_over_tor: true, inbound_connections: true, utxo_index: false };
+const balanceActions = ["utxo_index", "utxo_seed"];
+export const UTXO_INDEX_LITECOIN_OFF_PROMPT = "Turn off instant Litecoin balances? Wallets go back to the slower scan. The index volume stays on disk until you run utxo-index remove litecoin.";
+const toggleKey = (change) => change?.action === "utxo_index" && change?.node === "litecoin" ? "utxo_index_litecoin" : change?.action;
+const toggleFields = { launch_at_boot: "boot_enabled", clearnet_over_tor: "clearnet_over_tor", inbound_connections: "inbound_connections", utxo_index: "utxo_index", utxo_index_litecoin: "utxo_index_litecoin" };
+export const hostToggleDefaults = { launch_at_boot: false, clearnet_over_tor: true, inbound_connections: true, utxo_index: false, utxo_index_litecoin: false };
 export const UTXO_INDEX_OFF_PROMPT = "Turn off instant Bitcoin balances? Wallets go back to the slower scan. The index volume stays on disk until you run utxo-index remove.";
 
 export function balanceIndexPayload(enabled, confirmFn) {
@@ -85,7 +89,11 @@ export function savedHostActions(view, draft, staged = {}) {
 }
 
 export function confirmedHostChanges(changes, confirmFn) {
-  return changes.map((change) => change.action === "utxo_index" ? balanceIndexPayload(change.enabled, confirmFn) : change).filter(Boolean);
+  return changes.map((change) => {
+    if (change.action !== "utxo_index") return change;
+    if (change.node === "litecoin") return change.enabled === false && !confirmFn(UTXO_INDEX_LITECOIN_OFF_PROMPT) ? undefined : change;
+    return balanceIndexPayload(change.enabled, confirmFn);
+  }).filter(Boolean);
 }
 
 export function hostQueueSettled(view, action) {
@@ -120,7 +128,7 @@ export function hostControlModel(data = {}) {
       interfaces,
     };
   }
-  const action = ["install", "migrate", "launch_at_boot", "apply_config", "utxo_index", ...networkActions].includes(data?.status?.action) ? data.status.action : "";
+  const action = ["install", "migrate", "launch_at_boot", "apply_config", ...balanceActions, ...networkActions].includes(data?.status?.action) ? data.status.action : "";
   const state = ["pending", "applied", "rejected", "failed"].includes(data?.status?.state) ? data.status.state : "";
   const bootKind = ["boot", "login", "unsupported"].includes(data.boot_kind) ? data.boot_kind : "unsupported";
   const revision = data.config_pending === true && /^[0-9a-f]{64}$/.test(String(data.config_revision || "")) ? data.config_revision : "";
@@ -134,6 +142,9 @@ export function hostControlModel(data = {}) {
     clearnet_over_tor: data.clearnet_over_tor === true,
     inbound_connections: data.inbound_connections === true,
     utxo_index: data.utxo_index === true,
+    utxo_seed_now: data.utxo_seed_now === true,
+    utxo_index_litecoin: data.utxo_index_litecoin === true,
+    utxo_seed_now_litecoin: data.utxo_seed_now_litecoin === true,
     config_pending: !!revision,
     config_revision: revision,
     config_path: typeof data.config_path === "string" && data.config_path.startsWith("/") ? data.config_path : "",
@@ -188,6 +199,7 @@ export function hostActionPayload(action, value, options) {
     if (!dataDir.startsWith("/") || dataDir.length < 2 || dataDir.includes("\n") || dataDir.includes("\r")) return undefined;
     return { action, node: value, data_dir: dataDir };
   }
+  if (action === "utxo_index_litecoin" && typeof value === "boolean") return { action: "utxo_index", node: "litecoin", enabled: value };
   if (toggleFields[action] && typeof value === "boolean") return { action, enabled: value };
   if (action === "apply_config" && /^[0-9a-f]{64}$/.test(String(value || ""))) return { action, config_revision: value };
   return undefined;
@@ -409,18 +421,26 @@ if (typeof document !== "undefined") {
   byId("network").insertAdjacentHTML("afterend", `<fieldset id="settings-balance-index" hidden>
     <legend>Balance index</legend>
     <label class="settings-check"><input id="settings-utxo-index" type="checkbox" role="switch"> Instant Bitcoin balances</label>
-    <p class="settings-note">For pruned nodes. Uses about 7.5 GiB of disk, up to about 17 GiB while it seeds, and the seed needs 27 GB free. After turning it on, seed it once (about 20 minutes; Bitcoin RPC pauses for about 5 minutes) from the host: <code id="settings-utxo-seed-command"></code>. Turning it off keeps the volume until <code>utxo-index remove</code>, and is refused while a seed runs. Applying restarts the dashboard.</p>
+    <label id="settings-utxo-index-litecoin-label" class="settings-check" hidden><input id="settings-utxo-index-litecoin" type="checkbox" role="switch"> Instant Litecoin balances</label>
+    <p class="settings-note">For pruned nodes. Uses about 7.5 GiB of disk, up to about 17 GiB while it seeds, and the seed needs 27 GB free. After turning it on, it seeds itself once the node has synced (about 20 minutes; Bitcoin RPC pauses for about 5 minutes).<span id="settings-utxo-seed-cli" hidden> Without host controls, seed it from the host: <code id="settings-utxo-seed-command"></code>.</span> Turning it off keeps the volume until <code>utxo-index remove</code>, and is refused while a seed runs. Applying restarts the dashboard.</p>
+    <button id="settings-utxo-seed-now" type="button" hidden>Seed now</button>
+    <button id="settings-utxo-seed-now-litecoin" type="button" hidden>Seed Litecoin now</button>
     <p id="settings-utxo-index-status" class="settings-note" role="status" aria-live="polite"></p>
   </fieldset>`);
   const utxoIndex = byId("utxo-index");
   const balanceSettings = byId("balance-index");
   const balanceStatus = byId("utxo-index-status");
   const utxoSeedCommand = byId("utxo-seed-command");
+  const utxoSeedCli = byId("utxo-seed-cli");
+  const utxoSeedNow = byId("utxo-seed-now");
+  const utxoIndexLitecoin = byId("utxo-index-litecoin");
+  const utxoIndexLitecoinLabel = byId("utxo-index-litecoin-label");
+  const utxoSeedNowLitecoin = byId("utxo-seed-now-litecoin");
   const clearnetOverTor = byId("clearnet-over-tor");
   const inboundConnections = byId("inbound-connections");
   const networkStatus = byId("network-status");
   const networkSettings = byId("network");
-  const hostStatusTarget = (action) => action === "utxo_index" ? balanceStatus : networkActions.includes(action) ? networkStatus : hostStatus;
+  const hostStatusTarget = (action) => balanceActions.includes(action) ? balanceStatus : networkActions.includes(action) ? networkStatus : hostStatus;
   const configPath = byId("config-path");
   const installDialog = byId("install-dialog");
   const installForm = byId("install-form");
@@ -484,7 +504,8 @@ if (typeof document !== "undefined") {
   let resetStaged = false;
   let hostQueue = [];
   let hostQueueAction = "";
-  const hostToggles = { launch_at_boot: launchAtStart, clearnet_over_tor: clearnetOverTor, inbound_connections: inboundConnections, utxo_index: utxoIndex };
+  const saving = () => hostQueue.length > 0 || hostQueueAction !== "";
+  const hostToggles = { launch_at_boot: launchAtStart, clearnet_over_tor: clearnetOverTor, inbound_connections: inboundConnections, utxo_index: utxoIndex, utxo_index_litecoin: utxoIndexLitecoin };
   const hostRequests = latestRequestGate();
   let installNode = "";
   try { portRequestID = localStorage.getItem("nodeStackPortRequest") || ""; } catch {}
@@ -601,11 +622,12 @@ if (typeof document !== "undefined") {
     const nextHostView = hostControlModel(data);
     if (pendingToggle) {
       const field = toggleFields[pendingToggle.action];
-      const failed = nextHostView.status.action === pendingToggle.action && ["rejected", "failed"].includes(nextHostView.status.state);
+      const failed = toggleKey(nextHostView.status) === pendingToggle.action && ["rejected", "failed"].includes(nextHostView.status.state);
       if (failed || nextHostView[field] === pendingToggle.enabled) pendingToggle = undefined;
       else {
         nextHostView[field] = pendingToggle.enabled;
-        nextHostView.status = { action: pendingToggle.action, state: "pending", message: hostView.status.message || "Applying host change…" };
+        const litecoin = pendingToggle.action === "utxo_index_litecoin";
+        nextHostView.status = { action: litecoin ? "utxo_index" : pendingToggle.action, node: litecoin ? "litecoin" : "", state: "pending", message: hostView.status.message || "Applying host change…" };
       }
     }
     const queueResult = hostQueueSettled(nextHostView, hostQueueAction);
@@ -635,9 +657,19 @@ if (typeof document !== "undefined") {
     utxoIndex.checked = balanceControl.checked;
     utxoIndex.disabled = balanceControl.disabled;
     utxoSeedCommand.textContent = seedCommand(hostView.boot_kind);
+    utxoSeedCli.hidden = hostView.available;
+    utxoSeedNow.hidden = !hostView.utxo_seed_now;
+    utxoSeedNow.disabled = busy || saving();
+    utxoIndex.closest("label").hidden = balanceControl.hidden;
+    utxoIndexLitecoinLabel.hidden = !hostView.available || !hostView.nodes.litecoin.installed;
+    utxoIndexLitecoin.checked = shown("utxo_index_litecoin");
+    utxoIndexLitecoin.disabled = balanceControl.disabled;
+    balanceSettings.hidden = balanceControl.hidden && utxoIndexLitecoinLabel.hidden;
+    utxoSeedNowLitecoin.hidden = !hostView.utxo_seed_now_litecoin;
+    utxoSeedNowLitecoin.disabled = busy || saving();
     configChange.hidden = !hostView.config_pending;
     const networkMessage = networkActions.includes(hostView.status.action);
-    const balanceMessage = hostView.status.action === "utxo_index";
+    const balanceMessage = balanceActions.includes(hostView.status.action);
     networkStatus.textContent = networkMessage ? hostView.status.message : "";
     balanceStatus.textContent = balanceMessage ? hostView.status.message : "";
     hostStatus.textContent = networkMessage || balanceMessage ? "" : hostView.status.message || (!hostView.available ? "Host controls require the installed helper." : "");
@@ -748,6 +780,19 @@ if (typeof document !== "undefined") {
     installDialog.showModal();
   };
 
+  utxoSeedNow.addEventListener("click", async () => {
+    if (saving()) return;
+    utxoSeedNow.disabled = true;
+    balanceStatus.textContent = await requestSeed();
+    await loadHost();
+  });
+  utxoSeedNowLitecoin.addEventListener("click", async () => {
+    if (saving()) return;
+    utxoSeedNowLitecoin.disabled = true;
+    balanceStatus.textContent = await requestSeed(undefined, "litecoin");
+    await loadHost();
+  });
+
   async function loadHost() {
     await hostRequests.run(requestHost, renderHost, (error) => {
       hostStatus.textContent = error.message;
@@ -763,8 +808,8 @@ if (typeof document !== "undefined") {
     const status = hostStatusTarget(payload.action);
     status.textContent = "Applying…";
     for (const button of hostNodes.querySelectorAll("button")) button.disabled = true;
-    launchAtStart.disabled = applyConfig.disabled = clearnetOverTor.disabled = inboundConnections.disabled = utxoIndex.disabled = true;
-    if (toggleFields[payload.action]) pendingToggle = { action: payload.action, enabled: payload.enabled };
+    launchAtStart.disabled = applyConfig.disabled = clearnetOverTor.disabled = inboundConnections.disabled = utxoIndex.disabled = utxoIndexLitecoin.disabled = true;
+    if (toggleFields[toggleKey(payload)]) pendingToggle = { action: toggleKey(payload), enabled: payload.enabled };
     try {
       const statusView = await requestHost(payload);
       hostView.status = { action: payload.action, state: "pending", message: statusView.message || "Applying host change…" };
@@ -1009,7 +1054,9 @@ if (typeof document !== "undefined") {
       const confirmed = confirmedHostChanges(hostChanges, (message) => window.confirm(message));
       if (confirmed.length < hostChanges.length) {
         delete hostDraft.utxo_index;
+        delete hostDraft.utxo_index_litecoin;
         utxoIndex.checked = hostView.utxo_index;
+        utxoIndexLitecoin.checked = hostView.utxo_index_litecoin;
       }
       hostChanges = confirmed;
     }

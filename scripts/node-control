@@ -316,8 +316,10 @@ publish_host_capability() {
   clearnet_over_tor=true
   inbound_connections=true
   utxo_index=false
+  utxo_index_litecoin=false
   if [ -f "$approved_config" ]; then
     utxo_index=$(jq -r '.bitcoin.utxo_index == true' "$approved_config" 2>/dev/null || printf false)
+    utxo_index_litecoin=$(jq -r '.litecoin.utxo_index == true' "$approved_config" 2>/dev/null || printf false)
     clearnet_over_tor=$(jq -r '.network.clearnet_over_tor != false' "$approved_config" 2>/dev/null || printf true)
     inbound_connections=$(jq -r '.network.inbound_connections != false' "$approved_config" 2>/dev/null || printf true)
   fi
@@ -339,9 +341,9 @@ publish_host_capability() {
   done
   jq -nc --argjson timestamp "$now" --arg platform "$host_platform" --arg boot_kind "$boot_kind" \
     --argjson boot_supported "$boot_supported" --argjson boot_enabled "$boot_enabled" --argjson config_pending "$pending" \
-    --argjson clearnet_over_tor "$clearnet_over_tor" --argjson inbound_connections "$inbound_connections" --argjson utxo_index "$utxo_index" \
+    --argjson clearnet_over_tor "$clearnet_over_tor" --argjson inbound_connections "$inbound_connections" --argjson utxo_index "$utxo_index" --argjson utxo_index_litecoin "$utxo_index_litecoin" \
     --arg config_revision "$revision" --arg config_path "$config_path" --argjson data_paths "$data_paths" \
-    '{timestamp:$timestamp,install_supported:true,migrate_supported:true,boot_supported:$boot_supported,boot_enabled:$boot_enabled,clearnet_over_tor:$clearnet_over_tor,inbound_connections:$inbound_connections,utxo_index:$utxo_index,config_pending:$config_pending,config_revision:$config_revision,platform:$platform,boot_kind:$boot_kind,config_path:$config_path,data_paths:$data_paths}' |
+    '{timestamp:$timestamp,install_supported:true,migrate_supported:true,utxo_seed_supported:true,boot_supported:$boot_supported,boot_enabled:$boot_enabled,clearnet_over_tor:$clearnet_over_tor,inbound_connections:$inbound_connections,utxo_index:$utxo_index,utxo_index_litecoin:$utxo_index_litecoin,config_pending:$config_pending,config_revision:$config_revision,platform:$platform,boot_kind:$boot_kind,config_path:$config_path,data_paths:$data_paths}' |
     $docker_bin exec -i -u 1000 "$dashboard_id" sh -c 'umask 077; cat > /state/.node-control.capability.tmp; mv /state/.node-control.capability.tmp /state/node-control.capability' >/dev/null
 }
 publish_host_capability
@@ -421,6 +423,18 @@ elif printf '%s' "$request" | jq -e --argjson now "$now" '
 ' >/dev/null 2>&1; then
   host_request=true
 elif printf '%s' "$request" | jq -e --argjson now "$now" '
+  type=="object" and keys==["action","enabled","id","node","requested_at"] and .action=="utxo_index" and .node=="litecoin" and
+  (.id|type=="string" and test("^[0-9a-f]{32}$")) and (.enabled|type=="boolean") and
+  (.requested_at|type=="number" and floor==. and . >= $now-300 and . <= $now+30)
+' >/dev/null 2>&1; then
+  host_request=true
+elif printf '%s' "$request" | jq -e --argjson now "$now" '
+  type=="object" and keys==["action","id","node","requested_at"] and .action=="utxo_seed" and
+  (.id|type=="string" and test("^[0-9a-f]{32}$")) and (.node=="bitcoin" or .node=="litecoin") and
+  (.requested_at|type=="number" and floor==. and . >= $now-300 and . <= $now+30)
+' >/dev/null 2>&1; then
+  host_request=true
+elif printf '%s' "$request" | jq -e --argjson now "$now" '
   type=="object" and keys==["action","config_revision","id","requested_at"] and .action=="apply_config" and
   (.id|type=="string" and test("^[0-9a-f]{32}$")) and
   (.config_revision|type=="string" and test("^[0-9a-f]{64}$")) and
@@ -470,6 +484,8 @@ if [ "$host_request" = true ]; then
     printf '%s' "$current" | jq --arg node "$host_node" --arg data_dir "$host_data_dir" --arg bind_ip "$host_bind_ip" --argjson interfaces "$host_interfaces" --argjson memory "$memory" '
       .[$node].enabled=true | .[$node].active=true |
       .[$node].resource_profile //= "compact" |
+      if $node=="bitcoin" and (.bitcoin.prune_mb // 10000) != 0 and (.bitcoin // {} | has("utxo_index") | not) then .bitcoin.utxo_index=true
+      elif $node=="litecoin" and (.litecoin // {} | has("utxo_index") | not) then .litecoin.utxo_index=true else . end |
       if $node=="zcash" and ((.zcash.address_index|type)!="boolean") then .zcash.address_index=true else . end |
       .[$node].steady_cpus //= 1 | .[$node].steady_mem_limit_mb //= $memory |
       if $data_dir!="" then .[$node].data_dir=$data_dir else . end |
@@ -671,39 +687,63 @@ if [ "$host_request" = true ]; then
     BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root"       BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" apply >/dev/null 2>&1 || true
     host_finish failed "Migration failed; the node was restored in place." "$host_node" "" apply_failed
   fi
+  if [ "$host_action" = utxo_seed ]; then
+    host_node=$(printf '%s' "$request" | jq -r .node)
+    seed_prefix=
+    [ "$host_node" = bitcoin ] || seed_prefix="$host_node-"
+    [ "$(jq -r --arg node "$host_node" '.[$node].utxo_index == true' "$approved_config" 2>/dev/null)" = true ] ||
+      host_finish rejected "The balance index is off for this node." "$host_node" "" validation_failed
+    if dashboard_exec cat "/state/${seed_prefix}utxo-seed.json" 2>/dev/null | jq -e '.seed_state == "seeding" or .seed_state == "checking"' >/dev/null 2>&1; then
+      host_finish rejected "A balance index seed is already running." "$host_node" "" seed_running
+    fi
+    seed_node_id=$(container_id "$host_node")
+    [ -n "$seed_node_id" ] || host_finish failed "The node is not running." "$host_node" "" apply_failed
+    "$docker_bin" exec "$seed_node_id" sh -c 'rm -f /data/utxo-seed.dat /data/utxo-seed.dat.incomplete && mkfifo -m 600 /data/utxo-seed.dat.incomplete' >/dev/null 2>&1 ||
+      host_finish failed "The seed pipe could not be created." "$host_node" "" apply_failed
+    jq -nc --arg id "$host_id" --argjson at "$now" '{id:$id,requested_at:$at}' |
+      "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c "umask 077; cat > /state/.${seed_prefix}utxo-seed.request.tmp; mv /state/.${seed_prefix}utxo-seed.request.tmp /state/${seed_prefix}utxo-seed.request" >/dev/null ||
+      host_finish failed "The seed request could not be written." "$host_node" "" apply_failed
+    host_finish applied "Balance index seed started." "$host_node"
+  fi
   if [ "$host_action" = clearnet_over_tor ] || [ "$host_action" = inbound_connections ] || [ "$host_action" = utxo_index ]; then
     host_enabled=$(printf '%s' "$request" | jq -r .enabled)
     host_section=network
     host_label="Network setting"
     host_read=".network[\$key] != false"
+    host_toggle_node=
     if [ "$host_action" = utxo_index ]; then
-      host_section=bitcoin
+      host_section=$(printf '%s' "$request" | jq -r '.node // "bitcoin"')
+      [ "$host_section" = bitcoin ] || host_toggle_node=$host_section
       host_label="Balance index setting"
-      host_read=".bitcoin[\$key] == true"
+      host_read=".[\$section][\$key] == true"
     fi
     current='{}'
     [ -f "$config_file" ] && current=$(cat "$config_file")
     printf '%s' "$current" | jq -e --arg section "$host_section" '.[$section] == null or (.[$section] | type) == "object"' >/dev/null 2>&1 ||
-      host_finish rejected "$host_label is invalid." "" "$host_enabled" validation_failed
-    if [ "$host_action" = utxo_index ] && [ "$host_enabled" = true ] &&
+      host_finish rejected "$host_label is invalid." "$host_toggle_node" "$host_enabled" validation_failed
+    if [ "$host_action" = utxo_index ] && [ "$host_enabled" = true ] && [ "$host_section" = bitcoin ] &&
       [ "$(printf '%s' "$current" | jq -r '.bitcoin.enabled == false')" = true ]; then
       host_finish rejected "$host_label requires Bitcoin to be enabled." "" "$host_enabled" validation_failed
     fi
-    [ "$(printf '%s' "$current" | jq -r --arg key "$host_action" "$host_read")" != "$host_enabled" ] ||
-      host_finish rejected "$host_label is already in that state." "" "$host_enabled" unchanged
+    if [ "$host_action" = utxo_index ] && [ "$host_enabled" = true ] && [ "$host_section" = litecoin ] &&
+      [ "$(printf '%s' "$current" | jq -r '.litecoin.enabled == true')" != true ]; then
+      host_finish rejected "$host_label requires Litecoin to be enabled." "$host_toggle_node" "$host_enabled" validation_failed
+    fi
+    [ "$(printf '%s' "$current" | jq -r --arg section "$host_section" --arg key "$host_action" "$host_read")" != "$host_enabled" ] ||
+      host_finish rejected "$host_label is already in that state." "$host_toggle_node" "$host_enabled" unchanged
     if [ "$host_action" = utxo_index ] && [ "$host_enabled" = false ] &&
-      dashboard_exec cat /state/utxo-seed.json 2>/dev/null | jq -e '.seed_state == "seeding" or .seed_state == "checking"' >/dev/null 2>&1; then
-      host_finish rejected "$host_label cannot change while a seed is running." "" "$host_enabled" seed_running
+      dashboard_exec cat "/state/${host_toggle_node:+$host_toggle_node-}utxo-seed.json" 2>/dev/null | jq -e '.seed_state == "seeding" or .seed_state == "checking"' >/dev/null 2>&1; then
+      host_finish rejected "$host_label cannot change while a seed is running." "$host_toggle_node" "$host_enabled" seed_running
     fi
     candidate=$(mktemp "$config_root/.config.network.XXXXXX")
     printf '%s' "$current" | jq --arg section "$host_section" --arg key "$host_action" --argjson enabled "$host_enabled" '.[$section][$key]=$enabled' >"$candidate" ||
-      { rm -f "$candidate"; host_finish rejected "$host_label is invalid." "" "$host_enabled" validation_failed; }
+      { rm -f "$candidate"; host_finish rejected "$host_label is invalid." "$host_toggle_node" "$host_enabled" validation_failed; }
     validate=$(mktemp -d "$state_root/node-control/.validate.XXXXXX")
     cp "$candidate" "$validate/config.json"
     if ! BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$validate" \
       BITCOIN_STACK_VALIDATE_ONLY=1 BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/configure.sh" >/dev/null 2>&1; then
       rm -rf "$candidate" "$validate"
-      host_finish rejected "$host_label is invalid." "" "$host_enabled" validation_failed
+      host_finish rejected "$host_label is invalid." "$host_toggle_node" "$host_enabled" validation_failed
     fi
     rm -rf "$validate"
     backup=$(mktemp "$state_root/node-control/.config.backup.XXXXXX")
@@ -714,15 +754,15 @@ if [ "$host_request" = true ]; then
       BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" apply >/dev/null 2>&1; then
       rm -f "$backup"
       refresh_dashboard_id
-      host_finish applied "$host_label applied." "" "$host_enabled"
+      host_finish applied "$host_label applied." "$host_toggle_node" "$host_enabled"
     fi
     if ! mv "$backup" "$config_file" || ! BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root" \
       BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" apply >/dev/null 2>&1; then
       refresh_dashboard_id
-      host_finish failed "$host_label failed and its prior state could not be fully restored." "" "$host_enabled" rollback_failed
+      host_finish failed "$host_label failed and its prior state could not be fully restored." "$host_toggle_node" "$host_enabled" rollback_failed
     fi
     refresh_dashboard_id
-    host_finish failed "$host_label could not be applied; prior setting restored." "" "$host_enabled" apply_failed
+    host_finish failed "$host_label could not be applied; prior setting restored." "$host_toggle_node" "$host_enabled" apply_failed
   fi
   if [ "$host_action" = launch_at_boot ]; then
     [ "$boot_supported" = true ] || host_finish rejected "Launch at boot is not managed for source installs." "" "$(printf '%s' "$request" | jq -r .enabled)" unsupported
@@ -788,7 +828,7 @@ if [ "$host_request" = true ]; then
     host_finish failed "Launch setting could not be changed; prior setting restored." "" "$host_enabled" apply_failed
   fi
 fi
-if printf '%s' "$request" | jq -e 'type=="object" and (.action=="install" or .action=="launch_at_boot" or .action=="apply_config" or .action=="clearnet_over_tor" or .action=="inbound_connections" or .action=="utxo_index")' >/dev/null 2>&1; then
+if printf '%s' "$request" | jq -e 'type=="object" and (.action=="install" or .action=="launch_at_boot" or .action=="apply_config" or .action=="clearnet_over_tor" or .action=="inbound_connections" or .action=="utxo_index" or .action=="utxo_seed")' >/dev/null 2>&1; then
   invalid_host_id=$(printf '%s' "$request" | jq -r 'if (.id|type)=="string" and (.id|test("^[0-9a-f]{32}$")) then .id else "" end')
   invalid_host_action=$(printf '%s' "$request" | jq -r .action)
   write_host_status "$invalid_host_id" "$invalid_host_action" rejected "Invalid request." "" "" invalid_request

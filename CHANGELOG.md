@@ -14,6 +14,28 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
+- Instant Litecoin balances: `litecoin.utxo_index` (Settings → Balance index →
+  "Instant Litecoin balances") keeps a Litecoin balance index, and the Litecoin
+  watch-only card reads its balances from it once it is seeded, updating within a
+  minute of each block. It is on by default when Litecoin is installed from the
+  dashboard, seeds itself like the Bitcoin index, and has `utxo-seed litecoin`
+  and `utxo-index remove litecoin`. Only one balance index seeds at a time.
+  Balances cover transparent outputs only; funds inside MWEB are not counted.
+- The Bitcoin balance index is on by default for new pruned installs. APT and
+  Homebrew setup, and installing Bitcoin from the dashboard, write
+  `bitcoin.utxo_index: true` when the node is pruned; existing installs and
+  archival nodes keep their setting. An enabled index that has never been seeded,
+  or whose last seed failed, now seeds itself: once an hour the dashboard checks
+  the seed guards and, when they pass, asks the host helper to prepare the seed
+  pipe and request, so no `utxo-seed` command is needed. A refused check stays
+  in the index status with its reason. A seed that starts and fails, or is cut
+  short by a dashboard restart, is retried after 6 hours, then 24 hours, and not
+  again after a third failure until you start one. Cancelling a seed with
+  `utxo-seed cancel` stops automatic seeding until you start one. The automatic
+  seed holds node-down alerts as a manual seed does.
+- A **Seed now** button on the balance index card and in Settings → Balance
+  index starts a seed through the host helper when the index needs one. The
+  `utxo-seed` command is shown only where host controls are unavailable.
 - A node whose container is stopped outside the dashboard (`node-manager stop`,
   `docker stop`, a crash that exhausted its restarts) now shows its tower greyed
   with a Stopped status and a Start node button instead of Connecting forever.
@@ -29,6 +51,10 @@ All notable changes to this project are documented here. Format follows
 
 ### Changed
 
+- The Litecoin and Bitcoin Cash watch-only cards scan every due address in one
+  `scantxoutset` walk instead of one walk per address, and the Litecoin card holds
+  up to 50 addresses (was 25). The Litecoin card notes that funds inside MWEB are
+  not counted.
 - The new-version notice and Settings now link to the README's Updating section
   instead of repeating the update commands.
 - Settings ends with **Reset to default**, **Cancel** and **Save**, and that
