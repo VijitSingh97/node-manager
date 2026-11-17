@@ -19,6 +19,7 @@ pad-transactions=1
 disable-dns-checkpoints=1
 check-updates=disabled
 hide-my-port=1
+no-igd=1
 in-peers=0
 out-peers=12
 rpc-bind-ip=0.0.0.0

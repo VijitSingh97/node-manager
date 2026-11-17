@@ -140,6 +140,12 @@ class NodeConfigTest(unittest.TestCase):
         self.assertTrue(lib.bitcoin_violations(broken, conf))
         self.assertTrue(lib.bitcoin_violations(files, conf + "upnp=1\n"))
         self.assertTrue(lib.bitcoin_violations(files, conf + "connect=1.2.3.4\n"))
+        self.assertTrue(lib.bitcoin_violations(files, mutated(conf, "natpmp=0", "natpmp=1")))
+        self.assertTrue(lib.bitcoin_violations(files, conf.replace("natpmp=0\n", "")))
+        self.assertTrue(lib.bitcoin_violations(files, conf + "upnp=0\n"))
+        with_upnp = dict(files)
+        with_upnp["docker-compose.yml"] = mutated(files["docker-compose.yml"], "-maxconnections=125", "-upnp=0 -maxconnections=125")
+        self.assertTrue(lib.bitcoin_violations(with_upnp, conf))
         self.assertTrue(lib.bitcoin_violations(files, mutated(conf, "listen=0", "listen=1")))
 
     def test_family_entrypoint_source_pins_tor_routing(self):
@@ -148,30 +154,35 @@ class NodeConfigTest(unittest.TestCase):
         self.assertTrue(lib.family_entry_violations(mutated(script, "proxy=$TOR_PROXY\nonion", "onion")))
         self.assertTrue(lib.family_entry_violations(mutated(script, "--socks5-hostname", "--proxy")))
         self.assertTrue(lib.family_entry_violations(mutated(script, "--noproxy ''", "--max-time 1")))
+        self.assertTrue(lib.family_entry_violations(mutated(script, "upnp=0\n", "")))
+        self.assertTrue(lib.family_entry_violations(mutated(script, "echo natpmp=0", "echo natpmp=1")))
 
-    def render_family(self, **env):
+    def render_family(self, node_bin="litecoin", **env):
         with tempfile.TemporaryDirectory() as tmp:
-            stub = Path(tmp) / "litecoind"
+            stub = Path(tmp) / (node_bin + "d")
             stub.write_text('#!/bin/sh\ncat "${2#-conf=}"\n')
             stub.chmod(0o755)
             onion = Path(tmp) / "onion"
             onion.write_text("abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz2345.onion\n")
             data = Path(tmp) / "data"
             data.mkdir()
-            base = {"PATH": "{}:{}".format(tmp, os.environ["PATH"]), "NODE_BIN": "litecoin", "NODE_ENV_PREFIX": "LITECOIN", "TOR_PROXY": "t:1",
-                    "LITECOIN_RPC_USER": "u", "LITECOIN_RPC_PASSWORD": "p", "LITECOIN_PRUNE": "1", "NODE_DATA_DIR": str(data),
+            base = {"PATH": "{}:{}".format(tmp, os.environ["PATH"]), "NODE_BIN": node_bin, "NODE_ENV_PREFIX": "NODE", "TOR_PROXY": "t:1",
+                    "NODE_RPC_USER": "u", "NODE_RPC_PASSWORD": "p", "NODE_PRUNE": "1", "NODE_DATA_DIR": str(data),
                     "ONION_BIND": "172.29.0.33:9334", "ONION_HOSTNAME": str(onion)}
             base.update(env)
             result = subprocess.run(["sh", str(ROOT / "build/bitcoin-family/entrypoint.sh")], env=base, capture_output=True, text=True, check=True, cwd=tmp)
             return result.stdout
 
     def test_every_rendered_family_config_stays_on_tor(self):
-        for clearnet in ("1", "0"):
-            for inbound in ("1", "0"):
-                with self.subTest(clearnet=clearnet, inbound=inbound):
-                    conf = self.render_family(TOR_CLEARNET=clearnet, TOR_INBOUND=inbound)
-                    self.assertEqual(lib.family_conf_violations(conf, clearnet == "1", inbound == "1", "t:1"), [])
-                    self.assertEqual("listen=1" in conf.splitlines(), inbound == "1")
+        for node_bin in ("litecoin", "dogecoin", "bitcoin"):
+            for clearnet in ("1", "0"):
+                for inbound in ("1", "0"):
+                    with self.subTest(node_bin=node_bin, clearnet=clearnet, inbound=inbound):
+                        conf = self.render_family(node_bin, TOR_CLEARNET=clearnet, TOR_INBOUND=inbound)
+                        self.assertEqual(lib.family_conf_violations(conf, clearnet == "1", inbound == "1", "t:1", node_bin), [])
+                        self.assertEqual("listen=1" in conf.splitlines(), inbound == "1")
+                        self.assertIn("upnp=0", conf.splitlines())
+                        self.assertEqual("natpmp=0" in conf.splitlines(), node_bin == "bitcoin")
 
     def test_family_config_checker_flags_direct_peers_and_port_mapping(self):
         good = self.render_family(TOR_CLEARNET="1", TOR_INBOUND="1")
@@ -179,6 +190,9 @@ class NodeConfigTest(unittest.TestCase):
             with self.subTest(extra=extra):
                 self.assertTrue(lib.family_conf_violations(good + extra + "\n", True, True, "t:1"))
         self.assertTrue(lib.family_conf_violations(good.replace("proxy=t:1\n", ""), True, True, "t:1"))
+        self.assertTrue(lib.family_conf_violations(good.replace("upnp=0\n", ""), True, True, "t:1"))
+        cash = self.render_family("bitcoin", TOR_CLEARNET="1", TOR_INBOUND="1")
+        self.assertTrue(lib.family_conf_violations(cash.replace("natpmp=0\n", ""), True, True, "t:1", "bitcoin"))
         self.assertTrue(lib.family_conf_violations(good.replace("listen=1\n", "listen=0\n").replace("onion=", "xonion="), True, False, "t:1"))
         onion_only = self.render_family(TOR_CLEARNET="0", TOR_INBOUND="0")
         self.assertTrue(lib.family_conf_violations(onion_only.replace("onlynet=onion\n", ""), False, False, "t:1"))
@@ -188,7 +202,7 @@ class NodeConfigTest(unittest.TestCase):
         self.assertEqual(lib.monero_violations(entry, wallet), [])
         for old, new in (("proxy=socks5://$TOR_PROXY", "proxy=none"), ("tx-proxy=tor,$TOR_PROXY,disable_noise", "pad-transactions=1"),
                          ("in-peers=0", "in-peers=8"), ("check-updates=disabled", "check-updates=notify"),
-                         ("hide-my-port=1", "hide-my-port=0"), ("disable-dns-checkpoints=1", "x=1")):
+                         ("hide-my-port=1", "hide-my-port=0"), ("disable-dns-checkpoints=1", "x=1"), ("no-igd=1", "no-igd=0")):
             with self.subTest(old=old):
                 self.assertTrue(lib.monero_violations(mutated(entry, old, new), wallet))
         self.assertTrue(lib.monero_violations(entry + "add-priority-node=1.2.3.4\n", wallet))
@@ -204,6 +218,9 @@ class NodeConfigTest(unittest.TestCase):
             (node, "dns_seeds = []", 'dns_seeds = ["seeds.example"]', "node"),
             (wallet, 'type = "tor"', 'type = "tcp"', "wallet"),
             (wallet, "check_interval = 0", "check_interval = 12", "wallet"),
+            (node, "check_interval = 0", "check_interval = 300", "node"),
+            (wallet, "socks_address_override", 'control_address = "/ip4/172.29.0.25/tcp/9051"\nsocks_address_override', "wallet"),
+            (node, "socks_address_override", 'control_auth = "auto"\nsocks_address_override', "node"),
             (wallet, "use_libtor = false", "use_libtor = true", "wallet"),
         ):
             with self.subTest(old=old):

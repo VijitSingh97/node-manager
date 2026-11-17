@@ -76,7 +76,7 @@ func decodeZcashProxyRequest(body []byte) (zcashProxyRequest, bool) {
 
 func (a *app) zcashRPCProxy() http.Handler {
 	node := a.cfg.nodes[nodeZcash]
-	client := &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := newInternalHTTPClient(10 * time.Second)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		if r.Method != http.MethodPost || r.URL.Path != "/" {

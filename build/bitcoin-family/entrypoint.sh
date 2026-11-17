@@ -58,6 +58,7 @@ prune=$prune
 proxy=$TOR_PROXY
 onion=$TOR_PROXY
 discover=0
+upnp=0
 CONF
   if [ "${TOR_CLEARNET:-1}" = 1 ] && [ -n "${SEED_DOH_HOSTS:-}" ]; then
     echo dnsseed=0
@@ -77,6 +78,7 @@ CONF
   else
     echo listen=0
   fi
+  [ "$NODE_BIN" != bitcoin ] || echo natpmp=0
 } >"/tmp/$NODE_BIN.conf"
 if [ "$(printenv "${NODE_ENV_PREFIX}_WATCH_WALLET" || true)" = 1 ]; then
   grep -v '^disablewallet=1$' "/tmp/$NODE_BIN.conf" >"/tmp/$NODE_BIN.conf.new"

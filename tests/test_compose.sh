@@ -110,6 +110,7 @@ echo "$rendered" | grep -qF -- "grep -Eqx '[a-z2-7]{56}\\.onion' /var/lib/tor-on
 echo "$rendered" | grep -q 'torcontrol' && fail "bitcoind still uses tor's control port"
 grep -qi '^ControlPort' build/tor/torrc && fail "Tor still opens a control port"
 grep -q 'control_address' build/tari/config.toml && fail "Tari points at a Tor control port"
+grep -q 'control_address' build/tari-wallet/config.toml && fail "Tari wallet points at a Tor control port"
 for service in "8333 172.29.0.26:8334" "9333 172.29.0.33:9334" "8333 172.29.0.35:8334"; do
   grep -qF "service=\"$service\"" build/tor/entrypoint.sh || fail "Tor does not publish the onion service $service"
 done

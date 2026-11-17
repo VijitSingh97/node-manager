@@ -160,10 +160,10 @@ func envConfig() (config, error) {
 	cfg.tariWalletDir = envOr("TARI_WALLET_DIR", "/tari-wallet")
 	cfg.tariWalletRPCUser = os.Getenv("TARI_WALLET_RPC_USER")
 	cfg.tariWalletRPCPassword = os.Getenv("TARI_WALLET_RPC_PASSWORD")
+	if err := validateInternalHTTPURL("TARI_WALLET_GRPC_URL", cfg.tariWalletURL); err != nil {
+		return config{}, err
+	}
 	if cfg.tariWalletEnabled {
-		if err := validateInternalHTTPURL("TARI_WALLET_GRPC_URL", cfg.tariWalletURL); err != nil {
-			return config{}, err
-		}
 		if !filepath.IsAbs(cfg.tariWalletDir) {
 			return config{}, errors.New("TARI_WALLET_DIR must be an absolute path")
 		}
@@ -177,15 +177,13 @@ func envConfig() (config, error) {
 	if node := cfg.nodes[nodeZcash]; node.Enabled && node.RPCEndpoint != "" && (cfg.port == "18232" || cfg.settingsPort == "18232") {
 		return config{}, errors.New("PORT and SETTINGS_PORT must differ from the internal Zcash proxy port 18232")
 	}
-	if cfg.moneroWalletEnabled {
-		if err := validateInternalHTTPURL("MONERO_WALLET_RPC_URL", cfg.moneroWalletRPCURL); err != nil {
-			return config{}, err
-		}
+	if err := validateInternalHTTPURL("MONERO_WALLET_RPC_URL", cfg.moneroWalletRPCURL); err != nil {
+		return config{}, err
+	}
+	if err := validateInternalHTTPURL("MONERO_RPC_URL", cfg.moneroRPCURL); err != nil {
+		return config{}, err
 	}
 	if cfg.moneroEnabled {
-		if err := validateInternalHTTPURL("MONERO_RPC_URL", cfg.moneroRPCURL); err != nil {
-			return config{}, err
-		}
 		if cfg.moneroRPCUser == "" || cfg.moneroRPCPassword == "" {
 			return config{}, errors.New("MONERO_RPC_USER and MONERO_RPC_PASSWORD are required when MONERO_ENABLED is true")
 		}
@@ -193,10 +191,8 @@ func envConfig() (config, error) {
 	if !cfg.bitcoinDisabled && (cfg.rpcUser == "" || cfg.rpcPassword == "") {
 		return config{}, errors.New("RPC_USER and RPC_PASSWORD are required")
 	}
-	if !cfg.bitcoinDisabled {
-		if err := validateInternalHTTPURL("RPC_URL", cfg.rpcURL); err != nil {
-			return config{}, err
-		}
+	if err := validateInternalHTTPURL("RPC_URL", cfg.rpcURL); err != nil {
+		return config{}, err
 	}
 	return cfg, nil
 }
@@ -283,7 +279,7 @@ func runDashboardServers(ctx context.Context, stop func(), a *app, servers []*ht
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
-		client := &http.Client{Timeout: 5 * time.Second}
+		client := newInternalHTTPClient(5 * time.Second)
 		response, err := client.Get("http://127.0.0.1:" + envOr("PORT", "8000") + "/healthz")
 		if err != nil {
 			os.Exit(1)
@@ -299,7 +295,7 @@ func main() {
 		log.Fatal(err)
 	}
 	logger := log.New(os.Stderr, "go-dashboard: ", log.LstdFlags)
-	rpc := &rpcClient{url: cfg.rpcURL, user: cfg.rpcUser, password: cfg.rpcPassword, client: &http.Client{Timeout: 3 * time.Second}}
+	rpc := &rpcClient{url: cfg.rpcURL, user: cfg.rpcUser, password: cfg.rpcPassword, client: newInternalHTTPClient(3 * time.Second)}
 	a, err := newApp(cfg, rpc, "index.html", "static", logger)
 	if err != nil {
 		log.Fatal(err)

@@ -8,6 +8,19 @@ All notable changes to this project are documented here. Format follows
 
 ### Fixed
 
+- Every dashboard connection to a node or wallet, including both Tari gRPC
+  channels, now ignores proxy settings, never follows a redirect, and refuses to
+  connect to a public address. The Bitcoin, Monero, Monero wallet and Tari wallet
+  URLs are now checked as internal addresses even when that node is off.
+- UPnP, NAT-PMP and update checks are now switched off in the node configs instead
+  of relying on defaults: `natpmp=0` for Bitcoin Core, `upnp=0` for Litecoin,
+  Dogecoin and Bitcoin Cash (plus `natpmp=0` for Bitcoin Cash), and
+  `check_interval = 0` for the Tari node. Monero also gets `no-igd=1`; the pinned
+  0.18.5.4 has no UPnP code, so this only keeps port mapping off if a later
+  release restores it.
+- The Tari wallet config no longer names a Tor control port the stack never
+  opens. The wallet does not use that setting in Tari v6.2.0. This was checked
+  against the Tari source only; the wallet image was not started with the new file.
 - Exposing a node's RPC, ZMQ or gRPC port on the LAN failed with "Port
   availability could not be checked." on hosts running Tailscale. The port check
   could not read listeners that `ss` prints with an interface scope, such as

@@ -268,6 +268,10 @@ def bitcoin_violations(files, conf):
         found.append("bitcoind may open Tor control connections")
     if not re.search(r"^listen=0\s*(#.*)?$", conf, re.MULTILINE):
         found.append("bitcoin.conf listens by default")
+    if not re.search(r"^natpmp=0\s*(#.*)?$", conf, re.MULTILINE):
+        found.append("bitcoin.conf does not turn NAT-PMP off")
+    if re.search(r"^\s*upnp\s*=", conf, re.MULTILINE) or "-upnp" in script:
+        found.append("Bitcoin Core 32.1 has no -upnp option and refuses to start with one")
     for pattern in (r"^\s*(upnp|natpmp|discover)\s*=\s*1", r"^\s*(connect|seednode|externalip|proxy|onion)\s*="):
         if re.search(pattern, conf, re.MULTILINE):
             found.append("bitcoin.conf contains " + pattern)
@@ -283,6 +287,8 @@ def family_entry_violations(script):
         (r"^\s*proxy=\$TOR_PROXY$", "no Tor proxy in the family config"),
         (r"^\s*onion=\$TOR_PROXY$", "no Tor onion proxy in the family config"),
         (r"^\s*discover=0$", "family nodes discover local addresses"),
+        (r"^\s*upnp=0$", "family nodes do not turn UPnP off"),
+        (r"\[ \"\$NODE_BIN\" != bitcoin \] \|\| echo natpmp=0$", "Bitcoin Cash does not turn NAT-PMP off"),
         (r"--socks5-hostname \"\$TOR_PROXY\"", "seed lookup does not use Tor with remote DNS"),
         (r"--proto =https", "seed lookup is not HTTPS-only"),
         (r"--noproxy ''", "seed lookup honours proxy environment variables"),
@@ -296,11 +302,11 @@ def family_entry_violations(script):
     return found
 
 
-def family_conf_violations(conf, clearnet, inbound, proxy="t:1"):
+def family_conf_violations(conf, clearnet, inbound, proxy="t:1", node_bin="litecoin"):
     """Check a conf rendered by build/bitcoin-family/entrypoint.sh."""
     lines = conf.splitlines()
     found = []
-    for required in ("proxy=" + proxy, "onion=" + proxy, "discover=0"):
+    for required in ("proxy=" + proxy, "onion=" + proxy, "discover=0", "upnp=0") + (("natpmp=0",) if node_bin == "bitcoin" else ()):
         if required not in lines:
             found.append("missing " + required)
     if not clearnet:
@@ -331,6 +337,7 @@ def monero_violations(entry, wallet):
         (r"^tx-proxy=tor,\$TOR_PROXY,disable_noise$", "Monero transactions bypass Tor"),
         (r"^in-peers=0$", "Monero accepts direct inbound peers"),
         (r"^hide-my-port=1$", "Monero advertises its port"),
+        (r"^no-igd=1$", "Monero maps its port with UPnP"),
         (r"^disable-dns-checkpoints=1$", "Monero uses DNS checkpoints"),
         (r"^check-updates=disabled$", "Monero checks for updates"),
     ):
@@ -378,8 +385,12 @@ def tari_violations(entry, node, wallet):
         found.append("Tari wallet transport is not tor")
     if toml_value(wallet, "wallet", "use_libtor") != "false":
         found.append("Tari wallet embeds its own Tor")
-    if toml_value(wallet, "auto_update", "check_interval") != "0":
-        found.append("Tari wallet checks for updates")
+    for name, text in (("node", node), ("wallet", wallet)):
+        if toml_value(text, "auto_update", "check_interval") != "0":
+            found.append(f"Tari {name} checks for updates")
+    for key in ("control_address", "control_auth"):
+        if toml_value(wallet, "wallet.p2p.transport.tor", key) is not None or toml_value(node, "base_node.p2p.transport.tor", key) is not None:
+            found.append(f"Tari config sets {key} but the stack opens no Tor control port")
     return found
 
 

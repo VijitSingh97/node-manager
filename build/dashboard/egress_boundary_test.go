@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -12,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Egress boundary: docs/tor-boundary.md. Only tor_http.go may open a connection to a non-stack address.
@@ -36,21 +39,11 @@ var allowedEgress = map[string]struct {
 	count  int
 	reason string
 }{
-	"background.go http.Client":               {2, "RPC client whose URL validateInternalHTTPURL restricts to the stack network"},
-	"chain_fees.go http.Client":               {1, "RPC client whose URL validateInternalHTTPURL restricts to the stack network"},
-	"chains.go http.Client":                   {2, "RPC client whose URL validateInternalHTTPURL restricts to the stack network"},
-	"dashboard.go http.Client":                {2, "RPC client whose URL validateInternalHTTPURL restricts to the stack network"},
-	"family_watch.go http.Client":             {1, "RPC client whose URL validateInternalHTTPURL restricts to the stack network"},
-	"family_watch_dogecoin.go http.Client":    {1, "RPC client whose URL validateInternalHTTPURL restricts to the stack network"},
-	"http.go http.Client":                     {1, "RPC client whose URL validateInternalHTTPURL restricts to the stack network"},
-	"main.go http.Client":                     {2, "container loopback health check and the Bitcoin RPC client on the stack network"},
-	"monero.go http.Client":                   {1, "RPC client whose URL validateInternalHTTPURL restricts to the stack network"},
-	"monero_fees.go http.Client":              {1, "RPC client whose URL validateInternalHTTPURL restricts to the stack network"},
-	"monero_watch.go http.Client":             {2, "RPC client whose URL validateInternalHTTPURL restricts to the stack network"},
-	"utxo_manager.go http.Client":             {2, "RPC client whose URL validateInternalHTTPURL restricts to the stack network"},
-	"zcash_proxy.go http.Client":              {1, "RPC client whose URL validateInternalHTTPURL restricts to the stack network"},
 	"tari-wallet/launcher.go net.DialTimeout": {1, "readiness probe of the wallet gRPC port at 127.0.0.1:18143"},
 	"tari-wallet/launcher.go exec.Command":    {1, "starts the pinned minotari_console_wallet binary, no shell"},
+	"internal_http.go http.Client":            {1, "the shared stack-internal client: no proxy, no redirects, dials only private addresses"},
+	"internal_http.go http.Transport":         {1, "the shared stack-internal transport: Proxy nil, dialer refuses non-private addresses"},
+	"internal_http.go net.Dialer":             {1, "dial control rejects any resolved address outside the stack network"},
 	"tari.go grpc.NewClient":                  {1, "gRPC channel to the validated stack-internal Tari node"},
 	"tari_watch.go grpc.NewClient":            {1, "gRPC channel to the validated stack-internal Tari wallet"},
 	"tor_http.go http.Client":                 {1, "the Tor client: SOCKS5 transport, no redirects"},
@@ -375,5 +368,115 @@ func TestStackInternalURLsRejectEverythingElse(t *testing.T) {
 		if err := validateInternalHTTPURL("X", bad); err == nil {
 			t.Errorf("%s was accepted as an internal node URL", bad)
 		}
+	}
+}
+
+func TestInternalClientsNeverUseProxiesRedirectsOrPublicAddresses(t *testing.T) {
+	client := newInternalHTTPClient(time.Second)
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok || transport.Proxy != nil || transport.DialContext == nil || transport.Dial != nil || transport.DialTLS != nil || transport.DialTLSContext != nil {
+		t.Fatalf("internal transport = %#v", client.Transport)
+	}
+	if client.CheckRedirect == nil || client.Timeout != time.Second {
+		t.Fatalf("redirects or timeout not pinned: %#v", client)
+	}
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("redirect was followed to %s", r.URL)
+	}))
+	defer target.Close()
+	redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusFound)
+	}))
+	defer redirector.Close()
+	response, err := client.Get(redirector.URL)
+	if err != nil || response.StatusCode != http.StatusFound {
+		t.Fatalf("redirect response = %v, %v", response, err)
+	}
+	response.Body.Close()
+	for _, address := range []string{"8.8.8.8:80", "[2606:4700:4700::1111]:80", "100.64.0.1:80", "172.32.0.1:80"} {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		_, err := transport.DialContext(ctx, "tcp", address)
+		cancel()
+		if err == nil || !strings.Contains(err.Error(), "outside the stack network") {
+			t.Errorf("dial %s = %v, want a refusal before any connection", address, err)
+		}
+	}
+	connection, err := transport.DialContext(context.Background(), "tcp", redirector.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("loopback dial refused: %v", err)
+	}
+	connection.Close()
+}
+
+func TestGRPCDialerRefusesPublicAddresses(t *testing.T) {
+	for _, address := range []string{"8.8.8.8:18142", "[2606:4700:4700::1111]:18142"} {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		_, err := dialInternal(ctx, address)
+		cancel()
+		if err == nil || !strings.Contains(err.Error(), "outside the stack network") {
+			t.Errorf("gRPC dial %s = %v, want a refusal before any connection", address, err)
+		}
+	}
+	listener := httptest.NewServer(http.NotFoundHandler())
+	defer listener.Close()
+	connection, err := dialInternal(context.Background(), listener.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("loopback gRPC dial refused: %v", err)
+	}
+	connection.Close()
+}
+
+func grpcChannelsWithoutNoProxy(sources map[string]string) []string {
+	var found []string
+	for name, source := range sources {
+		for _, call := range regexp.MustCompile(`grpc\.NewClient\([^\n]*`).FindAllString(source, -1) {
+			if !strings.Contains(call, "grpc.WithNoProxy()") || !strings.Contains(call, "internalGRPCDialer") {
+				found = append(found, name+": "+call)
+			}
+		}
+	}
+	return found
+}
+
+func TestGRPCChannelsIgnoreProxyVariables(t *testing.T) {
+	if found := grpcChannelsWithoutNoProxy(dashboardSources(t)); len(found) != 0 {
+		t.Fatalf("gRPC channels honour HTTP_PROXY and ALL_PROXY: %v", found)
+	}
+	if len(grpcChannelsWithoutNoProxy(map[string]string{"x.go": "c, _ := grpc.NewClient(host, grpc.WithTransportCredentials(c))"})) != 1 ||
+		len(grpcChannelsWithoutNoProxy(map[string]string{"x.go": "c, _ := grpc.NewClient(host, grpc.WithNoProxy())"})) != 1 {
+		t.Fatal("a channel without WithNoProxy and the internal dialer was not flagged")
+	}
+}
+
+func TestScannerFlagsClientsBuiltOutsideTheSharedConstructors(t *testing.T) {
+	uses, _, _ := scanEgress(t, map[string]string{"c.go": `package main
+import "net/http"
+func f() { _ = &http.Client{Timeout: 1}; _ = &http.Transport{} }`})
+	if uses["c.go http.Client"] != 1 || uses["c.go http.Transport"] != 1 {
+		t.Fatalf("clients built outside the shared constructors not flagged: %v", uses)
+	}
+	for key := range uses {
+		if _, ok := allowedEgress[key]; ok {
+			t.Errorf("%s would be allowed", key)
+		}
+	}
+}
+
+func TestEveryNodeURLIsCheckedEvenWhenTheNodeIsDisabled(t *testing.T) {
+	t.Setenv("BITCOIN_ENABLED", "false")
+	for _, tc := range []struct{ name, value string }{
+		{"RPC_URL", "http://rpc.public.example:8332"},
+		{"MONERO_RPC_URL", "http://rpc.public.example:18081"},
+		{"MONERO_WALLET_RPC_URL", "http://wallet.public.example:18082"},
+		{"TARI_WALLET_GRPC_URL", "http://wallet.public.example:18143"},
+		{"TARI_GRPC_URL", "http://tari.public.example:18142"},
+		{"LITECOIN_RPC_URL", "http://ltc.public.example:9332"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(tc.name, tc.value)
+			if _, err := envConfig(); err == nil || !strings.Contains(err.Error(), tc.name+" must be an internal HTTP URL") {
+				t.Fatalf("disabled node accepted a public URL: %v", err)
+			}
+		})
 	}
 }

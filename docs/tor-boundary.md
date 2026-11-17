@@ -9,7 +9,7 @@ inbound, not internet egress. [Tor-only networking](privacy.md) describes the
 design; this page lists every egress path found in the repository, how each one
 stays on Tor, and which test fails when it stops doing so.
 
-Evidence below is `file:line` at the commit that introduced this page.
+Evidence below is `file:line` as of the last change to this page; line numbers drift as files change.
 
 ## How the boundary is enforced
 
@@ -38,17 +38,17 @@ Layers 1 and 3 are the hard boundary. Layer 4 is why nothing is even attempted.
 | `extra_hosts`, `network_mode`, `privileged`, host `pid`/`ipc`, Docker socket | None in any compose file. | None |
 | Proxy environment variables | None. The only proxy variable is `TOR_PROXY`, always `172.29.0.25:9050` (`docker-compose.yml:141`, `259`, `297`, `344`). | Tor only |
 | Tor container | `SocksPort 0.0.0.0:9050`, no `ControlPort`, `ORPort`, `ExitRelay`, `TransPort` or `DNSPort` (`build/tor/torrc:1-3`). Socat relays end at stack addresses or at Tor's own SOCKS port (`build/tor/entrypoint.sh:46-82`). | Tor only |
-| Bitcoin Core | `-proxy` and `-onion` both `172.29.0.25:9050`; `-onlynet=onion` when clearnet-over-Tor is off; inbound only through an onion bind with `-listenonion=0` (`docker-compose.yml:98`, `102-104`); `listen=0` by default (`build/bitcoin/bitcoin.conf:14`). Upstream Core resolves DNS seeds through a set proxy (not tested here). | Tor only |
-| Litecoin, Dogecoin, Bitcoin Cash | `proxy=` and `onion=` set to Tor, `discover=0`, `listen=0` unless an onion bind exists, `onlynet=onion` plus `dnsseed=0` when onion-only (`build/bitcoin-family/entrypoint.sh:58-79`). | Tor only |
+| Bitcoin Core | `-proxy` and `-onion` both `172.29.0.25:9050`; `-onlynet=onion` when clearnet-over-Tor is off; inbound only through an onion bind with `-listenonion=0` (`docker-compose.yml:98`, `102-104`); `listen=0` and `natpmp=0` by default (`build/bitcoin/bitcoin.conf:14`, `16`). Core 32.1 has no `-upnp` option, so none is set. Upstream Core resolves DNS seeds through a set proxy (not tested here). | Tor only |
+| Litecoin, Dogecoin, Bitcoin Cash | `proxy=` and `onion=` set to Tor, `discover=0`, `listen=0` unless an onion bind exists, `onlynet=onion` plus `dnsseed=0` when onion-only; `upnp=0` on all three and `natpmp=0` on Bitcoin Cash, the only fork that has the option (`build/bitcoin-family/entrypoint.sh:58-81`). | Tor only |
 | Dogecoin seed lookup | DNS-over-HTTPS to `cloudflare-dns.com` through `curl --socks5-hostname "$TOR_PROXY"`, HTTPS only, `--noproxy ''` (`build/bitcoin-family/entrypoint.sh:23-48`). | Tor only |
-| Monero and its wallet | `proxy=socks5://$TOR_PROXY`, `tx-proxy=tor,...`, `in-peers=0`, `hide-my-port=1`, DNS checkpoints and update checks off (`build/monero/entrypoint.sh:16-23`). The wallet's only daemon is the internal node (`build/monero/wallet-entrypoint.sh:15`). | Tor only (see gap 2) |
-| Tari node | Transport `tcp_tor`, or `tor` when onion-only; `proxy_bypass_for_outbound_tcp = false`, empty bypass list, empty `dns_seeds`, onion seeds only, SOCKS override is the Tor container (`build/tari/entrypoint.sh:3-4`; `build/tari/config.toml:4-10`, `34-41`). | Tor only (see gaps 2 and 3) |
-| Tari wallet | Transport `tor`, same bypass settings, `use_libtor = false`, `[auto_update] check_interval = 0` (`build/tari-wallet/config.toml:4-5`, `7-13`, `29-38`). | Tor only (see gap 3) |
+| Monero and its wallet | `proxy=socks5://$TOR_PROXY`, `tx-proxy=tor,...`, `in-peers=0`, `hide-my-port=1`, `no-igd=1`, DNS checkpoints and update checks off (`build/monero/entrypoint.sh:16-24`). The wallet's only daemon is the internal node (`build/monero/wallet-entrypoint.sh:15`). | Tor only. The pinned release has no UPnP code; `no-igd=1` keeps port mapping off if a later one restores it (`build/monero/entrypoint.sh:22`) |
+| Tari node | Transport `tcp_tor`, or `tor` when onion-only; `proxy_bypass_for_outbound_tcp = false`, empty bypass list, empty `dns_seeds`, onion seeds only, SOCKS override is the Tor container (`build/tari/entrypoint.sh:3-4`; `build/tari/config.toml:7-13`, `35-44`); `[auto_update] check_interval = 0` (`build/tari/config.toml:4-5`). | Tor only |
+| Tari wallet | Transport `tor`, same bypass settings, `use_libtor = false`, `[auto_update] check_interval = 0` (`build/tari-wallet/config.toml:4-5`, `7-13`, `27-36`). No `control_address`: the wallet opens no Tor control connection. | Tor only |
 | Zakura (Zcash) | Peer list is exactly four Tor-container listeners, `cache_dir = false`, P2P listens on loopback (`build/zcash/zakurad.toml:5-12`). Each listener reaches one seed through `SOCKS4A:127.0.0.1:<host>:8233,socksport=9050` (`build/tor/entrypoint.sh:77-82`). Zakura has no Tor transport: any address it learns later is dialled directly, and the internal network drops it. | Tor only, by layer 1 |
 | Dashboard outbound HTTP | Telegram (`monitor_io.go:32`), Healthchecks, whose URL the user supplies and `settings.go:221-236` requires to be HTTPS (`monitor_io.go:79-95`), CoinGecko (`prices.go:43`), GitHub release check (`monitor_release.go:100`) all use `newTorHTTPClient(torProxy)` or its isolated variant (`monitor.go:140-141`). The transport has `Proxy: nil`, dials only the SOCKS5 proxy, sends hostnames to Tor (no local DNS) and never follows redirects (`tor_http.go:16-76`). If Tor is down the request fails with no fallback. | Tor only |
-| Dashboard to nodes | `rpcClient`, `moneroRPC` and gRPC clients target addresses from `validateInternalHTTPURL`, which accepts only private, loopback and link-local IPs or single-label, `.local` and `.home.arpa` names (`chains.go:118-133`; `main.go:164-197`). Defaults are fixed stack addresses (`chains.go:54-58`, `main.go:70-123`). | Stack-internal (see gap 1) |
+| Dashboard to nodes | `rpcClient`, `moneroRPC` and gRPC clients target addresses from `validateInternalHTTPURL`, which accepts only private, loopback and link-local IPs or single-label, `.local` and `.home.arpa` names (`chains.go:118-135`). It runs for every configured node URL whether or not the node is enabled (`chains.go:98`; `main.go:163-197`). Defaults are fixed stack addresses (`chains.go:54-58`, `main.go:70-123`). Every HTTP client comes from `newInternalHTTPClient` (`internal_http.go:41`): `Proxy: nil`, redirects never followed, and a dialer whose `Control` hook refuses any resolved address outside the private, loopback and link-local ranges (`internal_http.go:14-39`). Both gRPC channels pass `grpc.WithNoProxy()` and dial through the same hook (`internalGRPCDialer`; `tari.go:37`, `tari_watch.go:448`). | Stack-internal |
 | Tari wallet launcher | The in-container supervisor probes its own gRPC port at `127.0.0.1:18143` (`build/tari-wallet/launcher.go:83`, `693`) and starts the pinned wallet binary without a shell (`450`). It dials nothing else. | Loopback |
-| Dashboard health check | `GET http://127.0.0.1:<port>/healthz` inside its own container (`main.go:286-287`). | Loopback |
+| Dashboard health check | `GET http://127.0.0.1:<port>/healthz` inside its own container (`main.go:282-283`). | Loopback |
 | Host: `stack`, `configure.sh`, `scripts/node-control`, `node-port-control`, `node-resource-profile`, `packaging/` | No curl, wget, ssh or similar. `curl` only runs inside `compose exec` against container loopback addresses (`scripts/node-resource-profile:84`, `139`, `154`). Container starts use `--pull never --no-build` (`stack:1036`, `1219`, `1746`, `1782`) and the one `docker run` uses `--network none` (`stack:1015`). | Local or offline |
 | Host: image download | `stack pull` and install-time pulls run `docker compose pull` through the host's Docker daemon (`stack:1046-1047`, `scripts/node-control:581`). | Install-time, host connection |
 | Host: package managers | `apt` and `brew` upgrades are printed as instructions, never run (`stack:1483-1500`). | Install-time, user-run |
@@ -63,42 +63,68 @@ container, and do not give any container a route.
 
 ## Gaps found
 
-No direct route out of a running container was found: every item below is
-blocked by `internal: true` and the loopback DNS. They are places where the
-boundary rests on one layer instead of two. Nothing below was changed by the
-change that added this page, and none is covered by a failing test.
+No direct route out of a running container was found: every item below was
+blocked by `internal: true` and the loopback DNS. They were places where the
+boundary rested on one layer instead of two. Gaps 1 to 3 and 5 are fixed and each
+has a failing test; 4 remains.
 
-1. **Dashboard RPC and gRPC clients use Go's default transport.** Nineteen
-   `http.Client` constructions in the dashboard (one is the loopback health check) and two `grpc.NewClient` channels
-   (`egress_boundary_test.go` lists them) honour `HTTP_PROXY`-style variables, and
-   many follow redirects, unlike the Tor client. The node URL check also runs
-   only for enabled nodes: `main.go:164-197` and `chains.go:98`. A node answering
-   with a redirect to a public URL, or a `.env` URL override for a disabled node,
-   would be a dial attempt to a public host that only layer 1 stops. Suggested
-   fix: one shared constructor for internal clients with `Proxy: nil` and
-   `CheckRedirect` returning `http.ErrUseLastResponse`, plus `grpc.WithNoProxy()`.
-2. **Defaults the images do not pin off.** Monero sets no `no-igd=1`
-   (`build/monero/entrypoint.sh`), the Tari node config has no `[auto_update]`
-   section while the wallet disables it (`build/tari-wallet/config.toml:4-5`), and
-   Bitcoin Core relies on `-proxy` soft-setting `-upnp` and `-natpmp` off instead of
-   passing them. All are unverified against the pinned upstream defaults; each
-   would be a LAN or clearnet attempt dropped by the internal network. Suggested
-   fix: set the three options explicitly.
-3. **Tari wallet points at a Tor control port the stack never opens.**
-   `build/tari-wallet/config.toml:33` sets `control_address` to
-   `172.29.0.25:9051` while `build/tor/torrc` has no `ControlPort` by design
-   (`tests/test_compose.sh:111-112`, `tests/test_e2e.sh:308`). Fails closed, so it
-   is not a leak, but it may stop the wallet's Tor transport from starting.
-   Unverified: `tests/test_tari_wallet_native.sh` is opt-in and was not run.
+1. **Fixed: dashboard RPC and gRPC clients used Go's default transport.** The
+   clients honoured `HTTP_PROXY`-style variables, and many followed redirects,
+   unlike the Tor client. The node URL check also skipped disabled nodes. Fix:
+   one constructor, `newInternalHTTPClient` (`internal_http.go:41`), for every
+   stack-internal client, with `Proxy: nil`, `http.ErrUseLastResponse` on
+   redirects, one shared transport and a dial `Control` hook that rejects any
+   resolved address outside private, loopback and link-local ranges
+   (`internal_http.go:14-39`); `grpc.WithNoProxy()` on both channels
+   and `internalGRPCDialer` (`tari.go:37`, `tari_watch.go:448`); and `validateInternalHTTPURL` for the
+   Bitcoin, Monero, Monero wallet and Tari wallet URLs whether or not the node is
+   enabled (`main.go:163-197`; the other nodes already were, `chains.go:98`).
+   Tests: `TestInternalClientsNeverUseProxiesRedirectsOrPublicAddresses`,
+   `TestGRPCChannelsIgnoreProxyVariables`, `TestGRPCDialerRefusesPublicAddresses`,
+   `TestEveryNodeURLIsCheckedEvenWhenTheNodeIsDisabled` and the scanner
+   allowance, which now fails any `http.Client` or `http.Transport` built outside
+   `internal_http.go` and `tor_http.go`. Both gRPC channels also dial through
+   `internalGRPCDialer`, the same `Control` hook (`TestGRPCDialerRefusesPublicAddresses`;
+   `TestGRPCChannelsIgnoreProxyVariables` fails any channel without it).
+2. **Fixed: defaults the images did not pin off.** Checked against the pinned
+   sources. Monero 0.18.5.4 still registers `no-igd` (`src/p2p/net_node.cpp`) but
+   has removed its UPnP code (`src/p2p/net_node.inl` warns that `--igd` is
+   non-functional), so `no-igd=1` changes nothing today and only keeps port
+   mapping off if a later release restores it. The Tari node had no
+   `[auto_update]` section; it now mirrors the wallet with `check_interval = 0`
+   (the v6.2.0 default is no update URIs, so this pins an already-off default).
+   Bitcoin Core 32.1 registers `-natpmp` with default on and has no `-upnp`
+   (`src/init.cpp`, `src/mapport.h`), so `natpmp=0` is set and `upnp` is
+   deliberately not: an unknown option would stop `bitcoind` from starting.
+   Litecoin 0.21.5.8, Dogecoin 1.14.9 and Bitcoin Cash Node 29.2.0 accept
+   `-upnp` (default off, and soft-set off by `-proxy` and `listen=0`), so
+   `upnp=0` is set on all three; only Bitcoin Cash Node also registers
+   `-natpmp`, so only it gets `natpmp=0`. Zakura 1.8.8: its source could not be
+   fetched here, so any port-mapping or update option is unverified and none was
+   added. Tests: `NodeConfigTest` for each setting, including the rendered family
+   configs for all three forks.
+3. **Fixed: Tari wallet pointed at a Tor control port the stack never opens.**
+   In Tari v6.2.0 the console wallet no longer starts a peer-to-peer stack: its
+   `p2p` settings are marked deprecated in `base_layer/wallet/src/config.rs`,
+   nothing in `applications/minotari_console_wallet` or `base_layer/wallet`
+   reads them, and it reaches the node over `http_server_url`. The key was
+   inert, and `control_address` and `control_auth` are removed so the file says
+   what the stack does. Missing keys fall back to the struct defaults, as they
+   already do in the node config. Test: `test_tari_node_and_wallet_dial_only_through_tor`
+   and `tests/test_compose.sh`. Still unverified: `tests/test_tari_wallet_native.sh`
+   (opt-in, needs Docker) was not run, so the pinned image itself was not started
+   with the new file.
 4. **Runtime probe covers only the services the e2e boots.** `tests/test_e2e.sh`
    starts Bitcoin, Monero (with its wallet) and the dashboard. Tari, Tari wallet,
    Litecoin, Dogecoin, Bitcoin Cash and Zakura are covered by the static compose
    test, which asserts the same network, DNS and port properties, but not by a
    live probe.
-5. **Single-label host names count as internal.** `internalNodeHost` accepts any
-   name without a dot, so a host-run dashboard with a DNS search suffix could
-   resolve such a name to a public address. Inside the stack container there is no
-   search suffix. Informational.
+5. **Fixed: single-label host names counted as internal.** `internalNodeHost`
+   accepts any name without a dot, so a host-run dashboard with a DNS search
+   suffix could resolve such a name to a public address. The dial check from gap 1
+   now tests the resolved address, so that connection is refused. Test:
+   `TestInternalClientsNeverUseProxiesRedirectsOrPublicAddresses` and
+   `TestGRPCDialerRefusesPublicAddresses`.
 
 ## Tests
 
@@ -106,9 +132,9 @@ change that added this page, and none is covered by a failing test.
 |---|---|
 | `tests/test_tor_boundary.py`, compose group | A service other than `tor` joins a second network or any non-internal one; a network is added; `btc_net` loses `internal`; `dns` is not loopback-only; any service sets `network_mode`, `extra_hosts`, `privileged`, host `pid`/`ipc`, a Docker socket mount, `NET_ADMIN`/`NET_RAW`/`SYS_ADMIN`, or a proxy variable; `TOR_PROXY` is not the Tor address; a node publishes a port; a LAN overlay lacks a required bind IP or touches another service; a new compose file is not classified. |
 | Same file, Tor group | A relay in the Tor entrypoint leaves the stack except through Tor's SOCKS port, a listener appears that is not a published relay or a Zakura bridge, or `torrc` gains a control, relay, transparent or DNS port. |
-| Same file, node group | Bitcoin Core, the family nodes (rendered from the real entrypoint for clearnet and onion-only, inbound on and off), Monero, Tari, its wallet or either Zakura config loses its Tor proxy or opt-out, gains a direct peer, DNS seed, port mapping, update check or clearnet listener, or the DoH seed lookup stops using Tor with remote DNS. |
+| Same file, node group | Bitcoin Core, the family nodes (rendered from the real entrypoint for clearnet and onion-only, inbound on and off), Monero, Tari, its wallet or either Zakura config loses its Tor proxy or opt-out, gains a direct peer, DNS seed, port mapping, update check or clearnet listener, or the DoH seed lookup stops using Tor with remote DNS; Bitcoin Core loses `natpmp=0` or gains `upnp`; a family node loses `upnp=0` (Bitcoin Cash also `natpmp=0`); Monero loses `no-igd=1`; the Tari node or wallet loses `check_interval = 0` or sets a Tor control address. |
 | Same file, host-script group | A script, entrypoint, Dockerfile or compose file gains a network-capable command (`curl`, `wget`, `nc`, `socat`, `ssh`, `git` remote verbs, `gh`, `apt`, `brew`, `pip`, `npm`, `go mod download`, `docker pull/run/build`, `compose pull/up`, `/dev/tcp`, Python sockets) that is not provably loopback-only, Tor-routed or offline and not listed in `tests/tor_boundary_allowlist.txt`. |
-| `build/dashboard/egress_boundary_test.go` | A dashboard source file or `build/tari-wallet/launcher.go` starts using `net.Dial`, a resolver lookup, `http.Get`, the default client or transport, `tls.Dial`, `os/exec`, a reverse proxy, a raw `syscall` socket call, or constructs a new `http.Client`, `http.Transport`, `net.Dialer` or gRPC channel (including as a zero-value struct field, slice element or `make`) outside the reviewed list; dot-imports a package; names a new host in a URL literal, a `Host:` field or `net.JoinHostPort`; imports `net/smtp`, `golang.org/x/sys/unix` or similar; names a new URL host; or builds a monitor or price client without the Tor dialer, with a proxy-from-environment transport, or with redirects enabled. Also pins which public names `validateInternalHTTPURL` rejects. |
+| `build/dashboard/egress_boundary_test.go` | A dashboard source file or `build/tari-wallet/launcher.go` starts using `net.Dial`, a resolver lookup, `http.Get`, the default client or transport, `tls.Dial`, `os/exec`, a reverse proxy, a raw `syscall` socket call, or constructs a new `http.Client`, `http.Transport`, `net.Dialer` or gRPC channel (including as a zero-value struct field, slice element or `make`) outside the reviewed list; dot-imports a package; names a new host in a URL literal, a `Host:` field or `net.JoinHostPort`; imports `net/smtp`, `golang.org/x/sys/unix` or similar; names a new URL host; or builds a monitor or price client without the Tor dialer, with a proxy-from-environment transport, or with redirects enabled. A new internal client must come from `newInternalHTTPClient`. Also pins which public names `validateInternalHTTPURL` rejects, that the shared internal client has no proxy, never follows a redirect and refuses to dial a public address, that every gRPC channel passes `WithNoProxy` and the internal dialer, that the gRPC dialer refuses a public address, and that every node URL is checked even when its node is disabled. |
 | `tests/test_e2e.sh` (CI, needs Docker) | Tor cannot reach `1.1.1.1:443` itself (the probe control), or, with Tor stopped, any running non-Tor container connects to a public IPv4 or IPv6 address, resolves a public name, queries a public DNS server, lacks loopback-only DNS, or holds an established connection outside the stack subnet. The service list comes from `docker compose ps`, so new services are probed automatically. This step was added without being run locally (it needs Docker); only `bash -n` and `shellcheck` were run. |
 
 Each checker has mutation tests: they edit the real file text, or feed a synthetic
@@ -131,8 +157,8 @@ The first two need no Docker and no network, and run in `tests/run.sh`.
   loopback-only, Tor-routed (`--socks5-hostname "$TOR_PROXY"`) or offline
   (`docker run --network none`, `compose up --pull never`).
 - A new dashboard client: route external traffic through `newTorHTTPClient`; for
-  an internal node, validate the URL with `validateInternalHTTPURL` and add the
-  file, symbol and count to `allowedEgress`.
+  an internal node, validate the URL with `validateInternalHTTPURL` and build the
+  client with `newInternalHTTPClient`.
 - A new service: attach it to `btc_net` only, give it `dns: ["127.0.0.1"]`, and
   point its proxy at `172.29.0.25:9050`.
 - A new compose file: classify it in `tests/tor_boundary_lib.py`.
