@@ -65,12 +65,13 @@ The raw replay of the saved chain is measured below: 115 blocks and 3,621,114 co
 | uncapped, before copy reductions | finished | 1,259 s | 2,145,016 KiB (2.05 GiB) | not sampled | about 1,100 MiB |
 | uncapped | finished | 1,482 s | 2,050,576 KiB (1.96 GiB) | not sampled | about 1,090 MiB |
 | uncapped, live heap sampled | finished | 2,138 s | 1,877,744 KiB (1.79 GiB) | 951 MiB | about 1,248 MiB |
-| **2 GiB, `GOMEMLIMIT=1600MiB` (shipped)** | finished | 2,017 s | 1,559,216 KiB (1.49 GiB) | 953 MiB | about 1,239 MiB |
+| 2 GiB, `GOMEMLIMIT=1600MiB`, before the script copy | finished | 2,017 s | 1,559,216 KiB (1.49 GiB) | 953 MiB | about 1,239 MiB |
+| **2 GiB, `GOMEMLIMIT=1600MiB` (shipped)** | finished | 1,265 s | 1,577,776 KiB (1.50 GiB) | 954 MiB | about 1,239 MiB |
 
 4. **Applying one 31 MB block needs about 950 MiB of live heap.** That covers the block's coin operations, its Pebble batch and its undo record, all held for the whole block. Under 1 GiB without `GOMEMLIMIT` the replay is killed. With a `GOMEMLIMIT` under 1 GiB the replay crawled, likely because the garbage collector ran almost without pause; that was not profiled. The Bitcoin Cash overlay therefore caps the dashboard at 2 GiB with `GOMEMLIMIT=1600MiB`. Applying such blocks in pieces to fit 1 GiB is #363.
-5. **The replay's peak host memory is about 2.7 GiB** for the dashboard and BCHN together: 1.49 GiB plus about 1.21 GiB, the two peaks of the shipped run added. On ordinary blocks the dashboard should stay far below its cap; that is inferred, not measured on mainnet.
+5. **The replay's peak host memory is about 2.7 GiB** for the dashboard and BCHN together: 1.50 GiB plus about 1.21 GiB, the two peaks of the shipped run added. On ordinary blocks the dashboard should stay far below its cap; that is inferred, not measured on mainnet.
 6. **The index came to 635.9 MB for 3,621,114 coins: 175.6 bytes per coin.** That includes the reverse key and the undo journal of every block in this chain. The chain is synthetic: every coin has a 25-byte P2PKH script, and the four large blocks carry nearly all of them. Bitcoin Cash's mainnet coin count and per-coin cost are not measured.
-7. **Replay times vary between runs of the same chain**, from 1,259 to 2,138 s. The cause is not measured; other load on the machine is likely.
+7. **Replay times vary between runs of the same chain**, from 1,259 to 2,138 s. The cause is not measured; other load on the machine is likely. The host's load average read 3.4 when the shipped run started and 8.9 when it ended.
 
 ## Findings
 

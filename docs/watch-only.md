@@ -120,7 +120,7 @@ The limit is a cap, not memory set aside. The cap changes no allocation, so on
 ordinary blocks the dashboard should stay near what it uses today; that is inferred,
 not measured on Bitcoin Cash mainnet (the Bitcoin index peaked at 0.25 GiB RSS,
 #217). It only climbs while it applies a block of tens of MB. On regtest, replaying
-four 31 MB blocks under the 2 GiB cap peaked at 953 MiB of live heap and 1.49 GiB
+four 31 MB blocks under the 2 GiB cap peaked at 954 MiB of live heap and 1.50 GiB
 RSS; under 1 GiB without `GOMEMLIMIT` the same replay was killed. In that run
 Bitcoin Cash Node, on regtest defaults, peaked at about 1.21 GiB serving those
 blocks. A host replaying such blocks therefore needs about 2.7 GiB of RAM for the
