@@ -271,7 +271,8 @@ An authenticated dashboard user can deactivate one configured node. The host
 helper gracefully stops only that daemon and its dependent wallet service,
 keeps its data and configuration, and leaves its tower visible but inactive.
 Activating it starts the same configured service again. At least one node must
-remain configured; deactivation is different from deleting a chain or its data.
+remain configured; deactivation keeps the chain and its data, and
+[deleting a node](#deleting-a-node) is a separate, destructive step.
 Reactivate the node before attempting an RPC credential reset.
 
 If an active node's container stops for any other reason (`node-manager stop`,
@@ -283,3 +284,41 @@ still treat a stopped node as offline. The report comes from the resource-profil
 host helper, which runs on Homebrew and on APT whenever a node uses the
 `compact` resource profile (the default for setup selections and dashboard
 installs).
+
+## Deleting a node
+
+**Settings → Node set → Delete…**, next to **Move data…**, removes a node so it
+can be installed again from scratch. The button is enabled only for an installed
+node that is already deactivated and is not the last installed node; otherwise
+its tooltip says what is missing. The confirmation dialog warns that the step
+cannot be undone and lists exactly what goes: the node's data folder shown in
+Settings, its balance-index or wallet Docker volumes (Bitcoin `utxo_index`,
+Litecoin `utxo_index_litecoin`, Monero `monero_wallets`, Tari `tari_wallet` and
+`tari_wallet_data`), its `config.json` section with the credentials in it, and
+the watch-only wallets you added for that coin with their saved balances and
+history. Delete stays disabled until you type the node's name (`zcash`,
+`bitcoincash`, and so on). Like Install and Move data, **Delete on Save** only
+marks the row; Settings → **Save** sends it, and clicking the marked row undoes
+it. Other nodes, their data and their wallets are never touched.
+
+The host re-checks everything under its configuration lock and refuses an active
+or uninstalled node, the last installed node, a request without the typed name,
+and any data folder that is a symbolic link, resolves outside its own path, is
+`/`, your home folder, an ancestor of or equal to the app, state, config or
+Docker directories, overlaps another node's folder, or is not writable by the
+host helper (on APT, a folder outside the managed directories needs the same
+administrator grant as install and move). It then removes the
+node's section (Bitcoin is written as `{"enabled": false}` and its configured
+wallets are dropped) and applies the new configuration first. If that apply
+fails, the previous configuration is restored and nothing is deleted. Only after
+a successful apply does it remove the node's containers, volumes and data folder
+contents, clear its resource-profile and seed state, and log a `Host: <Node>
+deleted` event. The dashboard then removes that coin's watch-only wallets,
+balance history and scan caches; it keeps retrying until they are gone, so a
+dashboard restart in between loses nothing. The host helper hands the wallet
+removal to the dashboard before it removes any data and keeps a pending marker
+until that handoff succeeds, so a failed handoff is retried on the helper's next
+run rather than leaving the wallets behind. If some data cannot be removed
+(for example a volume still in use), the status reads "Node deleted, but some of
+its data could not be removed" and the leftovers must be cleaned by hand before
+reinstalling, because the install dialog only accepts an empty data folder.

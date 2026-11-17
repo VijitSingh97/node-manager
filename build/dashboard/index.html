@@ -519,6 +519,16 @@
       <div class="settings-actions"><button id="settings-install-cancel" type="button">Cancel</button><button id="settings-install-submit" type="submit">Install node</button></div>
     </form>
   </dialog>
+  <dialog id="settings-delete-dialog" class="settings-dialog" aria-labelledby="settings-delete-title">
+    <form id="settings-delete-form">
+      <div class="settings-heading"><h2 id="settings-delete-title">Delete node?</h2></div>
+      <p class="settings-delete-warning"><b>This cannot be undone.</b> Deleting removes the node from Node Manager and permanently erases:</p>
+      <ul id="settings-delete-list"></ul>
+      <p class="settings-note">The node must be installed again from scratch and re-synced. Other nodes are not touched.</p>
+      <label id="settings-delete-confirm-label">Type <b></b> to confirm<input id="settings-delete-confirm" type="text" autocomplete="off" spellcheck="false"></label>
+      <div class="settings-actions"><button id="settings-delete-cancel" type="button">Cancel</button><button id="settings-delete-submit" type="submit" disabled>Delete on Save</button></div>
+    </form>
+  </dialog>
   <dialog id="credential-reset-dialog" class="settings-dialog" aria-labelledby="credential-reset-title">
     <form id="credential-reset-form">
       <div class="settings-heading"><h2 id="credential-reset-title">Reset node password?</h2></div>
