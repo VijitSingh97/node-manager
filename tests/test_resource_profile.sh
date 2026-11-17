@@ -439,11 +439,11 @@ jq -e '.nodes.monero.mem_bytes > 3000000000' "$tmp/host-stats-payload.json" >/de
 jq -e '.nodes.monero.cpu_pct == 47.5 and (.nodes | has("monero-wallet") | not) and .other.cpu_pct == 5' "$tmp/host-stats-payload.json" >/dev/null ||
   fail "a wallet container was not counted with its node: $(jq -c '{monero: .nodes.monero, other}' "$tmp/host-stats-payload.json")"
 mkdir -p "$case_root/cgroup/system.slice/docker-cid-monero.scope"
-printf 'anon 1234567890\nfile 99\npagetables 1000\nslab_unreclaimable 10\nslab_reclaimable 5000\n' >"$case_root/cgroup/system.slice/docker-cid-monero.scope/memory.stat"
+printf 'anon 1234567890\nfile 99\nkernel 999999\nkernel_stack 1\npagetables 1000\nsec_pagetables 20\npercpu 300\nsock 4000\nslab_unreclaimable 50000\nslab_reclaimable 600000\n' >"$case_root/cgroup/system.slice/docker-cid-monero.scope/memory.stat"
 export RESOURCE_CGROUP_ROOT=$case_root/cgroup FAKE_HOST_STATS_OUT=$tmp/host-stats-payload.json
 run_profile
 unset RESOURCE_CGROUP_ROOT FAKE_HOST_STATS_OUT
-jq -e '.nodes.monero.mem_bytes == 1234568900 + 104857600' "$tmp/host-stats-payload.json" >/dev/null ||
+jq -e '.nodes.monero.mem_bytes == 1234567890 + 1 + 1000 + 20 + 300 + 4000 + 50000 + 104857600' "$tmp/host-stats-payload.json" >/dev/null ||
   fail "cgroup anon and kernel memory did not override docker stats: $(jq -c .nodes.monero "$tmp/host-stats-payload.json")"
 jq -e '.failed == {}' "$tmp/host-stats-payload.json" >/dev/null || fail "healthy containers were reported as failed starts"
 

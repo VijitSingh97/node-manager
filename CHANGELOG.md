@@ -26,7 +26,7 @@ All notable changes to this project are documented here. Format follows
   total, so "Other processes" no longer drops to 0 or swells because the figures
   came from different moments. Container memory now includes the container's own
   kernel memory (page tables, unreclaimable slab, socket buffers), which was
-  counted under "Other processes" (about 270 MiB on a nine-container host).
+  counted under "Other processes" (about 270 MiB on an eleven-container host).
 - `utxo-index bench` reads a relative wallet file path from the directory it was
   run in. On APT installs it looked in `/var/lib/node-manager` instead and
   reported a valid file as malformed; a missing file is now named as unreadable.
