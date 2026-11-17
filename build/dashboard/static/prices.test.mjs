@@ -1,14 +1,16 @@
-import { test } from "node:test";
+import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import {
   PRICE_URL,
   formatPrice,
+  nextPollDelay,
   normalizeCurrency,
   panelCurrency,
   priceURL,
   priceView,
   scaledPrice,
   towerPriceView,
+  watchPrice,
 } from "./prices.js";
 
 test("price endpoint is same-origin", () => {
@@ -134,4 +136,55 @@ test("priceView rescales from the selected currency's quote", () => {
   const data = { available: true, stale: false, updated_at: 1_700_000_000, prices: { usd: 0.0008032, jpy: 0.12 } };
   assert.equal(priceView(data, "USD").quantity, (10000).toLocaleString());
   assert.equal(priceView(data, "JPY").quantity, (10).toLocaleString());
+});
+
+test("the page polls quickly until prices are fresh", () => {
+  assert.equal(nextPollDelay({ available: true, stale: false }), 60000);
+  assert.equal(nextPollDelay({ available: true, stale: true }), 10000);
+  assert.equal(nextPollDelay({ available: false }), 10000);
+  assert.equal(nextPollDelay(undefined), 10000);
+});
+
+async function settle() {
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+}
+
+async function watchWith(asset, bodies, listener) {
+  const counter = { calls: 0 };
+  globalThis.fetch = async () => {
+    const body = bodies[Math.min(counter.calls++, bodies.length - 1)];
+    return { ok: body !== null, json: async () => body };
+  };
+  mock.timers.enable({ apis: ["setTimeout"] });
+  watchPrice(asset, listener && (() => listener(counter)));
+  await settle();
+  return counter;
+}
+
+test("watchPrice retries in 10 s after a failed fetch and settles to 60 s once fresh", async (t) => {
+  t.after(() => mock.timers.reset());
+  const counter = await watchWith("retry-asset", [null, { available: true, stale: true }, { available: true }, { available: true }]);
+  const step = async (ms, expected) => {
+    mock.timers.tick(ms);
+    await settle();
+    assert.equal(counter.calls, expected);
+  };
+  assert.equal(counter.calls, 1);
+  await step(9999, 1);
+  await step(1, 2);
+  await step(10000, 3);
+  await step(59999, 3);
+  await step(1, 4);
+});
+
+test("watchPrice schedules its next poll before notifying listeners", async (t) => {
+  t.after(() => mock.timers.reset());
+  let polledFromListener = -1;
+  await watchWith("order-asset", [{ available: true }], (counter) => {
+    if (polledFromListener >= 0) return;
+    const before = counter.calls;
+    mock.timers.tick(60000);
+    polledFromListener = counter.calls - before;
+  });
+  assert.equal(polledFromListener, 1);
 });

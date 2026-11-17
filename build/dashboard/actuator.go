@@ -133,7 +133,7 @@ func (a *app) actuatorChains() []actuatorChain {
 		if chain.Active {
 			chain.Status, chain.state = statusDown, "down"
 			switch {
-			case a.monitorTransitioning(id):
+			case a.monitorTransitioning(id) || a.nodeRestarting(id):
 				chain.Status, chain.state = statusDegraded, "busy"
 			case a.nodeAnsweredRecently(id):
 				a.nodeHealthMu.RLock()

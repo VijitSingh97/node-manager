@@ -8,6 +8,12 @@ All notable changes to this project are documented here. Format follows
 
 ### Fixed
 
+- "Price unavailable" no longer appears for a minute or two after a settings
+  change restarts Tor and the dashboard. The dashboard now saves its last good
+  prices in its state directory (`prices.json`), shows them as stale with their
+  original time after a restart, and replaces them when the next fetch over Tor
+  succeeds. While prices are unavailable or stale the page checks every 10
+  seconds instead of every minute, so fresh prices appear as soon as Tor is up.
 - Exposing a node's RPC, ZMQ or gRPC port on the LAN failed with "Port
   availability could not be checked." on hosts running Tailscale. The port check
   could not read listeners that `ss` prints with an interface scope, such as
@@ -47,6 +53,19 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
+- Nodes that are restarting because of a settings change now turn grey with a
+  **Restarting** badge and "Restarting after a settings change…" on the panel,
+  instead of looking down or connecting. A node counts as restarting from the
+  moment an apply of the pending configuration, a network setting change (clearnet
+  over Tor, incoming connections), a node install or data move, a node
+  activation, or an RPC password reset is requested until its RPC answers again,
+  for at most 10 minutes. `/api/nodes` reports it as `restarting`, so it survives
+  a page reload, and node-down alerts stay quiet meanwhile; the dashboard keeps
+  probing restarting nodes so the flag clears as soon as they answer. After an
+  apply the host helper lists the services it recreated in the status file, so
+  only those nodes show as restarting. A node that is known to
+  have failed to start still shows Stopped with the reason. LAN port changes
+  restart only Tor and the dashboard, so nodes stay as they are.
 - Instant Litecoin balances: `litecoin.utxo_index` (Settings → Balance index →
   "Instant Litecoin balances") keeps a Litecoin balance index, and the Litecoin
   watch-only card reads its balances from it once it is seeded, updating within a

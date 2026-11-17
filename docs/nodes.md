@@ -284,6 +284,17 @@ host helper, which runs on Homebrew and on APT whenever a node uses the
 `compact` resource profile (the default for setup selections and dashboard
 installs).
 
+While a settings change restarts a node, its tower turns grey and the panel
+shows a **Restarting** badge with "Restarting after a settings change…". This
+covers applying the pending configuration, the clearnet-over-Tor and incoming
+connection switches, installing or moving a node, activating a node, and
+resetting its RPC password. The node counts as restarting from the request until
+its RPC answers again, for at most 10 minutes, and node-down alerts wait for it.
+After an apply, only the nodes whose containers were recreated stay marked; the
+dashboard keeps probing them so the mark clears as soon as they answer.
+LAN port changes restart only Tor and the dashboard, so nodes keep their normal
+display. A node that failed to start shows Stopped with the reason instead.
+
 A node that fails to start is stopped instead of retried forever. With launch
 at boot on, Docker restarts a crashing container indefinitely. When a node's
 container keeps exiting with an error within a minute of each start for 10

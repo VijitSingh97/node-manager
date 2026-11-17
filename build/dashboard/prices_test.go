@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -464,4 +465,91 @@ type closeTrackingBody struct {
 func (b *closeTrackingBody) Close() error {
 	b.closed.Store(true)
 	return nil
+}
+
+func TestPriceCachePersistsLastGoodPricesAcrossRestart(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	path := t.TempDir() + "/state/prices.json"
+	fresh := priceCacheForTest(now, func(*http.Request) (*http.Response, error) {
+		return response(http.StatusOK, allAssetPriceResponse(t, now.Unix())), nil
+	})
+	fresh.Persist(path)
+	if err := fresh.refresh(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("saved prices = %v, %v", info, err)
+	}
+
+	restarted := priceCacheForTest(now.Add(time.Minute), func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("tor is still bootstrapping")
+	})
+	restarted.Persist(path)
+	for _, asset := range priceAssets {
+		snapshot := restarted.SnapshotAsset(asset)
+		if snapshot["available"] != true || snapshot["stale"] != true || snapshot["updated_at"] != now.Unix() || len(snapshot["prices"].(map[string]float64)) != len(priceCurrencies) {
+			t.Fatalf("%s after restart = %#v", asset, snapshot)
+		}
+	}
+	if restarted.refresh(t.Context()) == nil {
+		t.Fatal("refresh unexpectedly succeeded")
+	}
+	if snapshot := restarted.Snapshot(); snapshot["available"] != true || snapshot["stale"] != true {
+		t.Fatalf("failed refresh dropped the loaded prices: %#v", snapshot)
+	}
+
+	later := now.Add(2 * time.Minute)
+	restarted.now = func() time.Time { return later }
+	restarted.client = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return response(http.StatusOK, allAssetPriceResponse(t, later.Unix())), nil
+	})}
+	if err := restarted.refresh(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot := restarted.Snapshot(); snapshot["stale"] != false || snapshot["updated_at"] != later.Unix() {
+		t.Fatalf("fresh fetch did not replace the loaded prices: %#v", snapshot)
+	}
+}
+
+func TestPriceCacheIgnoresInvalidSavedPrices(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	good := map[string]float64{}
+	bad := map[string]float64{}
+	for _, currency := range priceCurrencies {
+		good[currency], bad[currency] = 1, 1
+	}
+	bad["usd"] = -5
+	for name, saved := range map[string]priceSnapshotFile{
+		"negative price": {Prices: map[string]map[string]float64{"bitcoin": bad}, UpdatedAt: map[string]int64{"bitcoin": now.Unix()}},
+		"future time":    {Prices: map[string]map[string]float64{"bitcoin": good}, UpdatedAt: map[string]int64{"bitcoin": now.Add(time.Hour).Unix()}},
+		"missing time":   {Prices: map[string]map[string]float64{"bitcoin": good}},
+		"short quote":    {Prices: map[string]map[string]float64{"bitcoin": {"usd": 1}}, UpdatedAt: map[string]int64{"bitcoin": now.Unix()}},
+	} {
+		path := t.TempDir() + "/prices.json"
+		b, _ := json.Marshal(saved)
+		if err := os.WriteFile(path, b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cache := priceCacheForTest(now, nil)
+		cache.Persist(path)
+		if snapshot := cache.Snapshot(); snapshot["available"] != false {
+			t.Fatalf("%s was loaded: %#v", name, snapshot)
+		}
+	}
+	for name, content := range map[string]string{"garbage": "not json", "empty": ""} {
+		path := t.TempDir() + "/prices.json"
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cache := priceCacheForTest(now, nil)
+		cache.Persist(path)
+		if cache.Snapshot()["available"] != false {
+			t.Fatalf("%s file was loaded", name)
+		}
+	}
+	missing := priceCacheForTest(now, nil)
+	missing.Persist(t.TempDir() + "/absent.json")
+	if missing.Snapshot()["available"] != false {
+		t.Fatal("missing file produced prices")
+	}
 }

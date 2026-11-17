@@ -85,15 +85,16 @@ type hostControlRequest struct {
 }
 
 type hostControlStatus struct {
-	ID        string `json:"id,omitempty"`
-	Action    string `json:"action,omitempty"`
-	Node      string `json:"node,omitempty"`
-	Enabled   *bool  `json:"enabled,omitempty"`
-	State     string `json:"state"`
-	Message   string `json:"message,omitempty"`
-	ErrorCode string `json:"error_code,omitempty"`
-	Port      string `json:"port,omitempty"`
-	Detail    string `json:"detail,omitempty"`
+	ID        string   `json:"id,omitempty"`
+	Action    string   `json:"action,omitempty"`
+	Node      string   `json:"node,omitempty"`
+	Enabled   *bool    `json:"enabled,omitempty"`
+	State     string   `json:"state"`
+	Message   string   `json:"message,omitempty"`
+	ErrorCode string   `json:"error_code,omitempty"`
+	Port      string   `json:"port,omitempty"`
+	Detail    string   `json:"detail,omitempty"`
+	Restarted []string `json:"restarted,omitempty"`
 }
 
 func hostStatusDetail(status hostControlStatus) string {

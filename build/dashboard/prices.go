@@ -31,6 +31,7 @@ type PriceCache struct {
 	now          func() time.Time
 	refreshEvery time.Duration
 	startupRetry time.Duration
+	path         string
 
 	mu             sync.RWMutex
 	assetPrices    map[string]map[string]float64
@@ -48,6 +49,54 @@ func NewPriceCache() *PriceCache {
 		assetPrices:    make(map[string]map[string]float64),
 		assetUpdatedAt: make(map[string]int64),
 		assetFailed:    map[string]bool{"bitcoin": true, "monero": true, "tari": true, "litecoin": true, "dogecoin": true, "bitcoin-cash": true, "zcash": true},
+	}
+}
+
+type priceSnapshotFile struct {
+	Prices    map[string]map[string]float64 `json:"prices"`
+	UpdatedAt map[string]int64              `json:"updated_at"`
+}
+
+func (c *PriceCache) Persist(path string) {
+	c.path = path
+	b, err := readSmallFile(path, maxPriceResponseBytes)
+	if err != nil {
+		return
+	}
+	var saved priceSnapshotFile
+	if json.Unmarshal(b, &saved) != nil {
+		return
+	}
+	now := c.now()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, asset := range priceAssets {
+		prices, updatedAt := saved.Prices[asset], saved.UpdatedAt[asset]
+		if updatedAt <= 0 || time.Unix(updatedAt, 0).After(now) || len(prices) != len(priceCurrencies) {
+			continue
+		}
+		valid := true
+		for _, currency := range priceCurrencies {
+			if price := prices[currency]; math.IsNaN(price) || math.IsInf(price, 0) || price <= 0 {
+				valid = false
+			}
+		}
+		if valid {
+			c.assetPrices[asset], c.assetUpdatedAt[asset] = prices, updatedAt
+		}
+	}
+}
+
+func (c *PriceCache) save() {
+	if c.path == "" {
+		return
+	}
+	c.mu.RLock()
+	saved := priceSnapshotFile{Prices: c.assetPrices, UpdatedAt: c.assetUpdatedAt}
+	b, err := json.Marshal(saved)
+	c.mu.RUnlock()
+	if err == nil {
+		_ = writePrivateFileAtomic(c.path, b)
 	}
 }
 
@@ -196,6 +245,7 @@ func (c *PriceCache) refresh(ctx context.Context) error {
 		}
 	}
 	c.mu.Unlock()
+	c.save()
 	return nil
 }
 

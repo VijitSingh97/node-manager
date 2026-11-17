@@ -4,6 +4,11 @@ export const PRICE_URL = "/api/prices";
 export const FIAT_CURRENCIES = ["USD", "EUR", "GBP", "INR", "CAD", "AUD", "JPY", "RUB", "CNY"];
 
 const POLL_MS = 60000;
+const RETRY_MS = 10000;
+
+export function nextPollDelay(data) {
+  return data?.available === true && data.stale !== true ? POLL_MS : RETRY_MS;
+}
 
 export function normalizeCurrency(value) {
   const currency = String(value || "").toUpperCase();
@@ -82,10 +87,10 @@ export function watchPrice(asset, listener) {
       } catch {
         entry.data = { available: false };
       }
+      setTimeout(poll, nextPollDelay(entry.data));
       entry.listeners.forEach((notify) => notify());
     };
     poll();
-    setInterval(poll, POLL_MS);
   }
   if (listener) entry.listeners.add(listener);
   return entry.data;
@@ -165,13 +170,13 @@ if (typeof document !== "undefined") {
       } catch {
         controller.latest = { available: false };
       }
+      setTimeout(refresh, nextPollDelay(controller.latest));
       render();
     };
 
     controller.render = render;
     render();
     refresh();
-    setInterval(refresh, POLL_MS);
   }
 
   document.addEventListener("appearance-updated", event => {
