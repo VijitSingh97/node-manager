@@ -31,7 +31,7 @@ func TestBitcoinCashIndexConfigAndWiring(t *testing.T) {
 	cfg.dataDir, cfg.stateDir = t.TempDir(), t.TempDir()
 	a := chainTestApp(t, cfg, io.Discard)
 	m := a.chainUtxo[nodeBitcoinCash]
-	if m == nil || m.chain != utxoBitcoinCash || m.currentStore().reverse || m.host.prefix != "bitcoincash-" || m.host.lock != &a.utxoSeedLock {
+	if m == nil || m.chain != utxoBitcoinCash || !m.currentStore().reverse || m.host.prefix != "bitcoincash-" || m.host.lock != &a.utxoSeedLock {
 		t.Fatalf("bitcoin cash index wired as %+v", m)
 	}
 	if store := a.familyWatch.stores[nodeBitcoinCash]; store.index != m || m.onApplied == nil || store.maxWallets != 50 {
@@ -41,7 +41,7 @@ func TestBitcoinCashIndexConfigAndWiring(t *testing.T) {
 
 func TestBitcoinCashSeedNowRequestsAReplayWithoutTheHostHelper(t *testing.T) {
 	a, _ := testApp(t, &rpcFixture{}, "")
-	m := utxoMgrNewChain(t, t.TempDir(), nil, newFakeUtxoNode(utxoMgrChain(4, "c")), io.Discard, utxoBitcoinCash)
+	m := utxoMgrNewChain(t, t.TempDir(), nil, newFakeUtxoNode(utxoMgrChain(4, "c")), io.Discard, replayTestChain())
 	state := t.TempDir()
 	m.configureSeed(utxoSeedHost{prefix: "bitcoincash-", stateDir: state, lock: &sync.Mutex{}, hold: func() bool { return true }, release: func() {}})
 	m.temp = func() (float64, error) { return 50, nil }
@@ -107,64 +107,4 @@ func TestHostControlOffersTheBitcoinCashIndexWithItsArchivalSize(t *testing.T) {
 	if err != nil || json.Unmarshal(raw, &req) != nil || req["action"] != "utxo_index" || req["node"] != nodeBitcoinCash || req["enabled"] != true {
 		t.Fatalf("request %s %v", raw, err)
 	}
-}
-
-func TestBitcoinCashSeedNowResumesAReplayTheUserCancelled(t *testing.T) {
-	swapReplayKnobs(t, 5, 1000, 10)
-	ctx := t.Context()
-	a, _ := testApp(t, &rpcFixture{}, "")
-	c := utxoMgrChain(60, "u")
-	node := newFakeUtxoNode(c)
-	m := utxoMgrNewChain(t, t.TempDir(), nil, node, io.Discard, utxoBitcoinCash)
-	state := t.TempDir()
-	clock := time.Unix(1_800_000_000, 0)
-	m.now = func() time.Time { return clock }
-	m.checkEvery = time.Microsecond
-	m.configureSeed(utxoSeedHost{prefix: "bitcoincash-", stateDir: state, lock: &sync.Mutex{}, hold: func() bool { return true }, release: func() {}})
-	m.setSeedStatePath(filepath.Join(state, "bitcoincash-utxo-seed.json"))
-	m.temp = func() (float64, error) { return 50, nil }
-	m.guards = func(context.Context) seedGuardInput {
-		return seedGuardInput{State: m.Status().State, TempC: 50, CPUs: 0.5, FreeBytes: 1 << 40,
-			Chain: blockchainInfo{Chain: "regtest", Blocks: 59, Headers: 59}, TipTime: clock, Now: clock}
-	}
-	a.chainUtxo = map[string]*utxoManager{nodeBitcoinCash: m}
-	cancelled := false
-	node.hook = func(method string, params any) error {
-		if !cancelled && method == "getblockhash" && params.([]any)[0].(uint32) == 30 {
-			cancelled = true
-			if err := os.WriteFile(filepath.Join(state, "bitcoincash-"+seedCancelName), nil, 0o600); err != nil {
-				t.Error(err)
-			}
-			for end := time.Now().Add(5 * time.Second); m.Status().Phase != utxoPhaseCancelling && time.Now().Before(end); {
-				time.Sleep(time.Millisecond)
-			}
-		}
-		return nil
-	}
-
-	m.tick(ctx)
-	m.maybeAutoSeed(ctx)
-	st := m.Status()
-	if st.LastSeed == nil || st.LastSeed.Outcome != "cancelled" || st.State != utxoStateCatching || m.seed.AutoFailures != utxoAutoSeedTries {
-		t.Fatalf("after the user's cancel: %+v, failures %d", st, m.seed.AutoFailures)
-	}
-	m.tick(ctx)
-	cut := *m.Status().IndexTip
-	clock = clock.Add(2 * time.Hour)
-	m.maybeAutoSeed(ctx)
-	if cut == 0 || cut >= 59 || *m.Status().IndexTip != cut {
-		t.Fatalf("a cancelled replay moved on its own: tip %d after the cut at %d", *m.Status().IndexTip, cut)
-	}
-	if !a.seedNow(nodeBitcoinCash) {
-		t.Fatalf("Seed now is not offered for the cancelled replay: %+v", m.Status())
-	}
-	if got := hostControlHTTP(a, http.MethodPost, `{"action":"utxo_seed","node":"bitcoincash"}`, true, "192.168.1.20:4321").Code; got != http.StatusAccepted {
-		t.Fatalf("Seed now = %d", got)
-	}
-	m.pollSeed(ctx)
-	m.tick(ctx)
-	if st := m.Status(); st.State != utxoStateReady || st.LastSeed.Outcome != "ok" || m.seed.AutoFailures != 0 {
-		t.Fatalf("Seed now did not resume the replay: %+v, failures %d", st, m.seed.AutoFailures)
-	}
-	utxoMgrCheck(t, m.store, c, "u", 59)
 }

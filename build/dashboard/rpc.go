@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -63,6 +64,38 @@ func (r *rpcClient) call(ctx context.Context, method string, params any, out any
 		return fmt.Errorf("decode RPC %s result: %w", method, err)
 	}
 	return nil
+}
+
+// callHex decodes a hex string result straight from the response, without the copy call makes; a raw 32 MB block is 64 MB of hex.
+func (r *rpcClient) callHex(ctx context.Context, method string, params any) ([]byte, error) {
+	body, err := json.Marshal(map[string]any{"jsonrpc": "1.0", "id": "dashboard", "method": method, "params": params})
+	if err != nil {
+		return nil, err
+	}
+	responseBody, err := r.post(ctx, body, method)
+	if err != nil {
+		return nil, err
+	}
+	var envelope struct {
+		Result *string         `json:"result"`
+		Error  json.RawMessage `json:"error"`
+	}
+	err = json.Unmarshal(responseBody, &envelope)
+	responseBody = nil
+	if err != nil {
+		return nil, fmt.Errorf("decode RPC %s: %w", method, err)
+	}
+	if len(envelope.Error) > 0 && string(envelope.Error) != "null" {
+		var detail struct {
+			Message string `json:"message"`
+		}
+		_ = json.Unmarshal(envelope.Error, &detail)
+		return nil, fmt.Errorf("RPC %s returned an error: %s", method, detail.Message)
+	}
+	if envelope.Result == nil {
+		return nil, rpcNoResultError{method}
+	}
+	return hex.DecodeString(*envelope.Result)
 }
 
 type rpcBatchCall struct {

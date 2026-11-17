@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -409,5 +410,70 @@ func TestFollowerReplayPassesABlockLargerThanTheBudgetWhileABatchIsOpen(t *testi
 	}
 	if h, _, _, _ := s.Tip(); h != 10 || len(lookupAmounts(t, s, "001400ccdd")) != 1 {
 		t.Fatalf("tip %d after the large block", h)
+	}
+}
+
+func TestAppendReversedUtxoOpsMatchesASplitAndReverse(t *testing.T) {
+	rng := rand.New(rand.NewPCG(7, 9))
+	for range 50 {
+		var ops []byte
+		for range rng.IntN(40) {
+			key := make([]byte, utxoKeyLen)
+			for i := range key {
+				key[i] = byte(rng.IntN(256))
+			}
+			if rng.IntN(2) == 0 {
+				ops = appendUtxoDelete(ops, key)
+			} else {
+				ops = appendUtxoSet(ops, key, make([]byte, utxoValueLen))
+			}
+		}
+		parts, err := splitUtxoOps(ops)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var want []byte
+		for i := len(parts) - 1; i >= 0; i-- {
+			want = append(want, parts[i]...)
+		}
+		if got := appendReversedUtxoOps([]byte("hdr"), ops); !bytes.Equal(got, append([]byte("hdr"), want...)) {
+			t.Fatalf("reversed ops differ for %d parts", len(parts))
+		}
+	}
+}
+
+func TestFollowerReplayNeverHoldsTwoOverBudgetBlocks(t *testing.T) {
+	swapReplayKnobs(t, 1000, 1000, utxoReplayGap)
+	budget := utxoReplayInflightOps
+	utxoReplayInflightOps = 8
+	t.Cleanup(func() { utxoReplayInflightOps = budget })
+	c := utxoMgrChain(10, "h")
+	for b := range 4 {
+		var outs []fakeOut
+		for i := range 30 {
+			outs = append(outs, fakeOut{fmt.Sprintf("0014%02x%02xee", b, i), "0.00010000"})
+		}
+		c.add(fmt.Sprintf("big%d", b), outs, nil)
+	}
+	node := newFakeUtxoNode(c)
+	s := openFollowStore(t)
+	s.beforeCommit = func() error { time.Sleep(20 * time.Millisecond); return nil }
+	var committed atomic.Int64
+	committed.Store(-1)
+	ahead := 0
+	node.hook = func(method string, params any) error {
+		if method == "getblockhash" {
+			if h := params.([]any)[0].(uint32); h > 10 {
+				ahead = max(ahead, int(int64(h)-committed.Load()))
+			}
+		}
+		return nil
+	}
+	f := newUtxoFollower(s, node)
+	f.chain = replayTestChain()
+	f.onBlock = func(h uint32) { committed.Store(int64(h)) }
+	stepOK(t, f)
+	if tip, _, _, _ := s.Tip(); tip != 13 || ahead != 1 {
+		t.Fatalf("tip %d; the fetcher was %d blocks past the last commit while fetching over-budget blocks, want 1", tip, ahead)
 	}
 }

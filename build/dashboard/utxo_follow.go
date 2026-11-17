@@ -21,8 +21,8 @@ const utxoReplayPrefetch = 32
 var (
 	utxoReplayBatch    = 1000
 	utxoReplayBatchOps = 200_000
-	// Blocks fetched ahead and not yet taken into a batch stay within this many coin operations; a larger block goes through alone.
-	utxoReplayInflightOps = 200_000
+	// Blocks fetched ahead plus the open batch stay within this many coin operations; a larger block waits until everything before it is committed.
+	utxoReplayInflightOps = 400_000
 )
 
 const (
@@ -345,6 +345,9 @@ func (f *utxoFollower) fetchBlock(ctx context.Context, height uint32) (utxoBlock
 	if err := f.rpc.call(ctx, "getblockhash", []any{height}, &hash); err != nil {
 		return utxoBlock{}, err
 	}
+	if f.chain.BlockVerbosity == 0 {
+		return f.fetchRawBlock(ctx, height, hash)
+	}
 	var raw utxoV3Block
 	if err := f.rpc.call(ctx, "getblock", []any{hash, f.chain.BlockVerbosity}, &raw); err != nil {
 		return utxoBlock{}, err
@@ -355,6 +358,36 @@ func (f *utxoFollower) fetchBlock(ctx context.Context, height uint32) (utxoBlock
 	}
 	if blk.Height != height {
 		return utxoBlock{}, fmt.Errorf("%w: asked for height %d, got %d", errUtxoBadBlock, height, blk.Height)
+	}
+	return blk, nil
+}
+
+// fetchRawBlock reads the serialized block, which costs the node far less memory than verbose JSON on large blocks.
+func (f *utxoFollower) fetchRawBlock(ctx context.Context, height uint32, hash string) (utxoBlock, error) {
+	want, err := utxoRevHex(hash)
+	if err != nil {
+		return utxoBlock{}, err
+	}
+	var raw []byte
+	if hc, ok := f.rpc.(interface {
+		callHex(context.Context, string, any) ([]byte, error)
+	}); ok {
+		raw, err = hc.callHex(ctx, "getblock", []any{hash, 0})
+	} else {
+		var hexBlock string
+		if err = f.rpc.call(ctx, "getblock", []any{hash, 0}, &hexBlock); err == nil {
+			raw, err = hex.DecodeString(hexBlock)
+		}
+	}
+	if err != nil {
+		return utxoBlock{}, err
+	}
+	blk, err := parseCashBlock(raw, height)
+	if err != nil {
+		return utxoBlock{}, err
+	}
+	if blk.Hash != want {
+		return utxoBlock{}, fmt.Errorf("%w: block at height %d does not hash to %s", errUtxoBadBlock, height, hash)
 	}
 	return blk, nil
 }
@@ -391,20 +424,37 @@ func (f *utxoFollower) applyRange(ctx context.Context, from, to uint32) error {
 	}
 	queue := make(chan fetched, utxoReplayPrefetch)
 	var freed atomic.Int64
-	wake := make(chan struct{}, 1)
+	var waiting atomic.Bool
+	wake, starved := make(chan struct{}, 1), make(chan struct{}, 1)
 	fetcher.Go(func() {
 		defer close(queue)
 		var taken int64
-		for h := from; h <= to && ctx.Err() == nil; h++ {
-			start := time.Now()
-			blk, err := f.fetchBlock(ctx, h)
-			cost := int64(len(blk.Creates) + len(blk.Spends))
+		room := func(cost int64) bool {
 			for held := taken - freed.Load(); held > 0 && held+cost > int64(utxoReplayInflightOps); held = taken - freed.Load() {
+				waiting.Store(true)
+				select {
+				case starved <- struct{}{}:
+				default:
+				}
 				select {
 				case <-wake:
 				case <-ctx.Done():
-					return
+					return false
 				}
+			}
+			waiting.Store(false)
+			return true
+		}
+		for h := from; h <= to && ctx.Err() == nil; h++ {
+			// Fetch nothing while more than the budget is in flight, so a block over it is committed before the next is read.
+			if !room(0) {
+				return
+			}
+			start := time.Now()
+			blk, err := f.fetchBlock(ctx, h)
+			cost := int64(len(blk.Creates) + len(blk.Spends))
+			if !room(cost) {
+				return
 			}
 			taken += cost
 			select {
@@ -427,17 +477,31 @@ func (f *utxoFollower) applyRange(ctx context.Context, from, to uint32) error {
 			return nil
 		}
 		err := f.applyBlocks(batch, fetchDur)
+		freed.Add(int64(ops))
+		select {
+		case wake <- struct{}{}:
+		default:
+		}
 		batch, ops, fetchDur = batch[:0], 0, 0
 		if err == nil && f.gate != nil {
 			err = f.gate()
 		}
 		return err
 	}
-	for item := range queue {
-		freed.Add(int64(len(item.blk.Creates) + len(item.blk.Spends)))
+	for {
+		var item fetched
+		var open bool
 		select {
-		case wake <- struct{}{}:
-		default:
+		case item, open = <-queue:
+		case <-starved:
+			// The fetcher is waiting for budget held by the open batch, so commit it now.
+			if err := flush(); err != nil {
+				return err
+			}
+			continue
+		}
+		if !open {
+			break
 		}
 		if item.err != nil {
 			if err := flush(); err != nil {
@@ -448,7 +512,7 @@ func (f *utxoFollower) applyRange(ctx context.Context, from, to uint32) error {
 		batch = append(batch, item.blk)
 		ops += len(item.blk.Creates) + len(item.blk.Spends)
 		fetchDur += item.dur
-		if len(batch) >= utxoReplayBatch || ops >= utxoReplayBatchOps {
+		if len(batch) >= utxoReplayBatch || ops >= utxoReplayBatchOps || waiting.Load() && len(queue) == 0 {
 			if err := flush(); err != nil {
 				return err
 			}
