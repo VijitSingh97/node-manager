@@ -323,10 +323,10 @@ first — a live copy of `chainstate/` is corrupt by construction.
   Neither endpoint returns wallet data, onion addresses or host paths.
   A configured `dashboard.public_url` still limits which host name they answer
   on, except for Basic-auth clients on the private network, as for `/metrics`.
-  For example, `curl -fsS --user actuator:PASSWORD
-  https://node.example.com/actuator/health` exits non-zero when something is
-  down, and `curl --user actuator https://node.example.com/actuator/info`
-  prompts for the password.
+  For example, `curl -fsS --user actuator https://node.example.com/actuator/health`
+  prompts for the password and exits non-zero when something is down. Uptime
+  monitors that cannot prompt take the same username and password in their
+  own Basic-auth settings.
 - **Telegram / Healthchecks.io:** see [Notifications](notifications.md).
 - **Fee sparkline:** the dashboard samples the next-block fee once a minute
   into an in-memory 24-hour series (reset on restart) and draws it under the
