@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -23,11 +22,14 @@ const (
 	benchMaxAge          = 2 * time.Minute
 	benchRunLimit        = 8 * time.Minute
 	benchScanRunLimit    = 40 * time.Minute
+	benchScanEachLimit   = 5 * time.Minute
 )
 
 var benchBatchSizes = []int{1, 5, 20}
 
 type utxoBenchHost struct {
+	chain      string
+	prefix     string
 	stateDir   string
 	validate   func(context.Context, string) error
 	resolve    func(context.Context, []string) ([]walletScripts, error)
@@ -44,6 +46,7 @@ type benchWallet struct {
 
 type benchRequest struct {
 	ID          string        `json:"id"`
+	Chain       string        `json:"chain"`
 	RequestedAt int64         `json:"requested_at"`
 	Wallets     []benchWallet `json:"wallets"`
 	Repeat      int           `json:"repeat"`
@@ -89,28 +92,30 @@ type benchTotals struct {
 type benchScanRun struct {
 	Seconds float64
 	Height  int64
-	Wallets []benchTotals
+	Best    string
+	Totals  benchTotals
 }
 
 type benchScanWallet struct {
-	Name       string `json:"name"`
-	Coins      int    `json:"coins"`
-	Sats       int64  `json:"sats"`
-	IndexCoins int    `json:"index_coins"`
-	IndexSats  int64  `json:"index_sats"`
-	Match      *bool  `json:"match,omitempty"`
+	Name       string  `json:"name"`
+	Seconds    float64 `json:"scan_s"`
+	Height     int64   `json:"height"`
+	Coins      int     `json:"coins"`
+	Sats       int64   `json:"sats"`
+	IndexCoins int     `json:"index_coins"`
+	IndexSats  int64   `json:"index_sats"`
+	Match      *bool   `json:"match,omitempty"`
 }
 
 type benchScan struct {
-	Height        int64             `json:"height"`
-	HeightSkew    bool              `json:"height_skew,omitempty"`
-	BatchSeconds  float64           `json:"batch_s"`
-	SingleSeconds float64           `json:"single_s"`
-	Wallets       []benchScanWallet `json:"wallets"`
+	BatchSeconds float64           `json:"batch_s"`
+	BatchHeight  int64             `json:"batch_height"`
+	Wallets      []benchScanWallet `json:"wallets"`
 }
 
 type benchResult struct {
 	ID         string              `json:"id"`
+	Chain      string              `json:"chain"`
 	Started    time.Time           `json:"started"`
 	Finished   time.Time           `json:"finished"`
 	Repeat     int                 `json:"repeat"`
@@ -122,6 +127,7 @@ type benchResult struct {
 	CachedRead *benchCached        `json:"cached_read,omitempty"`
 	Scan       *benchScan          `json:"scan,omitempty"`
 	Refusals   []string            `json:"refusals,omitempty"`
+	Failures   []string            `json:"failures,omitempty"`
 }
 
 func (m *utxoManager) configureBench(h utxoBenchHost) {
@@ -138,6 +144,9 @@ func parseBenchRequest(raw []byte) (benchRequest, string) {
 		return req, fmt.Sprintf("the bench request needs 1 to %d wallets", maxWatchWallets)
 	case req.Repeat < 1 || req.Repeat > benchMaxRepeat:
 		return req, fmt.Sprintf("repeat must be 1 to %d", benchMaxRepeat)
+	}
+	if req.Chain == "" {
+		req.Chain = nodeBitcoin
 	}
 	for i, w := range req.Wallets {
 		if strings.TrimSpace(w.Name) == "" {
@@ -197,7 +206,7 @@ func (m *utxoManager) benchLoop(ctx context.Context) {
 
 func (m *utxoManager) pollBench(ctx context.Context) {
 	h := m.bench
-	path := filepath.Join(h.stateDir, benchRequestName)
+	path := filepath.Join(h.stateDir, h.prefix+benchRequestName)
 	f, err := os.Open(path)
 	if err != nil {
 		return
@@ -213,14 +222,17 @@ func (m *utxoManager) pollBench(ctx context.Context) {
 	if age := m.now().Sub(time.Unix(req.RequestedAt, 0)); refusal == "" && (age > benchMaxAge || age < -benchMaxAge) {
 		refusal = "the bench request is stale"
 	}
-	res := benchResult{ID: req.ID, Started: m.now().UTC(), Repeat: req.Repeat}
+	if refusal == "" && req.Chain != h.chain {
+		refusal = "the bench request names another chain"
+	}
+	res := benchResult{ID: req.ID, Chain: h.chain, Started: m.now().UTC(), Repeat: req.Repeat}
 	if refusal != "" {
 		res.Refusals = []string{refusal}
 	} else {
-		m.log.Printf("utxo bench: start wallets=%d repeat=%d scan=%t", len(req.Wallets), req.Repeat, req.Scan)
+		m.log.Printf("utxo bench: start chain=%s wallets=%d repeat=%d scan=%t", h.chain, len(req.Wallets), req.Repeat, req.Scan)
 		limit := benchRunLimit
 		if req.Scan {
-			limit = benchScanRunLimit
+			limit = max(benchScanRunLimit, limit+time.Duration(len(req.Wallets)+1)*benchScanEachLimit)
 		}
 		runCtx, cancel := context.WithTimeout(ctx, limit)
 		m.execBench(runCtx, req, &res)
@@ -228,10 +240,10 @@ func (m *utxoManager) pollBench(ctx context.Context) {
 	}
 	res.Finished = m.now().UTC()
 	out, _ := json.Marshal(res)
-	if writePrivateFileAtomic(filepath.Join(h.stateDir, benchResultName), out) != nil {
+	if writePrivateFileAtomic(filepath.Join(h.stateDir, h.prefix+benchResultName), out) != nil {
 		m.log.Print("utxo bench: result could not be written")
 	}
-	m.log.Printf("utxo bench: end wallets=%d refusals=%d duration=%.1fs", len(res.Wallets), len(res.Refusals), res.Finished.Sub(res.Started).Seconds())
+	m.log.Printf("utxo bench: end chain=%s wallets=%d refusals=%d failures=%d duration=%.1fs", h.chain, len(res.Wallets), len(res.Refusals), len(res.Failures), res.Finished.Sub(res.Started).Seconds())
 }
 
 func (m *utxoManager) execBench(ctx context.Context, req benchRequest, res *benchResult) {
@@ -256,7 +268,6 @@ func (m *utxoManager) execBench(ctx context.Context, req benchRequest, res *benc
 		return
 	}
 	scripts := make([][][]byte, len(req.Wallets))
-	totals := make([]benchTotals, len(req.Wallets))
 	for i, w := range req.Wallets {
 		started := time.Now()
 		resolved, err := h.resolve(ctx, []string{w.Key})
@@ -273,8 +284,8 @@ func (m *utxoManager) execBench(ctx context.Context, req benchRequest, res *benc
 				refuse("wallet %d: the index stopped answering or the run timed out", i+1)
 				return
 			}
-			totals[i] = benchTotalsOf(coins)
-			wr.Lookup, wr.Coins, wr.Sats = &times, totals[i].Coins, totals[i].Sats
+			totals := benchTotalsOf(coins)
+			wr.Lookup, wr.Coins, wr.Sats = &times, totals.Coins, totals.Sats
 		}
 		res.Wallets = append(res.Wallets, wr)
 	}
@@ -301,141 +312,172 @@ func (m *utxoManager) execBench(ctx context.Context, req benchRequest, res *benc
 		}
 		res.Batches = append(res.Batches, b)
 	}
-	if read, roster, err := h.cachedRead(ctx); err != nil {
-		refuse("the cached read could not be set up")
-	} else {
-		samples := make([]float64, req.Repeat)
-		for i := range samples {
-			if ctx.Err() != nil {
-				refuse("the run timed out during the cached read")
-				return
+	if h.cachedRead != nil {
+		if read, roster, err := h.cachedRead(ctx); err != nil {
+			refuse("the cached read could not be set up")
+		} else {
+			samples := make([]float64, req.Repeat)
+			for i := range samples {
+				if ctx.Err() != nil {
+					refuse("the run timed out during the cached read")
+					return
+				}
+				started := time.Now()
+				read()
+				samples[i] = time.Since(started).Seconds()
 			}
-			started := time.Now()
-			read()
-			samples[i] = time.Since(started).Seconds()
+			res.CachedRead = &benchCached{benchTimes: benchSummary(samples), Roster: roster}
 		}
-		res.CachedRead = &benchCached{benchTimes: benchSummary(samples), Roster: roster}
 	}
 	if req.Scan {
-		m.benchScan(ctx, req, res, totals)
+		m.benchScan(ctx, req, res, scripts)
 	}
 }
 
-func (m *utxoManager) benchScan(ctx context.Context, req benchRequest, res *benchResult, totals []benchTotals) {
+// Each wallet's comparison lookup runs just before its own scan and counts only when both answered at the same block.
+func (m *utxoManager) benchScan(ctx context.Context, req benchRequest, res *benchResult, scripts [][][]byte) {
 	h := m.bench
+	refuse := func(format string, args ...any) { res.Refusals = append(res.Refusals, fmt.Sprintf(format, args...)) }
+	if h.scan == nil {
+		refuse("the %s node has no scan to compare against", h.chain)
+		return
+	}
+	var keys []string
+	for i, w := range req.Wallets {
+		if !res.Wallets[i].Fallback {
+			keys = append(keys, w.Key)
+		}
+	}
+	if len(keys) == 0 {
+		refuse("every wallet fell back, so no wallet can be compared with a scan")
+		return
+	}
 	if !h.hold() {
-		res.Refusals = append(res.Refusals, "a watch scan is running")
+		refuse("a watch scan is running")
 		return
 	}
 	defer h.release()
-	keys := make([]string, len(req.Wallets))
-	for i, w := range req.Wallets {
-		keys[i] = w.Key
-	}
 	batch, err := h.scan(ctx, keys)
-	if err != nil || len(batch.Wallets) != len(keys) {
-		res.Refusals = append(res.Refusals, "the batched scan failed or timed out")
-		return
-	}
-	single, err := h.scan(ctx, keys[:1])
 	if err != nil {
-		res.Refusals = append(res.Refusals, "the single-wallet scan failed")
+		refuse("the batched scan failed or timed out")
 		return
 	}
-	scan := benchScan{Height: batch.Height, BatchSeconds: batch.Seconds, SingleSeconds: single.Seconds}
-	now := m.Status().IndexTip
-	level := now != nil && res.IndexTip != nil && *now == *res.IndexTip && int64(*now) == batch.Height && single.Height == batch.Height
-	scan.HeightSkew = !level
+	res.Scan = &benchScan{BatchSeconds: batch.Seconds, BatchHeight: batch.Height, Wallets: []benchScanWallet{}}
+	compared := 0
 	for i, w := range req.Wallets {
-		sw := benchScanWallet{Name: w.Name, Coins: batch.Wallets[i].Coins, Sats: batch.Wallets[i].Sats, IndexCoins: totals[i].Coins, IndexSats: totals[i].Sats}
-		if level && !res.Wallets[i].Fallback {
-			match := batch.Wallets[i] == totals[i]
-			sw.Match = &match
+		sw := benchScanWallet{Name: w.Name}
+		if res.Wallets[i].Fallback {
+			res.Scan.Wallets = append(res.Scan.Wallets, sw)
+			continue
 		}
-		scan.Wallets = append(scan.Wallets, sw)
+		// A slow node can flip the index out of ready during the previous scan without changing it; the hash check below suffices.
+		coins, _, hash, indexed := m.lookupAtTip(scripts[i])
+		run, err := h.scan(ctx, []string{w.Key})
+		if err != nil {
+			refuse("wallet %d: the scan failed or timed out", i+1)
+			return
+		}
+		index := benchTotalsOf(coins)
+		sw.Seconds, sw.Height, sw.Coins, sw.Sats, sw.IndexCoins, sw.IndexSats = run.Seconds, run.Height, run.Totals.Coins, run.Totals.Sats, index.Coins, index.Sats
+		if indexed && reverseHex(hash) == run.Best {
+			match := run.Totals == index
+			sw.Match = &match
+			compared++
+			if !match {
+				res.Failures = append(res.Failures, fmt.Sprintf("wallet %d: the index and the scan differ at height %d", i+1, run.Height))
+			}
+		}
+		res.Scan.Wallets = append(res.Scan.Wallets, sw)
 	}
-	res.Scan = &scan
+	if compared == 0 {
+		refuse("no wallet was compared with its scan: each met a new block; run it again")
+	}
 }
 
 func (a *app) benchHost() utxoBenchHost {
+	h := a.chainBenchHost(nodeBitcoin, a.rpc, utxoBitcoin, a.scanner.hold, a.scanner.release)
+	h.resolve = a.scanner.resolveScripts
+	h.cachedRead = func(ctx context.Context) (func(), int, error) {
+		var chain blockchainInfo
+		if err := a.rpc.call(ctx, "getblockchaininfo", nil, &chain); err != nil {
+			return nil, 0, err
+		}
+		roster, _ := a.watch.snapshot()
+		return func() { a.watch.ListWithChain(a.walletRPC, chain) }, len(roster), nil
+	}
+	return h
+}
+
+// chainBenchHost is the bench hook for one indexed chain: its node resolves the wallets and its scantxoutset is the baseline.
+func (a *app) chainBenchHost(id string, rpc *rpcClient, chain *utxoChainParams, hold func() bool, release func()) utxoBenchHost {
+	prefix := id + "-"
+	if id == nodeBitcoin {
+		prefix = ""
+	}
+	scanRPC := *rpc
+	client := *rpc.client
+	client.Timeout = 0
+	scanRPC.client, scanRPC.maxBody = &client, 64<<20
 	return utxoBenchHost{
+		chain:    id,
+		prefix:   prefix,
 		stateDir: a.cfg.stateDir,
 		validate: func(ctx context.Context, key string) error {
-			_, err := a.validateWatchKey(ctx, key)
+			_, err := validateWatchKeyRPC(ctx, rpc, key)
 			return err
 		},
 		resolve: func(ctx context.Context, keys []string) ([]walletScripts, error) {
-			return a.scanner.resolveScripts(ctx, keys)
+			return resolveWalletScripts(ctx, rpc, chain, keys)
 		},
-		cachedRead: func(ctx context.Context) (func(), int, error) {
-			var chain blockchainInfo
-			if err := a.rpc.call(ctx, "getblockchaininfo", nil, &chain); err != nil {
-				return nil, 0, err
+		scan: func(ctx context.Context, keys []string) (benchScanRun, error) {
+			if !a.nodeWorkerRunnable(id, true) {
+				return benchScanRun{}, context.Canceled
 			}
-			roster, _ := a.watch.snapshot()
-			return func() { a.watch.ListWithChain(a.walletRPC, chain) }, len(roster), nil
+			return benchScanRPC(ctx, &scanRPC, keys)
 		},
-		scan:    a.benchScanRPC,
-		hold:    a.scanner.hold,
-		release: a.scanner.release,
+		hold:    hold,
+		release: release,
 	}
 }
 
-// Expands descriptors and matches outputs to wallets the way scanBatch does, timing only the scantxoutset call.
-func (a *app) benchScanRPC(ctx context.Context, keys []string) (benchScanRun, error) {
-	s := a.scanner
+func benchScanRPC(ctx context.Context, rpc *rpcClient, keys []string) (benchScanRun, error) {
 	var status map[string]any
-	if s.rpcCall(ctx, "scantxoutset", []any{"status"}, &status) == nil && len(status) > 0 {
+	if rpc.call(ctx, "scantxoutset", []any{"status"}, &status) == nil && len(status) > 0 {
 		return benchScanRun{}, errors.New("scantxoutset is busy")
 	}
-	objects := map[string]any{}
-	owned := make([]map[string]bool, len(keys))
-	for i, key := range keys {
-		wallet, addresses, err := s.scanObjects(ctx, WatchEntry{Key: key})
+	var objects []any
+	for _, key := range keys {
+		descs, err := validateWatchKeyRPC(ctx, rpc, key)
 		if err != nil {
 			return benchScanRun{}, err
 		}
-		maps.Copy(objects, wallet)
-		owned[i] = addresses
-	}
-	list := make([]any, 0, len(objects))
-	for _, descriptor := range slices.Sorted(maps.Keys(objects)) {
-		list = append(list, objects[descriptor])
+		for _, d := range descs {
+			if d.ranged {
+				objects = append(objects, map[string]any{"desc": d.desc, "range": []int{deriveRangeStart, deriveRangeEnd}})
+			} else {
+				objects = append(objects, d.desc)
+			}
+		}
 	}
 	scanCtx, cancel := context.WithTimeout(ctx, prunedScanTimeout)
 	defer cancel()
 	var result scanTxOutSetResult
 	started := time.Now()
-	if err := s.rpcCall(scanCtx, "scantxoutset", []any{"start", list}, &result); err != nil {
+	if err := rpc.call(scanCtx, "scantxoutset", []any{"start", objects}, &result); err != nil {
 		abortCtx, abortCancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 		var ignored any
-		_ = s.rpcCall(abortCtx, "scantxoutset", []any{"abort"}, &ignored)
+		_ = rpc.call(abortCtx, "scantxoutset", []any{"abort"}, &ignored)
 		abortCancel()
 		return benchScanRun{}, err
 	}
-	run := benchScanRun{Seconds: time.Since(started).Seconds(), Height: result.Height, Wallets: make([]benchTotals, len(keys))}
-	outputs, err := validatedScanOutputs(result)
+	run := benchScanRun{Seconds: time.Since(started).Seconds(), Height: result.Height, Best: result.BestBlock}
+	outputs, err := scanOutputsUpTo(result, math.MaxInt64)
 	if err != nil {
 		return benchScanRun{}, err
 	}
-	derived := map[string][]string{}
 	for _, output := range outputs {
-		addresses, ok := derived[output.Desc]
-		if !ok {
-			shortCtx, shortCancel := context.WithTimeout(ctx, 15*time.Second)
-			err := a.rpc.call(shortCtx, "deriveaddresses", []any{output.Desc}, &addresses)
-			shortCancel()
-			if err != nil || len(addresses) == 0 {
-				return benchScanRun{}, errors.New("scan output cannot be derived")
-			}
-			derived[output.Desc] = addresses
-		}
-		for i := range keys {
-			if slices.ContainsFunc(addresses, func(address string) bool { return owned[i][address] }) {
-				run.Wallets[i].Coins++
-				run.Wallets[i].Sats += output.Sats
-			}
-		}
+		run.Totals.Coins++
+		run.Totals.Sats += output.Sats
 	}
 	return run, nil
 }

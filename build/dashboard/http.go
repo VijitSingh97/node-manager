@@ -191,6 +191,10 @@ type validatedDescriptor struct {
 }
 
 func (a *app) validateWatchKey(ctx context.Context, key string) ([]validatedDescriptor, error) {
+	return validateWatchKeyRPC(ctx, a.rpc, key)
+}
+
+func validateWatchKeyRPC(ctx context.Context, rpc *rpcClient, key string) ([]validatedDescriptor, error) {
 	descs, err := descriptorsFor(key)
 	if err != nil {
 		return nil, err
@@ -202,7 +206,7 @@ func (a *app) validateWatchKey(ctx context.Context, key string) ([]validatedDesc
 			IsRange        *bool  `json:"isrange"`
 			HasPrivateKeys *bool  `json:"hasprivatekeys"`
 		}
-		if err := a.rpc.call(ctx, "getdescriptorinfo", []any{desc.Desc}, &info); err != nil || info.Descriptor == "" || info.IsRange == nil || info.HasPrivateKeys == nil || *info.HasPrivateKeys {
+		if err := rpc.call(ctx, "getdescriptorinfo", []any{desc.Desc}, &info); err != nil || info.Descriptor == "" || info.IsRange == nil || info.HasPrivateKeys == nil || *info.HasPrivateKeys {
 			return nil, errors.New("invalid descriptor")
 		}
 		validated = append(validated, validatedDescriptor{desc: info.Descriptor, ranged: *info.IsRange})
