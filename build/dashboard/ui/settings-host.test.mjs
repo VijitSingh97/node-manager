@@ -165,3 +165,15 @@ flow("A failed host change stops the changes queued after it", async ({ page, he
   assert.equal(helper.capability.inbound_connections, true);
   assert.equal(await page.checked("#settings-launch-at-start"), false);
 });
+
+flow("A host change already in effect still lets a staged Delete go out after it", { nodes: ["litecoin"], capability: { delete_supported: true } }, async ({ dash, page, helper }) => {
+  dash.writeState("node-runtime.json", { litecoin: false });
+  await openHostSettings(page);
+  await page.setChecked("#settings-launch-at-start", true);
+  await page.click("#settings-host-nodes .settings-host-node:nth-child(4) .settings-delete-button");
+  await page.type("#settings-delete-confirm", "litecoin");
+  await page.click("#settings-delete-submit");
+  await save(page);
+  await savedAndSettled(page);
+  assert.deepEqual(helper.requests.map(withoutIdentity), [{ action: "launch_at_boot", enabled: true }, { action: "delete", node: "litecoin", confirmation: "litecoin" }]);
+});

@@ -38,6 +38,12 @@ All notable changes to this project are documented here. Format follows
   on pseudo-random wallets and that it is faster by at least 50 times for a single
   address and 2 times for a 2,000-script wallet (synthetic, #367).
 
+### Fixed
+
+- Turning Launch at boot off on an APT install no longer fails with "Launch
+  setting is already in that state", and a Settings change that is already in
+  effect no longer drops the changes queued after it, such as a node delete.
+
 ## [1.37.0] - 2026-11-17
 
 ### Added
