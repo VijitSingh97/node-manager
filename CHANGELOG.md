@@ -8,6 +8,17 @@ All notable changes to this project are documented here. Format follows
 
 ### Fixed
 
+- A node that fails to start no longer restarts forever. With launch at boot
+  on, Docker retried a crashing container indefinitely and the dashboard showed
+  it as connecting. The host helper now stops a node whose container keeps
+  exiting with an error within a minute of starting for 10 minutes (at least 5
+  restarts), and the panel shows Stopped with the reason from its last log line;
+  **Start node** tries again. Nodes that crash after running a while, or recover
+  within 10 minutes, keep Docker's normal restarts.
+- Zcash can no longer be installed on an x86-64 processor without the BMI2 and
+  ADX instructions (before Intel Core 5th generation or AMD Ryzen). Zakura 1.8
+  images require them and exit at startup otherwise; Settings now disables the
+  Install button with the reason, and the host helper rejects the install.
 - `utxo-index bench` reads a relative wallet file path from the directory it was
   run in. On APT installs it looked in `/var/lib/node-manager` instead and
   reported a valid file as malformed; a missing file is now named as unreadable.

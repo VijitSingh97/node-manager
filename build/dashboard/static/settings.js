@@ -110,7 +110,7 @@ export function seedCommand(bootKind) {
 }
 
 export function hostControlModel(data = {}) {
-  const nodes = Object.fromEntries(allNodes.map((id) => [id, { id, name: id, installed: false, data_dir: "", disk_estimate: "", disk_note: "", interfaces: [] }]));
+  const nodes = Object.fromEntries(allNodes.map((id) => [id, { id, name: id, installed: false, data_dir: "", disk_estimate: "", disk_note: "", unsupported: "", interfaces: [] }]));
   for (const node of Array.isArray(data.nodes) ? data.nodes : []) {
     if (!allNodes.includes(node?.id)) continue;
     const interfaces = (Array.isArray(node.interfaces) ? node.interfaces : []).flatMap((item) => {
@@ -125,6 +125,7 @@ export function hostControlModel(data = {}) {
       data_dir: typeof node.data_dir === "string" && node.data_dir.startsWith("/") ? node.data_dir : "",
       disk_estimate: String(node.disk_estimate || ""),
       disk_note: String(node.disk_note || ""),
+      unsupported: String(node.unsupported || ""),
       interfaces,
     };
   }
@@ -705,7 +706,8 @@ if (typeof document !== "undefined") {
         button.addEventListener("click", () => openMigrate(node.id));
       } else {
         button.textContent = node.id === installing ? "Installing…" : "Install";
-        button.disabled = !node.data_dir || !hostView.available || !hostView.install_supported || hostView.config_pending || busy;
+        button.disabled = !node.data_dir || !hostView.available || !hostView.install_supported || hostView.config_pending || busy || !!node.unsupported;
+        if (node.unsupported) button.title = node.unsupported;
         button.addEventListener("click", () => openInstall(node.id));
       }
       if (node.installed) {
@@ -714,6 +716,11 @@ if (typeof document !== "undefined") {
         path.textContent = node.data_dir || "";
         path.title = "Current data folder";
         row.append(name, path, button);
+      } else if (node.unsupported) {
+        const note = document.createElement("span");
+        note.className = "settings-host-note";
+        note.textContent = node.unsupported;
+        row.append(name, note, button);
       } else row.append(name, button);
       hostNodes.append(row);
     }

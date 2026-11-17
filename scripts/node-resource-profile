@@ -407,6 +407,52 @@ thermal_restore() {
   done
 }
 
+failed_starts=
+check_failed_starts() {
+  rows=$("$docker_bin" ps -a --filter "label=com.docker.compose.project=$project_name" --format '{{.ID}} {{.Label "com.docker.compose.service"}} {{.State}}' 2>/dev/null) || return 0
+  failed_starts=$(printf '%s\n' "$rows" | while read -r id service state; do
+    case "$service" in (bitcoin | monero | tari | litecoin | dogecoin | bitcoincash | zcash) ;; (*) continue ;; esac
+    case "$state" in (running | restarting | exited) ;; (*) continue ;; esac
+    marker=$profile_state/failing-$service
+    facts=$("$docker_bin" inspect "$id" 2>/dev/null | jq -r '.[0] | def t: sub("\\.[0-9]+"; "") | fromdateiso8601;
+      [.RestartCount, .State.ExitCode, (if .State.OOMKilled then 1 else 0 end), (.State.StartedAt | t), ((.State.FinishedAt | t) - (.State.StartedAt | t))] | @tsv' 2>/dev/null) || continue
+    read -r restarts exit_code oom started last_run <<EOF
+$facts
+EOF
+    case "$restarts$exit_code$oom$started" in ('' | *[!0-9]*) continue ;; esac
+    if [ "$state" = running ]; then
+      [ $((current_time - started)) -lt 60 ] || rm -f "$marker"
+      continue
+    fi
+    case "$last_run" in (*[!0-9-]* | '') continue ;; esac
+    if [ "$exit_code" = 0 ] || [ "$last_run" -ge 60 ]; then
+      rm -f "$marker"
+      continue
+    fi
+    if [ "$state" = restarting ]; then
+      read -r seen_id seen_at seen_restarts 2>/dev/null <"$marker" || seen_id=
+      if [ "$seen_id" != "$id" ]; then
+        printf '%s %s %s\n' "$id" "$current_time" "$restarts" >"$marker"
+        continue
+      fi
+      [ $((current_time - seen_at)) -ge 600 ] && [ $((restarts - seen_restarts)) -ge 5 ] || continue
+      "$docker_bin" stop -t 30 "$id" >/dev/null 2>&1 || continue
+      thermal_event "stopped $service: it kept failing to start for $(((current_time - seen_at) / 60)) minutes" >&2
+    elif [ "$restarts" -lt 5 ]; then
+      continue
+    fi
+    rm -f "$marker"
+    reason="It ran out of memory while starting."
+    if [ "$oom" = 0 ]; then
+      reason=$("$docker_bin" logs --tail 20 "$id" 2>&1 | awk '
+        { gsub(/[[:cntrl:]]\[[0-9;]*[A-Za-z]/, ""); gsub(/[[:cntrl:]]/, ""); if ($0 ~ /[^[:space:]]/) last = $0 }
+        END { print substr(last, 1, 240) }')
+      [ -n "$reason" ] || reason="It exited with an error."
+    fi
+    printf '%s\t%s\n' "$service" "$reason"
+  done)
+}
+
 write_host_stats() {
   dashboard=$(container_id dashboard)
   [ -n "$dashboard" ] || return 0
@@ -552,7 +598,8 @@ write_host_stats() {
         then .nodes[$row.service] = {cpu_pct: $row.cpu, mem_bytes: $row.mem}
         else .other = {cpu_pct: (.other.cpu_pct + $row.cpu), mem_bytes: (.other.mem_bytes + $row.mem)}
         end) |
-      {updated: $now, cpus: $cpus, mem_total_bytes: $mem_total, host_cpu_pct: $hostcpu, host_mem_bytes: $hostmem, nodes: .nodes, other: .other, running: (reduce (rows($containers)[] | select(length == 2 and (.[0] | IN("bitcoin", "monero", "tari", "litecoin", "dogecoin", "bitcoincash", "zcash")))) as $c ({}; .[$c[0]] = ((.[$c[0]] // false) or ($c[1] | IN("exited", "dead") | not))))} |
+      {updated: $now, cpus: $cpus, mem_total_bytes: $mem_total, host_cpu_pct: $hostcpu, host_mem_bytes: $hostmem, nodes: .nodes, other: .other,
+        failed: ($failed | split("\n") | map(select(length > 0) | split("\t") | {(.[0]): (.[1] // "")}) | add // {}), running: (reduce (rows($containers)[] | select(length == 2 and (.[0] | IN("bitcoin", "monero", "tari", "litecoin", "dogecoin", "bitcoincash", "zcash")))) as $c ({}; .[$c[0]] = ((.[$c[0]] // false) or ($c[1] | IN("exited", "dead") | not))))} |
       reduce (rows($nodesizes)[]) as $row (.;
         .nodes[$row[0]] = ((.nodes[$row[0]] // {cpu_pct: 0, mem_bytes: 0}) + {disk_bytes: ($row[1] | tonumber? // 0)})) |
       . + {disks: (
@@ -573,7 +620,7 @@ write_host_stats() {
         } + (([$group[].label | select(. != null)] | .[0]) as $label | if $label then {label: $label} else {} end))
       )} +
       (rows($health) | map({(.[0]): (.[1] | tonumber? // empty)}) | add // {}) +
-      (if $fans == "" then {} else {fans_rpm: ($fans | split(" ") | map(tonumber))} end)' --arg hostdisks "$host_disks" --arg nodedirs "$node_dirs" --arg nodesizes "$node_sizes" --arg containers "$containers" --arg disklabels "$disk_labels" --arg health "$health" --arg fans "$fans") || return 0
+      (if $fans == "" then {} else {fans_rpm: ($fans | split(" ") | map(tonumber))} end)' --arg hostdisks "$host_disks" --arg nodedirs "$node_dirs" --arg nodesizes "$node_sizes" --arg containers "$containers" --arg failed "$failed_starts" --arg disklabels "$disk_labels" --arg health "$health" --arg fans "$fans") || return 0
   [ -n "$payload" ] || return 0
   printf '%s' "$payload" | "$docker_bin" exec -i -u 1000 "$dashboard" sh -c 'umask 077; cat > /state/host-stats.json.tmp && mv /state/host-stats.json.tmp /state/host-stats.json' 2>/dev/null || true
 }
@@ -587,4 +634,5 @@ apply_profile litecoin LITECOIN_RESOURCE_PROFILE litecoin_synced LITECOIN_STEADY
 apply_profile dogecoin DOGECOIN_RESOURCE_PROFILE dogecoin_synced DOGECOIN_STEADY_CPUS DOGECOIN_STEADY_MEM_LIMIT_MB
 apply_profile bitcoincash BITCOINCASH_RESOURCE_PROFILE bitcoincash_synced BITCOINCASH_STEADY_CPUS BITCOINCASH_STEADY_MEM_LIMIT_MB
 apply_profile zcash ZCASH_RESOURCE_PROFILE zcash_synced ZCASH_STEADY_CPUS ZCASH_STEADY_MEM_LIMIT_MB
+check_failed_starts || true
 write_host_stats || true

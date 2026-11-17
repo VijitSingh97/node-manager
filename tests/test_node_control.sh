@@ -127,6 +127,7 @@ export FAKE_DOCKER_UPDATE_FAIL_ONCE=0 FAKE_DOCKER_UPDATE_FAIL_MARKER=$tmp/docker
 export FAKE_DOCKER_UPDATE_FAIL=0
 export FAKE_STACK_INTERRUPT_ON_PULL=0
 export FAKE_DASHBOARD_MISSING=0
+export NODE_CONTROL_ARCH=x86_64 NODE_CONTROL_CPU_FLAGS="fpu sse4_2 avx2 bmi1 bmi2 adx"
 
 request() { printf '%s\n' "$1" >"$dashboard_state/node-control.request"; }
 status() { jq -r "$1" "$dashboard_state/node-control.status"; }
@@ -466,6 +467,18 @@ cp "$state/.env" "$state/.approved.env"
 request '{"action":"install","id":"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1","node":"zcash","requested_at":1000}'
 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 jq -e '.zcash.enabled == true and .zcash.address_index == false' "$config/config.json" >/dev/null || fail "zcash install overrode an explicit address_index false"
+jq -e 'has("unsupported_nodes") | not' "$dashboard_state/node-control.capability" >/dev/null || fail "a CPU with BMI2 and ADX was marked unsupported"
+
+jq -n '{bitcoin:{enabled:false},zcash:{enabled:false}}' >"$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+cp "$state/.env" "$state/.approved.env"
+request '{"action":"install","id":"a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3","node":"zcash","requested_at":1000}'
+NODE_CONTROL_CPU_FLAGS="fpu sse4_2 avx2 bmi1 bmi2" BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+jq -e '.unsupported_nodes == ["zcash"]' "$dashboard_state/node-control.capability" >/dev/null || fail "a CPU without ADX did not mark Zcash unsupported"
+[ "$(status '.state + " " + .error_code')" = "rejected unsupported_cpu" ] || fail "Zcash install on a CPU without ADX was not rejected"
+jq -e '.zcash.enabled == false' "$config/config.json" >/dev/null || fail "a rejected Zcash install still changed the config"
+NODE_CONTROL_ARCH=aarch64 NODE_CONTROL_CPU_FLAGS='' BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+jq -e 'has("unsupported_nodes") | not' "$dashboard_state/node-control.capability" >/dev/null || fail "an ARM host was checked for x86 CPU features"
 
 mkdir -p "$state/zdata"; : >"$state/zdata/old.db"
 jq -n --arg d "$state/zdata" '{bitcoin:{enabled:false},zcash:{enabled:false,data_dir:$d}}' >"$config/config.json"

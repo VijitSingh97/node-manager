@@ -316,3 +316,31 @@ func TestHostControlShowsMigrateProgressWhileProcessing(t *testing.T) {
 		t.Fatalf("stale progress was trusted: %#v", status)
 	}
 }
+
+func TestHostControlBlocksInstallOnUnsupportedCPU(t *testing.T) {
+	a, _ := testApp(t, &rpcFixture{}, "")
+	b, _ := json.Marshal(hostControlCapability{Timestamp: time.Now().Unix(), Platform: "linux", BootKind: "boot", InstallSupported: true, UnsupportedNodes: []string{"zcash"}})
+	if err := os.WriteFile(a.nodeControlPath("capability"), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var view hostControlView
+	response := hostControlHTTP(a, http.MethodGet, "", false, "192.168.1.20:4321")
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &view) != nil {
+		t.Fatalf("host view = %d %s", response.Code, response.Body.String())
+	}
+	for _, node := range view.Nodes {
+		if want := map[string]string{"zcash": zcashCPUMessage}[node.ID]; node.Unsupported != want {
+			t.Fatalf("%s unsupported = %q, want %q", node.ID, node.Unsupported, want)
+		}
+	}
+	response = hostControlHTTP(a, http.MethodPost, `{"action":"install","node":"zcash"}`, true, "192.168.1.20:4321")
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "BMI2 and ADX") {
+		t.Fatalf("zcash install = %d %s", response.Code, response.Body.String())
+	}
+	if _, err := os.Stat(a.nodeControlPath("request")); !os.IsNotExist(err) {
+		t.Fatalf("blocked install still queued a request: %v", err)
+	}
+	if response = hostControlHTTP(a, http.MethodPost, `{"action":"install","node":"monero"}`, true, "192.168.1.20:4321"); response.Code != http.StatusAccepted {
+		t.Fatalf("monero install = %d %s", response.Code, response.Body.String())
+	}
+}

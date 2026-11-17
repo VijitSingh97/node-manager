@@ -89,6 +89,10 @@ fi
 
 case "$1" in
   inspect)
+    if [ "${2:-}" != --format ]; then
+      cat "${FAKE_INSPECT_DIR:-/nonexistent}/$2.json" 2>/dev/null || printf '[]\n'
+      exit 0
+    fi
     id=${4:-}
     case "$3" in
       *State.Health*)
@@ -116,8 +120,13 @@ case "$1" in
     esac
     ;;
   ps)
-    printf 'monero running\nmonero-wallet running\nbitcoin exited\ntari restarting\nlitecoin created\ndashboard running\n'
+    case "$*" in
+      *'{{.ID}}'*) printf '%s\n' "${FAKE_PS_ID_ROWS:-}" ;;
+      *) printf 'monero running\nmonero-wallet running\nbitcoin exited\ntari restarting\nlitecoin created\ndashboard running\n' ;;
+    esac
     ;;
+  logs) printf '%s\n' "${FAKE_LOGS:-}" ;;
+  stop) exit 0 ;;
   stats)
     if [ "${3:-}" = --no-trunc ]; then
       printf 'cid-monero\tbitcoin-starter-stack-apt-monero-1\t170.00%%\t3.2GiB / 8GiB\ncid-dash\tbitcoin-starter-stack-apt-dashboard-1\t8.00%%\t50MiB / 8GiB\n'
@@ -432,6 +441,50 @@ export RESOURCE_CGROUP_ROOT=$case_root/cgroup FAKE_HOST_STATS_OUT=$tmp/host-stat
 run_profile
 unset RESOURCE_CGROUP_ROOT FAKE_HOST_STATS_OUT
 jq -e '.nodes.monero.mem_bytes == 1234567890' "$tmp/host-stats-payload.json" >/dev/null || fail "cgroup anon memory did not override docker stats"
+jq -e '.failed == {}' "$tmp/host-stats-payload.json" >/dev/null || fail "healthy containers were reported as failed starts"
+
+new_case failed-start
+mkdir -p "$case_root/inspect"
+iso() { jq -nr --argjson t "$1" '$t | todateiso8601'; }
+inspect_json() { printf '[{"RestartCount":%s,"State":{"ExitCode":%s,"OOMKilled":%s,"StartedAt":"%s","FinishedAt":"%s"}}]\n' "$2" "$3" "$4" "$(iso "$5")" "$(iso "$6")" >"$case_root/inspect/$1.json"; }
+failing_rows() { printf 'zc-id zcash %s\nltc-id litecoin exited\nxmr-id monero exited\ndoge-id dogecoin exited\nbch-id bitcoincash %s\ntari-id tari restarting\nwal-id monero-wallet restarting\nbtc-id bitcoin running\n' "$1" "$2"; }
+failed() { jq -c .failed "$tmp/host-stats-payload.json"; }
+t0=$RESOURCE_NOW_EPOCH
+inspect_json zc-id 7 1 false $((t0 - 3)) $((t0 - 2))
+inspect_json ltc-id 7 1 false $((t0 - 7200)) $((t0 - 10))
+inspect_json xmr-id 6 0 false $((t0 - 20)) $((t0 - 15))
+inspect_json doge-id 5 137 true $((t0 - 30)) $((t0 - 20))
+inspect_json bch-id 2 1 false $((t0 - 3)) $((t0 - 2))
+inspect_json tari-id 40 1 false $((t0 - 3)) $((t0 - 2))
+inspect_json wal-id 9 1 false $((t0 - 3)) $((t0 - 2))
+inspect_json btc-id 0 0 false $((t0 - 86400)) 0
+FAKE_LOGS=$(printf 'INFO: Using config file at /etc/zakura/zakurad.toml\n\033[31mThis Zakura binary requires CPU features this machine lacks: adx.\033[0m\n\n')
+FAKE_PS_ID_ROWS=$(failing_rows restarting restarting)
+export FAKE_LOGS FAKE_PS_ID_ROWS FAKE_INSPECT_DIR=$case_root/inspect FAKE_HOST_STATS_OUT=$tmp/host-stats-payload.json FAKE_EVENTS_OUT=$tmp/failed-events.log
+run_profile
+[ "$(failed)" = '{"dogecoin":"It ran out of memory while starting."}' ] || fail "first look at failed starts was wrong: $(failed)"
+[ -f "$case_root/state/resource-profile/failing-tari" ] || fail "a fresh crash loop was not remembered"
+RESOURCE_NOW_EPOCH=$((t0 + 300)); inspect_json zc-id 12 1 false $((t0 + 297)) $((t0 + 298))
+run_profile
+! grep -q '^stop ' "$log" || fail "a node was stopped before it kept failing for 10 minutes"
+RESOURCE_NOW_EPOCH=$((t0 + 660))
+inspect_json zc-id 14 1 false $((t0 + 657)) $((t0 + 658))
+inspect_json tari-id 41 1 false $((t0 + 657)) $((t0 + 658))
+inspect_json bch-id 3 1 false $((t0 + 657)) $((t0 + 658))
+run_profile
+[ "$(grep '^stop ' "$log")" = 'stop -t 30 zc-id' ] || fail "only the node that kept failing should be stopped: $(grep '^stop ' "$log" | tr '\n' ' ')"
+[ "$(failed)" = '{"zcash":"This Zakura binary requires CPU features this machine lacks: adx.","dogecoin":"It ran out of memory while starting."}' ] || fail "stopped node was misreported: $(failed)"
+grep -q 'Host: stopped zcash: it kept failing to start for 11 minutes' "$tmp/failed-events.log" || fail "the stopped node was not logged as an event"
+[ ! -f "$case_root/state/resource-profile/failing-zcash" ] || fail "the stopped node kept its crash-loop marker"
+FAKE_PS_ID_ROWS=$(failing_rows exited running)
+RESOURCE_NOW_EPOCH=$((t0 + 700)); inspect_json bch-id 3 0 false $((t0 + 650)) $((t0 + 658))
+run_profile
+[ -f "$case_root/state/resource-profile/failing-bitcoincash" ] || fail "a node up for under a minute lost its crash-loop marker"
+RESOURCE_NOW_EPOCH=$((t0 + 800))
+run_profile
+[ ! -f "$case_root/state/resource-profile/failing-bitcoincash" ] || fail "a node that stayed up kept its crash-loop marker"
+jq -e '.failed.zcash' "$tmp/host-stats-payload.json" >/dev/null || fail "a stopped failed node stopped being reported"
+unset FAKE_INSPECT_DIR FAKE_HOST_STATS_OUT FAKE_EVENTS_OUT FAKE_PS_ID_ROWS FAKE_LOGS
 
 host_proc=$case_root/proc host_sys=$case_root/sys
 mkdir -p "$host_proc/net" "$case_root/proc-next/net" "$tmp/bin" "$case_root/zones/0" "$case_root/zones/1" "$case_root/zones/2"

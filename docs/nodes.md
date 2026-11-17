@@ -283,3 +283,21 @@ still treat a stopped node as offline. The report comes from the resource-profil
 host helper, which runs on Homebrew and on APT whenever a node uses the
 `compact` resource profile (the default for setup selections and dashboard
 installs).
+
+A node that fails to start is stopped instead of retried forever. With launch
+at boot on, Docker restarts a crashing container indefinitely. When a node's
+container keeps exiting with an error within a minute of each start for 10
+minutes, with at least 5 restarts since the host helper first saw it failing,
+the helper stops it and logs a Host event. With launch at boot off, Docker gives
+up by itself after 5 restarts. Either way the panel shows Stopped with the
+reason: the container's last log line, or "It ran out of memory while
+starting." **Start node** tries again. A run of a minute or longer clears the
+record, so a node that crashes after running a while keeps Docker's normal
+restarts, and a boot-time problem that clears within 10 minutes is retried as
+before.
+
+Zcash's Zakura images for x86-64 need a processor with the BMI2 and ADX
+instructions (Intel Core 5th generation or newer, or AMD Ryzen); without them
+`zakurad` exits at startup. On such a host Settings disables Zcash's Install
+button with that reason, and the host helper rejects the install. ARM hosts are
+not affected.
