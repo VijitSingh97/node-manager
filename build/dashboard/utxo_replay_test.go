@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -384,6 +385,41 @@ func TestFollowerReplayBoundsBlocksFetchedAheadByCoinOperations(t *testing.T) {
 	}
 }
 
+func TestFollowerReplayBoundsBlocksFetchedAheadByScriptBytes(t *testing.T) {
+	swapReplayKnobs(t, 1000, 1000, utxoReplayGap)
+	budget := utxoReplayInflightOps
+	utxoReplayInflightOps = 16
+	t.Cleanup(func() { utxoReplayInflightOps = budget })
+	c := newFakeUtxoChain()
+	genesis(c)
+	for i := range 40 {
+		c.add(fmt.Sprintf("pad%d", i), []fakeOut{{fmt.Sprintf("%02x", i) + strings.Repeat("ab", 8<<10), "0.00010000"}}, nil)
+	}
+	node := newFakeUtxoNode(c)
+	s := openFollowStore(t)
+	s.beforeCommit = func() error { time.Sleep(2 * time.Millisecond); return nil }
+	var committed atomic.Int64
+	committed.Store(-1)
+	ahead := 0
+	node.hook = func(method string, params any) error {
+		if method == "getblockhash" {
+			ahead = max(ahead, int(int64(params.([]any)[0].(uint32))-committed.Load()))
+		}
+		return nil
+	}
+	f := newUtxoFollower(s, node)
+	f.chain = replayTestChain()
+	f.onBlock = func(h uint32) { committed.Store(int64(h)) }
+	stepOK(t, f)
+	// One output per block but 8 KiB of script, so 16 of budget holds about two blocks; counting outputs alone it runs over 15 ahead.
+	if ahead > 6 {
+		t.Fatalf("the fetcher ran %d blocks past the last commit on blocks of one 8 KiB output each", ahead)
+	}
+	if got := lookupAmounts(t, s, "27"+strings.Repeat("ab", 8<<10)); len(got) != 1 {
+		t.Fatalf("the last padded output is not indexed: %v", got)
+	}
+}
+
 func TestFollowerReplayPassesABlockLargerThanTheBudgetWhileABatchIsOpen(t *testing.T) {
 	swapReplayKnobs(t, 1000, 1000, utxoReplayGap)
 	budget := utxoReplayInflightOps
@@ -413,64 +449,69 @@ func TestFollowerReplayPassesABlockLargerThanTheBudgetWhileABatchIsOpen(t *testi
 	}
 }
 
-func TestReplaySeedNowResumesAReplayTheUserCancelled(t *testing.T) {
-	swapReplayKnobs(t, 5, 1000, 10)
-	ctx := t.Context()
-	a, _ := testApp(t, &rpcFixture{}, "")
-	c := utxoMgrChain(60, "u")
-	node := newFakeUtxoNode(c)
-	fx := newReplayFixture(t, t.TempDir(), node)
-	m := fx.m
-	a.chainUtxo = map[string]*utxoManager{nodeLitecoin: m}
-	cancelled := false
-	node.hook = func(method string, params any) error {
-		if !cancelled && method == "getblockhash" && params.([]any)[0].(uint32) == 30 {
-			cancelled = true
-			if err := os.WriteFile(filepath.Join(fx.state, "bitcoincash-"+seedCancelName), nil, 0o600); err != nil {
-				t.Error(err)
+func TestAppendReversedUtxoOpsMatchesASplitAndReverse(t *testing.T) {
+	rng := rand.New(rand.NewPCG(7, 9))
+	for range 50 {
+		var ops []byte
+		for range rng.IntN(40) {
+			key := make([]byte, utxoKeyLen)
+			for i := range key {
+				key[i] = byte(rng.IntN(256))
 			}
-			for end := time.Now().Add(5 * time.Second); m.Status().Phase != utxoPhaseCancelling && time.Now().Before(end); {
-				time.Sleep(time.Millisecond)
+			if rng.IntN(2) == 0 {
+				ops = appendUtxoDelete(ops, key)
+			} else {
+				ops = appendUtxoSet(ops, key, make([]byte, utxoValueLen))
+			}
+		}
+		parts, err := splitUtxoOps(ops)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var want []byte
+		for i := len(parts) - 1; i >= 0; i-- {
+			want = append(want, parts[i]...)
+		}
+		if got := appendReversedUtxoOps([]byte("hdr"), ops); !bytes.Equal(got, append([]byte("hdr"), want...)) {
+			t.Fatalf("reversed ops differ for %d parts", len(parts))
+		}
+	}
+}
+
+func TestFollowerReplayNeverHoldsTwoOverBudgetBlocks(t *testing.T) {
+	swapReplayKnobs(t, 1000, 1000, utxoReplayGap)
+	budget := utxoReplayInflightOps
+	utxoReplayInflightOps = 8
+	t.Cleanup(func() { utxoReplayInflightOps = budget })
+	c := utxoMgrChain(10, "h")
+	for b := range 4 {
+		var outs []fakeOut
+		for i := range 30 {
+			outs = append(outs, fakeOut{fmt.Sprintf("0014%02x%02xee", b, i), "0.00010000"})
+		}
+		c.add(fmt.Sprintf("big%d", b), outs, nil)
+	}
+	node := newFakeUtxoNode(c)
+	s := openFollowStore(t)
+	s.beforeCommit = func() error { time.Sleep(20 * time.Millisecond); return nil }
+	var committed atomic.Int64
+	committed.Store(-1)
+	ahead := 0
+	node.hook = func(method string, params any) error {
+		if method == "getblockhash" {
+			if h := params.([]any)[0].(uint32); h > 10 {
+				ahead = max(ahead, int(int64(h)-committed.Load()))
 			}
 		}
 		return nil
 	}
-
-	var view hostControlView
-	if got := hostControlHTTP(a, http.MethodGet, "", false, "192.168.1.20:4321"); json.Unmarshal(got.Body.Bytes(), &view) != nil || !view.UtxoSeedNowLTC {
-		t.Fatalf("a not-seeded replay chain is not offered Seed now without a host helper: %s", got.Body.String())
+	f := newUtxoFollower(s, node)
+	f.chain = replayTestChain()
+	f.onBlock = func(h uint32) { committed.Store(int64(h)) }
+	stepOK(t, f)
+	if tip, _, _, _ := s.Tip(); tip != 13 || ahead != 1 {
+		t.Fatalf("tip %d; the fetcher was %d blocks past the last commit while fetching over-budget blocks, want 1", tip, ahead)
 	}
-	m.tick(ctx)
-	m.maybeAutoSeed(ctx)
-	st := m.Status()
-	if st.LastSeed == nil || st.LastSeed.Outcome != "cancelled" || st.State != utxoStateCatching || m.seed.AutoFailures != utxoAutoSeedTries {
-		t.Fatalf("after the user's cancel: %+v, failures %d", st, m.seed.AutoFailures)
-	}
-	m.tick(ctx)
-	cut := *m.Status().IndexTip
-	fx.clock = fx.clock.Add(2 * time.Hour)
-	m.maybeAutoSeed(ctx)
-	if cut == 0 || cut >= 59 || *m.Status().IndexTip != cut {
-		t.Fatalf("a cancelled replay moved on its own: tip %d after the cut at %d", *m.Status().IndexTip, cut)
-	}
-	if !a.seedNow(nodeLitecoin) {
-		t.Fatalf("Seed now is not offered for the cancelled replay: %+v", m.Status())
-	}
-	if got := hostControlHTTP(a, http.MethodPost, `{"action":"utxo_seed","node":"litecoin"}`, true, "192.168.1.20:4321").Code; got != http.StatusAccepted {
-		t.Fatalf("Seed now = %d", got)
-	}
-	if _, err := os.Stat(a.nodeControlPath("request")); !os.IsNotExist(err) {
-		t.Fatal("a replay seed went through the host helper")
-	}
-	m.pollSeed(ctx)
-	m.tick(ctx)
-	if st := m.Status(); st.State != utxoStateReady || st.LastSeed.Outcome != "ok" || m.seed.AutoFailures != 0 {
-		t.Fatalf("Seed now did not resume the replay: %+v, failures %d", st, m.seed.AutoFailures)
-	}
-	if a.seedNow(nodeLitecoin) || hostControlHTTP(a, http.MethodPost, `{"action":"utxo_seed","node":"litecoin"}`, true, "192.168.1.20:4321").Code != http.StatusConflict {
-		t.Fatal("Seed now was offered for a ready index")
-	}
-	utxoMgrCheck(t, m.store, c, "u", 59)
 }
 
 func TestUtxoReplayRetriesResetWhenTheReplayMakesProgress(t *testing.T) {
@@ -542,4 +583,118 @@ func TestUtxoReplayStorageErrorsFailWithoutRetrying(t *testing.T) {
 	if st := fx.m.Status(); attempts != 1 || time.Since(start) > 5*time.Second || st.State != utxoStateInvalid || st.LastSeed == nil || st.LastSeed.Outcome != utxoOutcomeFailed {
 		t.Fatalf("a storage error was retried: %d attempts in %s, %+v", attempts, time.Since(start), st)
 	}
+}
+
+func TestReplaySeedNowResumesAReplayTheUserCancelled(t *testing.T) {
+	swapReplayKnobs(t, 5, 1000, 10)
+	ctx := t.Context()
+	a, _ := testApp(t, &rpcFixture{}, "")
+	c := utxoMgrChain(60, "u")
+	node := newFakeUtxoNode(c)
+	fx := newReplayFixture(t, t.TempDir(), node)
+	m := fx.m
+	a.chainUtxo = map[string]*utxoManager{nodeLitecoin: m}
+	cancelled := false
+	node.hook = func(method string, params any) error {
+		if !cancelled && method == "getblockhash" && params.([]any)[0].(uint32) == 30 {
+			cancelled = true
+			if err := os.WriteFile(filepath.Join(fx.state, "bitcoincash-"+seedCancelName), nil, 0o600); err != nil {
+				t.Error(err)
+			}
+			for end := time.Now().Add(5 * time.Second); m.Status().Phase != utxoPhaseCancelling && time.Now().Before(end); {
+				time.Sleep(time.Millisecond)
+			}
+		}
+		return nil
+	}
+
+	var view hostControlView
+	if got := hostControlHTTP(a, http.MethodGet, "", false, "192.168.1.20:4321"); json.Unmarshal(got.Body.Bytes(), &view) != nil || !view.UtxoSeedNowLTC {
+		t.Fatalf("a not-seeded replay chain is not offered Seed now without a host helper: %s", got.Body.String())
+	}
+	m.tick(ctx)
+	m.maybeAutoSeed(ctx)
+	st := m.Status()
+	if st.LastSeed == nil || st.LastSeed.Outcome != "cancelled" || st.State != utxoStateCatching || m.seed.AutoFailures != utxoAutoSeedTries {
+		t.Fatalf("after the user's cancel: %+v, failures %d", st, m.seed.AutoFailures)
+	}
+	m.tick(ctx)
+	cut := *m.Status().IndexTip
+	fx.clock = fx.clock.Add(2 * time.Hour)
+	m.maybeAutoSeed(ctx)
+	if cut == 0 || cut >= 59 || *m.Status().IndexTip != cut {
+		t.Fatalf("a cancelled replay moved on its own: tip %d after the cut at %d", *m.Status().IndexTip, cut)
+	}
+	if !a.seedNow(nodeLitecoin) {
+		t.Fatalf("Seed now is not offered for the cancelled replay: %+v", m.Status())
+	}
+	if got := hostControlHTTP(a, http.MethodPost, `{"action":"utxo_seed","node":"litecoin"}`, true, "192.168.1.20:4321").Code; got != http.StatusAccepted {
+		t.Fatalf("Seed now = %d", got)
+	}
+	if _, err := os.Stat(a.nodeControlPath("request")); !os.IsNotExist(err) {
+		t.Fatal("a replay seed went through the host helper")
+	}
+	m.pollSeed(ctx)
+	m.tick(ctx)
+	if st := m.Status(); st.State != utxoStateReady || st.LastSeed.Outcome != "ok" || m.seed.AutoFailures != 0 {
+		t.Fatalf("Seed now did not resume the replay: %+v, failures %d", st, m.seed.AutoFailures)
+	}
+	if a.seedNow(nodeLitecoin) || hostControlHTTP(a, http.MethodPost, `{"action":"utxo_seed","node":"litecoin"}`, true, "192.168.1.20:4321").Code != http.StatusConflict {
+		t.Fatal("Seed now was offered for a ready index")
+	}
+	utxoMgrCheck(t, m.store, c, "u", 59)
+}
+
+func TestUtxoIndexParksAtABlockTooLargeWithoutInvalidating(t *testing.T) {
+	swapReplayKnobs(t, 5, 1000, 10)
+	swapReplayRetries(t, 30, time.Second)
+	ctx := t.Context()
+	a, _ := testApp(t, &rpcFixture{}, "")
+	c := utxoMgrChain(40, "z")
+	node := newFakeUtxoNode(c)
+	fx := newReplayFixture(t, t.TempDir(), node)
+	m := fx.m
+	a.chainUtxo = map[string]*utxoManager{nodeLitecoin: m}
+	tooLarge, fetches := uint32(25), 0
+	node.hook = func(method string, params any) error {
+		if method == "getblockhash" && params.([]any)[0].(uint32) == tooLarge {
+			fetches++
+			return fmt.Errorf("%w: block %d has 3500000 coin operations", errUtxoBlockTooLarge, tooLarge)
+		}
+		return nil
+	}
+	parked := func(when string, tip uint32) {
+		t.Helper()
+		st := m.Status()
+		if fetches != 1 || st.State != utxoStateDegraded || !strings.Contains(st.Reason, fmt.Sprintf("block %d has 3500000 coin operations", tooLarge)) ||
+			st.IndexTip == nil || *st.IndexTip != tip || m.currentStore().InvalidReason() != "" {
+			t.Fatalf("%s: %d fetches of the block, %+v, invalid %q", when, fetches, st, m.currentStore().InvalidReason())
+		}
+		fx.clock = fx.clock.Add(3 * time.Hour)
+		m.tick(ctx)
+		m.maybeAutoSeed(ctx)
+		if fetches != 1 || m.Status().State != utxoStateDegraded || a.seedNow(nodeLitecoin) {
+			t.Fatalf("%s: the parked index fetched the block again or offered a seed: %d fetches, %+v", when, fetches, m.Status())
+		}
+	}
+	m.tick(ctx)
+	m.maybeAutoSeed(ctx)
+	if st := m.Status(); st.LastSeed == nil || st.LastSeed.Reason != errUtxoBlockTooLarge.Error() {
+		t.Fatalf("the replay's outcome does not name the cause: %+v", st.LastSeed)
+	}
+	parked("replay", tooLarge-1)
+
+	fx = newReplayFixture(t, t.TempDir(), node)
+	m = fx.m
+	a.chainUtxo = map[string]*utxoManager{nodeLitecoin: m}
+	tooLarge, fetches = 40, 0
+	m.tick(ctx)
+	m.maybeAutoSeed(ctx)
+	m.tick(ctx)
+	if st := m.Status(); st.State != utxoStateReady {
+		t.Fatalf("before the large block: %+v", st)
+	}
+	utxoMgrAddBlock(c, "z", 40)
+	m.tick(ctx)
+	parked("following", 39)
 }

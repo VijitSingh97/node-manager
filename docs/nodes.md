@@ -23,7 +23,7 @@ temporary compaction space, or future growth.
 | Tari | 10,000-block pruning horizon | No current measured total; use an expandable volume and measure after first sync | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 4 GiB for the node, plus a 0.5 CPU / 512 MiB view-only wallet sidecar | Node startup and native wallet lifecycle/authentication proven; funded pruned full-sync balance and sustained caps not qualified |
 | Litecoin | 10,000 MiB of block files | Provisional 28–56 GiB; current full-sync total is not measured | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 4 GiB | Binary and runtime startup proven; full sync not qualified |
 | Dogecoin | 10,000 MiB of block files | Provisional 28–56 GiB; current full-sync total is not measured | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 4 GiB | Binary and runtime startup proven; full sync not qualified |
-| Bitcoin Cash Node | 10,000 MiB of block files | Provisional 28–56 GiB; current full-sync total is not measured | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 4 GiB | Signed upstream binary and runtime startup proven; full sync not qualified |
+| Bitcoin Cash Node | Archival when installed from the dashboard (needed by the balance index); otherwise 10,000 MiB of block files | Archival: 231 GiB of block files reported by a public Bitcoin Cash Node on 2026-11-16 ([bch.chaingraph.cash](https://bch.chaingraph.cash/node-status)), plus chainstate and the index, not measured here. Pruned: provisional 28–56 GiB | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 4 GiB | Signed upstream binary and runtime startup proven; full sync not qualified |
 | Zcash / Zakura | Pruned state with 10,000 retained blocks | Upstream's published snapshot was roughly 10 GiB when checked; plan 28–56 GiB on an expandable volume until a full sync is measured | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 4 GiB | Pruning, Tor bootstrap, and RPC proven; full sync not qualified |
 
 All six non-Bitcoin adapters have passed native-daemon startup and dashboard
@@ -337,8 +337,8 @@ node that is already deactivated and is not the last installed node; otherwise
 its tooltip says what is missing. The confirmation dialog warns that the step
 cannot be undone and lists exactly what goes: the node's data folder shown in
 Settings, its balance-index or wallet Docker volumes (Bitcoin `utxo_index`,
-Litecoin `utxo_index_litecoin`, Monero `monero_wallets`, Tari `tari_wallet` and
-`tari_wallet_data`), its `config.json` section with the credentials in it, and
+Litecoin `utxo_index_litecoin`, Bitcoin Cash `utxo_index_bitcoincash`, Monero
+`monero_wallets`, Tari `tari_wallet` and `tari_wallet_data`), its `config.json` section with the credentials in it, and
 the watch-only wallets you added for that coin with their saved balances and
 history. Delete stays disabled until you type the node's name (`zcash`,
 `bitcoincash`, and so on). Like Install and Move data, **Delete on Save** only

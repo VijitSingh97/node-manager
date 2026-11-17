@@ -788,4 +788,30 @@ printf '%s\n' '{"dashboard":{"password":"configuretest12"},"litecoin":{"utxo_ind
 (cd "$ltc" && ./configure.sh) >/dev/null 2>&1 && fail "litecoin.utxo_index without litecoin was accepted"
 rm -rf "$ltc"
 
+bch=$(mktemp -d)
+cp configure.sh "$bch/"
+bch_config() { printf '{"dashboard":{"password":"configuretest12"},"bitcoincash":%s}\n' "$1" >"$bch/config.json"; }
+bch_config '{"enabled":true,"prune_mb":0}'
+(cd "$bch" && ./configure.sh) >/dev/null || fail "an archival Bitcoin Cash node (prune_mb 0) was refused"
+grep -qx 'BITCOINCASH_PRUNE=0' "$bch/.env" || fail "bitcoincash.prune_mb 0 did not reach the node"
+cp "$bch/.env" "$bch/baseline.env"
+bch_config '{"enabled":true,"prune_mb":0,"utxo_index":true}'
+(cd "$bch" && ./configure.sh) >"$bch/out.log" || fail "bitcoincash.utxo_index=true on an archival node failed"
+grep -q 'replays every block from genesis' "$bch/out.log" || fail "enabling bitcoincash.utxo_index did not tell the user about the replay"
+bch_compose=$(sed -n 's/^COMPOSE_FILE=//p' "$bch/baseline.env")
+grep -qx "COMPOSE_FILE=$bch_compose:docker-compose.bitcoincash-utxo-index.yml" "$bch/.env" || fail "bitcoincash.utxo_index=true did not add only its overlay"
+[ "$(diff "$bch/baseline.env" "$bch/.env" | grep -c '^>')" = 1 ] || fail "bitcoincash.utxo_index=true changed more than COMPOSE_FILE"
+bch_config '{"enabled":true,"utxo_index":true}'
+(cd "$bch" && ./configure.sh) >"$bch/out.log" 2>&1 && fail "bitcoincash.utxo_index was accepted on a pruned node"
+grep -q 'needs an archival node' "$bch/out.log" || fail "the pruned refusal did not name the archival requirement"
+bch_config '{"enabled":true,"prune_mb":0,"utxo_index":"yes"}'
+(cd "$bch" && ./configure.sh) >/dev/null 2>&1 && fail "non-boolean bitcoincash.utxo_index was accepted"
+bch_config '{"prune_mb":0,"utxo_index":true}'
+(cd "$bch" && ./configure.sh) >/dev/null 2>&1 && fail "bitcoincash.utxo_index without bitcoincash was accepted"
+mkdir -p "$bch/pruned/blocks/index"
+bch_config "{\"enabled\":true,\"prune_mb\":0,\"data_dir\":\"$bch/pruned\"}"
+(cd "$bch" && ./configure.sh) >"$bch/out.log" 2>&1 && fail "an archival Bitcoin Cash node was accepted on a pruned chain"
+grep -q 'bitcoincash.data_dir at a fresh directory' "$bch/out.log" || fail "the pruned-chain refusal did not say to use a fresh data directory"
+rm -rf "$bch"
+
 echo "PASS: test_configure.sh"

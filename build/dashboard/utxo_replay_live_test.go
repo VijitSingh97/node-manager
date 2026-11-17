@@ -17,20 +17,28 @@ func TestUtxoReplayRegtestRate(t *testing.T) {
 	if os.Getenv("UTXO_REPLAY_IN_CONTAINER") == "1" {
 		t.Skip("running inside the capped replay container")
 	}
-	n := startLiveNode(t)
+	chain := os.Getenv("UTXO_REPLAY_CHAIN")
+	var n *liveNode
+	newScript := func(i int) (string, string) {
+		return n.newScript([]string{"legacy", "p2sh-segwit", "bech32", "bech32m"}[i%4])
+	}
+	if chain == nodeBitcoinCash {
+		n, newScript = startBitcoinCashNode(t), func(int) (string, string) { return n.cashScript() }
+	} else {
+		n = startLiveNode(t)
+		n.do("createwallet", "w")
+	}
 	image := seedLiveDocker(t, "inspect", n.name, "--format", "{{.Config.Image}}")
 	arch := seedLiveDocker(t, "version", "--format", "{{.Server.Arch}}")
-	n.do("createwallet", "w")
-	mine, mineScript := n.newScript("bech32")
-	for i := 0; i < 10; i++ {
-		n.do("generatetoaddress", 2000, mine)
+	mine, mineScript := newScript(2)
+	for i := 0; i < 40; i++ {
+		n.do("generatetoaddress", 500, mine)
 	}
 	small := n.height()
 
-	types := []string{"legacy", "p2sh-segwit", "bech32", "bech32m"}
 	many, scripts := map[string]any{}, []string{mineScript}
 	for i := 0; i < 200; i++ {
-		a, s := n.newScript(types[i%len(types)])
+		a, s := newScript(i)
 		many[a] = "0.001"
 		if i < 8 {
 			scripts = append(scripts, s)
@@ -52,9 +60,13 @@ func TestUtxoReplayRegtestRate(t *testing.T) {
 	}
 	name := n.name + "-replay"
 	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", "-v", name).Run() })
+	mem, goMem := "1g", "off"
+	if chain == nodeBitcoinCash {
+		mem, goMem = "2g", "1600MiB"
+	}
 	out, err := exec.Command("docker", "run", "--rm", "--name", name, "--network", "container:"+n.name,
-		"--cpus", "0.5", "--memory", "1g", "-v", bin+":/t:ro",
-		"-e", "UTXO_REPLAY_IN_CONTAINER=1", "-e", "REPLAY_SMALL_TIP="+strconv.Itoa(small), "-e", "REPLAY_SCRIPTS="+strings.Join(scripts, ","),
+		"--cpus", "0.5", "--memory", mem, "-e", "GOMEMLIMIT="+goMem, "-v", bin+":/t:ro",
+		"-e", "UTXO_REPLAY_IN_CONTAINER=1", "-e", "UTXO_REPLAY_CHAIN="+chain, "-e", "REPLAY_SMALL_TIP="+strconv.Itoa(small), "-e", "REPLAY_SCRIPTS="+strings.Join(scripts, ","),
 		"--entrypoint", "/t/replay.test", image,
 		"-test.run", "^TestUtxoReplayRateInContainer$", "-test.count", "3", "-test.v", "-test.timeout", "20m").CombinedOutput()
 	t.Logf("replay container output:\n%s", out)
@@ -77,10 +89,16 @@ func TestUtxoReplayRateInContainer(t *testing.T) {
 	tip := uint32(n.height())
 	for _, replay := range []bool{false, true} {
 		store := openFollowStore(t)
+		if os.Getenv("UTXO_REPLAY_CHAIN") == nodeBitcoinCash {
+			store = utxoTestOpenReverse(t, t.TempDir())
+		}
 		f := newUtxoFollower(store, rpc)
 		apply, mode := f.applyHeights, "per block"
 		if replay {
 			f.chain, apply, mode = replayTestChain(), f.applyRange, "batched"
+		}
+		if os.Getenv("UTXO_REPLAY_CHAIN") == nodeBitcoinCash {
+			f.chain = utxoBitcoinCash
 		}
 		for _, leg := range []struct {
 			what     string

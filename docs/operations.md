@@ -367,6 +367,21 @@ litecoin`. Its seed time and size on mainnet are not measured yet. Only one
 balance index seeds at a time; a second request is refused with the `lock`
 guard until the first finishes.
 
+The Bitcoin Cash balance index (`bitcoincash.utxo_index`, archival nodes only) has
+no dump to seed from. It replays every block from genesis through the dashboard,
+which starts it on its own once the node has synced, or from **Replay Bitcoin Cash
+now** or `./stack utxo-seed bitcoincash`; no seed pipe is made. A cancel, failure or
+restart keeps the blocks already applied, and the next run resumes from there. A
+node restart, an RPC timeout or a reorg near the tip is retried within the replay;
+progress resets the count, so it waits for the hourly check only after about five
+minutes of failures in a row, and storage errors stop it at once. After a cancel,
+automatic replays stop until you start one with **Replay Bitcoin Cash now** or
+`utxo-seed bitcoincash`. It
+takes the shared seed lock and the heat pause, but holds neither node alerts nor
+the watch scan. Regtest rates are in
+[the replay measurement](measurements/utxo-replay.md); a mainnet replay has not
+been timed.
+
 With `bitcoin.utxo_index` enabled the index starts empty. On APT and Homebrew
 installs it seeds itself: while the index has no seed (or its last seed failed),
 the dashboard checks the seed guards once an hour, and when they pass it asks the
