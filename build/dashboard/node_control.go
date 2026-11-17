@@ -29,6 +29,7 @@ type nodeControlNode struct {
 	Supported  bool   `json:"supported"`
 	Configured bool   `json:"configured"`
 	Stopped    bool   `json:"stopped"`
+	Failure    string `json:"failure,omitempty"`
 }
 
 type nodeControlInput struct {
@@ -167,7 +168,12 @@ func (a *app) apiNodes(w http.ResponseWriter, _ *http.Request) {
 	for _, id := range nodeOrder {
 		configured, supported := a.nodeConfigured(id)
 		active := configured && supported && runtime[id]
-		nodes = append(nodes, nodeControlNode{ID: id, Active: active, Available: a.nodeAvailable(id, active), Supported: supported, Configured: configured, Stopped: active && a.nodeStopped(id, stats)})
+		stopped := active && a.nodeStopped(id, stats)
+		failure := ""
+		if stopped {
+			failure = stats.Failed[id]
+		}
+		nodes = append(nodes, nodeControlNode{ID: id, Active: active, Available: a.nodeAvailable(id, active), Supported: supported, Configured: configured, Stopped: stopped, Failure: failure})
 	}
 	status, pending := a.pendingNodeControlStatus()
 	if !pending {
@@ -195,6 +201,7 @@ type hostStatsFile struct {
 	HostMemBytes  uint64                    `json:"host_mem_bytes,omitempty"`
 	Nodes         map[string]hostStatsUsage `json:"nodes"`
 	Running       map[string]bool           `json:"running,omitempty"`
+	Failed        map[string]string         `json:"failed,omitempty"`
 	Other         hostStatsUsage            `json:"other"`
 	Disks         []*hostDisk               `json:"disks,omitempty"`
 	CPUTempC      *float64                  `json:"cpu_temp_c,omitempty"`

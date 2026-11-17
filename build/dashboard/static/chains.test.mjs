@@ -30,6 +30,11 @@ test('an active node whose container is stopped greys like inactive but offers S
   assert.equal(nodeBecameActive(stopped,active),true);
   assert.equal(nodeBecameActive(undefined,stopped),false);
 });
+test('a node stopped after failing to start shows why and still offers Start',()=>{
+  const view=powerView({...active,stopped:true,failure:'This Zakura binary requires CPU features this machine lacks: adx.'});
+  assert.deepEqual([view.stopped,view.button,view.disabled],[true,'Start node',false]);
+  assert.match(view.status,/failed to start\. This Zakura binary requires CPU features this machine lacks: adx\./);
+});
 test('a queued state change remains pending until the host confirms its outcome',()=>{
   const status={id:'a'.repeat(32),node:'litecoin',active:false,state:'pending'};
   assert.equal(controlView({control_available:true,status}).pending,true);

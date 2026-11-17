@@ -8,6 +8,30 @@ All notable changes to this project are documented here. Format follows
 
 ### Fixed
 
+- A node that fails to start no longer restarts forever. With launch at boot
+  on, Docker retried a crashing container indefinitely and the dashboard showed
+  it as connecting. The host helper now stops a node whose container keeps
+  exiting with an error within a minute of starting for 10 minutes (at least 5
+  restarts), sends one "<Node> is not coming up" alert with the last error (a
+  Host event, forwarded to Telegram), and the panel shows Stopped with the same
+  reason; **Start node** tries again. Nodes that crash after running a while, or
+  recover within 10 minutes, keep Docker's normal restarts.
+- A failed node install now says why. Settings shows the last error line from
+  the step that failed (for example an image that could not be pulled), and a
+  "<Node> install failed" Host event reaches Telegram. Host events other than
+  thermal ones are now marked 🔴 instead of 🌡.
+- Zcash can no longer be installed on an x86-64 processor without the BMI2 and
+  ADX instructions (before Intel Core 5th generation or AMD Ryzen). Zakura 1.8
+  images require them and exit at startup otherwise; Settings now disables the
+  Install button with the reason, and the host helper rejects the install.
+- The usage pies attribute CPU and memory to the right owner. The Monero and Tari
+  wallet containers now count toward their node instead of the Node Manager
+  slice, which is now labelled "Node Manager (dashboard and Tor)". Each
+  container's CPU is read from its cgroup over the same second as the host
+  total, so "Other processes" no longer drops to 0 or swells because the figures
+  came from different moments. Container memory now includes the container's own
+  kernel memory (page tables, unreclaimable slab, socket buffers), which was
+  counted under "Other processes" (about 270 MiB on an eleven-container host).
 - `utxo-seed litecoin` checked litecoind's running commands without the node's
   RPC configuration, so it stopped with "Litecoin RPC did not answer". It now
   passes the same configuration file the node's health check uses.

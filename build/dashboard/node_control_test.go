@@ -265,6 +265,40 @@ func TestMountDevicePicksLongestMountpointPrefix(t *testing.T) {
 	}
 }
 
+func TestNodesReportWhyAStoppedNodeFailedToStart(t *testing.T) {
+	dir := t.TempDir()
+	node := nodeConfig{ID: nodeZcash, Name: "Zcash", Enabled: true, Supported: true}
+	a := &app{cfg: config{bitcoinDisabled: true, dashboardPassword: "secret", stateDir: dir, dataDir: dir, nodes: map[string]nodeConfig{nodeZcash: node}}}
+	initializeTestDashboardAuth(t, a)
+	zcash := func(running bool) nodeControlNode {
+		t.Helper()
+		stats := fmt.Sprintf(`{"updated":%d,"cpus":4,"mem_total_bytes":8197607424,"nodes":{},"other":{"cpu_pct":0,"mem_bytes":0},"running":{"zcash":%t},"failed":{"zcash":"This Zakura binary requires CPU features this machine lacks: adx."}}`, time.Now().Unix(), running)
+		if err := os.WriteFile(filepath.Join(dir, "host-stats.json"), []byte(stats), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		response := nodeControlHTTP(a, http.MethodGet, "/api/nodes", "", false)
+		var view struct {
+			Nodes []nodeControlNode `json:"nodes"`
+		}
+		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &view) != nil {
+			t.Fatalf("nodes view = %d %s", response.Code, response.Body.String())
+		}
+		for _, n := range view.Nodes {
+			if n.ID == nodeZcash {
+				return n
+			}
+		}
+		t.Fatal("zcash missing")
+		return nodeControlNode{}
+	}
+	if got := zcash(false); !got.Stopped || got.Failure != "This Zakura binary requires CPU features this machine lacks: adx." {
+		t.Fatalf("stopped zcash = %#v", got)
+	}
+	if got := zcash(true); got.Stopped || got.Failure != "" {
+		t.Fatalf("running zcash kept a stale failure: %#v", got)
+	}
+}
+
 func TestNodesStoppedFromHostStats(t *testing.T) {
 	dir := t.TempDir()
 	node := nodeConfig{ID: nodeLitecoin, Name: "Litecoin", Enabled: true, Supported: true}
