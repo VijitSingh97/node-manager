@@ -26,6 +26,9 @@ All notable changes to this project are documented here. Format follows
   discarding it, until such blocks can be applied in pieces (#363). On regtest,
   31 MB blocks of about 0.9 million operations peaked at 1.50 GiB; these are
   lower bounds, and mainnet is not measured yet.
+- A weekly, on-demand test that starts every node (Tari and its wallet, Litecoin,
+  Dogecoin, Bitcoin Cash and Zcash as well as Bitcoin and Monero) and checks that
+  none can reach the internet or resolve a public name while Tor is stopped.
 
 ## [1.37.0] - 2026-11-17
 

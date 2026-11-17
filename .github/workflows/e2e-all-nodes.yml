@@ -1,0 +1,26 @@
+name: E2E all nodes
+
+on:
+  workflow_dispatch:
+  # Only a change to this workflow runs it on a pull request, so a new setup is proven before it merges.
+  pull_request:
+    paths:
+      - .github/workflows/e2e-all-nodes.yml
+  schedule:
+    - cron: "17 5 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-all-nodes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Boot every node and probe Tor-only egress
+        env:
+          CI: "true"
+          E2E_ALL_NODES: "1"
+        run: tests/test_e2e.sh
