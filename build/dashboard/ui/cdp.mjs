@@ -276,15 +276,23 @@ export class Chrome {
     this.connection.socket.close();
     const running = () => this.process.exitCode === null && this.process.signalCode === null;
     const exited = running() ? new Promise((resolve) => this.process.once("exit", resolve)) : Promise.resolve();
-    this.process.kill("SIGTERM");
+    killGroup(this.process, "SIGTERM");
     await Promise.race([exited, sleep(5000)]);
-    if (running()) {
-      this.process.kill("SIGKILL");
-      await Promise.race([exited, sleep(5000)]);
+    killGroup(this.process, "SIGKILL");
+    await Promise.race([exited, sleep(5000)]);
+    try {
+      rmSync(this.userData, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    } catch (error) {
+      process.emitWarning(`left Chrome profile ${this.userData}: ${error.message}`);
     }
-    // Chrome's helper processes can still write to the profile for a moment after the browser exits.
-    rmSync(this.userData, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
+}
+
+// Chrome's helpers share its process group, so they all stop before the profile is removed.
+function killGroup(child, signal) {
+  try {
+    process.kill(-child.pid, signal);
+  } catch {}
 }
 
 export async function launchChrome(binary) {
@@ -292,11 +300,11 @@ export async function launchChrome(binary) {
   const child = spawn(binary, [
     "--headless=new", "--remote-debugging-port=0", `--user-data-dir=${userData}`, "--no-first-run",
     "--no-default-browser-check", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage", "about:blank",
-  ], { stdio: "ignore" });
-  process.once("exit", () => child.kill("SIGKILL"));
+  ], { stdio: "ignore", detached: true });
+  process.once("exit", () => killGroup(child, "SIGKILL"));
   const portFile = join(userData, "DevToolsActivePort");
   const fail = (message) => {
-    child.kill("SIGKILL");
+    killGroup(child, "SIGKILL");
     throw new Error(message);
   };
   const deadline = Date.now() + 20000;
