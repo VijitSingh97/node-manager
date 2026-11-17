@@ -130,6 +130,7 @@ case "$1" in
   stats)
     if [ "${3:-}" = --no-trunc ]; then
       printf 'cid-monero\tbitcoin-starter-stack-apt-monero-1\t170.00%%\t3.2GiB / 8GiB\ncid-dash\tbitcoin-starter-stack-apt-dashboard-1\t8.00%%\t50MiB / 8GiB\n'
+      printf 'cid-wallet\tbitcoin-starter-stack-apt-monero-wallet-1\t20.00%%\t100MiB / 8GiB\ncid-tor\tbitcoin-starter-stack-apt-tor-1\t12.00%%\t40MiB / 8GiB\n'
       exit 0
     fi
     id=${5:-}
@@ -435,12 +436,15 @@ unset FAKE_HOST_STATS_OUT
 jq -e '.cpus == 4 and .nodes.monero.cpu_pct > 40 and .nodes.bitcoin.disk_bytes > 0 and .nodes.bitcoin.cpu_pct == 0 and (.nodes | has("tari") | not) and .nodes.stack.disk_bytes > 0 and .nodes.stack.disk_bytes < 10000000 and (.host_cpu_pct // 0) >= 0 and (.host_mem_bytes // 0) >= 0' "$tmp/host-stats-payload.json" >/dev/null || fail "host stats payload lost disk bytes or kept an empty placeholder dir"
 jq -e '.running == {monero: true, bitcoin: false, tari: true, litecoin: true}' "$tmp/host-stats-payload.json" >/dev/null || fail "host stats did not report container running state, or reported an unknown node"
 jq -e '.nodes.monero.mem_bytes > 3000000000' "$tmp/host-stats-payload.json" >/dev/null || fail "docker-stats memory fallback was lost"
+jq -e '.nodes.monero.cpu_pct == 47.5 and (.nodes | has("monero-wallet") | not) and .other.cpu_pct == 5' "$tmp/host-stats-payload.json" >/dev/null ||
+  fail "a wallet container was not counted with its node: $(jq -c '{monero: .nodes.monero, other}' "$tmp/host-stats-payload.json")"
 mkdir -p "$case_root/cgroup/system.slice/docker-cid-monero.scope"
-printf 'anon 1234567890\nfile 99\n' >"$case_root/cgroup/system.slice/docker-cid-monero.scope/memory.stat"
+printf 'anon 1234567890\nfile 99\npagetables 1000\nslab_unreclaimable 10\nslab_reclaimable 5000\n' >"$case_root/cgroup/system.slice/docker-cid-monero.scope/memory.stat"
 export RESOURCE_CGROUP_ROOT=$case_root/cgroup FAKE_HOST_STATS_OUT=$tmp/host-stats-payload.json
 run_profile
 unset RESOURCE_CGROUP_ROOT FAKE_HOST_STATS_OUT
-jq -e '.nodes.monero.mem_bytes == 1234567890' "$tmp/host-stats-payload.json" >/dev/null || fail "cgroup anon memory did not override docker stats"
+jq -e '.nodes.monero.mem_bytes == 1234568900 + 104857600' "$tmp/host-stats-payload.json" >/dev/null ||
+  fail "cgroup anon and kernel memory did not override docker stats: $(jq -c .nodes.monero "$tmp/host-stats-payload.json")"
 jq -e '.failed == {}' "$tmp/host-stats-payload.json" >/dev/null || fail "healthy containers were reported as failed starts"
 
 new_case failed-start
@@ -534,11 +538,20 @@ printf '70000\n' >"$case_root/zones/2/temp"; printf 'iwlwifi_1\n' >"$case_root/z
 cat >"$tmp/bin/sleep" <<'EOF'
 #!/bin/sh
 cp -R "$FAKE_PROC_NEXT"/. "$RESOURCE_PROC_ROOT"/
+[ -z "${FAKE_CGROUP_NEXT:-}" ] || cp -R "$FAKE_CGROUP_NEXT"/. "$RESOURCE_CGROUP_ROOT"/
 EOF
 chmod +x "$tmp/bin/sleep"
+printf 'cpu  400 0 100 1500 0 0 0 0 0 0\n' >"$case_root/proc-next/stat"
+mkdir -p "$case_root/cgroup/system.slice/docker-cid-monero.scope" "$case_root/cgroup-next/system.slice/docker-cid-monero.scope"
+printf 'usage_usec 1000000\n' >"$case_root/cgroup/system.slice/docker-cid-monero.scope/cpu.stat"
+printf 'usage_usec 3500000\n' >"$case_root/cgroup-next/system.slice/docker-cid-monero.scope/cpu.stat"
 export RESOURCE_PROC_ROOT=$host_proc RESOURCE_SYS_ROOT=$host_sys RESOURCE_THERMAL_GLOB="$case_root/zones/*/temp"
+export RESOURCE_CGROUP_ROOT=$case_root/cgroup FAKE_CGROUP_NEXT=$case_root/cgroup-next
 export FAKE_PROC_NEXT=$case_root/proc-next FAKE_HOST_STATS_OUT=$tmp/host-stats-payload.json
 PATH="$tmp/bin:$PATH" run_profile
+unset RESOURCE_CGROUP_ROOT FAKE_CGROUP_NEXT
+jq -e '.host_cpu_pct == 30 and .nodes.monero.cpu_pct == 30' "$tmp/host-stats-payload.json" >/dev/null ||
+  fail "container CPU was not measured over the host CPU window: $(jq -c '{host_cpu_pct, monero: .nodes.monero.cpu_pct}' "$tmp/host-stats-payload.json")"
 jq -e '.cpu_temp_c == 59 and .board_temp_c == 45 and .fans_rpm == [0, 2506] and .uptime_s == 1002 and .net_rx_bps == 3000 and .net_tx_bps == 500' "$tmp/host-stats-payload.json" >/dev/null ||
   fail "host health readings are wrong: $(jq -c '{cpu_temp_c, board_temp_c, fans_rpm, uptime_s, net_rx_bps, net_tx_bps}' "$tmp/host-stats-payload.json")"
 ! grep -Eq 'enp3s0f0|wlp2s0|tailscale0|docker0|veth|iwlwifi|coretemp' "$tmp/host-stats-payload.json" || fail "host stats leaked interface or sensor names"

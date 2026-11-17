@@ -19,6 +19,14 @@ All notable changes to this project are documented here. Format follows
   ADX instructions (before Intel Core 5th generation or AMD Ryzen). Zakura 1.8
   images require them and exit at startup otherwise; Settings now disables the
   Install button with the reason, and the host helper rejects the install.
+- The usage pies attribute CPU and memory to the right owner. The Monero and Tari
+  wallet containers now count toward their node instead of the Node Manager
+  slice, which is now labelled "Node Manager (dashboard and Tor)". Each
+  container's CPU is read from its cgroup over the same second as the host
+  total, so "Other processes" no longer drops to 0 or swells because the figures
+  came from different moments. Container memory now includes the container's own
+  kernel memory (page tables, unreclaimable slab, socket buffers), which was
+  counted under "Other processes" (about 270 MiB on a nine-container host).
 - `utxo-index bench` reads a relative wallet file path from the directory it was
   run in. On APT installs it looked in `/var/lib/node-manager` instead and
   reported a valid file as malformed; a missing file is now named as unreadable.
