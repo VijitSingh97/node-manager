@@ -447,9 +447,12 @@ done
 # xx001DAC in /proc/net/tcp little-endian hex) — i.e. everything goes to tor
 # or intra-stack RPC, and nothing dials clearnet directly.
 for c in "${probed_services[@]}"; do
-  bad=$(docker compose exec -T "$c" awk 'NR>1 && $4=="01" {split($3,r,":"); if (r[1] !~ /001DAC$/) print r[1]":"r[2]}' /proc/net/tcp 2>/dev/null || true)
+  # The helper image shares the service's network namespace, so this works even when the service image has no awk.
+  bad=$(probe "$c" "awk 'NR>1 && \$4==\"01\" {split(\$3,r,\":\"); if (r[1] !~ /001DAC\$/) print r[1]\":\"r[2]}' /proc/net/tcp") ||
+    fail "could not read the open connections of $c"
   [ -z "$bad" ] || fail "clearnet egress from $c: $bad"
-  bad6=$(docker compose exec -T "$c" sh -c 'awk "NR>1 && \$4==\"01\" {print \$3}" /proc/net/tcp6 2>/dev/null' || true)
+  bad6=$(probe "$c" "[ ! -e /proc/net/tcp6 ] || awk 'NR>1 && \$4==\"01\" {print \$3}' /proc/net/tcp6") ||
+    fail "could not read the open IPv6 connections of $c"
   [ -z "$bad6" ] || fail "unexpected IPv6 egress from $c: $bad6"
 done
 
