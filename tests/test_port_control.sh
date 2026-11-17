@@ -308,6 +308,10 @@ scripts/node-port-control
 [ "$(status .state)" = applied ] || fail "a later run turned the applied change into a replay rejection"
 unset FAKE_DASH_RECREATED
 
+new_case idle-run-resolves-dashboard-once
+scripts/node-port-control || fail "idle port-control run failed"
+[ "$(grep -c 'com.docker.compose.service=dashboard' "$FAKE_DOCKER_LOG")" = 1 ] || fail "an idle run resolved the dashboard container more than once: $(cat "$FAKE_DOCKER_LOG")"
+
 new_case change-open-port
 request '{"id":"11111111111111111111111111111112","changes":[{"port":"bitcoin_rpc","enabled":true,"bind_ip":"172.16.1.20","host_port":38332}],"requested_at":1000}'
 scripts/node-port-control
