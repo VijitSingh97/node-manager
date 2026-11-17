@@ -6,75 +6,7 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
-### Fixed
-
-- Every dashboard connection to a node or wallet, including both Tari gRPC
-  channels, now ignores proxy settings, never follows a redirect, and refuses to
-  connect to a public address. The Bitcoin, Monero, Monero wallet and Tari wallet
-  URLs are now checked as internal addresses even when that node is off.
-- UPnP, NAT-PMP and update checks are now switched off in the node configs instead
-  of relying on defaults: `natpmp=0` for Bitcoin Core, `upnp=0` for Litecoin,
-  Dogecoin and Bitcoin Cash (plus `natpmp=0` for Bitcoin Cash), and
-  `check_interval = 0` for the Tari node. Monero also gets `no-igd=1`; the pinned
-  0.18.5.4 has no UPnP code, so this only keeps port mapping off if a later
-  release restores it.
-- The Tari wallet config no longer names a Tor control port the stack never
-  opens. The wallet does not use that setting in Tari v6.2.0. This was checked
-  against the Tari source only; the wallet image was not started with the new file.
-- Saving LAN port changes, or resetting a node's RPC password, reported
-  "Request already processed." even though the change applied. Both recreate
-  the dashboard, and the host helper then wrote its result into the old
-  dashboard container, failed, and left the request to be seen again as a replay
-  on its next run. It now finds the current dashboard container for every
-  write.
-- Exposing a node's RPC, ZMQ or gRPC port on the LAN failed with "Port
-  availability could not be checked." on any host with a listener that `ss`
-  prints with an interface scope, such as Tailscale's `[fd7a:…]%tailscale0:56603`
-  or a link-local service. The port check could not read such lines, so it
-  refused every change. It now reads them, and an
-  IPv4 listener written as `address%interface:port` is still caught as a port in
-  use.
-- A node that fails to start no longer restarts forever. With launch at boot
-  on, Docker retried a crashing container indefinitely and the dashboard showed
-  it as connecting. The host helper now stops a node whose container keeps
-  exiting with an error within a minute of starting for 10 minutes (at least 5
-  restarts), sends one "<Node> is not coming up" alert with the last error (a
-  Host event, forwarded to Telegram), and the panel shows Stopped with the same
-  reason; **Start node** tries again. Nodes that crash after running a while, or
-  recover within 10 minutes, keep Docker's normal restarts.
-- "Price unavailable" no longer appears for a minute or two after a settings
-  change restarts Tor and the dashboard. The dashboard now saves its last good
-  prices in its state directory (`prices.json`), shows them as stale with their
-  original time after a restart, and replaces them when the next fetch over Tor
-  succeeds. While prices are unavailable or stale the page checks every 10
-  seconds instead of every minute, so fresh prices appear as soon as Tor is up.
-- A failed node install now says why. Settings shows the last error line from
-  the step that failed (for example an image that could not be pulled), and a
-  "<Node> install failed" Host event reaches Telegram. Host events other than
-  thermal ones are now marked 🔴 instead of 🌡.
-- Zcash can no longer be installed on an x86-64 processor without the BMI2 and
-  ADX instructions (before Intel Core 5th generation or AMD Ryzen). Zakura 1.8
-  images require them and exit at startup otherwise; Settings now disables the
-  Install button with the reason, and the host helper rejects the install.
-- Adding a watch-only wallet right after the dashboard starts could leave it in
-  an error state until removed and re-added. The startup pass and the add request
-  could both create and import into the same Bitcoin Core wallet at once, leaving
-  extra descriptors that later checks reject. Provisioning is now serialized per
-  wallet key.
-- The usage pies attribute CPU and memory to the right owner. The Monero and Tari
-  wallet containers now count toward their node instead of the Node Manager
-  slice, which is now labelled "Node Manager (dashboard and Tor)". Each
-  container's CPU is read from its cgroup over the same second as the host
-  total, so "Other processes" no longer drops to 0 or swells because the figures
-  came from different moments. Container memory now includes the container's own
-  kernel memory (page tables, unreclaimable slab, socket buffers), which was
-  counted under "Other processes" (about 270 MiB on an eleven-container host).
-- `utxo-seed litecoin` checked litecoind's running commands without the node's
-  RPC configuration, so it stopped with "Litecoin RPC did not answer". It now
-  passes the same configuration file the node's health check uses.
-- `utxo-index bench` reads a relative wallet file path from the directory it was
-  run in. On APT installs it looked in `/var/lib/node-manager` instead and
-  reported a valid file as malformed; a missing file is now named as unreadable.
+## [1.37.0] - 2026-11-17
 
 ### Added
 
@@ -171,6 +103,8 @@ All notable changes to this project are documented here. Format follows
   longer opens them, wrong logins get a 401 with a `WWW-Authenticate`
   challenge, and a switched-off endpoint answers 404 whatever is sent. Saved
   settings with the old single switch on turn both on after the upgrade.
+  Upgrade note: a monitor that polled `/actuator/health` without a login now
+  gets a 401 until it sends the actuator credentials shown in Settings.
 - `GET /actuator/info` lists, per node, every private-LAN service it offers:
   whether it is exposed, protocol, bind address, port, a ready-to-use URI and
   the login a LAN client needs (none for Monero ZMQ and Tari gRPC). The
@@ -202,6 +136,76 @@ All notable changes to this project are documented here. Format follows
 
 - The Zcash panel no longer shows the Zakura end-of-support warning; the
   new-version notice is the only update prompt.
+
+### Fixed
+
+- Every dashboard connection to a node or wallet, including both Tari gRPC
+  channels, now ignores proxy settings, never follows a redirect, and refuses to
+  connect to a public address. The Bitcoin, Monero, Monero wallet and Tari wallet
+  URLs are now checked as internal addresses even when that node is off.
+- UPnP, NAT-PMP and update checks are now switched off in the node configs instead
+  of relying on defaults: `natpmp=0` for Bitcoin Core, `upnp=0` for Litecoin,
+  Dogecoin and Bitcoin Cash (plus `natpmp=0` for Bitcoin Cash), and
+  `check_interval = 0` for the Tari node. Monero also gets `no-igd=1`; the pinned
+  0.18.5.4 has no UPnP code, so this only keeps port mapping off if a later
+  release restores it.
+- The Tari wallet config no longer names a Tor control port the stack never
+  opens. The wallet does not use that setting in Tari v6.2.0. This was checked
+  against the Tari source only; the wallet image was not started with the new file.
+- Saving LAN port changes, or resetting a node's RPC password, reported
+  "Request already processed." even though the change applied. Both recreate
+  the dashboard, and the host helper then wrote its result into the old
+  dashboard container, failed, and left the request to be seen again as a replay
+  on its next run. It now finds the current dashboard container for every
+  write.
+- Exposing a node's RPC, ZMQ or gRPC port on the LAN failed with "Port
+  availability could not be checked." on any host with a listener that `ss`
+  prints with an interface scope, such as Tailscale's `[fd7a:…]%tailscale0:56603`
+  or a link-local service. The port check could not read such lines, so it
+  refused every change. It now reads them, and an
+  IPv4 listener written as `address%interface:port` is still caught as a port in
+  use.
+- A node that fails to start no longer restarts forever. With launch at boot
+  on, Docker retried a crashing container indefinitely and the dashboard showed
+  it as connecting. The host helper now stops a node whose container keeps
+  exiting with an error within a minute of starting for 10 minutes (at least 5
+  restarts), sends one "<Node> is not coming up" alert with the last error (a
+  Host event, forwarded to Telegram), and the panel shows Stopped with the same
+  reason; **Start node** tries again. Nodes that crash after running a while, or
+  recover within 10 minutes, keep Docker's normal restarts.
+- "Price unavailable" no longer appears for a minute or two after a settings
+  change restarts Tor and the dashboard. The dashboard now saves its last good
+  prices in its state directory (`prices.json`), shows them as stale with their
+  original time after a restart, and replaces them when the next fetch over Tor
+  succeeds. While prices are unavailable or stale the page checks every 10
+  seconds instead of every minute, so fresh prices appear as soon as Tor is up.
+- A failed node install now says why. Settings shows the last error line from
+  the step that failed (for example an image that could not be pulled), and a
+  "<Node> install failed" Host event reaches Telegram. Host events other than
+  thermal ones are now marked 🔴 instead of 🌡.
+- Zcash can no longer be installed on an x86-64 processor without the BMI2 and
+  ADX instructions (before Intel Core 5th generation or AMD Ryzen). Zakura 1.8
+  images require them and exit at startup otherwise; Settings now disables the
+  Install button with the reason, and the host helper rejects the install.
+- Adding a watch-only wallet right after the dashboard starts could leave it in
+  an error state until removed and re-added. The startup pass and the add request
+  could both create and import into the same Bitcoin Core wallet at once, leaving
+  extra descriptors that later checks reject. Provisioning is now serialized per
+  wallet key.
+- The usage pies attribute CPU and memory to the right owner. The Monero and Tari
+  wallet containers now count toward their node instead of the Node Manager
+  slice, which is now labelled "Node Manager (dashboard and Tor)". Each
+  container's CPU is read from its cgroup over the same second as the host
+  total, so "Other processes" no longer drops to 0 or swells because the figures
+  came from different moments. Container memory now includes the container's own
+  kernel memory (page tables, unreclaimable slab, socket buffers), which was
+  counted under "Other processes" (about 270 MiB on an eleven-container host).
+- `utxo-seed litecoin` checked litecoind's running commands without the node's
+  RPC configuration, so it stopped with "Litecoin RPC did not answer". It now
+  passes the same configuration file the node's health check uses.
+- `utxo-index bench` reads a relative wallet file path from the directory it was
+  run in. On APT installs it looked in `/var/lib/node-manager` instead and
+  reported a valid file as malformed; a missing file is now named as unreadable.
 
 ## [1.36.0] - 2026-11-16
 
@@ -1744,7 +1748,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.36.0...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.37.0...HEAD
+[1.37.0]: https://github.com/VijitSingh97/node-manager/compare/v1.36.0...v1.37.0
 [1.36.0]: https://github.com/VijitSingh97/node-manager/compare/v1.35.1...v1.36.0
 [1.35.1]: https://github.com/VijitSingh97/node-manager/compare/v1.35.0...v1.35.1
 [1.35.0]: https://github.com/VijitSingh97/node-manager/compare/v1.34.0...v1.35.0
