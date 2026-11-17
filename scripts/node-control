@@ -323,7 +323,7 @@ delete_configured_dir() {
   [ -n "$delete_dir_value" ] || delete_dir_value=./data/$1
   case "$delete_dir_value" in
     /*) ;;
-    *) delete_dir_value=$(cd "$stack_root" && pwd -P)/${delete_dir_value#./} ;;
+    *) delete_dir_value=$(cd "$state_root" && pwd -P)/${delete_dir_value#./} ;;
   esac
   printf '%s\n' "$delete_dir_value"
 }
