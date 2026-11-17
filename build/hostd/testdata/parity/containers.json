@@ -1,0 +1,82 @@
+[
+ {
+  "Id": "b17c0000000000000000000000000000",
+  "State": "running",
+  "Labels": {
+   "com.docker.compose.project": "bitcoin-starter-stack-apt",
+   "com.docker.compose.service": "bitcoin"
+  }
+ },
+ {
+  "Id": "a0e10000000000000000000000000000",
+  "State": "running",
+  "Labels": {
+   "com.docker.compose.project": "bitcoin-starter-stack-apt",
+   "com.docker.compose.service": "monero"
+  }
+ },
+ {
+  "Id": "a0e1ca11000000000000000000000000",
+  "State": "running",
+  "Labels": {
+   "com.docker.compose.project": "bitcoin-starter-stack-apt",
+   "com.docker.compose.service": "monero-wallet"
+  }
+ },
+ {
+  "Id": "7a410000000000000000000000000000",
+  "State": "running",
+  "Labels": {
+   "com.docker.compose.project": "bitcoin-starter-stack-apt",
+   "com.docker.compose.service": "tari"
+  }
+ },
+ {
+  "Id": "da540000000000000000000000000000",
+  "State": "running",
+  "Labels": {
+   "com.docker.compose.project": "bitcoin-starter-stack-apt",
+   "com.docker.compose.service": "dashboard"
+  }
+ },
+ {
+  "Id": "70500000000000000000000000000000",
+  "State": "running",
+  "Labels": {
+   "com.docker.compose.project": "bitcoin-starter-stack-apt",
+   "com.docker.compose.service": "tor"
+  }
+ },
+ {
+  "Id": "11ec0000000000000000000000000000",
+  "State": "exited",
+  "Labels": {
+   "com.docker.compose.project": "bitcoin-starter-stack-apt",
+   "com.docker.compose.service": "litecoin"
+  }
+ },
+ {
+  "Id": "d09e0000000000000000000000000000",
+  "State": "exited",
+  "Labels": {
+   "com.docker.compose.project": "bitcoin-starter-stack-apt",
+   "com.docker.compose.service": "dogecoin"
+  }
+ },
+ {
+  "Id": "bc400000000000000000000000000000",
+  "State": "exited",
+  "Labels": {
+   "com.docker.compose.project": "bitcoin-starter-stack-apt",
+   "com.docker.compose.service": "bitcoincash"
+  }
+ },
+ {
+  "Id": "2ca50000000000000000000000000000",
+  "State": "created",
+  "Labels": {
+   "com.docker.compose.project": "bitcoin-starter-stack-apt",
+   "com.docker.compose.service": "zcash"
+  }
+ }
+]

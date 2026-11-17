@@ -74,6 +74,7 @@ rm -rf "$root/build/dashboard/tests" "$root/build/dashboard/parity" "$root/build
   "$root/build/dashboard/.pytest_cache" "$root/build/dashboard/__pycache__"
 find "$root/build/dashboard" -name '*_test.go' -delete
 find "$root/build/tari-wallet" -name '*_test.go' -delete
+rm -rf "$root/build/hostd"
 find "$root/build/dashboard" -name '*.proto' -delete
 find "$root/build/dashboard/static" -name '*.test.mjs' -delete
 find "$root/build/dashboard" -name '*.pyc' -delete
