@@ -271,7 +271,8 @@ An authenticated dashboard user can deactivate one configured node. The host
 helper gracefully stops only that daemon and its dependent wallet service,
 keeps its data and configuration, and leaves its tower visible but inactive.
 Activating it starts the same configured service again. At least one node must
-remain configured; deactivation is different from deleting a chain or its data.
+remain configured; deactivation keeps the chain and its data, and
+[deleting a node](#deleting-a-node) is a separate, destructive step.
 Reactivate the node before attempting an RPC credential reset.
 
 If an active node's container stops for any other reason (`node-manager stop`,
@@ -283,3 +284,74 @@ still treat a stopped node as offline. The report comes from the resource-profil
 host helper, which runs on Homebrew and on APT whenever a node uses the
 `compact` resource profile (the default for setup selections and dashboard
 installs).
+
+A node that fails to start is stopped instead of retried forever. With launch
+at boot on, Docker restarts a crashing container indefinitely. When a node's
+container keeps exiting with an error within a minute of each start for 10
+minutes, with at least 5 restarts since the host helper first saw it failing,
+the helper stops it. With launch at boot off, Docker gives up by itself after 5
+restarts. Either way the helper logs one Host event, "<Node> is not coming up
+… Last error: <reason>", which Telegram receives when it is set up, and the
+panel shows Stopped with the same reason: the container's last log line before
+it exited, or "It ran out of memory while starting." **Start node** tries
+again. A run of a minute or longer clears the
+record, so a node that crashes after running a while keeps Docker's normal
+restarts, and a boot-time problem that clears within 10 minutes is retried as
+before.
+
+When installing a node from Settings fails after its configuration was written
+(an image that cannot be pulled, a configuration that does not apply), the prior
+configuration is restored, Settings shows the last error line from the failing
+step, and a Host event "<Node> install failed: <error>" is logged and sent to
+Telegram.
+
+Error lines shown or sent this way never carry credentials: a line that
+mentions a password, secret, token, login, auth, cookie, key, seed or onion
+address, or that holds any 40-character run of letters and digits, is replaced
+by a generic message ("It exited with an error." for a node that fails to
+start; no detail for an install). An alert that cannot be written because the
+dashboard is down is retried each minute until it is.
+
+Zcash's Zakura images for x86-64 need a processor with the BMI2 and ADX
+instructions (Intel Core 5th generation or newer, or AMD Ryzen); without them
+`zakurad` exits at startup. On such a host Settings disables Zcash's Install
+button with that reason, and the host helper rejects the install. ARM hosts are
+not affected.
+
+## Deleting a node
+
+**Settings → Node set → Delete…**, next to **Move data…**, removes a node so it
+can be installed again from scratch. The button is enabled only for an installed
+node that is already deactivated and is not the last installed node; otherwise
+its tooltip says what is missing. The confirmation dialog warns that the step
+cannot be undone and lists exactly what goes: the node's data folder shown in
+Settings, its balance-index or wallet Docker volumes (Bitcoin `utxo_index`,
+Litecoin `utxo_index_litecoin`, Bitcoin Cash `utxo_index_bitcoincash`, Monero
+`monero_wallets`, Tari `tari_wallet` and `tari_wallet_data`), its `config.json` section with the credentials in it, and
+the watch-only wallets you added for that coin with their saved balances and
+history. Delete stays disabled until you type the node's name (`zcash`,
+`bitcoincash`, and so on). Like Install and Move data, **Delete on Save** only
+marks the row; Settings → **Save** sends it, and clicking the marked row undoes
+it. Other nodes, their data and their wallets are never touched.
+
+The host re-checks everything under its configuration lock and refuses an active
+or uninstalled node, the last installed node, a request without the typed name,
+and any data folder that is a symbolic link, resolves outside its own path, is
+`/`, your home folder, an ancestor of or equal to the app, state, config or
+Docker directories, overlaps another node's folder, or is not writable by the
+host helper (on APT, a folder outside the managed directories needs the same
+administrator grant as install and move). It then removes the
+node's section (Bitcoin is written as `{"enabled": false}` and its configured
+wallets are dropped) and applies the new configuration first. If that apply
+fails, the previous configuration is restored and nothing is deleted. Only after
+a successful apply does it remove the node's containers, volumes and data folder
+contents, clear its resource-profile and seed state, and log a `Host: <Node>
+deleted` event. The dashboard then removes that coin's watch-only wallets,
+balance history and scan caches; it keeps retrying until they are gone, so a
+dashboard restart in between loses nothing. The host helper hands the wallet
+removal to the dashboard before it removes any data and keeps a pending marker
+until that handoff succeeds, so a failed handoff is retried on the helper's next
+run rather than leaving the wallets behind. If some data cannot be removed
+(for example a volume still in use), the status reads "Node deleted, but some of
+its data could not be removed" and the leftovers must be cleaned by hand before
+reinstalling, because the install dialog only accepts an empty data folder.

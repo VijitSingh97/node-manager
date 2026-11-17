@@ -1551,12 +1551,14 @@ func TestForwardHostEventsTelegramsNewHostLinesOnce(t *testing.T) {
 	append2("2026-11-10T20:00:00Z Bitcoin: 🔴 node down — RPC unreachable for 3 minutes\n")
 	append2("2026-11-10T20:01:00Z Host: thermal throttle at 91C — capped monero at 2.00 CPUs\n")
 	append2("2026-11-10T20:02:00Z Host: thermal throttle released at 75C — restored monero\n")
+	append2("2026-11-10T20:02:30Z Host: Zcash is not coming up: it kept failing to start for 11 minutes, so it was stopped. Last error: lacks adx\n")
 	m.forwardHostEvents(t.Context())
 	m.forwardHostEvents(t.Context())
 
 	want := []string{
 		"[alice] 🌡 thermal throttle at 91C — capped monero at 2.00 CPUs",
 		"[alice] 🌡 thermal throttle released at 75C — restored monero",
+		"[alice] 🔴 Zcash is not coming up: it kept failing to start for 11 minutes, so it was stopped. Last error: lacks adx",
 	}
 	if strings.Join(messages, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("messages:\n%s\nwant:\n%s", strings.Join(messages, "\n"), strings.Join(want, "\n"))
@@ -1569,12 +1571,12 @@ func TestForwardHostEventsTelegramsNewHostLinesOnce(t *testing.T) {
 
 	append2("2026-11-10T20:03:00Z Host: thermal throttle at 92C — capped bitcoin at 0.25 CPUs")
 	m.forwardHostEvents(t.Context())
-	if len(messages) != 2 {
+	if len(messages) != 3 {
 		t.Fatalf("partial line without newline was forwarded: %v", messages)
 	}
 	append2("\n")
 	m.forwardHostEvents(t.Context())
-	if len(messages) != 3 || !strings.Contains(messages[2], "capped bitcoin at 0.25 CPUs") {
+	if len(messages) != 4 || !strings.Contains(messages[3], "capped bitcoin at 0.25 CPUs") {
 		t.Fatalf("completed line was not forwarded: %v", messages)
 	}
 }

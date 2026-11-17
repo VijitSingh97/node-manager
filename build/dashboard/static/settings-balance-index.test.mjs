@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { balanceIndexPayload, confirmedHostChanges, balanceIndexControl, seedCommand, UTXO_INDEX_OFF_PROMPT, UTXO_INDEX_LITECOIN_OFF_PROMPT, UTXO_INDEX_BITCOINCASH_OFF_PROMPT, hostControlModel, hostActionPayload, hostToggleChanges } from "./settings.js";
+import { balanceIndexPayload, confirmedHostChanges, balanceIndexControl, UTXO_INDEX_OFF_PROMPT, UTXO_INDEX_LITECOIN_OFF_PROMPT, UTXO_INDEX_BITCOINCASH_OFF_PROMPT, hostControlModel, hostActionPayload, hostToggleChanges } from "./settings.js";
 
 test("the balance index switch reads its state, builds a boolean payload and routes its status", () => {
   assert.equal(hostControlModel({}).utxo_index, false);
@@ -10,10 +10,6 @@ test("the balance index switch reads its state, builds a boolean payload and rou
   assert.equal(hostControlModel({ status: { action: "utxo_index", state: "applied", message: "ok" } }).status.action, "utxo_index");
   assert.deepEqual(hostActionPayload("utxo_index", true), { action: "utxo_index", enabled: true });
   assert.equal(hostActionPayload("utxo_index", "yes"), undefined);
-  assert.equal(seedCommand("boot"), "sudo node-manager utxo-seed");
-  assert.equal(seedCommand("login"), "node-manager utxo-seed");
-  assert.equal(seedCommand("unsupported"), "./stack utxo-seed");
-  assert.equal(seedCommand(undefined), "./stack utxo-seed");
 });
 
 test("turning the balance index on needs no confirmation and turning it off asks first", () => {
@@ -26,10 +22,13 @@ test("turning the balance index on needs no confirmation and turning it off asks
   assert.match(UTXO_INDEX_OFF_PROMPT, /utxo-index remove/);
 });
 
-test("the balance index note states the free-space and RPC pause requirements", async () => {
-  const source = await readFile(new URL("./settings.js", import.meta.url), "utf8");
-  assert.match(source, /needs 27 GB free/);
-  assert.match(source, /Bitcoin RPC pauses for about 5 minutes/);
+test("the settings page carries none of the removed explanatory notes", async () => {
+  const sources = await Promise.all(["./settings.js", "../index.html"].map((file) => readFile(new URL(file, import.meta.url), "utf8")));
+  for (const source of sources) {
+    for (const removed of ["For uptime monitors and scripts", "For pruned nodes", "needs 27 GB free", "All traffic stays on Tor", "utxo-seed-cli", "utxo-seed-command"]) {
+      assert.equal(source.includes(removed), false, removed);
+    }
+  }
 });
 
 test("saving the balance index off drops only that change on a cancelled confirm, and the switch hides or disables with the host state", () => {

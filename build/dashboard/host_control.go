@@ -11,8 +11,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
+	"unicode"
 )
 
 type hostControlCapability struct {
@@ -21,6 +23,7 @@ type hostControlCapability struct {
 	BootKind          string            `json:"boot_kind"`
 	InstallSupported  bool              `json:"install_supported"`
 	MigrateSupported  bool              `json:"migrate_supported,omitempty"`
+	DeleteSupported   bool              `json:"delete_supported,omitempty"`
 	UTXOSeedSupported bool              `json:"utxo_seed_supported,omitempty"`
 	BootSupported     bool              `json:"boot_supported"`
 	BootEnabled       bool              `json:"boot_enabled"`
@@ -33,6 +36,16 @@ type hostControlCapability struct {
 	ConfigRevision    string            `json:"config_revision"`
 	ConfigPath        string            `json:"config_path,omitempty"`
 	DataPaths         map[string]string `json:"data_paths,omitempty"`
+	UnsupportedNodes  []string          `json:"unsupported_nodes,omitempty"`
+}
+
+const zcashCPUMessage = "Zcash needs a processor with the BMI2 and ADX instructions (Intel Core 5th generation or newer, or AMD Ryzen), and this one lacks them."
+
+func (c hostControlCapability) unsupportedReason(node string) string {
+	if node == nodeZcash && slices.Contains(c.UnsupportedNodes, node) {
+		return zcashCPUMessage
+	}
+	return ""
 }
 
 type hostInstallInterface struct {
@@ -47,9 +60,12 @@ type hostControlNode struct {
 	Name         string                 `json:"name"`
 	Installed    bool                   `json:"installed"`
 	DataDir      string                 `json:"data_dir,omitempty"`
+	Active       bool                   `json:"active"`
+	LastEnabled  bool                   `json:"last_enabled"`
 	DiskEstimate string                 `json:"disk_estimate"`
 	DiskNote     string                 `json:"disk_note"`
 	Interfaces   []hostInstallInterface `json:"interfaces"`
+	Unsupported  string                 `json:"unsupported,omitempty"`
 }
 
 type hostControlInput struct {
@@ -59,6 +75,7 @@ type hostControlInput struct {
 	Revision   string                 `json:"config_revision,omitempty"`
 	DataDir    string                 `json:"data_dir,omitempty"`
 	Interfaces []hostInstallInterface `json:"interfaces,omitempty"`
+	Confirm    string                 `json:"confirmation,omitempty"`
 }
 
 type hostControlRequest struct {
@@ -69,6 +86,7 @@ type hostControlRequest struct {
 	Revision    string                 `json:"config_revision,omitempty"`
 	DataDir     string                 `json:"data_dir,omitempty"`
 	Interfaces  []hostInstallInterface `json:"interfaces,omitempty"`
+	Confirm     string                 `json:"confirmation,omitempty"`
 	RequestedAt int64                  `json:"requested_at"`
 }
 
@@ -81,12 +99,30 @@ type hostControlStatus struct {
 	Message   string `json:"message,omitempty"`
 	ErrorCode string `json:"error_code,omitempty"`
 	Port      string `json:"port,omitempty"`
+	Detail    string `json:"detail,omitempty"`
+}
+
+func hostStatusDetail(status hostControlStatus) string {
+	if status.State != "failed" {
+		return ""
+	}
+	detail := strings.TrimSpace(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, status.Detail))
+	if runes := []rune(detail); len(runes) > 240 {
+		detail = string(runes[:240])
+	}
+	return detail
 }
 
 type hostControlView struct {
 	Available        bool               `json:"available"`
 	InstallSupported bool               `json:"install_supported"`
 	MigrateSupported bool               `json:"migrate_supported"`
+	DeleteSupported  bool               `json:"delete_supported"`
 	BootSupported    bool               `json:"boot_supported"`
 	BootEnabled      bool               `json:"boot_enabled"`
 	BootKind         string             `json:"boot_kind"`
@@ -217,11 +253,14 @@ func hostControlPendingMessage(action string) string {
 	if action == "migrate" {
 		return "Migrating node data… this can take a while."
 	}
+	if action == "delete" {
+		return "Deleting node data… this can take a while."
+	}
 	return "Applying host change…"
 }
 
 func validHostAction(action string) bool {
-	return action == "install" || action == "migrate" || action == "launch_at_boot" || action == "apply_config" || action == "utxo_index" || action == "utxo_seed" || networkHostAction(action)
+	return action == "install" || action == "migrate" || action == "delete" || action == "launch_at_boot" || action == "apply_config" || action == "utxo_index" || action == "utxo_seed" || networkHostAction(action)
 }
 
 func networkHostAction(action string) bool {
@@ -232,8 +271,12 @@ func toggleHostAction(action string) bool {
 	return action == "launch_at_boot" || action == "utxo_index" || networkHostAction(action)
 }
 
-func validHostControlShape(action, node string, enabled *bool, dataDir string, interfaces []hostInstallInterface) bool {
-	return action == "install" && normalizeNodeID(node) != "" && enabled == nil && (dataDir == "" && interfaces == nil || validInstallOptions(node, dataDir, interfaces)) ||
+func validHostControlShape(action, node string, enabled *bool, dataDir string, interfaces []hostInstallInterface, confirmation string) bool {
+	if action != "delete" && confirmation != "" {
+		return false
+	}
+	return action == "delete" && normalizeNodeID(node) != "" && confirmation == node && enabled == nil && dataDir == "" && interfaces == nil ||
+		action == "install" && normalizeNodeID(node) != "" && enabled == nil && (dataDir == "" && interfaces == nil || validInstallOptions(node, dataDir, interfaces)) ||
 		action == "migrate" && normalizeNodeID(node) != "" && enabled == nil && safeHostPath(dataDir) && interfaces == nil ||
 		toggleHostAction(action) && node == "" && enabled != nil && dataDir == "" && interfaces == nil ||
 		action == "utxo_index" && node == nodeLitecoin && enabled != nil && dataDir == "" && interfaces == nil ||
@@ -279,6 +322,11 @@ func canonicalHostStatusMessage(status hostControlStatus) string {
 				return "Node data migrated."
 			}
 			return nodeDisplayName(status.Node) + " data migrated."
+		case "delete":
+			if normalizeNodeID(status.Node) == "" {
+				return "Node deleted."
+			}
+			return nodeDisplayName(status.Node) + " deleted. It can be installed again."
 		case "apply_config":
 			return "New configuration applied."
 		}
@@ -296,13 +344,20 @@ func canonicalHostStatusMessage(status hostControlStatus) string {
 		"unchanged":          "The host already has that setting.",
 		"seed_running":       "A balance index seed is running. Cancel it with utxo-seed cancel, then try again.",
 		"not_installed":      "That node is not installed.",
+		"node_active":        "Deactivate the node before deleting it.",
+		"last_node":          "At least one node must stay installed.",
+		"delete_incomplete":  "The node was removed from the configuration, but some of its data could not be deleted. Remove what is left by hand before installing it again.",
 		"data_path_invalid":  "The data folder must be a new or empty writable folder outside the app and config roots, without symbolic links.",
 		"insufficient_space": "The destination disk does not have enough free space.",
+		"unsupported_cpu":    zcashCPUMessage,
 		"move_failed":        "The data move failed; the node was restarted in place.",
 		"verify_failed":      "The copied data failed verification; the node was restarted in place.",
 	}
 	if status.ErrorCode == "port_in_use" && portControlLabel(status.Port) != "" {
 		return "Selected port for " + portControlLabel(status.Port) + " is already in use."
+	}
+	if status.Action == "delete" && status.ErrorCode == "data_path_invalid" {
+		return "The data folder is not a safe place to delete, so nothing was changed."
 	}
 	if message := messages[status.ErrorCode]; message != "" {
 		return message
@@ -323,6 +378,16 @@ func (a *app) hostControlProcessingMessage(request hostControlRequest) string {
 	return message
 }
 
+func (a *app) installedNodeCount() int {
+	count := 0
+	for _, id := range nodeOrder {
+		if configured, _ := a.nodeConfigured(id); configured {
+			count++
+		}
+	}
+	return count
+}
+
 func (a *app) hostControlStatus() (*hostControlStatus, bool) {
 	for _, name := range []string{"request", "processing"} {
 		b, err := readSmallFile(a.nodeControlPath(name), 4096)
@@ -330,7 +395,7 @@ func (a *app) hostControlStatus() (*hostControlStatus, bool) {
 			var request hostControlRequest
 			decoder := json.NewDecoder(bytes.NewReader(b))
 			decoder.DisallowUnknownFields()
-			if decoder.Decode(&request) == nil && ensureJSONEnd(decoder) == nil && validPortControlID(request.ID) && validHostControlShape(request.Action, request.Node, request.Enabled, request.DataDir, request.Interfaces) {
+			if decoder.Decode(&request) == nil && ensureJSONEnd(decoder) == nil && validPortControlID(request.ID) && validHostControlShape(request.Action, request.Node, request.Enabled, request.DataDir, request.Interfaces, request.Confirm) {
 				return &hostControlStatus{ID: request.ID, Action: request.Action, Node: normalizeNodeID(request.Node), Enabled: request.Enabled, State: "pending", Message: a.hostControlProcessingMessage(request)}, true
 			}
 			return nil, true
@@ -350,6 +415,7 @@ func (a *app) hostControlStatus() (*hostControlStatus, bool) {
 		return nil, false
 	}
 	status.Message = canonicalHostStatusMessage(status)
+	status.Detail = hostStatusDetail(status)
 	status.ErrorCode = ""
 	return &status, false
 }
@@ -358,13 +424,14 @@ func (a *app) hostControlView() hostControlView {
 	status, _ := a.hostControlStatus()
 	capability, available := a.hostControlCapability()
 	nodes := make([]hostControlNode, 0, len(nodeOrder))
+	runtime, installed := a.nodeRuntime(), a.installedNodeCount()
 	for _, id := range nodeOrder {
 		configured, _ := a.nodeConfigured(id)
 		catalog := hostInstallCatalog[id]
 		interfaces := append([]hostInstallInterface(nil), catalog.Interfaces...)
-		nodes = append(nodes, hostControlNode{ID: id, Name: nodeDisplayName(id), Installed: configured, DataDir: capability.DataPaths[id], DiskEstimate: catalog.DiskEstimate, DiskNote: catalog.DiskNote, Interfaces: interfaces})
+		nodes = append(nodes, hostControlNode{ID: id, Name: nodeDisplayName(id), Installed: configured, DataDir: capability.DataPaths[id], Active: configured && runtime[id], LastEnabled: configured && installed <= 1, DiskEstimate: catalog.DiskEstimate, DiskNote: catalog.DiskNote, Interfaces: interfaces, Unsupported: capability.unsupportedReason(id)})
 	}
-	return hostControlView{Available: available, InstallSupported: available && capability.InstallSupported, MigrateSupported: available && capability.MigrateSupported, BootSupported: available && capability.BootSupported, BootEnabled: capability.BootEnabled, BootKind: capability.BootKind, ClearnetOverTor: capability.ClearnetOverTor, InboundTor: capability.InboundTor, UtxoIndex: capability.UtxoIndex, UtxoSeedNow: a.seedNow(nodeBitcoin), UtxoIndexLTC: capability.UtxoIndexLTC, UtxoSeedNowLTC: a.seedNow(nodeLitecoin), UtxoIndexBCH: capability.UtxoIndexBCH, UtxoSeedNowBCH: a.seedNow(nodeBitcoinCash), ConfigPending: capability.ConfigPending, ConfigRevision: capability.ConfigRevision, ConfigPath: capability.ConfigPath, Nodes: nodes, Status: status}
+	return hostControlView{Available: available, InstallSupported: available && capability.InstallSupported, MigrateSupported: available && capability.MigrateSupported, DeleteSupported: available && capability.DeleteSupported, BootSupported: available && capability.BootSupported, BootEnabled: capability.BootEnabled, BootKind: capability.BootKind, ClearnetOverTor: capability.ClearnetOverTor, InboundTor: capability.InboundTor, UtxoIndex: capability.UtxoIndex, UtxoSeedNow: a.seedNow(nodeBitcoin), UtxoIndexLTC: capability.UtxoIndexLTC, UtxoSeedNowLTC: a.seedNow(nodeLitecoin), UtxoIndexBCH: capability.UtxoIndexBCH, UtxoSeedNowBCH: a.seedNow(nodeBitcoinCash), ConfigPending: capability.ConfigPending, ConfigRevision: capability.ConfigRevision, ConfigPath: capability.ConfigPath, Nodes: nodes, Status: status}
 }
 
 func (a *app) apiHostControlGet(w http.ResponseWriter, r *http.Request) {
@@ -384,9 +451,13 @@ func decodeHostControlInput(w http.ResponseWriter, r *http.Request) (hostControl
 		return input, errors.New("invalid host control request")
 	}
 	validRevision := len(input.Revision) == 64 && len(bytes.Trim([]byte(input.Revision), "0123456789abcdef")) == 0
+	if input.Action != "delete" && input.Confirm != "" {
+		return input, errors.New("invalid host control request")
+	}
 	legacyInstall := input.Action == "install" && input.DataDir == "" && input.Interfaces == nil
 	configuredInstall := input.Action == "install" && validInstallOptions(normalizeNodeID(input.Node), input.DataDir, input.Interfaces)
-	valid := (legacyInstall || configuredInstall) && normalizeNodeID(input.Node) != "" && input.Enabled == nil && input.Revision == "" ||
+	deleteNode := input.Action == "delete" && normalizeNodeID(input.Node) != "" && input.Confirm == input.Node && input.Enabled == nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil
+	valid := deleteNode || (legacyInstall || configuredInstall) && normalizeNodeID(input.Node) != "" && input.Enabled == nil && input.Revision == "" ||
 		input.Action == "migrate" && normalizeNodeID(input.Node) != "" && input.Enabled == nil && input.Revision == "" && safeHostPath(input.DataDir) && input.Interfaces == nil || toggleHostAction(input.Action) && input.Node == "" && input.Enabled != nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil ||
 		input.Action == "utxo_index" && utxoChains[input.Node] != nil && input.Enabled != nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil || input.Action == "apply_config" && input.Node == "" && input.Enabled == nil && validRevision && input.DataDir == "" && input.Interfaces == nil ||
 		input.Action == "utxo_seed" && (input.Node == nodeBitcoin || utxoChains[input.Node] != nil) && input.Enabled == nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil
@@ -469,7 +540,7 @@ func (a *app) apiHostControlPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	capability, available := a.hostControlCapability()
-	if !available || input.Action == "install" && !capability.InstallSupported || input.Action == "migrate" && !capability.MigrateSupported || input.Action == "launch_at_boot" && !capability.BootSupported || input.Action == "apply_config" && (!capability.ConfigPending || input.Revision != capability.ConfigRevision) {
+	if !available || input.Action == "install" && !capability.InstallSupported || input.Action == "migrate" && !capability.MigrateSupported || input.Action == "delete" && !capability.DeleteSupported || input.Action == "launch_at_boot" && !capability.BootSupported || input.Action == "apply_config" && (!capability.ConfigPending || input.Revision != capability.ConfigRevision) {
 		http.Error(w, "host control is unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -478,6 +549,10 @@ func (a *app) apiHostControlPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if input.Action == "install" {
+		if reason := capability.unsupportedReason(input.Node); reason != "" {
+			http.Error(w, reason, http.StatusConflict)
+			return
+		}
 		configured, _ := a.nodeConfigured(input.Node)
 		if configured {
 			http.Error(w, "node is already installed", http.StatusConflict)
@@ -488,6 +563,20 @@ func (a *app) apiHostControlPost(w http.ResponseWriter, r *http.Request) {
 		configured, _ := a.nodeConfigured(input.Node)
 		if !configured {
 			http.Error(w, "node is not installed", http.StatusConflict)
+			return
+		}
+	}
+	if input.Action == "delete" {
+		configured, _ := a.nodeConfigured(input.Node)
+		switch {
+		case !configured:
+			http.Error(w, "node is not installed", http.StatusConflict)
+			return
+		case a.nodeRuntime()[input.Node]:
+			http.Error(w, "deactivate the node before deleting it", http.StatusConflict)
+			return
+		case a.installedNodeCount() <= 1:
+			http.Error(w, "at least one node must stay installed", http.StatusConflict)
 			return
 		}
 	}
@@ -516,9 +605,17 @@ func (a *app) apiHostControlPost(w http.ResponseWriter, r *http.Request) {
 	if input.Action == "install" && input.DataDir != "" && input.Interfaces == nil {
 		input.Interfaces = []hostInstallInterface{}
 	}
-	request := hostControlRequest{ID: hex.EncodeToString(id), Action: input.Action, Node: input.Node, Enabled: input.Enabled, Revision: input.Revision, DataDir: input.DataDir, Interfaces: input.Interfaces, RequestedAt: time.Now().Unix()}
+	request := hostControlRequest{ID: hex.EncodeToString(id), Action: input.Action, Node: input.Node, Enabled: input.Enabled, Revision: input.Revision, DataDir: input.DataDir, Interfaces: input.Interfaces, Confirm: input.Confirm, RequestedAt: time.Now().Unix()}
 	var b []byte
-	if request.Action == "migrate" {
+	if request.Action == "delete" {
+		b, _ = json.Marshal(struct {
+			ID          string `json:"id"`
+			Action      string `json:"action"`
+			Node        string `json:"node"`
+			Confirm     string `json:"confirmation"`
+			RequestedAt int64  `json:"requested_at"`
+		}{request.ID, request.Action, request.Node, request.Confirm, request.RequestedAt})
+	} else if request.Action == "migrate" {
 		b, _ = json.Marshal(struct {
 			ID          string `json:"id"`
 			Action      string `json:"action"`

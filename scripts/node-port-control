@@ -64,7 +64,7 @@ case ",$config_files," in
 esac
 
 dashboard_exec() {
-  "$docker_bin" exec -u 1000 "$dashboard_id" "$@"
+  "$docker_bin" exec -u 1000 "$(container_id dashboard)" "$@"
 }
 
 write_status() {
@@ -73,7 +73,7 @@ write_status() {
       {id:$id,state:$state,message:$message,affected_services:["tor","dashboard"]} |
       if $error_code == "" then . else . + {error_code:$error_code} end |
       if $port == "" then . else . + {port:$port} end')
-  printf '%s\n' "$status" | "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c \
+  printf '%s\n' "$status" | "$docker_bin" exec -i -u 1000 "$(container_id dashboard)" sh -c \
     'umask 077; cat >/state/.port-control.status.tmp; mv /state/.port-control.status.tmp /state/port-control.status' >/dev/null
 }
 
@@ -126,7 +126,7 @@ write_port_candidate() {
 write_credential_status() {
   status=$(jq -nc --arg id "$1" --arg node "$2" --arg state "$3" --arg message "$4" --argjson affected_services "${5:-[]}" \
     '{id:$id,node:$node,state:$state,message:$message,affected_services:$affected_services}')
-  printf '%s\n' "$status" | "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c \
+  printf '%s\n' "$status" | "$docker_bin" exec -i -u 1000 "$(container_id dashboard)" sh -c \
     'umask 077; cat >/state/.credential-control.status.tmp; mv /state/.credential-control.status.tmp /state/credential-control.status' >/dev/null
 }
 
@@ -139,7 +139,7 @@ remove_credential_capability() {
 }
 
 write_credential_capability() {
-  jq -nc --argjson timestamp "$now" '{timestamp:$timestamp}' | "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c \
+  jq -nc --argjson timestamp "$now" '{timestamp:$timestamp}' | "$docker_bin" exec -i -u 1000 "$(container_id dashboard)" sh -c \
     'umask 077; cat >/state/.credential-control.capability.tmp; mv /state/.credential-control.capability.tmp /state/credential-control.capability' >/dev/null
 }
 
@@ -241,15 +241,18 @@ host_tcp_listeners() {
         {
           endpoint=$4
           if (endpoint ~ /^\[/) {
-            sub(/^\[/, "", endpoint)
-            count=split(endpoint, parts, /\]:/)
-            if (count == 2 && parts[2] ~ /^[0-9]+$/) print parts[1] "\t" parts[2]
+            close_at=index(endpoint, "]")
+            address=substr(endpoint, 2, close_at - 2)
+            port=substr(endpoint, close_at + 1)
+            sub(/^%[^:]*/, "", port)
+            if (close_at > 2 && port ~ /^:[0-9]+$/) print address "\t" substr(port, 2)
             else bad=1
           } else {
             port=endpoint
             sub(/^.*:/, "", port)
             address=endpoint
             sub(/:[^:]*$/, "", address)
+            sub(/%.*$/, "", address)
             if (port ~ /^[0-9]+$/ && address != "") print address "\t" port
             else bad=1
           }

@@ -249,7 +249,7 @@ func TestSettingsViewDefaultsFollowServerConfigWhileOverridden(t *testing.T) {
 	if err := m.updateSettings(settingsUpdate{
 		TelegramEnabled: boolPointer(true), TelegramBotToken: stringPointer("456:dashboard-token"), TelegramChatID: stringPointer("dashboard-chat"),
 		HealthchecksEnabled: boolPointer(false), AlertNewBlock: boolPointer(false),
-		TowerLabels: boolPointer(true), ComputerStats: boolPointer(true), ThermalThrottle: boolPointer(true), HealthEndpoints: boolPointer(true),
+		TowerLabels: boolPointer(true), ComputerStats: boolPointer(true), ThermalThrottle: boolPointer(true), ActuatorHealth: boolPointer(true), ActuatorInfo: boolPointer(true),
 		DefaultCurrency: stringPointer("EUR"), AlertNodeDown: boolPointer(false), NodeDownAfterMinutes: intPointer(9), LowDiskGiB: intPointer(7),
 	}); err != nil {
 		t.Fatal(err)
@@ -264,7 +264,7 @@ func TestSettingsViewDefaultsFollowServerConfigWhileOverridden(t *testing.T) {
 		"healthchecks_enabled": true, "healthchecks_url": "https://hc-ping.com/server-id",
 		"alert_monitor_online": true, "alert_node_down": true, "alert_node_recovered": true, "alert_sync_complete": true, "alert_low_disk": true, "alert_updates": true,
 		"node_down_after_minutes": defaultNodeDownAfterMinutes, "low_disk_gib": defaultLowDiskGiB,
-		"tower_labels": false, "computer_stats": false, "thermal_throttle": false, "default_currency": "USD", "health_endpoints": false,
+		"tower_labels": false, "computer_stats": false, "thermal_throttle": false, "default_currency": "USD", "actuator_health": false, "actuator_info": false,
 	}
 	if !ok || len(defaults) != len(want) {
 		t.Fatalf("defaults = %#v", view["defaults"])

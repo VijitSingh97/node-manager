@@ -16,7 +16,7 @@ func writeHostCapability(t *testing.T, a *app, pending bool) string {
 	if pending {
 		revision = strings.Repeat("a", 64)
 	}
-	b, _ := json.Marshal(hostControlCapability{Timestamp: time.Now().Unix(), Platform: "linux", BootKind: "boot", InstallSupported: true, MigrateSupported: true, BootSupported: true, BootEnabled: false, ConfigPending: pending, ConfigRevision: revision, ConfigPath: "/etc/node-manager/config.json", DataPaths: map[string]string{"bitcoin": "/var/lib/node-manager/data/bitcoin", "monero": "/var/lib/node-manager/data/monero"}})
+	b, _ := json.Marshal(hostControlCapability{Timestamp: time.Now().Unix(), Platform: "linux", BootKind: "boot", InstallSupported: true, MigrateSupported: true, DeleteSupported: true, BootSupported: true, BootEnabled: false, ConfigPending: pending, ConfigRevision: revision, ConfigPath: "/etc/node-manager/config.json", DataPaths: map[string]string{"bitcoin": "/var/lib/node-manager/data/bitcoin", "monero": "/var/lib/node-manager/data/monero"}})
 	if err := os.WriteFile(a.nodeControlPath("capability"), b, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -314,5 +314,184 @@ func TestHostControlShowsMigrateProgressWhileProcessing(t *testing.T) {
 	status, _ = a.hostControlStatus()
 	if status == nil || !strings.Contains(status.Message, "can take a while") {
 		t.Fatalf("stale progress was trusted: %#v", status)
+	}
+}
+
+func deleteTestApp(t *testing.T) *app {
+	t.Helper()
+	a, _ := testApp(t, &rpcFixture{}, "")
+	writeHostCapability(t, a, false)
+	a.cfg.nodes = map[string]nodeConfig{
+		nodeLitecoin: {ID: nodeLitecoin, Enabled: true, Active: false, ActiveSet: true, Supported: true},
+		nodeZcash:    {ID: nodeZcash, Enabled: false, Supported: true},
+		nodeTari:     {ID: nodeTari, Enabled: true, Active: true, ActiveSet: true, Supported: true},
+	}
+	return a
+}
+
+func TestHostControlQueuesConfirmedDeleteOfADeactivatedNode(t *testing.T) {
+	a := deleteTestApp(t)
+	response := hostControlHTTP(a, http.MethodPost, `{"action":"delete","node":"litecoin","confirmation":"litecoin"}`, true, "192.168.1.20:4321")
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("delete = %d %s", response.Code, response.Body.String())
+	}
+	b, err := os.ReadFile(a.nodeControlPath("request"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if json.Unmarshal(b, &raw) != nil || len(raw) != 5 || raw["action"] != "delete" || raw["node"] != "litecoin" || raw["confirmation"] != "litecoin" || raw["requested_at"] == nil || !validPortControlID(raw["id"].(string)) {
+		t.Fatalf("request = %s", b)
+	}
+	var view hostControlView
+	if json.Unmarshal(hostControlHTTP(a, http.MethodGet, "", false, "192.168.1.20:4321").Body.Bytes(), &view) != nil || view.Status == nil || view.Status.State != "pending" || view.Status.Action != "delete" || view.Status.Node != "litecoin" {
+		t.Fatalf("pending status = %#v", view.Status)
+	}
+}
+
+func TestHostControlRefusesUnsafeOrUnconfirmedDelete(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want int
+		prep func(*app)
+	}{
+		{"missing confirmation", `{"action":"delete","node":"litecoin"}`, http.StatusBadRequest, nil},
+		{"wrong confirmation", `{"action":"delete","node":"litecoin","confirmation":"Litecoin"}`, http.StatusBadRequest, nil},
+		{"another node's confirmation", `{"action":"delete","node":"litecoin","confirmation":"tari"}`, http.StatusBadRequest, nil},
+		{"unknown node", `{"action":"delete","node":"nope","confirmation":"nope"}`, http.StatusBadRequest, nil},
+		{"data folder smuggled in", `{"action":"delete","node":"litecoin","confirmation":"litecoin","data_dir":"/srv/x"}`, http.StatusBadRequest, nil},
+		{"confirmation on another action", `{"action":"migrate","node":"bitcoin","data_dir":"/mnt/big/bitcoin","confirmation":"bitcoin"}`, http.StatusBadRequest, nil},
+		{"active node", `{"action":"delete","node":"tari","confirmation":"tari"}`, http.StatusConflict, nil},
+		{"not installed", `{"action":"delete","node":"zcash","confirmation":"zcash"}`, http.StatusConflict, nil},
+		{"last installed node", `{"action":"delete","node":"bitcoin","confirmation":"bitcoin"}`, http.StatusConflict, func(a *app) {
+			a.cfg.nodes = map[string]nodeConfig{}
+			a.cfg.bitcoinActiveSet, a.cfg.bitcoinActive = true, false
+		}},
+		{"unsupported host helper", `{"action":"delete","node":"litecoin","confirmation":"litecoin"}`, http.StatusServiceUnavailable, func(a *app) {
+			b, _ := json.Marshal(hostControlCapability{Timestamp: time.Now().Unix(), Platform: "linux", BootKind: "boot", InstallSupported: true})
+			if err := os.WriteFile(a.nodeControlPath("capability"), b, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"pending configuration", `{"action":"delete","node":"litecoin","confirmation":"litecoin"}`, http.StatusConflict, func(a *app) { writeHostCapability(t, a, true) }},
+		{"another change pending", `{"action":"delete","node":"litecoin","confirmation":"litecoin"}`, http.StatusConflict, func(a *app) {
+			if err := os.WriteFile(a.nodeControlPath("request"), []byte("{}"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	}
+	for _, c := range cases {
+		a := deleteTestApp(t)
+		if c.prep != nil {
+			c.prep(a)
+		}
+		before, _ := os.ReadFile(a.nodeControlPath("request"))
+		if got := hostControlHTTP(a, http.MethodPost, c.body, true, "192.168.1.20:4321"); got.Code != c.want {
+			t.Fatalf("%s: status = %d %s, want %d", c.name, got.Code, got.Body.String(), c.want)
+		}
+		if after, _ := os.ReadFile(a.nodeControlPath("request")); string(after) != string(before) {
+			t.Fatalf("%s: request file changed to %q", c.name, after)
+		}
+	}
+	a := deleteTestApp(t)
+	if got := hostControlHTTP(a, http.MethodPost, `{"action":"delete","node":"litecoin","confirmation":"litecoin"}`, false, "192.168.1.20:4321"); got.Code == http.StatusAccepted {
+		t.Fatalf("delete without CSRF header = %d", got.Code)
+	}
+}
+
+func TestHostControlViewReportsWhatDeleteNeeds(t *testing.T) {
+	a := deleteTestApp(t)
+	var view hostControlView
+	if json.Unmarshal(hostControlHTTP(a, http.MethodGet, "", false, "192.168.1.20:4321").Body.Bytes(), &view) != nil || !view.DeleteSupported {
+		t.Fatalf("view = %#v", view)
+	}
+	got := map[string][3]bool{}
+	for _, node := range view.Nodes {
+		got[node.ID] = [3]bool{node.Installed, node.Active, node.LastEnabled}
+	}
+	want := map[string][3]bool{nodeBitcoin: {true, true, false}, nodeLitecoin: {true, false, false}, nodeTari: {true, true, false}, nodeZcash: {false, false, false}}
+	for id, flags := range want {
+		if got[id] != flags {
+			t.Fatalf("%s installed/active/last = %v, want %v", id, got[id], flags)
+		}
+	}
+	a.cfg.nodes = map[string]nodeConfig{}
+	if json.Unmarshal(hostControlHTTP(a, http.MethodGet, "", false, "192.168.1.20:4321").Body.Bytes(), &view) != nil || !view.Nodes[0].LastEnabled || view.Nodes[3].LastEnabled {
+		t.Fatalf("only Bitcoin left: %#v", view.Nodes)
+	}
+}
+
+func TestHostControlDeleteStatusMessages(t *testing.T) {
+	for _, c := range []struct {
+		status hostControlStatus
+		want   string
+	}{
+		{hostControlStatus{Action: "delete", State: "applied", Node: "litecoin"}, "Litecoin deleted. It can be installed again."},
+		{hostControlStatus{Action: "delete", State: "rejected", ErrorCode: "node_active"}, "Deactivate the node before deleting it."},
+		{hostControlStatus{Action: "delete", State: "rejected", ErrorCode: "last_node"}, "At least one node must stay installed."},
+		{hostControlStatus{Action: "delete", State: "rejected", ErrorCode: "data_path_invalid"}, "The data folder is not a safe place to delete, so nothing was changed."},
+		{hostControlStatus{Action: "delete", State: "failed", ErrorCode: "delete_incomplete"}, "The node was removed from the configuration, but some of its data could not be deleted. Remove what is left by hand before installing it again."},
+		{hostControlStatus{Action: "install", State: "rejected", ErrorCode: "data_path_invalid"}, "The data folder must be a new or empty writable folder outside the app and config roots, without symbolic links."},
+	} {
+		if got := canonicalHostStatusMessage(c.status); got != c.want {
+			t.Fatalf("%#v = %q, want %q", c.status, got, c.want)
+		}
+	}
+}
+
+func TestHostControlBlocksInstallOnUnsupportedCPU(t *testing.T) {
+	a, _ := testApp(t, &rpcFixture{}, "")
+	b, _ := json.Marshal(hostControlCapability{Timestamp: time.Now().Unix(), Platform: "linux", BootKind: "boot", InstallSupported: true, UnsupportedNodes: []string{"zcash"}})
+	if err := os.WriteFile(a.nodeControlPath("capability"), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var view hostControlView
+	response := hostControlHTTP(a, http.MethodGet, "", false, "192.168.1.20:4321")
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &view) != nil {
+		t.Fatalf("host view = %d %s", response.Code, response.Body.String())
+	}
+	for _, node := range view.Nodes {
+		if want := map[string]string{"zcash": zcashCPUMessage}[node.ID]; node.Unsupported != want {
+			t.Fatalf("%s unsupported = %q, want %q", node.ID, node.Unsupported, want)
+		}
+	}
+	response = hostControlHTTP(a, http.MethodPost, `{"action":"install","node":"zcash"}`, true, "192.168.1.20:4321")
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "BMI2 and ADX") {
+		t.Fatalf("zcash install = %d %s", response.Code, response.Body.String())
+	}
+	if _, err := os.Stat(a.nodeControlPath("request")); !os.IsNotExist(err) {
+		t.Fatalf("blocked install still queued a request: %v", err)
+	}
+	if response = hostControlHTTP(a, http.MethodPost, `{"action":"install","node":"monero"}`, true, "192.168.1.20:4321"); response.Code != http.StatusAccepted {
+		t.Fatalf("monero install = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestHostControlStatusShowsTheLastErrorOfAFailedInstall(t *testing.T) {
+	a, _ := testApp(t, &rpcFixture{}, "")
+	writeHostCapability(t, a, false)
+	write := func(state, detail string) hostControlView {
+		t.Helper()
+		b, _ := json.Marshal(hostControlStatus{ID: strings.Repeat("a", 32), Action: "install", Node: "dogecoin", State: state, ErrorCode: "apply_failed", Detail: detail})
+		if err := os.WriteFile(a.nodeControlPath("status"), b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var view hostControlView
+		response := hostControlHTTP(a, http.MethodGet, "", false, "192.168.1.20:4321")
+		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &view) != nil || view.Status == nil {
+			t.Fatalf("host view = %d %s", response.Code, response.Body.String())
+		}
+		return view
+	}
+	view := write("failed", "Error response from daemon:\x1b[31m manifest unknown\n"+strings.Repeat("x", 300))
+	if !strings.HasPrefix(view.Status.Detail, "Error response from daemon:[31m manifest unknown") || len([]rune(view.Status.Detail)) != 240 || strings.ContainsAny(view.Status.Detail, "\x1b\n") {
+		t.Fatalf("failed detail = %q", view.Status.Detail)
+	}
+	if view.Status.Message != "The host could not apply that change." {
+		t.Fatalf("message = %q", view.Status.Message)
+	}
+	if view = write("rejected", "should not show"); view.Status.Detail != "" {
+		t.Fatalf("rejected status kept a detail: %q", view.Status.Detail)
 	}
 }

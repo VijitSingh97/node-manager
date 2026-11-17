@@ -14,7 +14,10 @@ export const NODE_LABELS = {
 export function powerView(node) {
   if (!node?.configured) return {active:false,disabled:true,button:"Not configured",status:"This node is not configured."};
   if (!node?.supported) return { active: false, disabled: true, button: "Unavailable", status: "This node is unavailable in this build." };
-  if (node.active && node.stopped) return { active: false, stopped: true, disabled: false, button: "Start node", status: "Stopped: the node's container is not running." };
+  if (node.active && node.stopped) {
+    const status = node.failure ? `Stopped: the node failed to start. ${node.failure}` : "Stopped: the node's container is not running.";
+    return { active: false, stopped: true, disabled: false, button: "Start node", status };
+  }
   if (node.active) return { active: true, disabled: false, button: "Deactivate node", status: "Deactivate this node to free its CPU and memory. Stored blockchain data is kept." };
   return { active: false, disabled: false, button: "Activate node", status: "Node is inactive" };
 }

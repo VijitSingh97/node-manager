@@ -49,7 +49,8 @@ export function notificationPayload(values) {
     computer_stats: !!values.computer_stats,
     thermal_throttle: !!values.thermal_throttle,
     default_currency: normalizeDefaultCurrency(values.default_currency),
-    health_endpoints: !!values.health_endpoints,
+    actuator_health: !!values.actuator_health,
+    actuator_info: !!values.actuator_info,
     ...alertPreferenceModel(values),
   };
   for (const node of extraNodes) payload[`alert_new_block_${node}`] = !!values[`alert_new_block_${node}`];
@@ -58,6 +59,16 @@ export function notificationPayload(values) {
   if (payload.telegram_enabled && token) payload.telegram_bot_token = token;
   if (payload.healthchecks_enabled && url) payload.healthchecks_url = url;
   return payload;
+}
+
+export async function copyField(input, clipboard = globalThis.navigator?.clipboard) {
+  try {
+    await clipboard.writeText(input.value);
+    return true;
+  } catch {
+    input.select();
+    return false;
+  }
 }
 
 export function configurationAccess(data) {
@@ -88,7 +99,7 @@ export function hostToggleChanges(view, draft) {
 
 export function savedHostActions(view, draft, staged = {}) {
   const byAction = (action) => Object.values(staged).filter((payload) => payload?.action === action);
-  return [...byAction("apply_config"), ...hostToggleChanges(view, draft), ...byAction("install"), ...byAction("migrate")];
+  return [...byAction("apply_config"), ...hostToggleChanges(view, draft), ...byAction("install"), ...byAction("migrate"), ...byAction("delete")];
 }
 
 export function confirmedHostChanges(changes, confirmFn) {
@@ -109,12 +120,43 @@ export function balanceIndexControl(view, busy) {
   return { hidden: !view.available || !view.nodes.bitcoin.installed, checked: view.utxo_index, disabled: !view.available || view.config_pending || busy };
 }
 
-export function seedCommand(bootKind) {
-  return { boot: "sudo node-manager utxo-seed", login: "node-manager utxo-seed" }[bootKind] || "./stack utxo-seed";
+const deleteVolumes = {
+  bitcoin: "the balance index volume (utxo_index)",
+  litecoin: "the balance index volume (utxo_index_litecoin)",
+  bitcoincash: "the balance index volume (utxo_index_bitcoincash)",
+  monero: "the wallet volume (monero_wallets)",
+  tari: "the wallet volumes (tari_wallet, tari_wallet_data)",
+};
+
+export function deleteControl(view, node, staged = {}) {
+  const reason = !view?.available || !view.delete_supported ? "Deleting needs the installed host helper."
+    : view.config_pending ? "Run the new config first."
+    : view.status?.state === "pending" ? "Another host change is running."
+    : !node?.installed ? "This node is not installed."
+    : node.active ? "Deactivate the node first (node settings)."
+    : node.last_enabled || Object.values(view.nodes).filter((other) => other.installed && !staged[`delete:${other.id}`]).length <= 1 ? "At least one node must stay installed."
+    : !node.data_dir ? "The data folder is not known yet."
+    : staged[`migrate:${node.id}`] ? "Undo the staged data move first."
+    : "";
+  return { disabled: reason !== "", reason };
+}
+
+export function deleteImpact(node) {
+  const items = [
+    `the data folder ${node.data_dir}, including everything in it`,
+    ...(deleteVolumes[node.id] ? [deleteVolumes[node.id]] : []),
+    `its configuration and credentials for ${node.name}`,
+    `the watch-only wallets you added for ${node.name}, with their saved balances and history`,
+  ];
+  return items;
+}
+
+export function deleteConfirmed(node, typed) {
+  return !!node?.id && typed === node.id;
 }
 
 export function hostControlModel(data = {}) {
-  const nodes = Object.fromEntries(allNodes.map((id) => [id, { id, name: id, installed: false, data_dir: "", disk_estimate: "", disk_note: "", interfaces: [] }]));
+  const nodes = Object.fromEntries(allNodes.map((id) => [id, { id, name: id, installed: false, active: false, last_enabled: false, data_dir: "", disk_estimate: "", disk_note: "", unsupported: "", interfaces: [] }]));
   for (const node of Array.isArray(data.nodes) ? data.nodes : []) {
     if (!allNodes.includes(node?.id)) continue;
     const interfaces = (Array.isArray(node.interfaces) ? node.interfaces : []).flatMap((item) => {
@@ -126,13 +168,16 @@ export function hostControlModel(data = {}) {
       id: node.id,
       name: String(node.name || node.id),
       installed: node.installed === true,
+      active: node.active === true,
+      last_enabled: node.last_enabled === true,
       data_dir: typeof node.data_dir === "string" && node.data_dir.startsWith("/") ? node.data_dir : "",
       disk_estimate: String(node.disk_estimate || ""),
       disk_note: String(node.disk_note || ""),
+      unsupported: String(node.unsupported || ""),
       interfaces,
     };
   }
-  const action = ["install", "migrate", "launch_at_boot", "apply_config", ...balanceActions, ...networkActions].includes(data?.status?.action) ? data.status.action : "";
+  const action = ["install", "migrate", "delete", "launch_at_boot", "apply_config", ...balanceActions, ...networkActions].includes(data?.status?.action) ? data.status.action : "";
   const state = ["pending", "applied", "rejected", "failed"].includes(data?.status?.state) ? data.status.state : "";
   const bootKind = ["boot", "login", "unsupported"].includes(data.boot_kind) ? data.boot_kind : "unsupported";
   const revision = data.config_pending === true && /^[0-9a-f]{64}$/.test(String(data.config_revision || "")) ? data.config_revision : "";
@@ -140,6 +185,7 @@ export function hostControlModel(data = {}) {
     available: data.available === true,
     install_supported: data.install_supported === true,
     migrate_supported: data.migrate_supported === true,
+    delete_supported: data.delete_supported === true,
     boot_supported: data.boot_supported === true && bootKind !== "unsupported",
     boot_enabled: data.boot_enabled === true,
     boot_kind: bootKind,
@@ -155,7 +201,7 @@ export function hostControlModel(data = {}) {
     config_revision: revision,
     config_path: typeof data.config_path === "string" && data.config_path.startsWith("/") ? data.config_path : "",
     nodes,
-    status: { action, state, node: allNodes.includes(data?.status?.node) ? data.status.node : "", message: state ? String(data.status?.message || "") : "" },
+    status: { action, state, node: allNodes.includes(data?.status?.node) ? data.status.node : "", message: state ? [data.status?.message, data.status?.detail].filter(Boolean).map(String).join(" ") : "" },
   };
 }
 
@@ -205,6 +251,7 @@ export function hostActionPayload(action, value, options) {
     if (!dataDir.startsWith("/") || dataDir.length < 2 || dataDir.includes("\n") || dataDir.includes("\r")) return undefined;
     return { action, node: value, data_dir: dataDir };
   }
+  if (action === "delete" && allNodes.includes(value) && options?.confirmation === value) return { action, node: value, confirmation: value };
   if (chainIndexNode(action) && typeof value === "boolean") return { action: "utxo_index", node: chainIndexNode(action), enabled: value };
   if (toggleFields[action] && typeof value === "boolean") return { action, enabled: value };
   if (action === "apply_config" && /^[0-9a-f]{64}$/.test(String(value || ""))) return { action, config_revision: value };
@@ -408,7 +455,10 @@ if (typeof document !== "undefined") {
   const computerStats = byId("computer-stats");
   const thermalThrottle = byId("thermal-throttle");
   const defaultCurrency = byId("default-currency");
-  const healthEndpoints = byId("health-endpoints");
+  const actuatorHealth = byId("actuator-health");
+  const actuatorInfo = byId("actuator-info");
+  const actuatorUsername = byId("actuator-username");
+  const actuatorPassword = byId("actuator-password");
   const save = byId("save");
   const reset = byId("reset");
   const hostNodes = byId("host-nodes");
@@ -421,7 +471,6 @@ if (typeof document !== "undefined") {
     <legend>Network</legend>
     <label class="settings-check"><input id="settings-clearnet-over-tor" type="checkbox"> Reach clearnet peers through Tor</label>
     <label class="settings-check"><input id="settings-inbound-connections" type="checkbox"> Accept incoming connections over Tor</label>
-    <p class="settings-note">All traffic stays on Tor and your IP stays hidden. Changes restart the nodes. Monero and Zcash always reach clearnet peers through Tor; incoming connections apply to Bitcoin, Litecoin and Bitcoin Cash.</p>
     <p id="settings-network-status" class="settings-note" role="status" aria-live="polite"></p>
   </fieldset>`);
   byId("network").insertAdjacentHTML("afterend", `<fieldset id="settings-balance-index" hidden>
@@ -429,7 +478,6 @@ if (typeof document !== "undefined") {
     <label class="settings-check"><input id="settings-utxo-index" type="checkbox" role="switch"> Instant Bitcoin balances</label>
     <label id="settings-utxo-index-litecoin-label" class="settings-check" hidden><input id="settings-utxo-index-litecoin" type="checkbox" role="switch"> Instant Litecoin balances</label>
     <label id="settings-utxo-index-bitcoincash-label" class="settings-check" hidden><input id="settings-utxo-index-bitcoincash" type="checkbox" role="switch"> Instant Bitcoin Cash balances (archival node)</label>
-    <p class="settings-note">For pruned nodes. Uses about 7.5 GiB of disk, up to about 17 GiB while it seeds, and the seed needs 27 GB free. After turning it on, it seeds itself once the node has synced (about 20 minutes; Bitcoin RPC pauses for about 5 minutes).<span id="settings-utxo-seed-cli" hidden> Without host controls, seed it from the host: <code id="settings-utxo-seed-command"></code>.</span> Turning it off keeps the volume until <code>utxo-index remove</code>, and is refused while a seed runs. Applying restarts the dashboard.</p>
     <button id="settings-utxo-seed-now" type="button" hidden>Seed now</button>
     <button id="settings-utxo-seed-now-litecoin" type="button" hidden>Seed Litecoin now</button>
     <button id="settings-utxo-seed-now-bitcoincash" type="button" hidden>Replay Bitcoin Cash now</button>
@@ -439,8 +487,6 @@ if (typeof document !== "undefined") {
   const utxoIndex = byId("utxo-index");
   const balanceSettings = byId("balance-index");
   const balanceStatus = byId("utxo-index-status");
-  const utxoSeedCommand = byId("utxo-seed-command");
-  const utxoSeedCli = byId("utxo-seed-cli");
   const utxoSeedNow = byId("utxo-seed-now");
   const utxoIndexLitecoin = byId("utxo-index-litecoin");
   const utxoIndexLitecoinLabel = byId("utxo-index-litecoin-label");
@@ -455,6 +501,14 @@ if (typeof document !== "undefined") {
   const networkSettings = byId("network");
   const hostStatusTarget = (action) => balanceActions.includes(action) ? balanceStatus : networkActions.includes(action) ? networkStatus : hostStatus;
   const configPath = byId("config-path");
+  const deleteDialog = byId("delete-dialog");
+  const deleteForm = byId("delete-form");
+  const deleteTitle = byId("delete-title");
+  const deleteList = byId("delete-list");
+  const deleteConfirmLabel = byId("delete-confirm-label");
+  const deleteConfirm = byId("delete-confirm");
+  const deleteSubmit = byId("delete-submit");
+  let deleteNode = "";
   const installDialog = byId("install-dialog");
   const installForm = byId("install-form");
   const installTitle = byId("install-title");
@@ -669,8 +723,6 @@ if (typeof document !== "undefined") {
     balanceSettings.hidden = balanceControl.hidden;
     utxoIndex.checked = balanceControl.checked;
     utxoIndex.disabled = balanceControl.disabled;
-    utxoSeedCommand.textContent = seedCommand(hostView.boot_kind);
-    utxoSeedCli.hidden = hostView.available;
     utxoSeedNow.hidden = !hostView.utxo_seed_now;
     utxoSeedNow.disabled = busy || saving();
     utxoIndex.closest("label").hidden = balanceControl.hidden;
@@ -703,6 +755,7 @@ if (typeof document !== "undefined") {
     const busy = hostView.status.state === "pending";
     const installing = pendingHostNode(hostView, "install");
     const moving = pendingHostNode(hostView, "migrate");
+    const deleting = pendingHostNode(hostView, "delete");
     for (const node of Object.values(hostView.nodes)) {
       const row = document.createElement("div");
       row.className = "settings-host-node";
@@ -723,7 +776,8 @@ if (typeof document !== "undefined") {
         button.addEventListener("click", () => openMigrate(node.id));
       } else {
         button.textContent = node.id === installing ? "Installing…" : "Install";
-        button.disabled = !node.data_dir || !hostView.available || !hostView.install_supported || hostView.config_pending || busy;
+        button.disabled = !node.data_dir || !hostView.available || !hostView.install_supported || hostView.config_pending || busy || !!node.unsupported;
+        if (node.unsupported) button.title = node.unsupported;
         button.addEventListener("click", () => openInstall(node.id));
       }
       if (node.installed) {
@@ -731,7 +785,29 @@ if (typeof document !== "undefined") {
         path.className = "settings-host-path";
         path.textContent = node.data_dir || "";
         path.title = "Current data folder";
-        row.append(name, path, button);
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "settings-delete-button";
+        const deleteKey = `delete:${node.id}`;
+        if (hostStaged[deleteKey]) {
+          remove.textContent = "Deletes on Save";
+          remove.title = "Click to undo";
+          remove.disabled = busy;
+          remove.addEventListener("click", () => { delete hostStaged[deleteKey]; renderHostActions(); });
+          button.disabled = true;
+        } else {
+          const control = deleteControl(hostView, node, hostStaged);
+          remove.textContent = node.id === deleting ? "Deleting…" : "Delete…";
+          remove.disabled = control.disabled;
+          remove.title = control.reason || `Delete ${node.name} and all its data`;
+          remove.addEventListener("click", () => openDelete(node.id));
+        }
+        row.append(name, path, button, remove);
+      } else if (node.unsupported) {
+        const note = document.createElement("span");
+        note.className = "settings-host-note";
+        note.textContent = node.unsupported;
+        row.append(name, note, button);
       } else row.append(name, button);
       hostNodes.append(row);
     }
@@ -743,6 +819,23 @@ if (typeof document !== "undefined") {
     const next = hostQueue.shift();
     hostQueueAction = next.action;
     submitHost(next);
+  };
+
+  const openDelete = (nodeID) => {
+    const node = hostView.nodes[nodeID];
+    if (!node || deleteControl(hostView, node, hostStaged).disabled) return;
+    deleteNode = nodeID;
+    deleteTitle.textContent = `Delete ${node.name}?`;
+    deleteList.replaceChildren(...deleteImpact(node).map((text) => {
+      const item = document.createElement("li");
+      item.textContent = text;
+      return item;
+    }));
+    deleteConfirmLabel.querySelector("b").textContent = node.id;
+    deleteConfirm.value = "";
+    deleteSubmit.disabled = true;
+    deleteDialog.showModal();
+    deleteConfirm.focus();
   };
 
   const openMigrate = (nodeID) => {
@@ -869,7 +962,8 @@ if (typeof document !== "undefined") {
     computerStats.checked = !!data.computer_stats;
     thermalThrottle.checked = !!data.thermal_throttle;
     defaultCurrency.value = normalizeDefaultCurrency(data.default_currency);
-    healthEndpoints.checked = !!data.health_endpoints;
+    actuatorHealth.checked = !!data.actuator_health;
+    actuatorInfo.checked = !!data.actuator_info;
   };
   const render = (data, scope = "global") => {
     saved = { ...saved, ...data };
@@ -890,6 +984,8 @@ if (typeof document !== "undefined") {
     renderPortControl(data.port_control);
     if (scope === "global") {
       applyAppearance(data);
+      actuatorUsername.value = data.actuator_username || "";
+      actuatorPassword.value = dialog.open ? data.actuator_password || "" : "";
       if (Object.hasOwn(data, "telegram_chat_id")) chat.value = data.telegram_chat_id || "";
       if (dialog.open) {
         if (Object.hasOwn(data, "telegram_bot_token")) token.value = data.telegram_bot_token || "";
@@ -899,7 +995,7 @@ if (typeof document !== "undefined") {
     token.placeholder = "Paste your bot token";
     url.placeholder = "https://hc-ping.com/…";
     reset.disabled = !allowed || !saved.defaults;
-    telegramEnabled.disabled = healthchecksEnabled.disabled = bitcoinNewBlock.disabled = moneroNewBlock.disabled = towerLabels.disabled = computerStats.disabled = thermalThrottle.disabled = defaultCurrency.disabled = healthEndpoints.disabled = !allowed;
+    telegramEnabled.disabled = healthchecksEnabled.disabled = bitcoinNewBlock.disabled = moneroNewBlock.disabled = towerLabels.disabled = computerStats.disabled = thermalThrottle.disabled = defaultCurrency.disabled = actuatorHealth.disabled = actuatorInfo.disabled = !allowed;
     updateInputs();
     updatePortPlan();
   };
@@ -950,7 +1046,7 @@ if (typeof document !== "undefined") {
   async function load(scope = "global") {
     allowed = false;
     save.disabled = reset.disabled = true;
-    telegramEnabled.disabled = healthchecksEnabled.disabled = bitcoinNewBlock.disabled = moneroNewBlock.disabled = towerLabels.disabled = computerStats.disabled = thermalThrottle.disabled = defaultCurrency.disabled = healthEndpoints.disabled = true;
+    telegramEnabled.disabled = healthchecksEnabled.disabled = bitcoinNewBlock.disabled = moneroNewBlock.disabled = towerLabels.disabled = computerStats.disabled = thermalThrottle.disabled = defaultCurrency.disabled = actuatorHealth.disabled = actuatorInfo.disabled = true;
     for (const input of Object.values(alertPreferences)) input.disabled = true;
     nodeDownAfterMinutes.disabled = lowDiskGiB.disabled = true;
     updateInputs();
@@ -980,6 +1076,16 @@ if (typeof document !== "undefined") {
   document.getElementById("account-close").addEventListener("click", () => accountDialog.close());
   accountDialog.addEventListener("close", () => credentialSettings.closePassword());
   byId("install-cancel").addEventListener("click", () => installDialog.close());
+  byId("delete-cancel").addEventListener("click", () => deleteDialog.close());
+  deleteConfirm.addEventListener("input", () => { deleteSubmit.disabled = !deleteConfirmed(hostView.nodes[deleteNode], deleteConfirm.value.trim()); });
+  deleteForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const payload = hostActionPayload("delete", deleteNode, { confirmation: deleteConfirm.value.trim() });
+    if (!payload) return;
+    hostStaged[`delete:${deleteNode}`] = payload;
+    deleteDialog.close();
+    renderHostActions();
+  });
   installForm.addEventListener("submit", (event) => {
     event.preventDefault();
     let payload;
@@ -1006,7 +1112,7 @@ if (typeof document !== "undefined") {
     installDialog.close();
     renderHostActions();
   });
-  dialog.addEventListener("close", () => { clearSecrets(); delete saved.telegram_bot_token; delete saved.telegram_chat_id; delete saved.healthchecks_url; });
+  dialog.addEventListener("close", () => { clearSecrets(); actuatorPassword.value = ""; delete saved.actuator_password; delete saved.telegram_bot_token; delete saved.telegram_chat_id; delete saved.healthchecks_url; });
   window.addEventListener("node-selected", (event) => {
     credentialSettings.closeNode();
     if (event.detail?.node) {
@@ -1014,6 +1120,10 @@ if (typeof document !== "undefined") {
       load("nodes");
     }
   });
+  for (const field of ["username", "password"]) {
+    const input = byId(`actuator-${field}`);
+    byId(`actuator-${field}-copy`).addEventListener("click", () => copyField(input));
+  }
   telegramEnabled.addEventListener("change", updateInputs);
   healthchecksEnabled.addEventListener("change", updateInputs);
   for (const [action, input] of Object.entries(hostToggles)) input.addEventListener("change", () => { hostDraft[action] = input.checked; });
@@ -1036,7 +1146,8 @@ if (typeof document !== "undefined") {
       computer_stats: computerStats.checked,
       thermal_throttle: thermalThrottle.checked,
       default_currency: defaultCurrency.value,
-      health_endpoints: healthEndpoints.checked,
+      actuator_health: actuatorHealth.checked,
+      actuator_info: actuatorInfo.checked,
       ...Object.fromEntries(Object.entries(alertPreferences).map(([field, input]) => [field, input.checked])),
       node_down_after_minutes: Number(nodeDownAfterMinutes.value),
       low_disk_gib: Number(lowDiskGiB.value),

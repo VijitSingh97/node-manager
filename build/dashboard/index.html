@@ -436,10 +436,12 @@
         <label class="settings-check"><input id="settings-healthchecks-enabled" type="checkbox"> Enable Healthchecks pings</label>
         <label>HTTPS ping URL<input id="settings-healthchecks-url" type="url" autocomplete="off" maxlength="2048"></label>
       </fieldset>
-      <fieldset id="settings-health-endpoints-group">
-        <legend>Health endpoints</legend>
-        <label class="settings-check"><input id="settings-health-endpoints" type="checkbox"> Serve /actuator/health and /actuator/info</label>
-        <p class="settings-note">For uptime monitors and scripts. Anyone who can reach the dashboard can read the overall status (UP, DEGRADED or DOWN) without signing in. Per-component health and /actuator/info need sign-in or Basic auth, like /metrics.</p>
+      <fieldset id="settings-actuator-group">
+        <legend>Actuator</legend>
+        <label class="settings-check"><input id="settings-actuator-health" type="checkbox"> Serve /actuator/health</label>
+        <label class="settings-check"><input id="settings-actuator-info" type="checkbox"> Serve /actuator/info</label>
+        <label>Username<span class="settings-copy"><input id="settings-actuator-username" type="text" readonly autocomplete="off"><button id="settings-actuator-username-copy" type="button">Copy</button></span></label>
+        <label>Password<span class="settings-copy"><input id="settings-actuator-password" type="text" readonly autocomplete="off"><button id="settings-actuator-password-copy" type="button">Copy</button></span></label>
       </fieldset>
       <fieldset id="settings-config">
         <legend>Config</legend>
@@ -518,6 +520,16 @@
       </fieldset>
       <p id="settings-install-error" class="node-state" role="status" aria-live="polite"></p>
       <div class="settings-actions"><button id="settings-install-cancel" type="button">Cancel</button><button id="settings-install-submit" type="submit">Install node</button></div>
+    </form>
+  </dialog>
+  <dialog id="settings-delete-dialog" class="settings-dialog" aria-labelledby="settings-delete-title">
+    <form id="settings-delete-form">
+      <div class="settings-heading"><h2 id="settings-delete-title">Delete node?</h2></div>
+      <p class="settings-delete-warning"><b>This cannot be undone.</b> Deleting removes the node from Node Manager and permanently erases:</p>
+      <ul id="settings-delete-list"></ul>
+      <p class="settings-note">The node must be installed again from scratch and re-synced. Other nodes are not touched.</p>
+      <label id="settings-delete-confirm-label">Type <b></b> to confirm<input id="settings-delete-confirm" type="text" autocomplete="off" spellcheck="false"></label>
+      <div class="settings-actions"><button id="settings-delete-cancel" type="button">Cancel</button><button id="settings-delete-submit" type="submit" disabled>Delete on Save</button></div>
     </form>
   </dialog>
   <dialog id="credential-reset-dialog" class="settings-dialog" aria-labelledby="credential-reset-title">

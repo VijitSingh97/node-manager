@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -582,4 +583,64 @@ func TestUtxoReplayStorageErrorsFailWithoutRetrying(t *testing.T) {
 	if st := fx.m.Status(); attempts != 1 || time.Since(start) > 5*time.Second || st.State != utxoStateInvalid || st.LastSeed == nil || st.LastSeed.Outcome != utxoOutcomeFailed {
 		t.Fatalf("a storage error was retried: %d attempts in %s, %+v", attempts, time.Since(start), st)
 	}
+}
+
+func TestReplaySeedNowResumesAReplayTheUserCancelled(t *testing.T) {
+	swapReplayKnobs(t, 5, 1000, 10)
+	ctx := t.Context()
+	a, _ := testApp(t, &rpcFixture{}, "")
+	c := utxoMgrChain(60, "u")
+	node := newFakeUtxoNode(c)
+	fx := newReplayFixture(t, t.TempDir(), node)
+	m := fx.m
+	a.chainUtxo = map[string]*utxoManager{nodeLitecoin: m}
+	cancelled := false
+	node.hook = func(method string, params any) error {
+		if !cancelled && method == "getblockhash" && params.([]any)[0].(uint32) == 30 {
+			cancelled = true
+			if err := os.WriteFile(filepath.Join(fx.state, "bitcoincash-"+seedCancelName), nil, 0o600); err != nil {
+				t.Error(err)
+			}
+			for end := time.Now().Add(5 * time.Second); m.Status().Phase != utxoPhaseCancelling && time.Now().Before(end); {
+				time.Sleep(time.Millisecond)
+			}
+		}
+		return nil
+	}
+
+	var view hostControlView
+	if got := hostControlHTTP(a, http.MethodGet, "", false, "192.168.1.20:4321"); json.Unmarshal(got.Body.Bytes(), &view) != nil || !view.UtxoSeedNowLTC {
+		t.Fatalf("a not-seeded replay chain is not offered Seed now without a host helper: %s", got.Body.String())
+	}
+	m.tick(ctx)
+	m.maybeAutoSeed(ctx)
+	st := m.Status()
+	if st.LastSeed == nil || st.LastSeed.Outcome != "cancelled" || st.State != utxoStateCatching || m.seed.AutoFailures != utxoAutoSeedTries {
+		t.Fatalf("after the user's cancel: %+v, failures %d", st, m.seed.AutoFailures)
+	}
+	m.tick(ctx)
+	cut := *m.Status().IndexTip
+	fx.clock = fx.clock.Add(2 * time.Hour)
+	m.maybeAutoSeed(ctx)
+	if cut == 0 || cut >= 59 || *m.Status().IndexTip != cut {
+		t.Fatalf("a cancelled replay moved on its own: tip %d after the cut at %d", *m.Status().IndexTip, cut)
+	}
+	if !a.seedNow(nodeLitecoin) {
+		t.Fatalf("Seed now is not offered for the cancelled replay: %+v", m.Status())
+	}
+	if got := hostControlHTTP(a, http.MethodPost, `{"action":"utxo_seed","node":"litecoin"}`, true, "192.168.1.20:4321").Code; got != http.StatusAccepted {
+		t.Fatalf("Seed now = %d", got)
+	}
+	if _, err := os.Stat(a.nodeControlPath("request")); !os.IsNotExist(err) {
+		t.Fatal("a replay seed went through the host helper")
+	}
+	m.pollSeed(ctx)
+	m.tick(ctx)
+	if st := m.Status(); st.State != utxoStateReady || st.LastSeed.Outcome != "ok" || m.seed.AutoFailures != 0 {
+		t.Fatalf("Seed now did not resume the replay: %+v, failures %d", st, m.seed.AutoFailures)
+	}
+	if a.seedNow(nodeLitecoin) || hostControlHTTP(a, http.MethodPost, `{"action":"utxo_seed","node":"litecoin"}`, true, "192.168.1.20:4321").Code != http.StatusConflict {
+		t.Fatal("Seed now was offered for a ready index")
+	}
+	utxoMgrCheck(t, m.store, c, "u", 59)
 }

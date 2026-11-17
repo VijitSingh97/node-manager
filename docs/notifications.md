@@ -7,9 +7,9 @@ Network, Balance index, Appearance, Telegram, and Healthchecks. The person icon
 above it holds Account (sign out) and Dashboard password. Each tower contains
 its own separate Alerts and LAN access sections under Node controls. Nothing in
 Settings takes effect until you press **Save**, including Install, Move data,
-Run new config and Reset to default; their dialogs only check the values.
+Delete, Run new config and Reset to default; their dialogs only check the values.
 **Cancel**, like ✕, closes Settings, and reopening it discards anything unsaved. Host changes then apply one
-after another: a pending config first, then switches, installs and data moves.
+after another: a pending config first, then switches, installs, data moves and deletions.
 A dashboard password protects the
 gear and the rest of the dashboard. The gear works from localhost, a
 configured private LAN address, or the Tor onion dashboard (enable
@@ -24,8 +24,8 @@ includes them. Saved overrides take priority over the notification values in
 and restores those values, including each node's new-block alert (off unless
 `config.json` turns it on). It also fills in the default for every other
 Settings control: Label towers, Node manager usage and Thermal throttle off,
-USD, all six Alert preferences on with 3 minutes and 50 GiB, health endpoints
-off, launch at boot/login off, both Network switches on, and the Balance index
+USD, all six Alert preferences on with 3 minutes and 50 GiB, both actuator
+switches (health and info) off, launch at boot/login off, both Network switches on, and the Balance index
 off. It drops staged installs, data
 moves and a pending config run. LAN access, installed nodes, data folders and
 the dashboard password stay as they are. After editing the server file, apply it and reset the override if needed.
