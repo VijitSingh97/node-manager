@@ -103,8 +103,9 @@ The Bitcoin Cash balance index (Settings → Balance index → "Instant Bitcoin 
 balances", or `bitcoincash.utxo_index`) needs an archival node
 (`bitcoincash.prune_mb: 0`). Bitcoin Cash Node has no coin-set export, so once the
 node has synced the index replays every block from genesis. It reads raw blocks
-(`getblock` verbosity 0), which keeps the node's memory flat even on Bitcoin
-Cash's 32 MB stress-test blocks, and resolves spends through a reverse outpoint
+(`getblock` verbosity 0), which costs the node far less memory than verbose JSON on
+Bitcoin Cash's 32 MB stress-test blocks (measured on regtest: about 1.1 GiB at peak
+across four 31 MB blocks, against about 3 GiB for one block as JSON), and resolves spends through a reverse outpoint
 key, as the Litecoin index does. That is a long one-time job: the regtest rates are in
 [the replay measurement](measurements/utxo-replay.md), and a mainnet replay has not
 been timed. When the index is at the node's tip, Bitcoin Cash balances come from it
