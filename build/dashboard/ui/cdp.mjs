@@ -274,10 +274,16 @@ export class Chrome {
 
   async close() {
     this.connection.socket.close();
-    const exited = new Promise((resolve) => this.process.once("exit", resolve));
+    const running = () => this.process.exitCode === null && this.process.signalCode === null;
+    const exited = running() ? new Promise((resolve) => this.process.once("exit", resolve)) : Promise.resolve();
     this.process.kill("SIGTERM");
-    await Promise.race([exited, sleep(5000).then(() => this.process.kill("SIGKILL"))]);
-    rmSync(this.userData, { recursive: true, force: true });
+    await Promise.race([exited, sleep(5000)]);
+    if (running()) {
+      this.process.kill("SIGKILL");
+      await Promise.race([exited, sleep(5000)]);
+    }
+    // Chrome's helper processes can still write to the profile for a moment after the browser exits.
+    rmSync(this.userData, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 }
 
