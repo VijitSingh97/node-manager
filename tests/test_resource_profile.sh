@@ -447,43 +447,60 @@ new_case failed-start
 mkdir -p "$case_root/inspect"
 iso() { jq -nr --argjson t "$1" '$t | todateiso8601'; }
 inspect_json() { printf '[{"RestartCount":%s,"State":{"ExitCode":%s,"OOMKilled":%s,"StartedAt":"%s","FinishedAt":"%s"}}]\n' "$2" "$3" "$4" "$(iso "$5")" "$(iso "$6")" >"$case_root/inspect/$1.json"; }
-failing_rows() { printf 'zc-id zcash %s\nltc-id litecoin exited\nxmr-id monero exited\ndoge-id dogecoin exited\nbch-id bitcoincash %s\ntari-id tari restarting\nwal-id monero-wallet restarting\nbtc-id bitcoin running\n' "$1" "$2"; }
-failed() { jq -c .failed "$tmp/host-stats-payload.json"; }
+node_rows() { printf '%s zcash %s\nltc-id litecoin exited\nxmr-id monero exited\ndoge-id dogecoin exited\nbch-id bitcoincash %s\ntari-id tari %s\nwal-id monero-wallet restarting\nbtc-id bitcoin %s\n' "$@"; }
+failed_is() { jq -e --argjson want "$1" '.failed == $want' "$tmp/host-stats-payload.json" >/dev/null || fail "$2: $(jq -c .failed "$tmp/host-stats-payload.json")"; }
+markers() { find "$case_root/state/resource-profile" -maxdepth 1 -type f -name 'fail*-*' -exec basename {} \; | LC_ALL=C sort | tr '\n' ' '; }
+adx='This Zakura binary requires CPU features this machine lacks: adx.'
+oom='It ran out of memory while starting.'
 t0=$RESOURCE_NOW_EPOCH
 inspect_json zc-id 7 1 false $((t0 - 3)) $((t0 - 2))
+inspect_json btc-id 3 1 false $((t0 - 30)) $((t0 - 75))
 inspect_json ltc-id 7 1 false $((t0 - 7200)) $((t0 - 10))
 inspect_json xmr-id 6 0 false $((t0 - 20)) $((t0 - 15))
 inspect_json doge-id 5 137 true $((t0 - 30)) $((t0 - 20))
 inspect_json bch-id 2 1 false $((t0 - 3)) $((t0 - 2))
 inspect_json tari-id 40 1 false $((t0 - 3)) $((t0 - 2))
 inspect_json wal-id 9 1 false $((t0 - 3)) $((t0 - 2))
-inspect_json btc-id 0 0 false $((t0 - 86400)) 0
-FAKE_LOGS=$(printf 'INFO: Using config file at /etc/zakura/zakurad.toml\n\033[31mThis Zakura binary requires CPU features this machine lacks: adx.\033[0m\n\n')
-FAKE_PS_ID_ROWS=$(failing_rows restarting restarting)
+FAKE_LOGS=$(printf 'INFO: Using config file at /etc/zakura/zakurad.toml\n\033[31m%s\033[0m\n\n' "$adx")
+FAKE_PS_ID_ROWS=$(node_rows zc-id restarting restarting restarting running)
 export FAKE_LOGS FAKE_PS_ID_ROWS FAKE_INSPECT_DIR=$case_root/inspect FAKE_HOST_STATS_OUT=$tmp/host-stats-payload.json FAKE_EVENTS_OUT=$tmp/failed-events.log
 run_profile
-[ "$(failed)" = '{"dogecoin":"It ran out of memory while starting."}' ] || fail "first look at failed starts was wrong: $(failed)"
-[ -f "$case_root/state/resource-profile/failing-tari" ] || fail "a fresh crash loop was not remembered"
-RESOURCE_NOW_EPOCH=$((t0 + 300)); inspect_json zc-id 12 1 false $((t0 + 297)) $((t0 + 298))
+failed_is "{\"dogecoin\": \"$oom\"}" "only the node whose restarts ran out should be reported at first"
+[ "$(markers)" = 'failing-bitcoin failing-bitcoincash failing-tari failing-zcash ' ] || fail "crash loops were not all remembered: $(markers)"
+RESOURCE_NOW_EPOCH=$((t0 + 300))
+inspect_json zc-id 12 1 false $((t0 + 297)) $((t0 + 298))
+inspect_json btc-id 8 1 false $((t0 + 290)) $((t0 + 245))
 run_profile
 ! grep -q '^stop ' "$log" || fail "a node was stopped before it kept failing for 10 minutes"
 RESOURCE_NOW_EPOCH=$((t0 + 660))
 inspect_json zc-id 14 1 false $((t0 + 657)) $((t0 + 658))
+inspect_json btc-id 15 1 false $((t0 + 640)) $((t0 + 595))
 inspect_json tari-id 41 1 false $((t0 + 657)) $((t0 + 658))
 inspect_json bch-id 3 1 false $((t0 + 657)) $((t0 + 658))
 run_profile
-[ "$(grep '^stop ' "$log")" = 'stop -t 30 zc-id' ] || fail "only the node that kept failing should be stopped: $(grep '^stop ' "$log" | tr '\n' ' ')"
-[ "$(failed)" = '{"zcash":"This Zakura binary requires CPU features this machine lacks: adx.","dogecoin":"It ran out of memory while starting."}' ] || fail "stopped node was misreported: $(failed)"
+[ "$(grep '^stop ' "$log" | tr '\n' ' ')" = 'stop -t 30 zc-id stop -t 30 btc-id ' ] || fail "only the two nodes that kept failing should be stopped: $(grep '^stop ' "$log" | tr '\n' ' ')"
+failed_is "{\"zcash\": \"$adx\", \"dogecoin\": \"$oom\", \"bitcoin\": \"$adx\"}" "stopped nodes were misreported"
 grep -q 'Host: stopped zcash: it kept failing to start for 11 minutes' "$tmp/failed-events.log" || fail "the stopped node was not logged as an event"
-[ ! -f "$case_root/state/resource-profile/failing-zcash" ] || fail "the stopped node kept its crash-loop marker"
-FAKE_PS_ID_ROWS=$(failing_rows exited running)
-RESOURCE_NOW_EPOCH=$((t0 + 700)); inspect_json bch-id 3 0 false $((t0 + 650)) $((t0 + 658))
+grep -q 'Host: stopped bitcoin: it kept failing to start for 11 minutes' "$tmp/failed-events.log" || fail "a slow crash loop was not logged as an event"
+[ "$(markers)" = 'failed-bitcoin failed-zcash failing-bitcoincash failing-tari ' ] || fail "stopped nodes kept their loop markers or lost their records: $(markers)"
+RESOURCE_NOW_EPOCH=$((t0 + 700))
+inspect_json btc-id 15 0 false $((t0 + 680)) $((t0 + 690))
+inspect_json bch-id 3 0 false $((t0 + 650)) $((t0 + 658))
+FAKE_PS_ID_ROWS=$(node_rows zc-id exited running restarting exited)
 run_profile
+failed_is "{\"zcash\": \"$adx\", \"dogecoin\": \"$oom\", \"bitcoin\": \"$adx\"}" "a node stopped mid-run lost its reason"
 [ -f "$case_root/state/resource-profile/failing-bitcoincash" ] || fail "a node up for under a minute lost its crash-loop marker"
 RESOURCE_NOW_EPOCH=$((t0 + 800))
+inspect_json zc2-id 0 0 false $((t0 + 790)) 0
+inspect_json btc-id 0 0 false $((t0 + 790)) $((t0 + 690))
+inspect_json tari-id 2 1 false $((t0 + 700)) $((t0 + 701))
+FAKE_PS_ID_ROWS=$(node_rows zc2-id running running exited running)
 run_profile
-[ ! -f "$case_root/state/resource-profile/failing-bitcoincash" ] || fail "a node that stayed up kept its crash-loop marker"
-jq -e '.failed.zcash' "$tmp/host-stats-payload.json" >/dev/null || fail "a stopped failed node stopped being reported"
+failed_is "{\"dogecoin\": \"$oom\"}" "a recreated or restarted node kept its failure"
+[ "$(markers)" = 'failed-bitcoin ' ] || fail "stale markers survived a recreate, a manual stop, or a minute of uptime: $(markers)"
+RESOURCE_NOW_EPOCH=$((t0 + 900))
+run_profile
+[ -z "$(markers)" ] || fail "a node that stayed up kept its failure record: $(markers)"
 unset FAKE_INSPECT_DIR FAKE_HOST_STATS_OUT FAKE_EVENTS_OUT FAKE_PS_ID_ROWS FAKE_LOGS
 
 host_proc=$case_root/proc host_sys=$case_root/sys
