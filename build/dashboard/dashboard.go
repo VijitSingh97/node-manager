@@ -120,6 +120,7 @@ type app struct {
 	passwordWork     *passwordWorkLimiter
 	passwordAttempts chan struct{}
 	controlMu        sync.Mutex
+	provisionLocks   sync.Map
 	ctx              context.Context
 }
 

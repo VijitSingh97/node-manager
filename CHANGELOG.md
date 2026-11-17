@@ -8,6 +8,11 @@ All notable changes to this project are documented here. Format follows
 
 ### Fixed
 
+- Adding a watch-only wallet right after the dashboard starts could leave it in
+  an error state until removed and re-added. The startup pass and the add request
+  could both create and import into the same Bitcoin Core wallet at once, leaving
+  extra descriptors that later checks reject. Provisioning is now serialized per
+  wallet key.
 - Exposing a node's RPC, ZMQ or gRPC port on the LAN failed with "Port
   availability could not be checked." on hosts running Tailscale. The port check
   could not read listeners that `ss` prints with an interface scope, such as

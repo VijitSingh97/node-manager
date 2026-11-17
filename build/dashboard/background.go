@@ -317,6 +317,9 @@ func (a *app) provisionForChain(entry WatchEntry, chain blockchainInfo) {
 }
 
 func (a *app) provisionState(entry WatchEntry, pruned, initialBlockDownload bool) {
+	lock, _ := a.provisionLocks.LoadOrStore(watchKeyID(entry.Key), &sync.Mutex{})
+	lock.(*sync.Mutex).Lock()
+	defer lock.(*sync.Mutex).Unlock()
 	if !a.nodeWorkerRunnable(nodeBitcoin, true) || !a.watch.Contains(entry) {
 		return
 	}
