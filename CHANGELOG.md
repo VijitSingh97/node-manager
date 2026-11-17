@@ -55,6 +55,11 @@ All notable changes to this project are documented here. Format follows
   ADX instructions (before Intel Core 5th generation or AMD Ryzen). Zakura 1.8
   images require them and exit at startup otherwise; Settings now disables the
   Install button with the reason, and the host helper rejects the install.
+- Adding a watch-only wallet right after the dashboard starts could leave it in
+  an error state until removed and re-added. The startup pass and the add request
+  could both create and import into the same Bitcoin Core wallet at once, leaving
+  extra descriptors that later checks reject. Provisioning is now serialized per
+  wallet key.
 - The usage pies attribute CPU and memory to the right owner. The Monero and Tari
   wallet containers now count toward their node instead of the Node Manager
   slice, which is now labelled "Node Manager (dashboard and Tor)". Each
