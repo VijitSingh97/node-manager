@@ -6,10 +6,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -289,8 +291,39 @@ func TestUtxoReplayIntegrityErrorInvalidatesTheIndex(t *testing.T) {
 	}
 }
 
+func swapReplayRetries(t *testing.T, retries int, wait time.Duration) {
+	r, w := utxoReplayRetries, utxoReplayRetryWait
+	utxoReplayRetries, utxoReplayRetryWait = retries, wait
+	t.Cleanup(func() { utxoReplayRetries, utxoReplayRetryWait = r, w })
+}
+
+func TestUtxoReplayRetriesTransientErrorsWithinTheSeed(t *testing.T) {
+	swapReplayKnobs(t, 5, 1000, 10)
+	swapReplayRetries(t, 3, time.Millisecond)
+	ctx := t.Context()
+	c := utxoMgrChain(40, "t")
+	node := newFakeUtxoNode(c)
+	fx := newReplayFixture(t, t.TempDir(), node)
+	failures := 0
+	node.hook = func(method string, params any) error {
+		if failures < 3 && (method == "getblockchaininfo" || method == "getblockhash" && params.([]any)[0].(uint32) == uint32(20+failures)) {
+			failures++
+			return errors.New("connection refused")
+		}
+		return nil
+	}
+	fx.m.tick(ctx)
+	fx.m.maybeAutoSeed(ctx)
+	if st := fx.m.Status(); failures != 3 || st.LastSeed == nil || st.LastSeed.Outcome != "ok" {
+		t.Fatalf("three node outages within the retry budget failed the replay: %+v after %d failures", st, failures)
+	}
+	fx.m.tick(ctx)
+	utxoMgrCheck(t, fx.m.store, c, "t", 39)
+}
+
 func TestUtxoReplayRetriesHourlyThroughNodeOutagesWithoutBackingOff(t *testing.T) {
 	swapReplayKnobs(t, 5, 1000, 10)
+	swapReplayRetries(t, 0, time.Millisecond)
 	ctx := t.Context()
 	c := utxoMgrChain(40, "o")
 	node := newFakeUtxoNode(c)
@@ -319,4 +352,62 @@ func TestUtxoReplayRetriesHourlyThroughNodeOutagesWithoutBackingOff(t *testing.T
 	}
 	m.tick(ctx)
 	utxoMgrCheck(t, m.store, c, "o", 39)
+}
+
+func TestFollowerReplayBoundsBlocksFetchedAheadByCoinOperations(t *testing.T) {
+	swapReplayKnobs(t, 1000, 8, utxoReplayGap)
+	budget := utxoReplayInflightOps
+	utxoReplayInflightOps = 8
+	t.Cleanup(func() { utxoReplayInflightOps = budget })
+	c := utxoMgrChain(40, "b")
+	node := newFakeUtxoNode(c)
+	s := openFollowStore(t)
+	s.beforeCommit = func() error { time.Sleep(2 * time.Millisecond); return nil }
+	var committed atomic.Int64
+	committed.Store(-1)
+	ahead := 0
+	node.hook = func(method string, params any) error {
+		if method == "getblockhash" {
+			ahead = max(ahead, int(int64(params.([]any)[0].(uint32))-committed.Load()))
+		}
+		return nil
+	}
+	f := newUtxoFollower(s, node)
+	f.chain = replayTestChain()
+	f.onBlock = func(h uint32) { committed.Store(int64(h)) }
+	stepOK(t, f)
+	utxoMgrCheck(t, s, c, "b", 39)
+	// Queued blocks within 8 operations, an open batch and one being committed, and the fetcher's own; without the budget it runs over 30 ahead.
+	if ahead > 10 {
+		t.Fatalf("the fetcher ran %d blocks past the last commit with 8 coin operations of queue budget (4 per block)", ahead)
+	}
+}
+
+func TestFollowerReplayPassesABlockLargerThanTheBudgetWhileABatchIsOpen(t *testing.T) {
+	swapReplayKnobs(t, 1000, 1000, utxoReplayGap)
+	budget := utxoReplayInflightOps
+	utxoReplayInflightOps = 8
+	t.Cleanup(func() { utxoReplayInflightOps = budget })
+	c := utxoMgrChain(10, "g")
+	var outs []fakeOut
+	for i := range 30 {
+		outs = append(outs, fakeOut{fmt.Sprintf("0014%02xccdd", i), "0.00010000"})
+	}
+	c.add("big", outs, nil)
+	s := openFollowStore(t)
+	f := newUtxoFollower(s, c)
+	f.chain = replayTestChain()
+	done := make(chan error, 1)
+	go func() { done <- f.Step(context.Background()) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("a block larger than the queue budget stalled the replay")
+	}
+	if h, _, _, _ := s.Tip(); h != 10 || len(lookupAmounts(t, s, "001400ccdd")) != 1 {
+		t.Fatalf("tip %d after the large block", h)
+	}
 }

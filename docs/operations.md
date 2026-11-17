@@ -325,7 +325,11 @@ The Bitcoin Cash balance index (`bitcoincash.utxo_index`, archival nodes only) h
 no dump to seed from. It replays every block from genesis through the dashboard,
 which starts it on its own once the node has synced, or from **Replay Bitcoin Cash
 now** or `./stack utxo-seed bitcoincash`; no seed pipe is made. A cancel, failure or
-restart keeps the blocks already applied, and the next run resumes from there. It
+restart keeps the blocks already applied, and the next run resumes from there. A
+node restart, an RPC timeout or a reorg near the tip is retried within the replay
+for about five minutes before it waits for the hourly check. After a cancel,
+automatic replays stop until you start one with **Replay Bitcoin Cash now** or
+`utxo-seed bitcoincash`. It
 takes the shared seed lock and the heat pause, but holds neither node alerts nor
 the watch scan. Regtest rates are in
 [the replay measurement](measurements/utxo-replay.md); a mainnet replay has not

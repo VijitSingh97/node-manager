@@ -421,7 +421,7 @@ func (a *app) requestReplaySeed(w http.ResponseWriter, m *utxoManager, node stri
 		return
 	}
 	id := newSeedRequestID()
-	raw, _ := json.Marshal(seedRequest{ID: id, RequestedAt: time.Now().Unix()})
+	raw, _ := json.Marshal(seedRequest{ID: id, RequestedAt: m.now().Unix()})
 	if writePrivateFileAtomic(filepath.Join(m.host.stateDir, m.host.prefix+seedRequestName), raw) != nil {
 		http.Error(w, "The seed request could not be written.", http.StatusServiceUnavailable)
 		return

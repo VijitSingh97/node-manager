@@ -2,7 +2,9 @@
 
 Date: 2026-11-16. Measured for the shared replay seeder (#326) on an Apple M5 Max under Docker Desktop (8 VM CPUs). These are regtest numbers. They are not reference-node or mainnet numbers.
 
-A chain with no UTXO export (Bitcoin Cash, Dogecoin) seeds its index by applying every block from genesis through the follower. On those chains the follower fetches up to 32 blocks ahead on one goroutine and commits them in batches. A batch ends at 1,000 blocks or 200,000 coin operations, whichever comes first, with one sync and one meta write. Bitcoin and Litecoin still commit one block at a time, which the "per block" rows below measure.
+A chain with no UTXO export (Bitcoin Cash, Dogecoin) seeds its index by applying every block from genesis through the follower. On those chains the follower fetches up to 32 blocks ahead on one goroutine and commits them in batches. A batch ends at 1,000 blocks or 200,000 coin operations, whichever comes first, with one sync and one meta write. The blocks fetched ahead and not yet taken into a batch stay within 200,000 coin operations; a single larger block goes through alone. Bitcoin and Litecoin still commit one block at a time, which the "per block" rows below measure.
+
+The replay needs every block, so a pruned node is refused before it starts. The replay runs as a seed job until the index is within 10,000 blocks of the node's tip. From there the follower takes over, batching the same way.
 
 ## Method
 
@@ -34,6 +36,19 @@ The same test with `UTXO_REPLAY_CHAIN=bitcoincash BCH_REGTEST_IMAGE=ghcr.io/viji
 Both modes matched `scantxoutset` on 18,795 coins in every run. One batched busy run fell to 215 blocks/s, and the other two ran at 544 and 607 blocks/s. Bitcoin Cash blocks decode faster than Bitcoin's here, since they carry no witness data.
 
 `TestUtxoBitcoinCashReplayRegtestLive` also replays through the dashboard's seed path, with CashTokens outputs. A minting NFT with fungible tokens is created, then moved by a second transaction. The index matched `scantxoutset` after the replay and again after a one-block reorg. The token output's BCH is counted for its holder, and the spent token output leaves the index.
+
+### Large Bitcoin Cash blocks
+
+Bitcoin Cash's 2018 stress tests produced mainnet blocks of 8 to 32 MB. `UTXO_BCH_LARGE=1 BCH_REGTEST_IMAGE=… go test -run TestUtxoBitcoinCashLargeBlockReplay -v` builds four regtest blocks of 31.0 MB each. Each block holds 908 transactions of 1,000 outputs. A shell probe on one such block measured the node's memory with `docker stats`, sampled while `getblock` ran.
+
+| `getblock` of one 31.0 MB block | Response | BCHN memory |
+| --- | --- | --- |
+| verbosity 0 (raw hex) | 62.1 MB | 308 MiB before, about 347 MiB at peak |
+| verbosity 3 (JSON with prevouts) | 332.6 MB over RPC | 308 MiB before, about 2,956 MiB at peak |
+
+1. **The node pays about 2.6 GiB to serve one such block at verbosity 3.** In the four-block run, BCHN closed the connection on the fourth block's request. A Bitcoin Cash node under the default 2 GiB steady memory limit would likely be killed. The raw form costs it about 40 MiB.
+2. **The JSON is about 10.7 times the block's size, five times the 64 MiB RPC body limit.** The dashboard would also need roughly 0.8 GB to hold the body, its copy and the decoded block, against a 1 GB limit.
+3. **The replay of those blocks was not reached.** The test stopped when the node dropped the fourth request, so the dashboard's peak memory on large blocks is not measured.
 
 ## Findings
 
