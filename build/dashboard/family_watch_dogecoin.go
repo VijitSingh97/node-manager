@@ -24,7 +24,12 @@ func dogecoinIndexFamilyWatchBackend() familyWatchBackend {
 			if s.index == nil || s.index.Status().State != utxoStateReady {
 				return familyWatchTip{}, false
 			}
-			return base.ready(ctx, s, now)
+			// A ready index may trail by a block; with no other source the wallets wait for it rather than fail.
+			tip, ok := base.ready(ctx, s, now)
+			if st := s.index.Status(); !ok || st.IndexTip == nil || int64(*st.IndexTip) != tip.Blocks {
+				return familyWatchTip{}, false
+			}
+			return tip, true
 		},
 		scan: func(context.Context, *familyWatchStore, string, familyWatchTip) (familyWatchResult, string) {
 			return familyWatchResult{}, "index_behind"
