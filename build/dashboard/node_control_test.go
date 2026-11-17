@@ -237,8 +237,8 @@ func TestNodesHostStatsHealthReadingsKeepZeroAndOmitMissing(t *testing.T) {
 		}
 		return view.Host.Stats
 	}
-	got := read(`,"cpu_temp_c":59.5,"board_temp_c":45,"fans_rpm":[0,2506],"uptime_s":89878,"net_rx_bps":0,"net_tx_bps":1536`)
-	want := map[string]any{"cpu_temp_c": 59.5, "board_temp_c": 45.0, "fans_rpm": []any{0.0, 2506.0}, "uptime_s": 89878.0, "net_rx_bps": 0.0, "net_tx_bps": 1536.0}
+	got := read(`,"cpu_temp_c":59.5,"board_temp_c":45,"fans_rpm":[0,2506],"fans_max_rpm":[0,4825],"uptime_s":89878,"net_rx_bps":0,"net_tx_bps":1536`)
+	want := map[string]any{"cpu_temp_c": 59.5, "board_temp_c": 45.0, "fans_rpm": []any{0.0, 2506.0}, "fans_max_rpm": []any{0.0, 4825.0}, "uptime_s": 89878.0, "net_rx_bps": 0.0, "net_tx_bps": 1536.0}
 	for key, value := range want {
 		if fmt.Sprint(got[key]) != fmt.Sprint(value) {
 			t.Fatalf("%s = %#v, want %#v (stats %#v)", key, got[key], value, got)
