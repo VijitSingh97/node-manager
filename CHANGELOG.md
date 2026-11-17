@@ -19,6 +19,9 @@ All notable changes to this project are documented here. Format follows
   ADX instructions (before Intel Core 5th generation or AMD Ryzen). Zakura 1.8
   images require them and exit at startup otherwise; Settings now disables the
   Install button with the reason, and the host helper rejects the install.
+- `utxo-seed litecoin` checked litecoind's running commands without the node's
+  RPC configuration, so it stopped with "Litecoin RPC did not answer". It now
+  passes the same configuration file the node's health check uses.
 - `utxo-index bench` reads a relative wallet file path from the directory it was
   run in. On APT installs it looked in `/var/lib/node-manager` instead and
   reported a valid file as malformed; a missing file is now named as unreadable.

@@ -14,6 +14,14 @@ const utxoFollowInterval = 10 * time.Second
 
 const utxoBlockWait = 60 * time.Second
 
+const utxoReplayPrefetch = 32
+
+// A replay batch stops at whichever comes first, so a run of large blocks cannot hold gigabytes in one batch.
+var (
+	utxoReplayBatch    = 1000
+	utxoReplayBatchOps = 200_000
+)
+
 const (
 	utxoFollowIdle     = "idle"
 	utxoFollowCatching = "catching_up"
@@ -40,6 +48,7 @@ type utxoFollower struct {
 	rpc     utxoRPC
 	chain   *utxoChainParams
 	onBlock func(height uint32)
+	gate    func() error
 
 	mu       sync.Mutex
 	state    string
@@ -211,28 +220,27 @@ func (f *utxoFollower) Step(ctx context.Context) (err error) {
 		}
 	}
 	f.set(utxoFollowCatching, nil)
-	for h := next; h <= header.Height; h++ {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if err := f.applyHeight(ctx, h); err != nil {
-			if errors.Is(err, errUtxoNotContiguous) {
-				n, rerr := f.rollBack(ctx, header.Height)
-				if rerr != nil {
+	apply := f.applyHeights
+	if f.chain.Replay {
+		apply = f.applyRange
+	}
+	if err := apply(ctx, next, header.Height); err != nil {
+		if errors.Is(err, errUtxoNotContiguous) {
+			n, rerr := f.rollBack(ctx, header.Height)
+			if rerr != nil {
+				return rerr
+			}
+			var now string
+			if n == 0 {
+				if rerr := f.rpc.call(ctx, "getbestblockhash", nil, &now); rerr != nil {
 					return rerr
 				}
-				var now string
-				if n == 0 {
-					if rerr := f.rpc.call(ctx, "getbestblockhash", nil, &now); rerr != nil {
-						return rerr
-					}
-				}
-				if n > 0 || now != best {
-					return errUtxoChainMoved
-				}
 			}
-			return err
+			if n > 0 || now != best {
+				return errUtxoChainMoved
+			}
 		}
+		return err
 	}
 	return nil
 }
@@ -308,36 +316,128 @@ func (f *utxoFollower) rollBack(ctx context.Context, bestHeight uint32) (int, er
 	}
 }
 
+func (f *utxoFollower) applyHeights(ctx context.Context, from, to uint32) error {
+	for h := from; h <= to; h++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := f.applyHeight(ctx, h); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (f *utxoFollower) applyHeight(ctx context.Context, height uint32) error {
 	start := time.Now()
-	var hash string
-	if err := f.rpc.call(ctx, "getblockhash", []any{height}, &hash); err != nil {
-		return err
-	}
-	var raw utxoV3Block
-	if err := f.rpc.call(ctx, "getblock", []any{hash, f.chain.BlockVerbosity}, &raw); err != nil {
-		return err
-	}
-	blk, err := convertUtxoBlock(raw, f.chain.ReverseIndex)
+	blk, err := f.fetchBlock(ctx, height)
 	if err != nil {
 		return err
 	}
-	if blk.Height != height {
-		return fmt.Errorf("%w: asked for height %d, got %d", errUtxoBadBlock, height, blk.Height)
+	return f.applyBlocks([]utxoBlock{blk}, time.Since(start))
+}
+
+func (f *utxoFollower) fetchBlock(ctx context.Context, height uint32) (utxoBlock, error) {
+	var hash string
+	if err := f.rpc.call(ctx, "getblockhash", []any{height}, &hash); err != nil {
+		return utxoBlock{}, err
 	}
-	fetched := time.Now()
-	if err := f.store.ApplyBlock(blk); err != nil {
-		return fmt.Errorf("apply block %d: %w", height, err)
+	var raw utxoV3Block
+	if err := f.rpc.call(ctx, "getblock", []any{hash, f.chain.BlockVerbosity}, &raw); err != nil {
+		return utxoBlock{}, err
+	}
+	blk, err := convertUtxoBlock(raw, f.chain.ReverseIndex)
+	if err != nil {
+		return utxoBlock{}, err
+	}
+	if blk.Height != height {
+		return utxoBlock{}, fmt.Errorf("%w: asked for height %d, got %d", errUtxoBadBlock, height, blk.Height)
+	}
+	return blk, nil
+}
+
+func (f *utxoFollower) applyBlocks(blks []utxoBlock, fetchDur time.Duration) error {
+	started := time.Now()
+	if err := f.store.ApplyBlocks(blks); err != nil {
+		return fmt.Errorf("apply block %d: %w", blks[0].Height, err)
 	}
 	f.mu.Lock()
-	f.blocks++
-	f.fetchDur += fetched.Sub(start)
-	f.applyDur += time.Since(fetched)
+	f.blocks += len(blks)
+	f.fetchDur += fetchDur
+	f.applyDur += time.Since(started)
 	f.mu.Unlock()
 	if f.onBlock != nil {
-		f.onBlock(height)
+		f.onBlock(blks[len(blks)-1].Height)
 	}
 	return nil
+}
+
+// applyRange replays a long stretch: one goroutine fetches ahead while bounded batches commit with one sync each.
+func (f *utxoFollower) applyRange(ctx context.Context, from, to uint32) error {
+	if from > to {
+		return nil
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	var fetcher sync.WaitGroup
+	defer fetcher.Wait()
+	defer cancel()
+	type fetched struct {
+		blk utxoBlock
+		dur time.Duration
+		err error
+	}
+	queue := make(chan fetched, utxoReplayPrefetch)
+	fetcher.Go(func() {
+		defer close(queue)
+		for h := from; h <= to && ctx.Err() == nil; h++ {
+			start := time.Now()
+			blk, err := f.fetchBlock(ctx, h)
+			select {
+			case queue <- fetched{blk, time.Since(start), err}:
+			case <-ctx.Done():
+				return
+			}
+			if err != nil || h == to {
+				return
+			}
+		}
+	})
+	var (
+		batch    []utxoBlock
+		ops      int
+		fetchDur time.Duration
+	)
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		err := f.applyBlocks(batch, fetchDur)
+		batch, ops, fetchDur = batch[:0], 0, 0
+		if err == nil && f.gate != nil {
+			err = f.gate()
+		}
+		return err
+	}
+	for item := range queue {
+		if item.err != nil {
+			if err := flush(); err != nil {
+				return err
+			}
+			return item.err
+		}
+		batch = append(batch, item.blk)
+		ops += len(item.blk.Creates) + len(item.blk.Spends)
+		fetchDur += item.dur
+		if len(batch) >= utxoReplayBatch || ops >= utxoReplayBatchOps {
+			if err := flush(); err != nil {
+				return err
+			}
+		}
+	}
+	if err := flush(); err != nil {
+		return err
+	}
+	return ctx.Err()
 }
 
 // With reverse set, spends carry no script and the store resolves them through its reverse keys.

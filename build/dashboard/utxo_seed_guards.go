@@ -31,6 +31,7 @@ type seedRefusal struct {
 }
 
 type seedGuardInput struct {
+	Replay     bool
 	State      string
 	TempC      float64
 	TempErr    error
@@ -48,14 +49,24 @@ type seedGuardInput struct {
 
 func evaluateSeedGuards(in seedGuardInput) []seedRefusal {
 	var out []seedRefusal
-	for _, r := range []*seedRefusal{
-		stateGuard(in.State),
+	// A replay writes no sort runs, so it needs only the runtime free-space floor.
+	need := uint64(seedMinFreeBytes)
+	if in.Replay {
+		need = utxoMinFreeBytes
+	}
+	guards := []*seedRefusal{
+		stateGuard(in.State, in.Replay),
 		thermalStartGuard(in.TempC, in.TempErr),
 		cpuGuard(in.CPUs, in.CPUErr),
-		freeSpaceGuard(in.FreeBytes, in.FreeErr),
+		freeSpaceGuard(in.FreeBytes, need, in.FreeErr),
 		nodeGuard(in.Chain, in.TipTime, in.Now, in.ChainErr),
-		rpcIdleGuard(in.RPCMethods, in.RPCErr),
-	} {
+	}
+	if in.Replay {
+		guards = append(guards, archivalGuard(in.Chain, in.ChainErr))
+	} else {
+		guards = append(guards, rpcIdleGuard(in.RPCMethods, in.RPCErr))
+	}
+	for _, r := range guards {
 		if r != nil {
 			out = append(out, *r)
 		}
@@ -63,11 +74,18 @@ func evaluateSeedGuards(in seedGuardInput) []seedRefusal {
 	return out
 }
 
-func stateGuard(state string) *seedRefusal {
-	if state == utxoStateNotSeeded || state == utxoStateInvalid {
+func stateGuard(state string, replay bool) *seedRefusal {
+	if seedableState(state, replay) {
 		return nil
 	}
 	return &seedRefusal{"state", "index state is " + state}
+}
+
+func archivalGuard(info blockchainInfo, err error) *seedRefusal {
+	if err == nil && info.Pruned {
+		return &seedRefusal{"node", "the node is pruned; replaying every block needs an archival node"}
+	}
+	return nil
 }
 
 func thermalStartGuard(c float64, err error) *seedRefusal {
@@ -100,12 +118,12 @@ func cpuGuard(cpus float64, err error) *seedRefusal {
 	return nil
 }
 
-func freeSpaceGuard(free uint64, err error) *seedRefusal {
+func freeSpaceGuard(free, need uint64, err error) *seedRefusal {
 	if err != nil {
 		return &seedRefusal{"free_space", "free space is unreadable"}
 	}
-	if free < seedMinFreeBytes {
-		return &seedRefusal{"free_space", fmt.Sprintf("%.1f GB free, 27 GB needed", float64(free)/1e9)}
+	if free < need {
+		return &seedRefusal{"free_space", fmt.Sprintf("%.1f GB free, %.0f GB needed", float64(free)/1e9, float64(need)/1e9)}
 	}
 	return nil
 }

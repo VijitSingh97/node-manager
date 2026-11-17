@@ -163,16 +163,33 @@ func TestSeedSimpleGuards(t *testing.T) {
 	if cpuGuard(0.51, nil) == nil || cpuGuard(math.Inf(1), nil) == nil || cpuGuard(0, errors.New("x")) == nil {
 		t.Error("cpu over the cap or unreadable passed")
 	}
-	if freeSpaceGuard(seedMinFreeBytes, nil) != nil || freeSpaceGuard(seedMinFreeBytes-1, nil) == nil || freeSpaceGuard(seedMinFreeBytes, errors.New("x")) == nil {
+	if freeSpaceGuard(seedMinFreeBytes, seedMinFreeBytes, nil) != nil || freeSpaceGuard(seedMinFreeBytes-1, seedMinFreeBytes, nil) == nil || freeSpaceGuard(seedMinFreeBytes, seedMinFreeBytes, errors.New("x")) == nil {
 		t.Error("free space boundary")
+	}
+	if r := freeSpaceGuard(1e9, seedMinFreeBytes, nil); r == nil || r.Detail != "1.0 GB free, 27 GB needed" {
+		t.Errorf("dump free-space refusal %+v", r)
+	}
+	low := seedGuardInput{State: utxoStateCatching, TempC: 50, CPUs: 0.5, FreeBytes: 3e9, Chain: blockchainInfo{Headers: 1, Blocks: 1}, TipTime: time.Unix(1, 0), Now: time.Unix(1, 0)}
+	if got := evaluateSeedGuards(low); len(got) != 2 || got[0].Guard != "state" || got[1].Guard != "free_space" {
+		t.Errorf("a dump seed with 3 GB free: %+v", got)
+	}
+	low.Replay = true
+	if got := evaluateSeedGuards(low); len(got) != 0 {
+		t.Errorf("a replay resuming with 3 GB free was refused: %+v", got)
 	}
 	for state, refused := range map[string]bool{
 		utxoStateNotSeeded: false, utxoStateInvalid: false, utxoStateSeeding: true,
 		utxoStateCatching: true, utxoStateReady: true, utxoStateDegraded: true, utxoStateOff: true,
 	} {
-		if (stateGuard(state) != nil) != refused {
+		if (stateGuard(state, false) != nil) != refused {
 			t.Errorf("state %s refused=%v", state, !refused)
 		}
+		if replayRefused := refused && state != utxoStateCatching; (stateGuard(state, true) != nil) != replayRefused {
+			t.Errorf("replay state %s refused=%v", state, !replayRefused)
+		}
+	}
+	if archivalGuard(blockchainInfo{Pruned: true}, nil) == nil || archivalGuard(blockchainInfo{}, nil) != nil || archivalGuard(blockchainInfo{Pruned: true}, errors.New("x")) != nil {
+		t.Error("archival guard")
 	}
 	if rpcIdleGuard(nil, nil) != nil || rpcIdleGuard([]string{"getrpcinfo"}, nil) != nil {
 		t.Error("idle rpc refused")
@@ -444,7 +461,7 @@ func TestGatherSeedGuardsUnreadableFreeSpace(t *testing.T) {
 	m := utxoMgrNew(t, t.TempDir(), nil, newFakeUtxoNode(utxoMgrChain(5, "b")), io.Discard)
 	m.dir = filepath.Join(t.TempDir(), "missing")
 	in := m.gatherSeedGuards(t.Context())
-	if in.FreeErr == nil || freeSpaceGuard(in.FreeBytes, in.FreeErr) == nil {
+	if in.FreeErr == nil || freeSpaceGuard(in.FreeBytes, seedMinFreeBytes, in.FreeErr) == nil {
 		t.Fatalf("unreadable free space must refuse: %+v", in)
 	}
 }

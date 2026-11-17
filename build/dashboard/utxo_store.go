@@ -344,19 +344,50 @@ func (s *utxoStore) Tip() (height uint32, hash [32]byte, ok bool, err error) {
 }
 
 func (s *utxoStore) ApplyBlock(blk utxoBlock) error {
+	return s.ApplyBlocks([]utxoBlock{blk})
+}
+
+// ApplyBlocks writes contiguous blocks in one batch with one sync and one meta write.
+func (s *utxoStore) ApplyBlocks(blks []utxoBlock) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.usable(); err != nil {
 		return err
 	}
-	if s.meta.HasTip {
-		tip, _ := decodeUtxoTip(s.meta)
-		if blk.Height != s.meta.TipHeight+1 || blk.PrevHash != tip {
-			return errUtxoNotContiguous
-		}
+	if len(blks) == 0 {
+		return nil
 	}
 	b := s.db.NewIndexedBatch()
 	defer b.Close()
+	meta := s.meta
+	for _, blk := range blks {
+		if meta.HasTip {
+			tip, _ := decodeUtxoTip(meta)
+			if blk.Height != meta.TipHeight+1 || blk.PrevHash != tip {
+				return errUtxoNotContiguous
+			}
+		}
+		if err := s.writeBlockLocked(b, blk); err != nil {
+			return err
+		}
+		meta.HasTip, meta.TipHeight, meta.TipHash = true, blk.Height, hex.EncodeToString(blk.Hash[:])
+	}
+	if err := b.Set(utxoMetaKey, mustMarshalUtxoMeta(meta), nil); err != nil {
+		return err
+	}
+	if s.beforeCommit != nil {
+		if err := s.beforeCommit(); err != nil {
+			return err
+		}
+	}
+	if err := s.commit(b); err != nil {
+		return err
+	}
+	s.meta = meta
+	return nil
+}
+
+func (s *utxoStore) writeBlockLocked(b *pebble.Batch, blk utxoBlock) error {
 	var inverse []byte
 	for _, c := range blk.Creates {
 		if !utxoSpendable(c.Script) {
@@ -413,20 +444,6 @@ func (s *utxoStore) ApplyBlock(blk utxoBlock) error {
 			return err
 		}
 	}
-	meta := s.meta
-	meta.HasTip, meta.TipHeight, meta.TipHash = true, blk.Height, hex.EncodeToString(blk.Hash[:])
-	if err := b.Set(utxoMetaKey, mustMarshalUtxoMeta(meta), nil); err != nil {
-		return err
-	}
-	if s.beforeCommit != nil {
-		if err := s.beforeCommit(); err != nil {
-			return err
-		}
-	}
-	if err := s.commit(b); err != nil {
-		return err
-	}
-	s.meta = meta
 	return nil
 }
 

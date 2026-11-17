@@ -437,11 +437,7 @@ func (a *app) queueSeedHostAction(node string) (id, refusal string) {
 	if a.controlRequestPending() {
 		return "", hostChangePending
 	}
-	raw := make([]byte, 16)
-	if _, err := rand.Read(raw); err != nil {
-		return "", "the host request could not be written"
-	}
-	id = hex.EncodeToString(raw)
+	id = newSeedRequestID()
 	b, _ := json.Marshal(hostControlRequest{ID: id, Action: "utxo_seed", Node: node, RequestedAt: time.Now().Unix()})
 	if writePrivateFileAtomic(a.nodeControlPath("request"), append(b, '\n')) != nil {
 		return "", "the host request could not be written"
