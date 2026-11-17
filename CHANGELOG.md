@@ -6,6 +6,12 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- A weekly, on-demand test that starts every node (Tari and its wallet, Litecoin,
+  Dogecoin, Bitcoin Cash and Zcash as well as Bitcoin and Monero) and checks that
+  none can reach the internet or resolve a public name while Tor is stopped.
+
 ## [1.37.0] - 2026-11-17
 
 ### Added

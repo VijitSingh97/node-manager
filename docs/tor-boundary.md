@@ -65,8 +65,8 @@ container, and do not give any container a route.
 
 No direct route out of a running container was found: every item below was
 blocked by `internal: true` and the loopback DNS. They were places where the
-boundary rested on one layer instead of two. Gaps 1 to 3 and 5 are fixed and each
-has a failing test; 4 remains.
+boundary rested on one layer instead of two. Gaps 1 to 5 are fixed and each
+has a failing test or a probe.
 
 1. **Fixed: dashboard RPC and gRPC clients used Go's default transport.** The
    clients honoured `HTTP_PROXY`-style variables, and many followed redirects,
@@ -114,11 +114,15 @@ has a failing test; 4 remains.
    and `tests/test_compose.sh`. Still unverified: `tests/test_tari_wallet_native.sh`
    (opt-in, needs Docker) was not run, so the pinned image itself was not started
    with the new file.
-4. **Runtime probe covers only the services the e2e boots.** `tests/test_e2e.sh`
-   starts Bitcoin, Monero (with its wallet) and the dashboard. Tari, Tari wallet,
-   Litecoin, Dogecoin, Bitcoin Cash and Zakura are covered by the static compose
-   test, which asserts the same network, DNS and port properties, but not by a
-   live probe.
+4. **Fixed: runtime probe covered only Bitcoin, Monero and the dashboard.**
+   `E2E_ALL_NODES=1 CI=1 tests/test_e2e.sh` also boots Tari, Tari wallet,
+   Litecoin, Dogecoin, Bitcoin Cash and Zakura (no sync needed) and requires all
+   of them in the probe list. It runs weekly and on demand in
+   `.github/workflows/e2e-all-nodes.yml`, not on every pull request, because it
+   builds and pulls many images. It needs a Linux host CPU with BMI2 and ADX
+   (Zakura's image) and fails with a message if they are missing. Not yet run:
+   written without Docker, so the first run may need healthcheck or timeout
+   tuning.
 5. **Fixed: single-label host names counted as internal.** `internalNodeHost`
    accepts any name without a dot, so a host-run dashboard with a DNS search
    suffix could resolve such a name to a public address. The dial check from gap 1
@@ -135,7 +139,7 @@ has a failing test; 4 remains.
 | Same file, node group | Bitcoin Core, the family nodes (rendered from the real entrypoint for clearnet and onion-only, inbound on and off), Monero, Tari, its wallet or either Zakura config loses its Tor proxy or opt-out, gains a direct peer, DNS seed, port mapping, update check or clearnet listener, or the DoH seed lookup stops using Tor with remote DNS; Bitcoin Core loses `natpmp=0` or gains `upnp`; a family node loses `upnp=0` (Bitcoin Cash also `natpmp=0`); Monero loses `no-igd=1`; the Tari node or wallet loses `check_interval = 0` or sets a Tor control address. |
 | Same file, host-script group | A script, entrypoint, Dockerfile or compose file gains a network-capable command (`curl`, `wget`, `nc`, `socat`, `ssh`, `git` remote verbs, `gh`, `apt`, `brew`, `pip`, `npm`, `go mod download`, `docker pull/run/build`, `compose pull/up`, `/dev/tcp`, Python sockets) that is not provably loopback-only, Tor-routed or offline and not listed in `tests/tor_boundary_allowlist.txt`. |
 | `build/dashboard/egress_boundary_test.go` | A dashboard source file or `build/tari-wallet/launcher.go` starts using `net.Dial`, a resolver lookup, `http.Get`, the default client or transport, `tls.Dial`, `os/exec`, a reverse proxy, a raw `syscall` socket call, or constructs a new `http.Client`, `http.Transport`, `net.Dialer` or gRPC channel (including as a zero-value struct field, slice element or `make`) outside the reviewed list; dot-imports a package; names a new host in a URL literal, a `Host:` field or `net.JoinHostPort`; imports `net/smtp`, `golang.org/x/sys/unix` or similar; names a new URL host; or builds a monitor or price client without the Tor dialer, with a proxy-from-environment transport, or with redirects enabled. A new internal client must come from `newInternalHTTPClient`. Also pins which public names `validateInternalHTTPURL` rejects, that the shared internal client has no proxy, never follows a redirect and refuses to dial a public address, that every gRPC channel passes `WithNoProxy` and the internal dialer, that the gRPC dialer refuses a public address, and that every node URL is checked even when its node is disabled. |
-| `tests/test_e2e.sh` (CI, needs Docker) | Tor cannot reach `1.1.1.1:443` itself (the probe control), or, with Tor stopped, any running non-Tor container connects to a public IPv4 or IPv6 address, resolves a public name, queries a public DNS server, lacks loopback-only DNS, or holds an established connection outside the stack subnet. The service list comes from `docker compose ps`, so new services are probed automatically. This step was added without being run locally (it needs Docker); only `bash -n` and `shellcheck` were run. |
+| `tests/test_e2e.sh` (CI, needs Docker) | Tor cannot reach `1.1.1.1:443` itself (the probe control), or, with Tor stopped, any running non-Tor container connects to a public IPv4 or IPv6 address, resolves a public name, queries a public DNS server, lacks loopback-only DNS, or holds an established connection outside the stack subnet. The service list comes from `docker compose ps`, so new services are probed automatically. With `E2E_ALL_NODES=1` (weekly workflow) every node service must be in that list. This step was added without being run locally (it needs Docker); only `bash -n` and `shellcheck` were run. |
 
 Each checker has mutation tests: they edit the real file text, or feed a synthetic
 script or Go source, and assert the violation is reported.
@@ -146,6 +150,7 @@ Run them:
 python3 -m unittest tests.test_tor_boundary
 cd build/dashboard && go test -run 'Egress|ExternalClients|StackInternal|ExternalHosts' ./...
 CI=1 tests/test_e2e.sh   # clean checkout, Docker, port 80
+E2E_ALL_NODES=1 CI=1 tests/test_e2e.sh   # every node; Linux with BMI2 and ADX
 ```
 
 The first two need no Docker and no network, and run in `tests/run.sh`.

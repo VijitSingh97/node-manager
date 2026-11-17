@@ -308,6 +308,19 @@ class RuntimeProbeWiringTest(unittest.TestCase):
                 self.assertIn(marker, e2e)
         self.assertRegex(e2e, r'for probed in "\$\{probed_services\[@\]\}"; do')
 
+    def test_the_all_nodes_mode_requires_every_node_in_the_probe(self):
+        e2e = read("tests/test_e2e.sh")
+        self.assertIn("E2E_ALL_NODES", e2e)
+        self.assertRegex(e2e, r"required_services\+=\(tari tari-wallet litecoin dogecoin bitcoincash zcash\)")
+        self.assertRegex(e2e, r"for required in \"\$\{required_services\[@\]\}\"; do")
+        for flag in ("bmi2", "adx"):
+            self.assertIn(flag, e2e)
+        workflow = read(".github/workflows/e2e-all-nodes.yml")
+        self.assertIn("E2E_ALL_NODES", workflow)
+        triggers = workflow.split("permissions:")[0]
+        self.assertRegex(triggers, r"pull_request:\n    paths:\n      - \.github/workflows/e2e-all-nodes\.yml\n  schedule:")
+        self.assertEqual(triggers.count("- "), 2, "the pull_request trigger must stay limited to this workflow file")
+
     def test_the_boundary_tests_run_with_the_suite(self):
         runner = read("tests/run.sh")
         self.assertIn("tests.test_tor_boundary", runner)
