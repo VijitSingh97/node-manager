@@ -60,6 +60,12 @@ type utxoSeedHost struct {
 // A failed automatic seed stalls the node's RPC for minutes, so retries back off and stop after utxoAutoSeedTries.
 var utxoAutoSeedBackoff = []time.Duration{6 * time.Hour, 24 * time.Hour}
 
+// A node restart, an RPC timeout or a reorg near the tip is retried within the replay for about five minutes before it waits for the hourly check.
+var (
+	utxoReplayRetries   = 30
+	utxoReplayRetryWait = utxoFollowInterval
+)
+
 type seedRequest struct {
 	ID          string `json:"id"`
 	RequestedAt int64  `json:"requested_at"`
@@ -419,45 +425,79 @@ func (m *utxoManager) seedFromReplay(parent context.Context) error {
 	go m.watchSeedCancel(ctx, cancel)
 	m.setSeedPhase(utxoPhaseReplaying)
 	gate := &seedGate{m: m, ctx: ctx}
-	f, store := m.follower, m.currentStore()
+	f := m.follower
 	f.gate = gate.checkpoint
 	defer func() { f.gate = nil }()
-	var genesis string
-	if err := m.rpc.call(ctx, "getblockhash", []any{uint32(0)}, &genesis); err != nil {
-		return err
-	}
-	for {
+	for retries := 0; ; {
 		if err := gate.checkpoint(); err != nil {
 			return err
 		}
-		var info blockchainInfo
-		if err := m.rpc.call(ctx, "getblockchaininfo", nil, &info); err != nil {
-			return err
-		}
-		if err := store.BindChain(info.Chain, genesis); err != nil {
-			return err
-		}
-		m.bound = true
-		m.mu.Lock()
-		m.nodeTip = info.Blocks
-		m.mu.Unlock()
-		height, _, hasTip, err := store.Tip()
-		if err != nil {
-			return err
-		}
-		if hasTip && info.Blocks-int64(height) <= utxoReplayGap {
+		before := m.replayHeight()
+		done, err := m.replayStep(ctx)
+		switch {
+		case err == nil && done:
 			return nil
-		}
-		if err := f.Step(ctx); err != nil {
-			if cause := context.Cause(ctx); cause != nil {
-				return cause
-			}
-			if f.Status().State == utxoFollowError {
-				m.fail(err)
-			}
+		case err == nil:
+			retries = 0
+			continue
+		case context.Cause(ctx) != nil:
+			return context.Cause(ctx)
+		case f.Status().State == utxoFollowError || utxoIntegrityError(err) || errors.Is(err, errUtxoChainMismatch) || errors.Is(err, syscall.ENOSPC):
+			m.fail(err)
 			return err
 		}
+		// A step that committed blocks before it failed made progress, so only consecutive stalls use up the retries.
+		if m.replayHeight() != before {
+			retries = 0
+		}
+		if retries >= utxoReplayRetries {
+			return err
+		}
+		retries++
+		m.setSeedPhase(utxoPhaseRetrying)
+		select {
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		case <-time.After(utxoReplayRetryWait):
+		}
+		m.setSeedPhase(utxoPhaseReplaying)
 	}
+}
+
+func (m *utxoManager) replayHeight() int64 {
+	h, _, ok, err := m.currentStore().Tip()
+	if err != nil || !ok {
+		return -1
+	}
+	return int64(h)
+}
+
+// replayStep applies blocks up to the node's tip and reports whether the index is close enough to hand to the follower.
+func (m *utxoManager) replayStep(ctx context.Context) (bool, error) {
+	var genesis string
+	if err := m.rpc.call(ctx, "getblockhash", []any{uint32(0)}, &genesis); err != nil {
+		return false, err
+	}
+	var info blockchainInfo
+	if err := m.rpc.call(ctx, "getblockchaininfo", nil, &info); err != nil {
+		return false, err
+	}
+	store := m.currentStore()
+	if err := store.BindChain(info.Chain, genesis); err != nil {
+		return false, err
+	}
+	m.bound = true
+	m.mu.Lock()
+	m.nodeTip = info.Blocks
+	m.mu.Unlock()
+	height, _, hasTip, err := store.Tip()
+	if err != nil {
+		return false, err
+	}
+	if hasTip && info.Blocks-int64(height) <= utxoReplayGap {
+		return true, nil
+	}
+	return false, m.follower.Step(ctx)
 }
 
 type seedGate struct {

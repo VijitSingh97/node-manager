@@ -8,12 +8,12 @@ All notable changes to this project are documented here. Format follows
 
 ### Fixed
 
-- "Price unavailable" no longer appears for a minute or two after a settings
-  change restarts Tor and the dashboard. The dashboard now saves its last good
-  prices in its state directory (`prices.json`), shows them as stale with their
-  original time after a restart, and replaces them when the next fetch over Tor
-  succeeds. While prices are unavailable or stale the page checks every 10
-  seconds instead of every minute, so fresh prices appear as soon as Tor is up.
+- Saving LAN port changes, or resetting a node's RPC password, reported
+  "Request already processed." even though the change applied. Both recreate
+  the dashboard, and the host helper then wrote its result into the old
+  dashboard container, failed, and left the request to be seen again as a replay
+  on its next run. It now finds the current dashboard container for every
+  write.
 - Exposing a node's RPC, ZMQ or gRPC port on the LAN failed with "Port
   availability could not be checked." on hosts running Tailscale. The port check
   could not read listeners that `ss` prints with an interface scope, such as
@@ -28,6 +28,12 @@ All notable changes to this project are documented here. Format follows
   Host event, forwarded to Telegram), and the panel shows Stopped with the same
   reason; **Start node** tries again. Nodes that crash after running a while, or
   recover within 10 minutes, keep Docker's normal restarts.
+- "Price unavailable" no longer appears for a minute or two after a settings
+  change restarts Tor and the dashboard. The dashboard now saves its last good
+  prices in its state directory (`prices.json`), shows them as stale with their
+  original time after a restart, and replaces them when the next fetch over Tor
+  succeeds. While prices are unavailable or stale the page checks every 10
+  seconds instead of every minute, so fresh prices appear as soon as Tor is up.
 - A failed node install now says why. Settings shows the last error line from
   the step that failed (for example an image that could not be pulled), and a
   "<Node> install failed" Host event reaches Telegram. Host events other than
@@ -53,6 +59,28 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
+- Settings → Node set has a **Delete…** button next to **Move data…** that
+  removes a deactivated node so it can be installed again from scratch. It is
+  disabled for an active node, a node that is not installed, and the last
+  installed node. A dialog warns that the step cannot be undone, names the data
+  folder, balance-index or wallet volumes, configuration and credentials, and
+  watch-only wallets with their saved balances and history that will go, and
+  needs the node's name typed before it enables **Delete on Save**. The host
+  re-checks the request, applies the smaller configuration first (a failed apply
+  restores the old one and deletes nothing), refuses unsafe data folders
+  (symbolic links, `/`, your home, the app, state, config or Docker
+  directories, another node's folder), then removes the node's containers,
+  volumes and data, clears its resource-profile and seed state, and logs a
+  `Host: <Node> deleted` event. The dashboard drops that coin's watch-only
+  wallets and balance history and keeps retrying across restarts; a failed
+  handoff of that removal to the dashboard is retried on the next helper run.
+- Instant Litecoin balances: `litecoin.utxo_index` (Settings → Balance index →
+  "Instant Litecoin balances") keeps a Litecoin balance index, and the Litecoin
+  watch-only card reads its balances from it once it is seeded, updating within a
+  minute of each block. It is on by default when Litecoin is installed from the
+  dashboard, seeds itself like the Bitcoin index, and has `utxo-seed litecoin`
+  and `utxo-index remove litecoin`. Only one balance index seeds at a time.
+  Balances cover transparent outputs only; funds inside MWEB are not counted.
 - Nodes that are restarting because of a settings change now turn grey with a
   **Restarting** badge and "Restarting after a settings change…" on the panel,
   instead of looking down or connecting. A node counts as restarting from the
@@ -66,13 +94,6 @@ All notable changes to this project are documented here. Format follows
   only those nodes show as restarting. A node that is known to
   have failed to start still shows Stopped with the reason. LAN port changes
   restart only Tor and the dashboard, so nodes stay as they are.
-- Instant Litecoin balances: `litecoin.utxo_index` (Settings → Balance index →
-  "Instant Litecoin balances") keeps a Litecoin balance index, and the Litecoin
-  watch-only card reads its balances from it once it is seeded, updating within a
-  minute of each block. It is on by default when Litecoin is installed from the
-  dashboard, seeds itself like the Bitcoin index, and has `utxo-seed litecoin`
-  and `utxo-index remove litecoin`. Only one balance index seeds at a time.
-  Balances cover transparent outputs only; funds inside MWEB are not counted.
 - The Bitcoin balance index is on by default for new pruned installs. APT and
   Homebrew setup, and installing Bitcoin from the dashboard, write
   `bitcoin.utxo_index: true` when the node is pruned; existing installs and

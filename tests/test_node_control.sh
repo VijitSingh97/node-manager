@@ -73,6 +73,13 @@ cat >"$tmp/docker" <<'EOF'
 set -eu
 if [ "$1" = ps ]; then
   case "$*" in *--format*) [ ! -f "${FAKE_SERVICE_IDS:-/nonexistent}" ] || cat "$FAKE_SERVICE_IDS"; exit 0 ;; esac
+  case "$*" in *--filter\ volume=*)
+    [ "${FAKE_VOLUME_IN_USE:-0}" != 1 ] || printf 'container-using-volume\n'
+    exit 0 ;;
+  esac
+  all="$*"
+  fake_service=${all##*com.docker.compose.service=}
+  case " ${FAKE_CONTAINERS:-} " in *" ${fake_service%% *} "*) printf '%s-ctr\n' "${fake_service%% *}" ;; esac
   case "$*" in *com.docker.compose.service=dashboard*) [ "${FAKE_DASHBOARD_MISSING:-0}" = 1 ] || printf 'dashboard-id\n' ;; esac
   case "$*" in *com.docker.compose.service=bitcoin* | *com.docker.compose.service=litecoin*)
     all="$*"
@@ -88,6 +95,21 @@ if [ "$1" = inspect ]; then
   esac
   exit 0
 fi
+[ "$1" != rm ] || {
+  printf 'docker %s\n' "$*" >>"$FAKE_DOCKER_LOG"
+  exit 0
+}
+[ "$1" != volume ] || {
+  printf 'docker %s\n' "$*" >>"$FAKE_DOCKER_LOG"
+  case "$2" in
+    ls) cat "$FAKE_VOLUMES" 2>/dev/null || true ;;
+    rm)
+      [ "${FAKE_VOLUME_RM_FAIL:-0}" != 1 ] || exit 1
+      grep -vxF "$3" "$FAKE_VOLUMES" >"$FAKE_VOLUMES.next" || true
+      mv "$FAKE_VOLUMES.next" "$FAKE_VOLUMES" ;;
+  esac
+  exit 0
+}
 [ "$1" != update ] || {
   printf '%s\n' "$*" >>"$FAKE_STACK_LOG"
   [ "${FAKE_DOCKER_UPDATE_FAIL:-0}" != 1 ] || exit 1
@@ -107,6 +129,7 @@ fi
 [ "$1" = dashboard-id ]
 shift
 if [ "$1" = sh ] && [ "$2" = -c ]; then
+  case "$3" in *node-delete.*) [ "${FAKE_HANDOFF_FAIL:-0}" != 1 ] || exit 1 ;; esac
   command=${3//\/state/$FAKE_DASH_STATE}
   exec sh -c "$command"
 fi
@@ -130,6 +153,7 @@ export FAKE_DOCKER_UPDATE_FAIL_ONCE=0 FAKE_DOCKER_UPDATE_FAIL_MARKER=$tmp/docker
 export FAKE_DOCKER_UPDATE_FAIL=0
 export FAKE_STACK_INTERRUPT_ON_PULL=0
 export FAKE_DASHBOARD_MISSING=0
+export FAKE_DOCKER_LOG=$tmp/stack.log FAKE_VOLUMES=$tmp/volumes FAKE_CONTAINERS='' FAKE_VOLUME_IN_USE=0 FAKE_VOLUME_RM_FAIL=0
 export NODE_CONTROL_ARCH=x86_64 NODE_CONTROL_CPU_FLAGS="fpu sse4_2 avx2 bmi1 bmi2 adx"
 
 request() { printf '%s\n' "$1" >"$dashboard_state/node-control.request"; }
@@ -618,5 +642,263 @@ request '{"action":"install","id":"8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a","node":"lit
 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 [ "$(status .state)" = applied ] || fail "litecoin reinstall was not applied: $(status .message)"
 [ "$(jq -c .litecoin.utxo_index "$config/config.json")" = false ] || fail "a Litecoin reinstall turned an explicitly off index back on"
+
+# --- delete ---
+export BITCOIN_STACK_PROJECT_NAME=ds
+run_nc() { BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"; }
+del_base=$resolved_tmp/deletecase
+del_seq=0
+del_request() {
+  del_seq=$((del_seq + 1))
+  del_id=$(printf '%032x' "$((0xd0 + del_seq))")
+  request "{\"action\":\"delete\",\"confirmation\":\"${2-$1}\",\"id\":\"$del_id\",\"node\":\"$1\",\"requested_at\":1000}"
+}
+write_config() {
+  jq -S . "$1" >"$config/config.json.next"
+  mv "$config/config.json.next" "$config/config.json"
+  jq -S . "$config/config.json" >"$state/.approved-config.json"
+  cp "$state/.env" "$state/.approved.env"
+}
+delete_setup() {
+  rm -rf "$del_base"
+  for node in bitcoin litecoin monero tari zcash; do
+    mkdir -p "$del_base/$node/sub"
+    printf 'chain' >"$del_base/$node/blocks.dat"
+    : >"$del_base/$node/sub/.hidden"
+  done
+  printf 'DASHBOARD_PASSWORD=testpassword\n' >"$state/.env"
+  jq -n --arg d "$del_base" '{
+    bitcoin:{enabled:true,active:true,utxo_index:true,prune_mb:5000,data_dir:($d+"/bitcoin")},
+    wallets:[{name:"Savings",key:"bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"}],
+    monero:{enabled:true,active:false,data_dir:($d+"/monero"),node_password:"moneropassword1234567890123456"},
+    tari:{enabled:true,active:true,data_dir:($d+"/tari")},
+    litecoin:{enabled:true,active:false,utxo_index:true,data_dir:($d+"/litecoin"),node_password:"litecoinpassword1234567890123456"},
+    zcash:{enabled:true,active:false,data_dir:($d+"/zcash")},
+    dashboard:{launch_at_boot:false}
+  }' >"$tmp/config.delete"
+  write_config "$tmp/config.delete"
+  printf '%s\n' ds_utxo_index ds_utxo_index_litecoin ds_monero_wallets ds_tari_wallet ds_tari_wallet_data ds_unrelated >"$FAKE_VOLUMES"
+  : >"$tmp/stack.log"
+  for leftover in events.log node-delete.bitcoin node-delete.litecoin node-delete.monero node-delete.tari utxo-seed.json litecoin-utxo-seed.json; do
+    rm -f "$dashboard_state/$leftover"
+  done
+  rm -f "$state/node-control/delete-pending.json" "$FAKE_STACK_FAIL_MARKER"
+  rm -rf "$state/resource-profile" "$state/thermal-throttle"
+  mkdir -p "$state/resource-profile" "$state/thermal-throttle"
+  for marker in litecoin monero monero-wallet bitcoin failing-litecoin failed-litecoin; do : >"$state/resource-profile/$marker"; done
+  : >"$state/thermal-throttle/litecoin"
+  printf '{"seed_state":"seeded"}\n' >"$dashboard_state/utxo-seed.json"
+  printf '{"seed_state":"seeded"}\n' >"$dashboard_state/litecoin-utxo-seed.json"
+  config_before=$(jq -S -c . "$config/config.json")
+}
+delete_touched_nothing() {
+  [ "$(jq -S -c . "$config/config.json")" = "$config_before" ] || fail "$1: the config changed"
+  ! grep -qE '^docker (volume rm|rm) ' "$tmp/stack.log" || fail "$1: containers or volumes were removed"
+  for node in bitcoin litecoin monero tari zcash; do
+    [ -f "$del_base/$node/blocks.dat" ] && [ -e "$del_base/$node/sub/.hidden" ] || fail "$1: $node data was touched"
+  done
+  [ ! -e "$dashboard_state/node-delete.litecoin" ] && [ ! -e "$state/node-control/delete-pending.json" ] || fail "$1: a deletion marker was left"
+  ! grep -q deleted "$dashboard_state/events.log" 2>/dev/null || fail "$1: a deleted event was logged"
+}
+volume_removals() { grep -c '^docker volume rm ' "$tmp/stack.log" || true; }
+
+delete_setup
+jq -e '.delete_supported == true' "$dashboard_state/node-control.capability" >/dev/null || fail "delete support was not published"
+del_request tari
+run_nc
+[ "$(status .action):$(status .state):$(status .error_code):$(status .node)" = delete:rejected:node_active:tari ] || fail "an active node was deleted: $(cat "$dashboard_state/node-control.status")"
+delete_touched_nothing "active node"
+
+delete_setup
+del_request litecoin wrong
+run_nc
+[ "$(status .action):$(status .error_code)" = delete:invalid_request ] || fail "a wrong confirmation was accepted"
+delete_touched_nothing "wrong confirmation"
+delete_setup
+request '{"action":"delete","id":"d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1","node":"litecoin","requested_at":1000}'
+run_nc
+[ "$(status .error_code)" = invalid_request ] || fail "a delete without a confirmation was accepted"
+delete_touched_nothing "missing confirmation"
+delete_setup
+request '{"action":"delete","confirmation":"litecoin","data_dir":"/","id":"d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2","node":"litecoin","requested_at":1000}'
+run_nc
+[ "$(status .error_code)" = invalid_request ] || fail "a delete carrying a data folder was accepted"
+delete_touched_nothing "smuggled data folder"
+
+delete_setup
+jq '.zcash.enabled=false' "$config/config.json" >"$tmp/config.delete"
+write_config "$tmp/config.delete"
+config_before=$(jq -S -c . "$config/config.json")
+del_request zcash
+run_nc
+[ "$(status .error_code)" = not_installed ] || fail "an uninstalled node was deleted"
+delete_touched_nothing "not installed"
+
+delete_setup
+jq -n --arg d "$del_base" '{bitcoin:{enabled:true,active:false,data_dir:($d+"/bitcoin")}}' >"$tmp/config.delete"
+write_config "$tmp/config.delete"
+config_before=$(jq -S -c . "$config/config.json")
+del_request bitcoin
+run_nc
+[ "$(status .error_code)" = last_node ] || fail "the last installed node was deleted: $(cat "$dashboard_state/node-control.status")"
+delete_touched_nothing "last node"
+jq -n '{bitcoin:{enabled:true,active:false},litecoin:{enabled:false}}' >"$tmp/config.delete"
+write_config "$tmp/config.delete"
+del_request bitcoin
+run_nc
+[ "$(status .error_code)" = last_node ] || fail "an uninstalled node counted as another installed node"
+
+state_real=$(cd "$state" && pwd -P)
+root_real=$(cd "$root" && pwd -P)
+config_real=$(cd "$config" && pwd -P)
+mkdir -p "$state_real/node-control" "$root_real/scripts" "$config_real/protected"
+ln -s "$del_base/monero" "$tmp/data-link"
+for unsafe in "$tmp/data-link" "$state_real" "$HOME" / "$del_base" "$del_base/monero" "$del_base/litecoin/" "$del_base/./litecoin" /var/lib/docker \
+  "$state_real/node-control" "$root_real/scripts" "$config_real/protected" \
+  "$root_real/missing-folder" "$state_real/missing-folder" "$del_base/monero/missing-folder"; do
+  delete_setup
+  jq --arg d "$unsafe" '.litecoin.data_dir=$d' "$config/config.json" >"$tmp/config.delete"
+  write_config "$tmp/config.delete"
+  config_before=$(jq -S -c . "$config/config.json")
+  del_request litecoin
+  FAKE_CONTAINERS=litecoin run_nc
+  [ "$(status .state):$(status .error_code)" = rejected:data_path_invalid ] || fail "unsafe data folder $unsafe was accepted: $(cat "$dashboard_state/node-control.status")"
+  delete_touched_nothing "unsafe data folder $unsafe"
+  [ -d "$state_real" ] && [ -f "$state/.env" ] && [ -f "$config/config.json" ] || fail "unsafe data folder $unsafe damaged the stack"
+done
+
+if [ "$(id -u)" != 0 ]; then
+  delete_setup
+  chmod 555 "$del_base/litecoin"
+  del_request litecoin
+  FAKE_CONTAINERS=litecoin run_nc
+  [ "$(status .state):$(status .error_code)" = rejected:data_path_invalid ] || fail "a data folder the host cannot write was accepted"
+  chmod 755 "$del_base/litecoin"
+  delete_touched_nothing "read-only data folder"
+fi
+
+delete_setup
+del_request litecoin
+FAKE_STACK_FAIL_APPLY_ONCE=1 FAKE_CONTAINERS=litecoin run_nc
+[ "$(status .state):$(status .error_code)" = failed:apply_failed ] || fail "a failed apply was not reported: $(cat "$dashboard_state/node-control.status")"
+delete_touched_nothing "failed apply"
+[ "$(grep -c '^apply$' "$tmp/stack.log")" -ge 2 ] || fail "a failed delete did not re-apply the prior config"
+cmp -s <(jq -S . "$config/config.json") "$state/.approved-config.json" || fail "a failed delete left the approved config behind"
+delete_setup
+del_request litecoin
+FAKE_STACK_FAIL_APPLY=1 FAKE_CONTAINERS=litecoin run_nc
+[ "$(status .state):$(status .error_code)" = failed:rollback_failed ] || fail "a failed rollback was not reported"
+delete_touched_nothing "failed rollback"
+
+delete_setup
+del_request litecoin
+FAKE_CONTAINERS=litecoin run_nc
+[ "$(status .action):$(status .state):$(status .node)" = delete:applied:litecoin ] || fail "delete was not applied: $(cat "$dashboard_state/node-control.status")"
+[ "$(status .message)" = "Node deleted." ] || fail "delete status message is wrong"
+[ -z "$(ls -A "$del_base/litecoin" 2>/dev/null)" ] || fail "delete left data behind, hidden files included"
+jq -e '.litecoin == null' "$config/config.json" >/dev/null || fail "delete left the node's config section"
+jq -e '.litecoin == null' "$state/.approved-config.json" >/dev/null || fail "delete left the node in the approved config"
+[ "$(jq -S -c 'del(.litecoin)' <<<"$config_before")" = "$(jq -S -c . "$config/config.json")" ] || fail "delete changed another part of the config"
+for node in bitcoin monero tari zcash; do
+  [ -f "$del_base/$node/blocks.dat" ] && [ -e "$del_base/$node/sub/.hidden" ] || fail "deleting Litecoin touched $node data"
+done
+{ [ "$(volume_removals)" = 1 ] && grep -qx 'docker volume rm ds_utxo_index_litecoin' "$tmp/stack.log"; } || fail "Litecoin's balance index volume was not removed alone"
+{ grep -qx 'ds_utxo_index' "$FAKE_VOLUMES" && grep -qx 'ds_monero_wallets' "$FAKE_VOLUMES" && grep -qx 'ds_unrelated' "$FAKE_VOLUMES"; } || fail "another node's volume was removed"
+! grep -qx 'ds_utxo_index_litecoin' "$FAKE_VOLUMES" || fail "the Litecoin volume is still listed"
+grep -qx 'docker rm -f litecoin-ctr' "$tmp/stack.log" || fail "the node's container was not removed"
+apply_line=$(grep -nx apply "$tmp/stack.log" | head -n 1 | cut -d: -f1)
+remove_line=$(grep -nE '^docker (rm|volume rm) ' "$tmp/stack.log" | head -n 1 | cut -d: -f1)
+[ -n "$apply_line" ] && [ -n "$remove_line" ] && [ "$apply_line" -lt "$remove_line" ] || fail "data was deleted before the config was applied"
+[ ! -e "$state/resource-profile/litecoin" ] && [ ! -e "$state/resource-profile/failing-litecoin" ] && [ ! -e "$state/resource-profile/failed-litecoin" ] && [ ! -e "$state/thermal-throttle/litecoin" ] || fail "delete left resource-profile markers"
+[ -e "$state/resource-profile/monero" ] && [ -e "$state/resource-profile/bitcoin" ] || fail "delete cleared another node's markers"
+[ ! -e "$dashboard_state/litecoin-utxo-seed.json" ] && [ -e "$dashboard_state/utxo-seed.json" ] || fail "delete did not clear exactly the Litecoin seed state"
+[ -e "$dashboard_state/node-delete.litecoin" ] || fail "the dashboard was not told to drop the node's wallets"
+[ ! -e "$dashboard_state/node-delete.bitcoin" ] && [ ! -e "$dashboard_state/node-delete.monero" ] || fail "delete marked another node's wallets"
+tail -n 1 "$dashboard_state/events.log" | grep -qE '^[0-9T:-]+Z Host: Litecoin deleted$' || fail "the Host event was not logged: $(cat "$dashboard_state/events.log" 2>/dev/null)"
+[ ! -e "$state/node-control/delete-pending.json" ] || fail "delete left its recovery marker"
+! grep -rqE 'litecoinpassword|moneropassword' "$dashboard_state/events.log" "$dashboard_state/node-control.status" "$tmp/stack.log" || fail "a credential reached a log, event or status"
+del_request litecoin
+run_nc
+[ "$(status .error_code)" = not_installed ] || fail "a deleted node could be deleted twice"
+request "{\"action\":\"delete\",\"confirmation\":\"litecoin\",\"id\":\"$del_id\",\"node\":\"litecoin\",\"requested_at\":1000}"
+run_nc
+[ "$(status .error_code)" = replayed ] || fail "a replayed delete was accepted"
+
+delete_setup
+jq '.litecoin.enabled=false' "$config/config.json" >"$tmp/config.delete"
+write_config "$tmp/config.delete"
+del_request monero
+FAKE_CONTAINERS="monero monero-wallet litecoin" run_nc
+[ "$(status .state)" = applied ] || fail "Monero delete was not applied: $(cat "$dashboard_state/node-control.status")"
+{ grep -qx 'docker rm -f monero-wallet-ctr' "$tmp/stack.log" && grep -qx 'docker rm -f monero-ctr' "$tmp/stack.log"; } || fail "Monero's node and wallet containers were not removed"
+! grep -q 'litecoin-ctr' "$tmp/stack.log" || fail "another node's container was removed"
+{ [ "$(volume_removals)" = 1 ] && grep -qx 'docker volume rm ds_monero_wallets' "$tmp/stack.log"; } || fail "the Monero wallet volume was not removed alone"
+jq -e '.monero == null and .tari.enabled == true' "$config/config.json" >/dev/null || fail "Monero delete changed the wrong config"
+[ -z "$(ls -A "$del_base/monero" 2>/dev/null)" ] && [ -f "$del_base/tari/blocks.dat" ] || fail "Monero delete touched the wrong data"
+[ -e "$dashboard_state/node-delete.monero" ] || fail "Monero wallets were not marked for removal"
+tail -n 1 "$dashboard_state/events.log" | grep -q 'Host: Monero deleted$' || fail "Monero's Host event is wrong"
+
+delete_setup
+jq '.tari.active=false' "$config/config.json" >"$tmp/config.delete"
+write_config "$tmp/config.delete"
+del_request tari
+FAKE_CONTAINERS="tari tari-wallet" run_nc
+[ "$(status .state)" = applied ] || fail "Tari delete was not applied"
+{ [ "$(volume_removals)" = 2 ] && grep -qx 'docker volume rm ds_tari_wallet' "$tmp/stack.log" && grep -qx 'docker volume rm ds_tari_wallet_data' "$tmp/stack.log"; } || fail "the Tari wallet volumes were not removed"
+{ grep -qx 'docker rm -f tari-wallet-ctr' "$tmp/stack.log" && grep -qx 'docker rm -f tari-ctr' "$tmp/stack.log"; } || fail "Tari's containers were not removed"
+
+delete_setup
+jq '.bitcoin.active=false' "$config/config.json" >"$tmp/config.delete"
+write_config "$tmp/config.delete"
+del_request bitcoin
+run_nc
+[ "$(status .state)" = applied ] || fail "Bitcoin delete was not applied: $(cat "$dashboard_state/node-control.status")"
+jq -e '.bitcoin == {"enabled":false} and .wallets == null and .litecoin.enabled == true and .dashboard.launch_at_boot == false' "$config/config.json" >/dev/null || fail "Bitcoin delete left settings or wallets behind, or hurt another section: $(cat "$config/config.json")"
+{ [ "$(volume_removals)" = 1 ] && grep -qx 'docker volume rm ds_utxo_index' "$tmp/stack.log"; } || fail "the Bitcoin balance index volume was not removed alone"
+[ -z "$(ls -A "$del_base/bitcoin" 2>/dev/null)" ] && [ -f "$del_base/litecoin/blocks.dat" ] || fail "Bitcoin delete touched the wrong data"
+[ -e "$dashboard_state/node-delete.bitcoin" ] && [ ! -e "$dashboard_state/utxo-seed.json" ] && [ -e "$dashboard_state/litecoin-utxo-seed.json" ] || fail "Bitcoin delete handled dashboard state wrongly"
+
+delete_setup
+del_request litecoin
+FAKE_VOLUME_IN_USE=1 FAKE_CONTAINERS=litecoin run_nc
+[ "$(status .state):$(status .error_code)" = failed:delete_incomplete ] || fail "a volume still in use was not reported: $(cat "$dashboard_state/node-control.status")"
+jq -e '.litecoin == null' "$config/config.json" >/dev/null || fail "an incomplete delete restored the config"
+[ "$(volume_removals)" = 0 ] || fail "a volume in use was removed"
+[ -z "$(ls -A "$del_base/litecoin" 2>/dev/null)" ] && [ -e "$dashboard_state/node-delete.litecoin" ] || fail "an incomplete delete skipped its other steps"
+[ ! -e "$state/node-control/delete-pending.json" ] || fail "an incomplete delete kept its marker"
+delete_setup
+del_request litecoin
+FAKE_VOLUME_RM_FAIL=1 FAKE_CONTAINERS=litecoin run_nc
+[ "$(status .error_code)" = delete_incomplete ] || fail "a failed volume removal was not reported"
+
+delete_setup
+jq 'del(.litecoin)' "$config/config.json" >"$tmp/config.delete"
+write_config "$tmp/config.delete"
+jq -nc --arg dir "$del_base/litecoin" '{id:"d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3",node:"litecoin",data_dir:$dir}' >"$state/node-control/delete-pending.json"
+request '{"action":"delete","confirmation":"litecoin","id":"d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3","node":"litecoin","requested_at":1000}'
+mv "$dashboard_state/node-control.request" "$dashboard_state/node-control.processing"
+FAKE_CONTAINERS=litecoin run_nc
+[ "$(status .id):$(status .state):$(status .node)" = d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3:applied:litecoin ] || fail "an interrupted delete was not finished: $(cat "$dashboard_state/node-control.status")"
+[ -z "$(ls -A "$del_base/litecoin" 2>/dev/null)" ] && [ ! -e "$state/node-control/delete-pending.json" ] && [ ! -e "$dashboard_state/node-control.processing" ] || fail "interrupted delete recovery left work behind"
+{ [ -e "$dashboard_state/node-delete.litecoin" ] && grep -qx 'docker volume rm ds_utxo_index_litecoin' "$tmp/stack.log"; } || fail "interrupted delete recovery skipped volumes or wallets"
+[ -f "$del_base/monero/blocks.dat" ] || fail "interrupted delete recovery touched another node"
+delete_setup
+jq 'del(.litecoin)' "$config/config.json" >"$tmp/config.delete"
+write_config "$tmp/config.delete"
+jq -nc --arg dir "$state_real" '{id:"d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",node:"litecoin",data_dir:$dir}' >"$state/node-control/delete-pending.json"
+request '{"action":"delete","confirmation":"litecoin","id":"d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4","node":"litecoin","requested_at":1000}'
+mv "$dashboard_state/node-control.request" "$dashboard_state/node-control.processing"
+FAKE_CONTAINERS=litecoin run_nc
+[ "$(status .error_code)" = delete_incomplete ] && [ -f "$state/.env" ] && [ -f "$config/config.json" ] || fail "recovery trusted an unsafe data folder from its marker"
+
+delete_setup
+del_request litecoin
+FAKE_HANDOFF_FAIL=1 FAKE_CONTAINERS=litecoin run_nc
+[ "$(status .state):$(status .error_code)" = failed:delete_incomplete ] || fail "a failed wallet handoff was not reported: $(cat "$dashboard_state/node-control.status")"
+[ -f "$state/node-control/delete-pending.json" ] && [ ! -e "$dashboard_state/node-delete.litecoin" ] || fail "a failed wallet handoff did not keep the retry marker"
+[ -z "$(ls -A "$del_base/litecoin" 2>/dev/null)" ] || fail "a failed wallet handoff skipped the data removal"
+FAKE_CONTAINERS=litecoin run_nc
+[ "$(status .state)" = applied ] && [ -e "$dashboard_state/node-delete.litecoin" ] && [ ! -e "$state/node-control/delete-pending.json" ] || fail "the wallet handoff was not retried: $(cat "$dashboard_state/node-control.status")"
+unset BITCOIN_STACK_PROJECT_NAME
 
 echo "PASS: test_node_control.sh"
