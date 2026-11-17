@@ -144,6 +144,9 @@ def load_compose(files):
     return merged, docs
 
 
+ZAKURA_ENV = {"CONFIG_FILE_PATH", "ZAKURA_STATE__CACHE_DIR", "ZAKURA_RPC__COOKIE_DIR"}
+
+
 def compose_violations(files):
     merged, docs = load_compose(files)
     found = []
@@ -188,6 +191,8 @@ def compose_violations(files):
                 found.append(f"{name} sets proxy variable {var}")
             if var == "TOR_PROXY" and value != TOR_PROXY:
                 found.append(f"{name} TOR_PROXY is {value}")
+        if name == "zcash" and set(env) - ZAKURA_ENV:
+            found.append(f"zcash sets unpinned Zakura variables {sorted(set(env) - ZAKURA_ENV)}")
     tor_networks = ((services.get("tor") or {}).get("networks") or {})
     if (tor_networks.get("btc_net") or {}).get("ipv4_address") != TOR_IP:
         found.append(f"tor is not at {TOR_IP} on btc_net")
@@ -406,6 +411,10 @@ def zcash_violations(toml, relays):
         found.append("Zakura P2P listens beyond loopback")
     if toml_value(toml, "network", "cache_dir") != "false":
         found.append("Zakura caches peers it did not get through Tor")
+    if toml_value(toml, "network", "p2p_stack") != '"legacy"':
+        found.append("Zakura runs a P2P stack other than the legacy TCP one")
+    if re.search(r"^\[(?:metrics|zcashd_compat)\]|^\[network\.zakura\]|opentelemetry", toml, re.MULTILINE):
+        found.append("Zakura enables a metrics, zcashd-compat, native P2P or telemetry setting")
     return found
 
 
