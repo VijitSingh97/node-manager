@@ -150,7 +150,7 @@ export function hostControlModel(data = {}) {
     config_revision: revision,
     config_path: typeof data.config_path === "string" && data.config_path.startsWith("/") ? data.config_path : "",
     nodes,
-    status: { action, state, node: allNodes.includes(data?.status?.node) ? data.status.node : "", message: state ? String(data.status?.message || "") : "" },
+    status: { action, state, node: allNodes.includes(data?.status?.node) ? data.status.node : "", message: state ? [data.status?.message, data.status?.detail].filter(Boolean).map(String).join(" ") : "" },
   };
 }
 

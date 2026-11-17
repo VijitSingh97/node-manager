@@ -45,6 +45,7 @@ printf '%s\n' "$*" >>"$FAKE_STACK_LOG"
 [ "${FAKE_STACK_FAIL_ONCE:-0}" != 1 ] || {
   if [ ! -e "$FAKE_STACK_FAIL_MARKER" ]; then
     : >"$FAKE_STACK_FAIL_MARKER"
+    [ -z "${FAKE_STACK_STDERR:-}" ] || printf '%s\n' "$FAKE_STACK_STDERR" >&2
     [ "${1:-}" != apply ] || printf 'PARTIAL=1\n' >"$BITCOIN_STACK_STATE_DIR/.env"
     exit 1
   fi
@@ -393,11 +394,19 @@ BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-contro
 approved_before=$(shasum -a 256 "$state/.approved-config.json" "$state/.approved.env")
 rm -f "$FAKE_STACK_FAIL_MARKER"
 request '{"action":"install","id":"78787878787878787878787878787878","node":"dogecoin","requested_at":1000}'
-FAKE_STACK_FAIL_ONCE=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+FAKE_STACK_STDERR="$(printf 'Pulling dogecoin\n\033[31mError response from daemon: manifest unknown\033[0m\n')" FAKE_STACK_FAIL_ONCE=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 [ "$(jq -r .dogecoin.enabled "$config/config.json")" = false ] || fail "failed install left Dogecoin configured"
 [ "$(status .error_code)" = apply_failed ] || fail "failed install lacked typed status"
+[ "$(status .detail)" = 'Error response from daemon: manifest unknown' ] || fail "failed install did not report its last error: $(status .detail)"
+grep -q 'Host: Dogecoin install failed: Error response from daemon: manifest unknown$' "$dashboard_state/events.log" || fail "failed install was not logged as a host event"
 [ "$(shasum -a 256 "$state/.approved-config.json" "$state/.approved.env")" = "$approved_before" ] || fail "failed install advanced approved snapshots"
 grep -qx 'stop dogecoin' "$tmp/stack.log" || fail "failed install did not stop its partial service"
+rm -f "$FAKE_STACK_FAIL_MARKER"
+request '{"action":"install","id":"79797979797979797979797979797979","node":"dogecoin","requested_at":1000}'
+FAKE_STACK_STDERR='invalid rpc password abc123' FAKE_STACK_FAIL_ONCE=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .error_code)" = apply_failed ] || fail "second failed install lacked typed status"
+[ -z "$(status '.detail // ""')" ] || fail "a failure line naming a password was reported"
+! grep -q 'abc123' "$dashboard_state/events.log" || fail "a failure line naming a password reached the event log"
 
 jq '.dashboard.external_edit=true' "$config/config.json" >"$config/config.tmp" && mv "$config/config.tmp" "$config/config.json"
 request '{"action":"install","id":"88888888888888888888888888888888","node":"dogecoin","requested_at":1000}'

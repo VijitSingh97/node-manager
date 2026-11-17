@@ -150,7 +150,12 @@ func (m *Monitor) forwardHostEvents(ctx context.Context) {
 		line, more, _ := strings.Cut(rest, "\n")
 		rest = more
 		if _, text, found := strings.Cut(line, " "); found && strings.HasPrefix(text, "Host: ") && telegramOn {
-			if !m.sendTelegram(ctx, "🌡 "+strings.TrimPrefix(text, "Host: ")) {
+			event := strings.TrimPrefix(text, "Host: ")
+			icon := "🔴 "
+			if strings.HasPrefix(event, "thermal ") {
+				icon = "🌡 "
+			}
+			if !m.sendTelegram(ctx, icon+event) {
 				failed = true
 				break
 			}
