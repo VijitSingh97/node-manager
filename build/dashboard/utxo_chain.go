@@ -13,6 +13,7 @@ type utxoChainParams struct {
 	WaitTip        bool
 	Descriptors    []string
 	ReverseIndex   bool
+	Replay         bool
 }
 
 var (
