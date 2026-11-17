@@ -26,7 +26,7 @@ func readChainstateRow(t *testing.T, row []byte) ([]utxoRecord, error) {
 	t.Helper()
 	u := &utxoReader{r: bufio.NewReader(bytes.NewReader(row)), oversizeUnspendable: true}
 	var coins []utxoRecord
-	err := u.chainstateCoins([32]byte{0x77}, func(r utxoRecord) error {
+	err := u.chainstateCoins([32]byte{0x77}, len(row), func(r utxoRecord) error {
 		coins = append(coins, r)
 		return nil
 	})
@@ -70,8 +70,10 @@ func TestChainstateCoinsDecodeEveryScriptForm(t *testing.T) {
 		want   []byte
 	}{
 		{"pay to script hash", append([]byte{1}, hash...), append(append([]byte{0xa9, 20}, hash...), 0x87)},
-		{"compressed public key", append([]byte{3}, gx...), append(append([]byte{33, 3}, gx...), 0xac)},
-		{"uncompressed public key", append([]byte{4}, gx...), append(append(append([]byte{65, 4}, gx...), gy...), 0xac)},
+		{"compressed public key, even y", append([]byte{2}, gx...), append(append([]byte{33, 2}, gx...), 0xac)},
+		{"compressed public key, odd y", append([]byte{3}, gx...), append(append([]byte{33, 3}, gx...), 0xac)},
+		{"uncompressed public key, even y", append([]byte{4}, gx...), append(append(append([]byte{65, 4}, gx...), gy...), 0xac)},
+		{"uncompressed public key, odd y", append([]byte{5}, gx...), append(append(append([]byte{65, 4}, gx...), mustHex("b7c52588d95c3b9aa25b0403f1eef75702e84bb7597aabe663b82f6f04ef2777")...), 0xac)},
 		{"raw script", append(appendCoreVarInt(nil, 6+3), 0x51, 0x51, 0x87), []byte{0x51, 0x51, 0x87}},
 		{"script over the size limit", append(appendCoreVarInt(nil, 6+10001), make([]byte, 10001)...), []byte{0x6a}},
 	} {
@@ -88,7 +90,8 @@ func TestChainstateCoinsDecodeEveryScriptForm(t *testing.T) {
 	if coins, err := readChainstateRow(t, row); err != nil || len(coins) != 1 || coins[0].Vout != 10 || !coins[0].Coinbase {
 		t.Fatalf("mask with a zero byte: %+v, %v", coins, err)
 	}
-	for _, bad := range [][]byte{row[:len(row)-1], append(slices.Clone(row), 0), {1, 0x18, 0, 0, 0}} {
+	// The last row's mask claims 8 outputs per byte with no outputs behind it.
+	for _, bad := range [][]byte{row[:len(row)-1], append(slices.Clone(row), 0), {1, 0x18, 0, 0, 0}, append([]byte{1, 0x78}, bytes.Repeat([]byte{0xff}, 16)...)} {
 		if _, err := readChainstateRow(t, bad); err == nil {
 			t.Fatalf("a malformed row %x parsed", bad)
 		}

@@ -611,6 +611,15 @@ esac
 exit 0
 EOS
 chmod +x "$utxo_stub/docker"
+cat >"$utxo_stub/df" <<'EOS'
+#!/usr/bin/env bash
+if [ "${FAKE_DF_FULL:-0}" = 1 ]; then
+  printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\nfake 100 99 0 100%% /\n'
+  exit 0
+fi
+exec /bin/df "$@"
+EOS
+chmod +x "$utxo_stub/df"
 useed() { (cd "$utxo_dir" && HOME="$tmp" BITCOIN_STACK_UTXO_SEED_POLL_SECONDS=1 BITCOIN_STACK_UTXO_SEED_ACK_SECONDS=2 BITCOIN_STACK_UTXO_SEED_CANCEL_SECONDS=2 PATH="$utxo_stub:$stub:$PATH" ./stack "$@"); }
 reset_useed() {
   rm -f "$FAKE_UTXO/request.json" "$FAKE_UTXO/n" "$FAKE_UTXO/rpc_n" "$FAKE_UTXO/cancelled" "$FAKE_UTXO/stopped" "$FAKE_UTXO/copy.ls" "$FAKE_LOG"
@@ -1009,5 +1018,25 @@ reset_useed
 FAKE_DOGE_IBD=true dseed utxo-seed dogecoin -y </dev/null >"$tmp/dseed.out" 2>&1 && fail "utxo-seed dogecoin ran while the node was syncing"
 grep -q ' stop dogecoin$' "$FAKE_LOG" && fail "utxo-seed dogecoin stopped a syncing node"
 grep -q 'still syncing' "$tmp/dseed.out" || fail "utxo-seed dogecoin did not say why it refused"
+reset_useed
+mv "$doge_data/chainstate" "$doge_data/chainstate.real"
+ln -s "$doge_data/chainstate.real" "$doge_data/chainstate"
+dseed utxo-seed dogecoin -y </dev/null >"$tmp/dseed.out" 2>&1 && fail "utxo-seed dogecoin copied through a symlinked chainstate"
+grep -q ' stop dogecoin$' "$FAKE_LOG" && fail "utxo-seed dogecoin stopped the node for a symlinked chainstate"
+rm "$doge_data/chainstate"
+mv "$doge_data/chainstate.real" "$doge_data/chainstate"
+reset_useed
+ln -s /etc/hosts "$doge_data/chainstate/000007.log"
+dseed utxo-seed dogecoin -y </dev/null >"$tmp/dseed.out" 2>&1 && fail "utxo-seed dogecoin copied a symlink planted in the chainstate"
+[ "$(tail -n 1 "$FAKE_LOG" | grep -c ' start dogecoin$')" = 1 ] || grep -q ' start dogecoin$' "$FAKE_LOG" || fail "a failed copy left the node stopped"
+[ ! -e "$FAKE_UTXO/request.json" ] || fail "a failed copy still requested a seed"
+rm "$doge_data/chainstate/000007.log"
+reset_useed
+FAKE_DF_FULL=1 dseed utxo-seed dogecoin -y </dev/null >"$tmp/dseed.out" 2>&1 && fail "utxo-seed dogecoin copied onto a full disk"
+grep -q 'Not enough free space' "$tmp/dseed.out" || fail "utxo-seed dogecoin did not say the disk was too full"
+grep -q ' stop dogecoin$' "$FAKE_LOG" && fail "utxo-seed dogecoin stopped the node with no room for the copy"
+reset_useed
+(cd "$bch_dir" && HOME="$tmp" PATH="$utxo_stub:$stub:$PATH" ./stack utxo-chainstate-copy dogecoin) >"$tmp/dcopy.out" 2>&1 && fail "utxo-chainstate-copy ran with the Dogecoin index off"
+grep -q 'balance index is off' "$tmp/dcopy.out" || fail "utxo-chainstate-copy did not say the index is off"
 
 echo "PASS: test_cli.sh"

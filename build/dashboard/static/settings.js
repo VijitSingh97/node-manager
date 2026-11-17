@@ -488,7 +488,7 @@ if (typeof document !== "undefined") {
     <button id="settings-utxo-seed-now-bitcoincash" type="button" hidden>Replay Bitcoin Cash now</button>
     <button id="settings-utxo-seed-now-dogecoin" type="button" hidden>Seed Dogecoin now</button>
     <p id="settings-utxo-index-bitcoincash-note" class="settings-note" hidden>Bitcoin Cash has no coin-set export, so its index replays every block from genesis once the node has synced: a long one-time job. It needs an archival node (<code>bitcoincash.prune_mb</code> 0); a pruned node is refused. Bitcoin Cash RPC keeps answering and node-down alerts are not held.</p>
-    <p id="settings-utxo-index-dogecoin-note" class="settings-note" hidden>Dogecoin Core 1.14 has no coin-set export, so seeding stops the Dogecoin node for a few seconds to copy its chainstate, then builds the index from the copy; this works on a pruned node.</p>
+    <p id="settings-utxo-index-dogecoin-note" class="settings-note" hidden>Dogecoin Core 1.14 has no coin-set export, so seeding stops the Dogecoin node while its chainstate is copied, then builds the index from the copy; this works on a pruned node.</p>
     <p id="settings-utxo-index-status" class="settings-note" role="status" aria-live="polite"></p>
   </fieldset>`);
   const utxoIndex = byId("utxo-index");

@@ -51,15 +51,15 @@ type seedGuardInput struct {
 }
 
 // dirBytes sums the regular files directly in dir; a chainstate keeps no subdirectories.
-func dirBytes(dir string) uint64 {
-	entries, _ := os.ReadDir(dir)
+func dirBytes(dir string) (uint64, error) {
+	entries, err := os.ReadDir(dir)
 	var total uint64
 	for _, e := range entries {
 		if info, err := e.Info(); err == nil && info.Mode().IsRegular() {
 			total += uint64(info.Size())
 		}
 	}
-	return total
+	return total, err
 }
 
 func evaluateSeedGuards(in seedGuardInput) []seedRefusal {
@@ -278,7 +278,12 @@ func (m *utxoManager) gatherSeedGuards(ctx context.Context) seedGuardInput {
 	in.CPUs, in.CPUErr = readCPULimit(seedCgroupRoot)
 	in.Chain, in.TipTime, in.ChainErr = readSeedChain(ctx, m.rpc)
 	if m.chain.Chainstate && m.host != nil {
-		in.ChainstateBytes = dirBytes(filepath.Join(m.host.dataDir, "chainstate"))
+		// Without the chainstate's size the space a seed needs is unknown, so it counts as unreadable free space.
+		if bytes, err := dirBytes(filepath.Join(m.host.dataDir, "chainstate")); err != nil {
+			in.FreeErr = err
+		} else {
+			in.ChainstateBytes = bytes
+		}
 		return in
 	}
 	in.RPCMethods, in.RPCErr = readActiveRPCMethods(ctx, m.rpc)

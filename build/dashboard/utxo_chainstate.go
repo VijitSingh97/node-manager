@@ -128,7 +128,7 @@ func (c *chainstateCopy) parse(onHeader func(utxoHeader), fn func(utxoRecord) er
 	err := c.rows(func(txid [32]byte, row []byte) error {
 		br.Reset(row)
 		u.r.Reset(&br)
-		vouts, _, err := u.coinsHeader()
+		vouts, _, err := u.coinsHeader(len(row))
 		if err != nil {
 			return fmt.Errorf("%w: coins of %x: %v", errChainstateFormat, txid, err)
 		}
@@ -144,7 +144,7 @@ func (c *chainstateCopy) parse(onHeader func(utxoHeader), fn func(utxoRecord) er
 	return h, c.rows(func(txid [32]byte, row []byte) error {
 		br.Reset(row)
 		u.r.Reset(&br)
-		if err := u.chainstateCoins(txid, fn); err != nil {
+		if err := u.chainstateCoins(txid, len(row), fn); err != nil {
 			return fmt.Errorf("%w: coins of %x: %v", errChainstateFormat, txid, err)
 		}
 		return nil
@@ -152,7 +152,8 @@ func (c *chainstateCopy) parse(onHeader func(utxoHeader), fn func(utxoRecord) er
 }
 
 // coinsHeader reads a 1.14 CCoins row up to its outputs: the version, the code, and the availability mask.
-func (u *utxoReader) coinsHeader() (vouts []uint32, coinbase bool, err error) {
+// Each output takes at least two bytes, so a mask promising more than half the row's length is refused before anything is allocated for it.
+func (u *utxoReader) coinsHeader(rowLen int) (vouts []uint32, coinbase bool, err error) {
 	if _, err := u.varint(); err != nil {
 		return nil, false, err
 	}
@@ -181,6 +182,9 @@ func (u *utxoReader) coinsHeader() (vouts []uint32, coinbase bool, err error) {
 				vouts = append(vouts, base+bit)
 			}
 		}
+		if len(vouts) > rowLen/2 {
+			return nil, false, errors.New("more unspent outputs than the row can hold")
+		}
 		if b != 0 {
 			nonzero--
 		}
@@ -188,8 +192,8 @@ func (u *utxoReader) coinsHeader() (vouts []uint32, coinbase bool, err error) {
 	return vouts, code&1 == 1, nil
 }
 
-func (u *utxoReader) chainstateCoins(txid [32]byte, fn func(utxoRecord) error) error {
-	vouts, coinbase, err := u.coinsHeader()
+func (u *utxoReader) chainstateCoins(txid [32]byte, rowLen int, fn func(utxoRecord) error) error {
+	vouts, coinbase, err := u.coinsHeader(rowLen)
 	if err != nil {
 		return err
 	}

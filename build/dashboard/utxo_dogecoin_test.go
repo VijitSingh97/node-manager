@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -150,5 +151,15 @@ func TestDogecoinIndexAsksForASeedOnceAPrunedNodeDropsBlocksItNeeds(t *testing.T
 	}
 	if !seedableState(m.Status().State, false) {
 		t.Fatal("the stopped index cannot be seeded again")
+	}
+}
+
+func TestDogecoinSeedIsRefusedWhenTheChainstateSizeIsUnreadable(t *testing.T) {
+	m := utxoMgrNewChain(t, t.TempDir(), nil, &chainstateSeedRPC{}, io.Discard, utxoDogecoin)
+	m.configureSeed(utxoSeedHost{prefix: "dogecoin-", stateDir: t.TempDir(), dataDir: filepath.Join(t.TempDir(), "missing"), lock: &sync.Mutex{}, hold: func() bool { return true }, release: func() {}})
+	in := m.gatherSeedGuards(t.Context())
+	in.Chainstate = true
+	if in.FreeErr == nil || !slices.ContainsFunc(evaluateSeedGuards(in), func(r seedRefusal) bool { return r.Guard == "free_space" }) {
+		t.Fatalf("an unreadable chainstate passed the free-space guard: %+v", in)
 	}
 }

@@ -505,8 +505,10 @@ remove_finished_chainstate_copy() {
   [ "$(env_get DOGECOIN_ENABLED)" = 1 ] || return 0
   copy_dir=$(delete_configured_dir dogecoin)/utxo-seed-chainstate
   [ -d "$copy_dir" ] && [ -n "$(find "$copy_dir" -maxdepth 0 -mmin +2 2>/dev/null)" ] || return 0
-  dashboard_exec test -e /state/dogecoin-utxo-seed.request >/dev/null 2>&1 && return 0
-  dashboard_exec cat /state/dogecoin-utxo-seed.json 2>/dev/null | jq -e '.seed_state == "seeding" or .seed_state == "checking"' >/dev/null 2>&1 && return 0
+  # Only a dashboard that answers, has no pending request and reports a finished seed lets the copy go.
+  dashboard_exec test ! -e /state/dogecoin-utxo-seed.request >/dev/null 2>&1 || return 0
+  copy_seed=$(dashboard_exec cat /state/dogecoin-utxo-seed.json 2>/dev/null) || return 0
+  printf '%s' "$copy_seed" | jq -e '(.seed_state | type) == "string" and .seed_state != "seeding" and .seed_state != "checking"' >/dev/null 2>&1 || return 0
   rm -rf -- "$copy_dir"
 }
 remove_finished_chainstate_copy

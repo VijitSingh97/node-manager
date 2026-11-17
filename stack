@@ -293,18 +293,40 @@ utxo_select_chain() {
 # The node never rewrites a LevelDB table, so the copy hardlinks them as .sst for the dashboard's Pebble reader and copies the rest; the node stops only for the copy.
 utxo_chainstate_copy() {
   local node=$1 src dst id file owner ok=1
+  utxo_select_chain "$node"
   dst=$(utxo_chainstate_copy_dir "$node")
   src=${dst%/*}/chainstate
-  [ -d "$src" ] || {
-    echo "There is no chainstate at $src." >&2
+  # The node's container writes this directory, so a symlink here could point the copy anywhere.
+  [ -d "$src" ] && [ ! -L "$src" ] || {
+    echo "There is no chainstate directory at $src." >&2
     return 1
   }
-  compose stop "$node" >/dev/null 2>&1 || return 1
+  [ "$(compose exec -T "$node" "$utxo_cli" -datadir=/data ${utxo_conf:+"$utxo_conf"} getblockchaininfo 2>/dev/null | jq -r '.initialblockdownload' 2>/dev/null)" = false ] || {
+    echo "$utxo_name RPC did not answer, or the node is still syncing; nothing was changed." >&2
+    return 1
+  }
+  # The hardlinked tables stay on disk after the node rewrites them, until the copy is removed, so the disk must hold the chainstate twice.
+  local need free
+  need=$(du -sk "$src" 2>/dev/null | awk '{print $1}')
+  free=$(df -Pk "${dst%/*}" 2>/dev/null | awk 'NR == 2 {print $4}')
+  [ -n "$need" ] && [ -n "$free" ] && [ "$free" -gt "$need" ] || {
+    echo "Not enough free space beside the $utxo_name data to keep a copy of its chainstate; nothing was changed." >&2
+    return 1
+  }
+  echo "Stopping $utxo_daemon to copy its chainstate..."
+  if ! compose stop "$node" >/dev/null 2>&1; then
+    compose start "$node" >/dev/null 2>&1 || true
+    return 1
+  fi
   id=$(container_id "$node" 2>/dev/null || true)
   if [ -z "$id" ] || [ "$(docker inspect --format '{{.State.Running}}' "$id" 2>/dev/null || true)" != false ] || ! rm -rf -- "$dst" || ! mkdir -m 700 "$dst"; then
     ok=0
   else
     for file in "$src"/*; do
+      if [ -L "$file" ] || [ ! -f "$file" ]; then
+        ok=0
+        continue
+      fi
       case ${file##*/} in
         LOCK | LOG | LOG.old) ;;
         *.ldb) ln "$file" "$dst/$(basename "$file" .ldb).sst" || ok=0 ;;
@@ -312,7 +334,10 @@ utxo_chainstate_copy() {
       esac
     done
     owner=$(stat -c %u:%g "$src" 2>/dev/null || stat -f %u:%g "$src" 2>/dev/null || true)
-    [ -z "$owner" ] || chown "$owner" "$dst" 2>/dev/null || true
+    # The dashboard reads the copy as the node's user; if the owner cannot be set, the files' own modes still guard their contents.
+    if [ -z "$owner" ] || ! chown "$owner" "$dst" 2>/dev/null; then
+      chmod 755 "$dst"
+    fi
   fi
   compose start "$node" >/dev/null 2>&1 || ok=0
   [ "$ok" = 1 ]
@@ -370,6 +395,7 @@ utxo_seed_finish_pipe() {
   [ "$utxo_replay" = 1 ] && return 0
   if [ "$utxo_chainstate" = 1 ]; then
     rm -rf -- "$(utxo_chainstate_copy_dir "$utxo_chain")"
+    compose start "$utxo_chain" >/dev/null 2>&1 || true
     return 0
   fi
   utxo_seed_unpark
@@ -439,7 +465,7 @@ EOF
   elif [ "$utxo_chainstate" = 1 ]; then
     cat <<EOF
 Seeding the $utxo_name balance index from the node's chainstate
-  - Stops the $utxo_name node for a few seconds to copy its chainstate, then starts it again; this works on a pruned node.
+  - Stops the $utxo_name node while its chainstate is copied, then starts it again; this works on a pruned node.
   - The dashboard then builds the index from the copy; its time and size on mainnet are not measured yet.
   - Only one balance index seeds at a time. Cancel with: $stack_command utxo-seed ${utxo_arg}cancel
 EOF
@@ -480,10 +506,7 @@ EOF
   fi
   local methods
   if [ "$utxo_chainstate" = 1 ]; then
-    [ "$(compose exec -T "$utxo_chain" "$utxo_cli" -datadir=/data ${utxo_conf:+"$utxo_conf"} getblockchaininfo 2>/dev/null | jq -r '.initialblockdownload' 2>/dev/null)" = false ] || {
-      echo "$utxo_name RPC did not answer, or the node is still syncing; nothing was changed." >&2
-      return 1
-    }
+    :
   elif ! methods=$(utxo_seed_rpc_methods); then
     echo "$utxo_name RPC did not answer; nothing was changed." >&2
     return 1
@@ -500,11 +523,10 @@ EOF
   esac
   trap 'trap - INT TERM; compose exec -T -u 1000 dashboard rm -f "/state/${utxo_prefix}utxo-seed.request" >/dev/null 2>&1 || true; utxo_seed_finish_pipe; echo; exit 130' INT TERM
   if [ "$utxo_chainstate" = 1 ]; then
-    echo "Stopping $utxo_daemon to copy its chainstate..."
     utxo_chainstate_copy "$utxo_chain" || {
       trap - INT TERM
       utxo_seed_finish_pipe
-      echo "Could not copy the $utxo_name chainstate; the node was started again." >&2
+      echo "No seed was started; the $utxo_name node is running." >&2
       return 1
     }
   elif [ "$utxo_replay" != 1 ]; then
@@ -1927,6 +1949,11 @@ case "$cmd" in
   utxo-chainstate-copy)
     [ "${1:-}" = dogecoin ] && [ $# = 1 ] || {
       echo "Usage: $stack_command utxo-chainstate-copy dogecoin" >&2
+      exit 1
+    }
+    utxo_select_chain "$1"
+    utxo_seed_overlay_enabled || {
+      echo "The $utxo_name balance index is off; nothing was changed." >&2
       exit 1
     }
     guard_package_containers && utxo_chainstate_copy "$1"

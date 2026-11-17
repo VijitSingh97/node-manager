@@ -301,9 +301,9 @@ services, not a small switch that enables balances in our existing database.
 for Dogecoin installed from the dashboard) gives Dogecoin addresses instant
 balances, on a pruned node too. Dogecoin Core 1.14.9 has neither `dumptxoutset`
 nor `scantxoutset`, but its chainstate holds every unspent coin whether or not the
-node prunes. To seed the index, the stack stops the Dogecoin node for a few
-seconds, copies its chainstate beside it with the tables hardlinked, and starts it
-again. The dashboard builds the index from the copy, then follows new blocks from
+node prunes. To seed the index, the stack stops the Dogecoin node, copies its chainstate beside it
+with the tables hardlinked, and starts it again; the copy itself is quick, and the
+node's shutdown and restart time on mainnet is not measured. The dashboard builds the index from the copy, then follows new blocks from
 the copy's tip, reading merge-mined blocks raw. The copy is removed once the seed
 has finished; until then it keeps the node's older tables on disk.
 

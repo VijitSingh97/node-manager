@@ -678,7 +678,7 @@ if [ "$litecoin_utxo_index" = "1" ]; then
 fi
 if [ "$dogecoin_utxo_index" = "1" ]; then
   compose_file=$compose_file:docker-compose.dogecoin-utxo-index.yml
-  echo "dogecoin.utxo_index is on: ./stack apply recreates the dashboard with a utxo_index_dogecoin volume, a 1g memory limit and 0.5 CPU. To seed it, the Dogecoin node stops for a few seconds while its chainstate is copied, which works on a pruned node too. Its seed time and size on mainnet are not measured yet."
+  echo "dogecoin.utxo_index is on: ./stack apply recreates the dashboard with a utxo_index_dogecoin volume, a 1g memory limit and 0.5 CPU. To seed it, the Dogecoin node stops while its chainstate is copied, which works on a pruned node too. Its seed time and size on mainnet are not measured yet."
 fi
 # Compose keeps the last file's mem_limit, so the Bitcoin Cash overlay's 2g must come after the 1g overlays.
 if [ "$bitcoincash_utxo_index" = "1" ]; then
