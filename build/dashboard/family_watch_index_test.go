@@ -100,11 +100,11 @@ func TestFamilyWatchBatchesEveryDueWalletIntoOneScan(t *testing.T) {
 	}
 }
 
-func TestLitecoinWatchHoldsFiftyWallets(t *testing.T) {
-	a := &app{cfg: config{stateDir: t.TempDir(), nodes: map[string]nodeConfig{}}}
+func TestLitecoinAndBitcoinCashWatchesHoldFiftyWallets(t *testing.T) {
+	a := &app{cfg: config{stateDir: t.TempDir(), nodes: map[string]nodeConfig{}, dogecoinWatchWallet: true}}
 	m := newFamilyWatchManager(a)
 	ltc, bch := m.stores[nodeLitecoin], m.stores[nodeBitcoinCash]
-	if ltc.maxWallets != 50 || bch.maxWallets != 25 || ltc.rpc.maxBody != 64<<20 {
+	if ltc.maxWallets != 50 || bch.maxWallets != 50 || m.stores[nodeDogecoin].maxWallets != 25 || ltc.rpc.maxBody != 64<<20 {
 		t.Fatalf("caps: litecoin %d, bitcoin cash %d", ltc.maxWallets, bch.maxWallets)
 	}
 	for i := len(ltc.wallets); i < 50; i++ {
@@ -117,7 +117,7 @@ func TestLitecoinWatchHoldsFiftyWallets(t *testing.T) {
 	}
 	roster, _ := json.Marshal(familyWatchFile{Wallets: ltc.wallets})
 	var loaded []familyWatchEntry
-	if !decodeFamilyWatchRoster(roster, &loaded, defaultFamilyWatchEntry(nodeLitecoin), 50) || decodeFamilyWatchRoster(roster, &loaded, defaultFamilyWatchEntry(nodeBitcoinCash), 25) {
-		t.Fatal("a 50-wallet roster loads for Litecoin only")
+	if !decodeFamilyWatchRoster(roster, &loaded, defaultFamilyWatchEntry(nodeLitecoin), 50) || decodeFamilyWatchRoster(roster, &loaded, defaultFamilyWatchEntry(nodeDogecoin), 25) {
+		t.Fatal("a 50-wallet roster loads only under the 50 cap")
 	}
 }

@@ -129,6 +129,7 @@ OTHER_OVERLAYS = {
     "docker-compose.tari-wallet.yml",
     "docker-compose.utxo-index.yml",
     "docker-compose.litecoin-utxo-index.yml",
+    "docker-compose.bitcoincash-utxo-index.yml",
 }
 BAD_CAPS = {"NET_ADMIN", "NET_RAW", "SYS_ADMIN", "ALL"}
 PROXY_ENV = re.compile(r"^(http|https|ftp|all|no)_proxy$", re.IGNORECASE)
@@ -142,6 +143,9 @@ def load_compose(files):
     for name in sorted(docs, key=lambda n: (n != "docker-compose.yml", n)):
         merged = merge(merged, docs[name])
     return merged, docs
+
+
+ZAKURA_ENV = {"CONFIG_FILE_PATH", "ZAKURA_STATE__CACHE_DIR", "ZAKURA_RPC__COOKIE_DIR"}
 
 
 def compose_violations(files):
@@ -188,6 +192,8 @@ def compose_violations(files):
                 found.append(f"{name} sets proxy variable {var}")
             if var == "TOR_PROXY" and value != TOR_PROXY:
                 found.append(f"{name} TOR_PROXY is {value}")
+        if name == "zcash" and set(env) - ZAKURA_ENV:
+            found.append(f"zcash sets unpinned Zakura variables {sorted(set(env) - ZAKURA_ENV)}")
     tor_networks = ((services.get("tor") or {}).get("networks") or {})
     if (tor_networks.get("btc_net") or {}).get("ipv4_address") != TOR_IP:
         found.append(f"tor is not at {TOR_IP} on btc_net")
@@ -406,6 +412,10 @@ def zcash_violations(toml, relays):
         found.append("Zakura P2P listens beyond loopback")
     if toml_value(toml, "network", "cache_dir") != "false":
         found.append("Zakura caches peers it did not get through Tor")
+    if toml_value(toml, "network", "p2p_stack") != '"legacy"':
+        found.append("Zakura runs a P2P stack other than the legacy TCP one")
+    if re.search(r"^\[(?:metrics|zcashd_compat)\]|^\[network\.zakura\]|opentelemetry", toml, re.MULTILINE):
+        found.append("Zakura enables a metrics, zcashd-compat, native P2P or telemetry setting")
     return found
 
 

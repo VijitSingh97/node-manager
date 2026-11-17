@@ -388,7 +388,7 @@ func (s *utxoStore) ApplyBlocks(blks []utxoBlock) error {
 }
 
 func (s *utxoStore) writeBlockLocked(b *pebble.Batch, blk utxoBlock) error {
-	var inverse []byte
+	inverse := make([]byte, 0, (len(blk.Creates)+len(blk.Spends))*(1+utxoKeyLen+utxoValueLen))
 	for _, c := range blk.Creates {
 		if !utxoSpendable(c.Script) {
 			continue
@@ -432,10 +432,10 @@ func (s *utxoStore) writeBlockLocked(b *pebble.Batch, blk utxoBlock) error {
 			return err
 		}
 	}
-	undo := make([]byte, 0, 32+len(inverse))
+	undo := make([]byte, 0, 64+len(inverse))
 	undo = append(undo, blk.Hash[:]...)
 	undo = append(undo, blk.PrevHash[:]...)
-	undo = append(undo, reverseUtxoOps(inverse)...)
+	undo = appendReversedUtxoOps(undo, inverse)
 	if err := b.Set(utxoUndoKey(blk.Height), undo, nil); err != nil {
 		return err
 	}
@@ -496,16 +496,22 @@ func splitUtxoOps(ops []byte) ([][]byte, error) {
 	return out, nil
 }
 
-func reverseUtxoOps(ops []byte) []byte {
-	parts, err := splitUtxoOps(ops)
-	if err != nil {
-		panic(err)
+// appendReversedUtxoOps appends well-formed ops last first without copying them apart, since a large block's undo runs to tens of megabytes.
+func appendReversedUtxoOps(dst, ops []byte) []byte {
+	starts := make([]int, 0, len(ops)/(1+utxoKeyLen))
+	for i := 0; i < len(ops); {
+		starts = append(starts, i)
+		i += 1 + utxoKeyLen
+		if ops[starts[len(starts)-1]] == 1 {
+			i += utxoValueLen
+		}
 	}
-	out := make([]byte, 0, len(ops))
-	for i := len(parts) - 1; i >= 0; i-- {
-		out = append(out, parts[i]...)
+	end := len(ops)
+	for k := len(starts) - 1; k >= 0; k-- {
+		dst = append(dst, ops[starts[k]:end]...)
+		end = starts[k]
 	}
-	return out
+	return dst
 }
 
 func (s *utxoStore) UndoPrevHash(height uint32) (prev [32]byte, ok bool, err error) {

@@ -8,6 +8,24 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
+- Instant Bitcoin Cash balances: `bitcoincash.utxo_index` (Settings → Balance
+  index → "Instant Bitcoin Cash balances") keeps a Bitcoin Cash balance index, and
+  the Bitcoin Cash watch-only card reads its balances from it once it is at the
+  node's tip. It needs an archival node (`bitcoincash.prune_mb: 0`). Bitcoin Cash
+  Node has no coin-set export, so the index replays every block from genesis once
+  the node has synced: a long one-time job that keeps its progress across stops
+  and restarts. A Bitcoin Cash install from the dashboard is now archival with the
+  index on, and the install dialog shows the archival size. Existing installs keep
+  their setting. The Bitcoin Cash card now holds 50 addresses. With the index on,
+  the dashboard's memory limit is 2 GiB with `GOMEMLIMIT=1600MiB`, not 1 GiB:
+  plan for the dashboard using up to 2 GiB on top of the Bitcoin Cash node's own
+  plan in docs/nodes.md. That is a cap, not memory set aside: on ordinary blocks
+  the dashboard should stay near today's use, and it only climbs while it applies
+  a block of tens of MB. It applies a block of up to 1.2 million coin operations;
+  a larger block, or one over 32 MB, stops the index at that height without
+  discarding it, until such blocks can be applied in pieces (#363). On regtest,
+  31 MB blocks of about 0.9 million operations peaked at 1.50 GiB; these are
+  lower bounds, and mainnet is not measured yet.
 - `utxo-index bench --chain litecoin` measures the Litecoin balance index the
   same way as Bitcoin's; `--chain bitcoin` is the default. With `--scan` the
   bench now runs `scantxoutset` for each wallet alone as well as for all of them,

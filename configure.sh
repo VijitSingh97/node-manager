@@ -206,6 +206,7 @@ tor_inbound=$(jq -r 'if .network.inbound_connections == false then 0 else 1 end'
 blockfilterindex=$(flag '.bitcoin.blockfilterindex')
 utxo_index=$(flag '.bitcoin.utxo_index')
 litecoin_utxo_index=$(flag '.litecoin.utxo_index')
+bitcoincash_utxo_index=$(flag '.bitcoincash.utxo_index')
 rpc_expose=$(flag '.bitcoin.rpc_expose')
 rpc_bind_ip=$(get '.bitcoin.rpc_bind_ip')
 rpc_port=$(jq -r '.bitcoin.rpc_port // 8332' <<<"$config")
@@ -583,7 +584,7 @@ case "$tari_pruning_horizon" in '' | 0 | *[!0-9]*) echo "tari.pruning_horizon mu
 for prune_config in "litecoin:$litecoin_prune:550" "dogecoin:$dogecoin_prune:2200" "bitcoincash:$bitcoincash_prune:550"; do
   IFS=: read -r node value minimum <<<"$prune_config"
   case "$value" in '' | *[!0-9]*) echo "$node.prune_mb must be a whole number of at least $minimum."; exit 1 ;; esac
-  [ "$node:$value" = "dogecoin:0" ] && continue
+  [ "$node:$value" = "dogecoin:0" ] || [ "$node:$value" = "bitcoincash:0" ] && continue
   [ "$value" -ge "$minimum" ] || { echo "$node.prune_mb must be at least $minimum."; exit 1; }
 done
 if [ "$dogecoin_watch_wallet" = "1" ] && [ "$dogecoin_prune" != "0" ]; then
@@ -635,6 +636,18 @@ if [ "$litecoin_utxo_index" = "1" ] && [ "$litecoin_enabled" != "1" ]; then
   echo "litecoin.utxo_index requires litecoin.enabled."
   exit 1
 fi
+if jq -e '(.bitcoincash // {}) | has("utxo_index") and (.utxo_index | type) != "boolean"' >/dev/null <<<"$config"; then
+  echo "bitcoincash.utxo_index must be true or false."
+  exit 1
+fi
+if [ "$bitcoincash_utxo_index" = "1" ] && [ "$bitcoincash_enabled" != "1" ]; then
+  echo "bitcoincash.utxo_index requires bitcoincash.enabled."
+  exit 1
+fi
+if [ "$bitcoincash_utxo_index" = "1" ] && [ "$bitcoincash_prune" != "0" ]; then
+  echo "bitcoincash.utxo_index needs an archival node: set bitcoincash.prune_mb to 0 (the index replays every block from genesis)."
+  exit 1
+fi
 
 compose_file=docker-compose.yml
 [ "$tari_enabled" = "1" ] && compose_file=$compose_file:docker-compose.tari-wallet.yml
@@ -653,6 +666,11 @@ fi
 if [ "$litecoin_utxo_index" = "1" ]; then
   compose_file=$compose_file:docker-compose.litecoin-utxo-index.yml
   echo "litecoin.utxo_index is on: ./stack apply recreates the dashboard with a utxo_index_litecoin volume, a 1g memory limit and 0.5 CPU. litecoind is not restarted. Its seed time and size on mainnet are not measured yet."
+fi
+# Compose keeps the last file's mem_limit, so the Bitcoin Cash overlay's 2g must come after the 1g overlays.
+if [ "$bitcoincash_utxo_index" = "1" ]; then
+  compose_file=$compose_file:docker-compose.bitcoincash-utxo-index.yml
+  echo "bitcoincash.utxo_index is on: ./stack apply recreates the dashboard with a utxo_index_bitcoincash volume, a 2g memory limit with GOMEMLIMIT 1600MiB, and 0.5 CPU. The Bitcoin Cash node is not restarted. Once it has synced, the index replays every block from genesis, a one-time job whose mainnet duration is not measured yet."
 fi
 compose_profiles=
 append_profile() { [ -z "$compose_profiles" ] || compose_profiles=$compose_profiles,; compose_profiles=${compose_profiles}$1; }
@@ -785,6 +803,17 @@ if [ ! -e "$zcash_data_dir/.address-index" ] && [ -n "$(ls -A "$zcash_data_dir" 
 if [ "$zcash_address_index" = "1" ] && { [ "$zcash_dir_used" = 1 ] || { [ "$prev_zcash_enabled" = "1" ] && [ "$prev_zcash_index" != "1" ] && [ "$prev_zcash_dir" = "$zcash_data_dir" ]; }; }; then
   echo "The Zcash data directory already holds a database built without zcash.address_index, and Zakura cannot add the"
   echo "transparent address index to that database. Point zcash.data_dir at a fresh directory to resync with it."
+  exit 1
+fi
+
+prev_bitcoincash_enabled=$(sed -n 's/^BITCOINCASH_ENABLED=//p' "$env_file" 2>/dev/null || true)
+prev_bitcoincash_prune=$(sed -n 's/^BITCOINCASH_PRUNE=//p' "$env_file" 2>/dev/null || true)
+prev_bitcoincash_dir=$(sed -n 's/^BITCOINCASH_DATA_DIR=//p' "$env_file" 2>/dev/null || true)
+bitcoincash_dir_pruned=0
+if [ -e "$bitcoincash_data_dir/blocks/index" ] && [ ! -e "$bitcoincash_data_dir/blocks/blk00000.dat" ]; then bitcoincash_dir_pruned=1; fi
+if [ "$bitcoincash_prune" = "0" ] && { [ "$bitcoincash_dir_pruned" = 1 ] || { [ "$prev_bitcoincash_enabled" = "1" ] && [ -n "$prev_bitcoincash_prune" ] && [ "$prev_bitcoincash_prune" != "0" ] && [ "$prev_bitcoincash_dir" = "$bitcoincash_data_dir" ]; }; }; then
+  echo "The Bitcoin Cash data directory holds a pruned chain, and a pruned node cannot become archival. Point"
+  echo "bitcoincash.data_dir at a fresh directory to download the full chain with bitcoincash.prune_mb set to 0."
   exit 1
 fi
 

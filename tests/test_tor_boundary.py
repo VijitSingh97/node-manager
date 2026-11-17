@@ -73,6 +73,7 @@ class ComposeBoundaryTest(unittest.TestCase):
             ("    cap_add: [\"CHOWN\", \"DAC_READ_SEARCH\"", "    cap_add: [\"NET_ADMIN\", \"CHOWN\"", "network capability"),
             ("        host_ip: \"${DASHBOARD_BIND_IP:-127.0.0.1}\"", "        host_ip: \"${DASHBOARD_BIND_IP:-0.0.0.0}\"", "loopback-default"),
             ("        ipv4_address: 172.29.0.25\n", "        ipv4_address: 172.29.0.99\n", "tor is not at 172.29.0.25"),
+            ("      ZAKURA_RPC__COOKIE_DIR: /data\n", "      ZAKURA_RPC__COOKIE_DIR: /data\n      ZAKURA_NETWORK__P2P_STACK: dual\n", "unpinned Zakura variables"),
         ]
         for old, new, expected in cases:
             with self.subTest(expected=expected):
@@ -240,6 +241,8 @@ class NodeConfigTest(unittest.TestCase):
                 self.assertTrue(lib.zcash_violations(mutated(toml, '"172.29.0.25:18233"', '"1.2.3.4:8233"'), relays))
                 self.assertTrue(lib.zcash_violations(mutated(toml, "cache_dir = false", "cache_dir = true"), relays))
                 self.assertTrue(lib.zcash_violations(mutated(toml, "127.0.0.1:8233", "0.0.0.0:8233"), relays))
+                self.assertTrue(lib.zcash_violations(mutated(toml, 'p2p_stack = "legacy"', 'p2p_stack = "dual"'), relays))
+                self.assertTrue(lib.zcash_violations(toml + "\n[zcashd_compat]\nenabled = true\n", relays))
 
 
 class HostScriptTest(unittest.TestCase):
