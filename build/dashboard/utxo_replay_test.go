@@ -472,3 +472,74 @@ func TestReplaySeedNowResumesAReplayTheUserCancelled(t *testing.T) {
 	}
 	utxoMgrCheck(t, m.store, c, "u", 59)
 }
+
+func TestUtxoReplayRetriesResetWhenTheReplayMakesProgress(t *testing.T) {
+	swapReplayKnobs(t, 5, 1000, 10)
+	swapReplayRetries(t, 3, time.Millisecond)
+	ctx := t.Context()
+	c := utxoMgrChain(80, "p")
+	node := newFakeUtxoNode(c)
+	fx := newReplayFixture(t, t.TempDir(), node)
+	failed := map[uint32]bool{}
+	node.hook = func(method string, params any) error {
+		if method == "getblockhash" {
+			if h := params.([]any)[0].(uint32); h > 0 && h%10 == 0 && !failed[h] {
+				failed[h] = true
+				return errors.New("connection refused")
+			}
+		}
+		return nil
+	}
+	fx.m.tick(ctx)
+	fx.m.maybeAutoSeed(ctx)
+	if st := fx.m.Status(); len(failed) != 7 || st.LastSeed == nil || st.LastSeed.Outcome != "ok" {
+		t.Fatalf("%d outages with progress between them, more than the 3 retries, stopped the replay: %+v", len(failed), st)
+	}
+	if !strings.Contains(fx.logs.String(), "seed phase=retrying") {
+		t.Fatalf("the retry wait never showed in the seed phase:\n%s", fx.logs)
+	}
+	fx.m.tick(ctx)
+	utxoMgrCheck(t, fx.m.store, c, "p", 79)
+}
+
+func TestUtxoReplayStopsAfterConsecutiveStalls(t *testing.T) {
+	swapReplayRetries(t, 3, time.Millisecond)
+	ctx := t.Context()
+	node := newFakeUtxoNode(utxoMgrChain(20, "q"))
+	fx := newReplayFixture(t, t.TempDir(), node)
+	fx.m.tick(ctx)
+	attempts := 0
+	node.hook = func(method string, params any) error {
+		if method == "getblockhash" && params.([]any)[0].(uint32) == 0 {
+			attempts++
+			return errors.New("connection refused")
+		}
+		return nil
+	}
+	fx.m.maybeAutoSeed(ctx)
+	if st := fx.m.Status(); attempts != 4 || st.LastSeed == nil || st.LastSeed.Outcome != utxoOutcomeFailed || fx.m.seed.AutoFailures != 0 {
+		t.Fatalf("after %d stalled attempts: %+v, failures %d", attempts, st, fx.m.seed.AutoFailures)
+	}
+}
+
+func TestUtxoReplayStorageErrorsFailWithoutRetrying(t *testing.T) {
+	swapReplayRetries(t, 30, time.Second)
+	ctx := t.Context()
+	node := newFakeUtxoNode(utxoMgrChain(20, "r"))
+	fx := newReplayFixture(t, t.TempDir(), node)
+	fx.m.tick(ctx)
+	attempts := 0
+	node.hook = func(method string, params any) error {
+		if method == "getblockchaininfo" {
+			if attempts++; attempts == 1 {
+				_ = fx.m.currentStore().MarkInvalid("the disk went away")
+			}
+		}
+		return nil
+	}
+	start := time.Now()
+	fx.m.maybeAutoSeed(ctx)
+	if st := fx.m.Status(); attempts != 1 || time.Since(start) > 5*time.Second || st.State != utxoStateInvalid || st.LastSeed == nil || st.LastSeed.Outcome != utxoOutcomeFailed {
+		t.Fatalf("a storage error was retried: %d attempts in %s, %+v", attempts, time.Since(start), st)
+	}
+}

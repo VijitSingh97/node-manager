@@ -432,6 +432,7 @@ func (m *utxoManager) seedFromReplay(parent context.Context) error {
 		if err := gate.checkpoint(); err != nil {
 			return err
 		}
+		before := m.replayHeight()
 		done, err := m.replayStep(ctx)
 		switch {
 		case err == nil && done:
@@ -441,19 +442,34 @@ func (m *utxoManager) seedFromReplay(parent context.Context) error {
 			continue
 		case context.Cause(ctx) != nil:
 			return context.Cause(ctx)
-		case f.Status().State == utxoFollowError:
+		case f.Status().State == utxoFollowError || utxoIntegrityError(err) || errors.Is(err, errUtxoChainMismatch) || errors.Is(err, syscall.ENOSPC):
 			m.fail(err)
 			return err
-		case errors.Is(err, errUtxoChainMismatch) || retries >= utxoReplayRetries:
+		}
+		// A step that committed blocks before it failed made progress, so only consecutive stalls use up the retries.
+		if m.replayHeight() != before {
+			retries = 0
+		}
+		if retries >= utxoReplayRetries {
 			return err
 		}
 		retries++
+		m.setSeedPhase(utxoPhaseRetrying)
 		select {
 		case <-ctx.Done():
 			return context.Cause(ctx)
 		case <-time.After(utxoReplayRetryWait):
 		}
+		m.setSeedPhase(utxoPhaseReplaying)
 	}
+}
+
+func (m *utxoManager) replayHeight() int64 {
+	h, _, ok, err := m.currentStore().Tip()
+	if err != nil || !ok {
+		return -1
+	}
+	return int64(h)
 }
 
 // replayStep applies blocks up to the node's tip and reports whether the index is close enough to hand to the follower.
