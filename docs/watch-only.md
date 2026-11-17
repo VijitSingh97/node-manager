@@ -116,16 +116,23 @@ not shown. A pruned Bitcoin Cash node keeps the hourly scan.
 
 With the Bitcoin Cash index on, the dashboard's memory limit is 2 GiB, with
 `GOMEMLIMIT=1600MiB`, instead of the 1 GiB the Bitcoin and Litecoin indexes set.
-The limit is a cap, not memory set aside. The cap changes no allocation, so on
-ordinary blocks the dashboard should stay near what it uses today; that is inferred,
-not measured on Bitcoin Cash mainnet (the Bitcoin index peaked at 0.25 GiB RSS,
-#217). It only climbs while it applies a block of tens of MB. On regtest, replaying
-four 31 MB blocks under the 2 GiB cap peaked at 954 MiB of live heap and 1.50 GiB
-RSS; under 1 GiB without `GOMEMLIMIT` the same replay was killed. In that run
-Bitcoin Cash Node, on regtest defaults, peaked at about 1.21 GiB serving those
-blocks. A host replaying such blocks therefore needs about 2.7 GiB of RAM for the
-two (the two peaks added), plus whatever else it runs. The index is sized for
-blocks up to 32 MB; a larger block would stop it at that height.
+Plan for the dashboard using up to 2 GiB on top of what [Nodes](nodes.md) plans
+for Bitcoin Cash Node itself. The limit is a cap, not memory set aside. The cap
+changes no allocation, so on ordinary blocks the dashboard should stay near what
+it uses today; that is inferred, not measured on Bitcoin Cash mainnet (the Bitcoin
+index peaked at 0.25 GiB RSS, #217). It only climbs while it applies a large
+block, at about 1 KiB of heap per coin operation. On regtest, replaying four 31 MB
+blocks of about 0.9 million operations each under the 2 GiB cap peaked at 954 MiB
+of live heap and 1.50 GiB RSS, and Bitcoin Cash Node peaked at about 1.21 GiB;
+under 1 GiB without `GOMEMLIMIT` the same replay was killed. These regtest peaks
+are lower bounds, and mainnet is not measured.
+
+The index applies a block of up to 1.2 million coin operations and 32 MB. A
+larger block, such as a miner's block of millions of tiny outputs, stops the
+index at that height: the card reads Degraded with the block's height and
+operation count, the index keeps what it has and is not marked invalid, and it
+tries again only after the dashboard restarts. Applying such blocks in pieces is
+issue #363.
 
 Fresh state includes two sourced public examples:
 
