@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { badgeClickTarget, indexBadge, indexView, offHint, requestSeed, OFF_HINT, OFF_HINT_DOCS, SEED_COMMAND, SEED_WARNING, LITECOIN_SEED_COMMAND, LITECOIN_SEED_WARNING, BITCOINCASH_SEED_COMMAND, BITCOINCASH_SEED_WARNING, CONFIRMED_ONLY } from "./utxo-index.js";
+import { badgeClickTarget, indexBadge, indexView, offHint, requestSeed, OFF_HINT, OFF_HINT_DOCS, SEED_COMMAND, SEED_WARNING, LITECOIN_SEED_COMMAND, LITECOIN_SEED_WARNING, BITCOINCASH_SEED_COMMAND, BITCOINCASH_SEED_WARNING, DOGECOIN_SEED_COMMAND, DOGECOIN_SEED_WARNING, CONFIRMED_ONLY } from "./utxo-index.js";
 
 test("every endpoint state renders its label, and the confirmed-only row is always present", () => {
   const cases = [
@@ -136,4 +136,14 @@ test("the Bitcoin Cash index card states the archival replay and seeds Bitcoin C
   let body;
   await requestSeed(async (url, init) => { body = JSON.parse(init.body); return { ok: true, text: async () => "" }; }, "bitcoincash");
   assert.deepEqual(body, { action: "utxo_seed", node: "bitcoincash" });
+});
+
+test("the Dogecoin index card states the chainstate-copy seed and seeds Dogecoin", async () => {
+  const view = indexView({ enabled: true, state: "not_seeded" }, "dogecoin");
+  assert.equal(view.command, DOGECOIN_SEED_COMMAND);
+  assert.equal(view.warning, DOGECOIN_SEED_WARNING);
+  assert.match(DOGECOIN_SEED_WARNING, /works on a pruned node/);
+  let body;
+  await requestSeed(async (url, init) => { body = JSON.parse(init.body); return { ok: true, text: async () => "" }; }, "dogecoin");
+  assert.deepEqual(body, { action: "utxo_seed", node: "dogecoin" });
 });
