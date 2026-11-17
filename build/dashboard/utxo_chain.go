@@ -14,6 +14,9 @@ type utxoChainParams struct {
 	Descriptors    []string
 	ReverseIndex   bool
 	Replay         bool
+	CashTokens     bool
+	AuxPow         bool
+	Chainstate     bool
 }
 
 var (
@@ -38,6 +41,15 @@ var (
 		BlockVerbosity: 0,
 		ReverseIndex:   true,
 		Replay:         true,
+		CashTokens:     true,
+	}
+	// Dogecoin Core 1.14.9 has neither dumptxoutset nor descriptors; the index seeds from a copy of its chainstate, which a pruned node keeps whole.
+	utxoDogecoin = &utxoChainParams{
+		Networks:       map[string][4]byte{"main": {0xc0, 0xc0, 0xc0, 0xc0}, "regtest": utxoNetRegtest},
+		BlockVerbosity: 0,
+		ReverseIndex:   true,
+		AuxPow:         true,
+		Chainstate:     true,
 	}
 )
 

@@ -113,13 +113,74 @@ func unwrapCashTokenScript(b []byte) []byte {
 	return rest
 }
 
+// A merge-mined Dogecoin block sets this version bit and carries its parent chain's proof between the header and the transactions.
+const utxoAuxPowVersion = 1 << 8
+
+// skipAuxPow reads past the proof: the parent coinbase, the parent block hash, the coinbase and chain merkle branches with their indexes, and the parent header.
+func (r *rawReader) skipAuxPow() {
+	r.skipTx()
+	r.take(32)
+	for range 2 {
+		r.take(32 * r.count(32))
+		r.take(4)
+	}
+	r.take(80)
+}
+
+// count reads a CompactSize that numbers items of at least size bytes, refusing one the rest of the block cannot hold.
+func (r *rawReader) count(size uint64) uint64 {
+	n := r.compact()
+	if r.err == nil && n > uint64(len(r.b)-r.off)/size {
+		r.err = fmt.Errorf("%w: %d items cannot fit in the block", errUtxoBadBlock, n)
+		return 0
+	}
+	return n
+}
+
+// skipTx reads past a transaction that may use the witness serialization, as a parent chain's coinbase can.
+func (r *rawReader) skipTx() {
+	r.take(4)
+	ins := r.count(41)
+	witness := false
+	if ins == 0 && r.err == nil {
+		flags := r.take(1)
+		if r.err != nil {
+			return
+		}
+		if flags[0] == 0 {
+			r.take(4)
+			return
+		}
+		if flags[0] != 1 {
+			r.err = fmt.Errorf("%w: unknown transaction flags %x", errUtxoBadBlock, flags[0])
+			return
+		}
+		witness, ins = true, r.count(41)
+	}
+	for i := uint64(0); i < ins && r.err == nil; i++ {
+		r.take(36)
+		r.take(r.compact())
+		r.take(4)
+	}
+	for i, outs := uint64(0), r.count(9); i < outs && r.err == nil; i++ {
+		r.take(8)
+		r.take(r.compact())
+	}
+	for i := uint64(0); witness && i < ins && r.err == nil; i++ {
+		for j, items := uint64(0), r.count(1); j < items && r.err == nil; j++ {
+			r.take(r.compact())
+		}
+	}
+	r.take(4)
+}
+
 func doubleSHA256(b []byte) [32]byte {
 	first := sha256.Sum256(b)
 	return sha256.Sum256(first[:])
 }
 
-// parseCashBlock reads a raw Bitcoin Cash block; spends carry no script, so the store resolves them through its reverse keys.
-func parseCashBlock(raw []byte, height uint32) (utxoBlock, error) {
+// parseRawBlock reads a raw block in the legacy transaction format; spends carry no script, so the store resolves them through its reverse keys.
+func parseRawBlock(raw []byte, height uint32, chain *utxoChainParams) (utxoBlock, error) {
 	blk := utxoBlock{Height: height}
 	r := &rawReader{b: raw}
 	header := r.take(80)
@@ -128,6 +189,9 @@ func parseCashBlock(raw []byte, height uint32) (utxoBlock, error) {
 	}
 	blk.Hash = doubleSHA256(header)
 	copy(blk.PrevHash[:], header[4:36])
+	if chain.AuxPow && binary.LittleEndian.Uint32(header)&utxoAuxPowVersion != 0 {
+		r.skipAuxPow()
+	}
 	txs := r.compact()
 	ops := 0
 	for t := uint64(0); t < txs && r.err == nil; t++ {
@@ -150,7 +214,10 @@ func parseCashBlock(raw []byte, height uint32) (utxoBlock, error) {
 		for o := uint64(0); o < outs && r.err == nil; o++ {
 			c := utxoCreate{Amount: r.u64()}
 			c.Vout = uint32(o)
-			c.Script = unwrapCashTokenScript(r.take(r.compact()))
+			c.Script = r.take(r.compact())
+			if chain.CashTokens {
+				c.Script = unwrapCashTokenScript(c.Script)
+			}
 			creates = append(creates, c)
 		}
 		r.take(4)
