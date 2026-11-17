@@ -1,0 +1,12 @@
+services:
+  dashboard:
+    mem_limit: 1g
+    cpus: 0.5
+    environment:
+      DOGECOIN_UTXO_INDEX_ENABLED: "1"
+      DOGECOIN_UTXO_INDEX_DIR: /utxo-index-dogecoin
+    volumes:
+      - utxo_index_dogecoin:/utxo-index-dogecoin
+
+volumes:
+  utxo_index_dogecoin:

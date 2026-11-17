@@ -467,14 +467,22 @@ echo "$bch_dashboard" | grep -q 'cpus: 0.5' || fail "Bitcoin Cash index overlay 
 echo "$bch_dashboard" | grep -B2 -A2 'target: /utxo-index-bitcoincash' | grep -q 'source: utxo_index_bitcoincash' || fail "dashboard is missing the utxo_index_bitcoincash volume"
 echo "$bch_render" | sed -n '/^  bitcoincash:$/,/^  [a-z][a-z-]*:$/p' | grep -q 'utxo' && fail "Bitcoin Cash index overlay changed the bitcoincash service"
 
+doge_render=$(docker compose --env-file /dev/null -f docker-compose.yml -f docker-compose.dogecoin-utxo-index.yml config)
+doge_dashboard=$(echo "$doge_render" | sed -n '/^  dashboard:$/,/^  [a-z][a-z-]*:$/p')
+echo "$doge_dashboard" | grep -q 'DOGECOIN_UTXO_INDEX_ENABLED: "1"' || fail "Dogecoin index flag did not reach the dashboard"
+echo "$doge_dashboard" | grep -q 'DOGECOIN_UTXO_INDEX_DIR: /utxo-index-dogecoin' || fail "Dogecoin index directory did not reach the dashboard"
+echo "$doge_dashboard" | grep -B2 -A2 'target: /utxo-index-dogecoin' | grep -q 'source: utxo_index_dogecoin' || fail "dashboard is missing the utxo_index_dogecoin volume"
+echo "$doge_render" | sed -n '/^  dogecoin:$/,/^  [a-z][a-z-]*:$/p' | grep -q 'utxo' && fail "Dogecoin index overlay changed the dogecoin service"
+
 # The dashboard's effective limits for every index combination, rendered in the order configure.sh writes COMPOSE_FILE.
-for combo in none btc ltc bch btc+bch ltc+bch btc+ltc+bch; do
+for combo in none btc ltc bch doge btc+bch ltc+bch doge+bch btc+ltc+doge btc+ltc+doge+bch; do
   dir=$(mktemp -d)
   cp configure.sh "$dir/"
   config='{"dashboard":{"password":"composetest12"}'
   case "+$combo+" in *+btc+*) config+=',"bitcoin":{"utxo_index":true}' ;; esac
   case "+$combo+" in *+ltc+*) config+=',"litecoin":{"enabled":true,"utxo_index":true}' ;; esac
   case "+$combo+" in *+bch+*) config+=',"bitcoincash":{"enabled":true,"prune_mb":0,"utxo_index":true}' ;; esac
+  case "+$combo+" in *+doge+*) config+=',"dogecoin":{"enabled":true,"utxo_index":true}' ;; esac
   printf '%s}\n' "$config" >"$dir/config.json"
   (cd "$dir" && ./configure.sh >/dev/null) || fail "configure.sh failed for the $combo index combination"
   files=()

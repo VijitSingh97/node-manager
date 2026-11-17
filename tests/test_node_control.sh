@@ -40,6 +40,7 @@ EOF
 cat >"$root/stack" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$*" >>"$FAKE_STACK_LOG"
+[ "${1:-}" != utxo-chainstate-copy ] || [ "${FAKE_COPY_FAIL:-0}" != 1 ] || exit 1
 [ "${FAKE_STACK_INTERRUPT_ON_PULL:-0}" != 1 ] || [ "${1:-}" != pull ] || {
   kill -KILL "$PPID"
   exit 1
@@ -83,7 +84,7 @@ if [ "$1" = ps ]; then
   fake_service=${all##*com.docker.compose.service=}
   case " ${FAKE_CONTAINERS:-} " in *" ${fake_service%% *} "*) printf '%s-ctr\n' "${fake_service%% *}" ;; esac
   case "$*" in *com.docker.compose.service=dashboard*) [ "${FAKE_DASHBOARD_MISSING:-0}" = 1 ] || printf 'dashboard-id\n' ;; esac
-  case "$*" in *com.docker.compose.service=bitcoin* | *com.docker.compose.service=litecoin*)
+  case "$*" in *com.docker.compose.service=bitcoin* | *com.docker.compose.service=litecoin* | *com.docker.compose.service=dogecoin*)
     all="$*"
     [ "${FAKE_NODE_RUNNING:-0}" != 1 ] || printf '%s-node\n' "${all##*com.docker.compose.service=}" ;;
   esac
@@ -392,9 +393,61 @@ FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root
 jq -e '.requested_at==1000' "$dashboard_state/litecoin-utxo-seed.request" >/dev/null || fail "the litecoin seed request was not written under its prefix"
 cp "$tmp/config.keep" "$config/config.json"
 jq -S . "$config/config.json" >"$state/.approved-config.json"
-request '{"action":"utxo_seed","id":"f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6","node":"dogecoin","requested_at":1000}'
+request '{"action":"utxo_seed","id":"f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6","node":"zcash","requested_at":1000}'
 FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 [ "$(status .error_code)" = invalid_request ] || fail "a seed request for an unsupported node was accepted"
+
+# Dogecoin seeds from its chainstate: stack stops the node, copies the chainstate and starts it again before the request is written.
+jq '.dogecoin={"enabled":true,"utxo_index":true}' "$tmp/config.keep" >"$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+"$root/scripts/node-control"
+jq -e '.utxo_index_dogecoin' "$dashboard_state/node-control.capability" >/dev/null || fail "Dogecoin index capability was not published"
+: >"$tmp/stack.log"
+request '{"action":"utxo_seed","id":"fbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfb","node":"dogecoin","requested_at":1000}'
+FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state):$(status .node)" = applied:dogecoin ] || { cat "$dashboard_state/node-control.status"; fail "the Dogecoin seed was not prepared"; }
+grep -qx 'utxo-chainstate-copy dogecoin' "$tmp/stack.log" || fail "the Dogecoin seed did not copy the chainstate"
+jq -e '.id=="fbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfb"' "$dashboard_state/dogecoin-utxo-seed.request" >/dev/null || fail "the Dogecoin seed request was not written under its prefix"
+[ ! -e "$FAKE_NODE_DATA/dogecoin/utxo-seed.dat.incomplete" ] || fail "a seed pipe was made for a chainstate seed"
+rm -f "$dashboard_state/dogecoin-utxo-seed.request"
+request '{"action":"utxo_seed","id":"fcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfc","node":"dogecoin","requested_at":1000}'
+FAKE_COPY_FAIL=1 FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state):$(status .error_code)" = failed:apply_failed ] && [ ! -e "$dashboard_state/dogecoin-utxo-seed.request" ] || { cat "$dashboard_state/node-control.status"; fail "a failed chainstate copy still requested a seed"; }
+status .message | grep -q 'started again' || fail "a failed chainstate copy did not say the node was started again"
+
+# A finished seed's copy is removed, but not while the dashboard may still be reading it.
+doge_copy=$tmp/doge-data/utxo-seed-chainstate
+mkdir -p "$doge_copy"
+cp "$state/.env" "$tmp/env.keep"
+printf 'DOGECOIN_ENABLED=1\nDOGECOIN_DATA_DIR=%s\n' "$tmp/doge-data" >>"$state/.env"
+"$root/scripts/node-control"
+[ -d "$doge_copy" ] || fail "a fresh chainstate copy was removed before the dashboard could take its request"
+touch -t 202001010000 "$doge_copy"
+printf '{"seed_state":"seeding"}\n' >"$dashboard_state/dogecoin-utxo-seed.json"
+"$root/scripts/node-control"
+[ -d "$doge_copy" ] || fail "the chainstate copy was removed while its seed was running"
+printf '{"seed_state":"ok"}\n' >"$dashboard_state/dogecoin-utxo-seed.json"
+: >"$dashboard_state/dogecoin-utxo-seed.request"
+"$root/scripts/node-control"
+[ -d "$doge_copy" ] || fail "the chainstate copy was removed while its request was pending"
+rm -f "$dashboard_state/dogecoin-utxo-seed.request"
+"$root/scripts/node-control"
+[ ! -e "$doge_copy" ] || fail "the chainstate copy of a finished seed was kept"
+cp "$tmp/env.keep" "$state/.env"
+rm -f "$dashboard_state/dogecoin-utxo-seed.json"
+
+jq '.dogecoin.enabled=false | .dogecoin.utxo_index=false' "$config/config.json" >"$tmp/config.next" && mv "$tmp/config.next" "$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+request '{"action":"utxo_index","enabled":true,"id":"fdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfd","node":"dogecoin","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state):$(status .error_code)" = rejected:validation_failed ] || fail "the Dogecoin index was turned on for a disabled node"
+jq '.dogecoin.enabled=true' "$config/config.json" >"$tmp/config.next" && mv "$tmp/config.next" "$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+request '{"action":"utxo_index","enabled":true,"id":"fefefefefefefefefefefefefefefefe","node":"dogecoin","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state)" = applied ] && [ "$(jq -r .dogecoin.utxo_index "$config/config.json")" = true ] || fail "the Dogecoin index was not turned on for a pruned node"
+cp "$tmp/config.keep" "$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
 
 printf '{"seed_state":"seeding"}\n' >"$dashboard_state/litecoin-utxo-seed.json"
 jq '.litecoin.utxo_index=true' "$config/config.json" >"$tmp/config.next" && mv "$tmp/config.next" "$config/config.json"
@@ -890,6 +943,16 @@ FAKE_CONTAINERS=bitcoincash run_nc
 { [ "$(volume_removals)" = 1 ] && grep -qx 'docker volume rm ds_utxo_index_bitcoincash' "$tmp/stack.log"; } || fail "Bitcoin Cash's balance index volume was not removed alone"
 [ ! -e "$dashboard_state/bitcoincash-utxo-seed.json" ] && [ -e "$dashboard_state/litecoin-utxo-seed.json" ] || fail "delete did not clear exactly the Bitcoin Cash replay state"
 tail -n 1 "$dashboard_state/events.log" | grep -q 'Host: Bitcoin Cash deleted$' || fail "Bitcoin Cash's Host event is wrong"
+
+delete_setup
+mkdir -p "$del_base/dogecoin" && printf 'chain' >"$del_base/dogecoin/blocks.dat"
+jq --arg d "$del_base" '.dogecoin={enabled:true,active:false,utxo_index:true,data_dir:($d+"/dogecoin")}' "$config/config.json" >"$tmp/config.delete"
+write_config "$tmp/config.delete"
+printf '%s\n' ds_utxo_index_dogecoin >>"$FAKE_VOLUMES"
+del_request dogecoin
+FAKE_CONTAINERS=dogecoin run_nc
+[ "$(status .state)" = applied ] || fail "Dogecoin delete was not applied: $(cat "$dashboard_state/node-control.status")"
+{ [ "$(volume_removals)" = 1 ] && grep -qx 'docker volume rm ds_utxo_index_dogecoin' "$tmp/stack.log"; } || fail "Dogecoin's balance index volume was not removed alone"
 
 delete_setup
 jq '.bitcoin.active=false' "$config/config.json" >"$tmp/config.delete"
