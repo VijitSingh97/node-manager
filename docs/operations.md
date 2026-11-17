@@ -43,7 +43,19 @@ With **Node manager usage** ticked in Settings, the usage panel at the top left
 lists the host's temperature, fan speed, uptime and network rate under the disk
 bars and CPU and memory pies. The resource-profile host helper collects them
 once a minute with the other host figures, so the dashboard container needs no
-extra mounts or privileges:
+extra mounts or privileges.
+
+The CPU and memory pies split the host three ways. A node slice covers the
+node's container and its wallet container (Monero, Tari). **Node Manager
+(dashboard and Tor)** covers those two containers; Tor carries every node's
+peer traffic. **Other processes** is the rest of the host's used CPU and
+memory: processes outside the stack, Docker itself, and kernel memory that no
+container owns. On Linux each container's CPU comes from its cgroup over the
+same second as the host total, and its memory is its anonymous memory plus its
+own kernel memory (page tables, unreclaimable slab, socket buffers), not file
+cache. Docker Desktop hosts use `docker stats` instead.
+
+The health rows below the pies read:
 
 - **Temperature** — the same `/sys/class/thermal` zones the thermal throttle
   reads. `CPU` is the hottest CPU package zone (`x86_pkg_temp`, `cpu-thermal`,

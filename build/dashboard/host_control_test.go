@@ -316,3 +316,59 @@ func TestHostControlShowsMigrateProgressWhileProcessing(t *testing.T) {
 		t.Fatalf("stale progress was trusted: %#v", status)
 	}
 }
+
+func TestHostControlBlocksInstallOnUnsupportedCPU(t *testing.T) {
+	a, _ := testApp(t, &rpcFixture{}, "")
+	b, _ := json.Marshal(hostControlCapability{Timestamp: time.Now().Unix(), Platform: "linux", BootKind: "boot", InstallSupported: true, UnsupportedNodes: []string{"zcash"}})
+	if err := os.WriteFile(a.nodeControlPath("capability"), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var view hostControlView
+	response := hostControlHTTP(a, http.MethodGet, "", false, "192.168.1.20:4321")
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &view) != nil {
+		t.Fatalf("host view = %d %s", response.Code, response.Body.String())
+	}
+	for _, node := range view.Nodes {
+		if want := map[string]string{"zcash": zcashCPUMessage}[node.ID]; node.Unsupported != want {
+			t.Fatalf("%s unsupported = %q, want %q", node.ID, node.Unsupported, want)
+		}
+	}
+	response = hostControlHTTP(a, http.MethodPost, `{"action":"install","node":"zcash"}`, true, "192.168.1.20:4321")
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "BMI2 and ADX") {
+		t.Fatalf("zcash install = %d %s", response.Code, response.Body.String())
+	}
+	if _, err := os.Stat(a.nodeControlPath("request")); !os.IsNotExist(err) {
+		t.Fatalf("blocked install still queued a request: %v", err)
+	}
+	if response = hostControlHTTP(a, http.MethodPost, `{"action":"install","node":"monero"}`, true, "192.168.1.20:4321"); response.Code != http.StatusAccepted {
+		t.Fatalf("monero install = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestHostControlStatusShowsTheLastErrorOfAFailedInstall(t *testing.T) {
+	a, _ := testApp(t, &rpcFixture{}, "")
+	writeHostCapability(t, a, false)
+	write := func(state, detail string) hostControlView {
+		t.Helper()
+		b, _ := json.Marshal(hostControlStatus{ID: strings.Repeat("a", 32), Action: "install", Node: "dogecoin", State: state, ErrorCode: "apply_failed", Detail: detail})
+		if err := os.WriteFile(a.nodeControlPath("status"), b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var view hostControlView
+		response := hostControlHTTP(a, http.MethodGet, "", false, "192.168.1.20:4321")
+		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &view) != nil || view.Status == nil {
+			t.Fatalf("host view = %d %s", response.Code, response.Body.String())
+		}
+		return view
+	}
+	view := write("failed", "Error response from daemon:\x1b[31m manifest unknown\n"+strings.Repeat("x", 300))
+	if !strings.HasPrefix(view.Status.Detail, "Error response from daemon:[31m manifest unknown") || len([]rune(view.Status.Detail)) != 240 || strings.ContainsAny(view.Status.Detail, "\x1b\n") {
+		t.Fatalf("failed detail = %q", view.Status.Detail)
+	}
+	if view.Status.Message != "The host could not apply that change." {
+		t.Fatalf("message = %q", view.Status.Message)
+	}
+	if view = write("rejected", "should not show"); view.Status.Detail != "" {
+		t.Fatalf("rejected status kept a detail: %q", view.Status.Detail)
+	}
+}

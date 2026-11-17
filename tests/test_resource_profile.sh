@@ -35,7 +35,7 @@ if [ "$1" = compose ]; then
         bitcoincash) printf '%s\n' "${FAKE_BITCOINCASH_ID:-bch-id}" ;;
         tari) printf '%s\n' tari-id ;;
         zcash) printf '%s\n' zcash-id ;;
-        dashboard) printf '%s\n' dashboard-id ;;
+        dashboard) [ "${FAKE_DASHBOARD_DOWN:-0}" = 1 ] || printf '%s\n' dashboard-id ;;
       esac
       ;;
     exec)
@@ -89,6 +89,10 @@ fi
 
 case "$1" in
   inspect)
+    if [ "${2:-}" != --format ]; then
+      cat "${FAKE_INSPECT_DIR:-/nonexistent}/$2.json" 2>/dev/null || printf '[]\n'
+      exit 0
+    fi
     id=${4:-}
     case "$3" in
       *State.Health*)
@@ -116,11 +120,17 @@ case "$1" in
     esac
     ;;
   ps)
-    printf 'monero running\nmonero-wallet running\nbitcoin exited\ntari restarting\nlitecoin created\ndashboard running\n'
+    case "$*" in
+      *'{{.ID}}'*) printf '%s\n' "${FAKE_PS_ID_ROWS:-}" ;;
+      *) printf 'monero running\nmonero-wallet running\nbitcoin exited\ntari restarting\nlitecoin created\ndashboard running\n' ;;
+    esac
     ;;
+  logs) printf '%s\n' "${FAKE_LOGS:-}" ;;
+  stop) exit 0 ;;
   stats)
     if [ "${3:-}" = --no-trunc ]; then
       printf 'cid-monero\tbitcoin-starter-stack-apt-monero-1\t170.00%%\t3.2GiB / 8GiB\ncid-dash\tbitcoin-starter-stack-apt-dashboard-1\t8.00%%\t50MiB / 8GiB\n'
+      printf 'cid-wallet\tbitcoin-starter-stack-apt-monero-wallet-1\t20.00%%\t100MiB / 8GiB\ncid-tor\tbitcoin-starter-stack-apt-tor-1\t12.00%%\t40MiB / 8GiB\n'
       exit 0
     fi
     id=${5:-}
@@ -426,12 +436,104 @@ unset FAKE_HOST_STATS_OUT
 jq -e '.cpus == 4 and .nodes.monero.cpu_pct > 40 and .nodes.bitcoin.disk_bytes > 0 and .nodes.bitcoin.cpu_pct == 0 and (.nodes | has("tari") | not) and .nodes.stack.disk_bytes > 0 and .nodes.stack.disk_bytes < 10000000 and (.host_cpu_pct // 0) >= 0 and (.host_mem_bytes // 0) >= 0' "$tmp/host-stats-payload.json" >/dev/null || fail "host stats payload lost disk bytes or kept an empty placeholder dir"
 jq -e '.running == {monero: true, bitcoin: false, tari: true, litecoin: true}' "$tmp/host-stats-payload.json" >/dev/null || fail "host stats did not report container running state, or reported an unknown node"
 jq -e '.nodes.monero.mem_bytes > 3000000000' "$tmp/host-stats-payload.json" >/dev/null || fail "docker-stats memory fallback was lost"
+jq -e '.nodes.monero.cpu_pct == 47.5 and (.nodes | has("monero-wallet") | not) and .other.cpu_pct == 5' "$tmp/host-stats-payload.json" >/dev/null ||
+  fail "a wallet container was not counted with its node: $(jq -c '{monero: .nodes.monero, other}' "$tmp/host-stats-payload.json")"
 mkdir -p "$case_root/cgroup/system.slice/docker-cid-monero.scope"
-printf 'anon 1234567890\nfile 99\n' >"$case_root/cgroup/system.slice/docker-cid-monero.scope/memory.stat"
+printf 'anon 1234567890\nfile 99\nkernel 999999\nkernel_stack 1\npagetables 1000\nsec_pagetables 20\npercpu 300\nsock 4000\nslab_unreclaimable 50000\nslab_reclaimable 600000\n' >"$case_root/cgroup/system.slice/docker-cid-monero.scope/memory.stat"
 export RESOURCE_CGROUP_ROOT=$case_root/cgroup FAKE_HOST_STATS_OUT=$tmp/host-stats-payload.json
 run_profile
 unset RESOURCE_CGROUP_ROOT FAKE_HOST_STATS_OUT
-jq -e '.nodes.monero.mem_bytes == 1234567890' "$tmp/host-stats-payload.json" >/dev/null || fail "cgroup anon memory did not override docker stats"
+jq -e '.nodes.monero.mem_bytes == 1234567890 + 1 + 1000 + 20 + 300 + 4000 + 50000 + 104857600' "$tmp/host-stats-payload.json" >/dev/null ||
+  fail "cgroup anon and kernel memory did not override docker stats: $(jq -c .nodes.monero "$tmp/host-stats-payload.json")"
+jq -e '.failed == {}' "$tmp/host-stats-payload.json" >/dev/null || fail "healthy containers were reported as failed starts"
+
+new_case failed-start
+mkdir -p "$case_root/inspect"
+iso() { jq -nr --argjson t "$1" '$t | todateiso8601'; }
+inspect_json() { printf '[{"RestartCount":%s,"State":{"ExitCode":%s,"OOMKilled":%s,"StartedAt":"%s","FinishedAt":"%s"}}]\n' "$2" "$3" "$4" "$(iso "$5")" "$(iso "$6")" >"$case_root/inspect/$1.json"; }
+node_rows() { printf '%s zcash %s\nltc-id litecoin exited\nxmr-id monero exited\ndoge-id dogecoin exited\nbch-id bitcoincash %s\ntari-id tari %s\nwal-id monero-wallet restarting\nbtc-id bitcoin %s\n' "$@"; }
+failed_is() { jq -e --argjson want "$1" '.failed == $want' "$tmp/host-stats-payload.json" >/dev/null || fail "$2: $(jq -c .failed "$tmp/host-stats-payload.json")"; }
+markers() { find "$case_root/state/resource-profile" -maxdepth 1 -type f -name 'fail*-*' -exec basename {} \; | LC_ALL=C sort | tr '\n' ' '; }
+adx='This Zakura binary requires CPU features this machine lacks: adx.'
+oom='It ran out of memory while starting.'
+t0=$RESOURCE_NOW_EPOCH
+inspect_json zc-id 7 1 false $((t0 - 3)) $((t0 - 2))
+inspect_json btc-id 3 1 false $((t0 - 30)) $((t0 - 75))
+inspect_json ltc-id 7 1 false $((t0 - 7200)) $((t0 - 10))
+inspect_json xmr-id 6 0 false $((t0 - 20)) $((t0 - 15))
+inspect_json doge-id 5 137 true $((t0 - 30)) $((t0 - 20))
+inspect_json bch-id 2 1 false $((t0 - 3)) $((t0 - 2))
+inspect_json tari-id 40 1 false $((t0 - 3)) $((t0 - 2))
+inspect_json wal-id 9 1 false $((t0 - 3)) $((t0 - 2))
+FAKE_LOGS=$(printf 'INFO: Using config file at /etc/zakura/zakurad.toml\n\033[31m%s\033[0m\n\n' "$adx")
+FAKE_PS_ID_ROWS=$(node_rows zc-id restarting restarting restarting running)
+export FAKE_LOGS FAKE_PS_ID_ROWS FAKE_INSPECT_DIR=$case_root/inspect FAKE_HOST_STATS_OUT=$tmp/host-stats-payload.json FAKE_EVENTS_OUT=$tmp/failed-events.log
+run_profile
+failed_is "{\"dogecoin\": \"$oom\"}" "only the node whose restarts ran out should be reported at first"
+[ "$(markers)" = 'failed-dogecoin failing-bitcoin failing-bitcoincash failing-tari failing-zcash ' ] || fail "crash loops were not all remembered: $(markers)"
+doge_event="Host: Dogecoin is not coming up: Docker stopped restarting it after 5 failed starts. Last error: $oom"
+[ "$(grep -cF "$doge_event" "$tmp/failed-events.log")" = 1 ] || fail "a node Docker gave up on was not alerted once: $(cat "$tmp/failed-events.log")"
+RESOURCE_NOW_EPOCH=$((t0 + 300))
+inspect_json zc-id 12 1 false $((t0 + 297)) $((t0 + 298))
+inspect_json btc-id 8 1 false $((t0 + 290)) $((t0 + 245))
+run_profile
+! grep -q '^stop ' "$log" || fail "a node was stopped before it kept failing for 10 minutes"
+RESOURCE_NOW_EPOCH=$((t0 + 660))
+inspect_json zc-id 14 1 false $((t0 + 657)) $((t0 + 658))
+inspect_json btc-id 15 1 false $((t0 + 640)) $((t0 + 595))
+inspect_json tari-id 41 1 false $((t0 + 657)) $((t0 + 658))
+inspect_json bch-id 3 1 false $((t0 + 657)) $((t0 + 658))
+run_profile
+[ "$(grep '^stop ' "$log" | tr '\n' ' ')" = 'stop -t 30 zc-id stop -t 30 btc-id ' ] || fail "only the two nodes that kept failing should be stopped: $(grep '^stop ' "$log" | tr '\n' ' ')"
+failed_is "{\"zcash\": \"$adx\", \"dogecoin\": \"$oom\", \"bitcoin\": \"$adx\"}" "stopped nodes were misreported"
+grep -qF "Host: Zcash is not coming up: it kept failing to start for 11 minutes, so it was stopped. Last error: $adx" "$tmp/failed-events.log" || fail "the stopped node was not alerted with its error: $(cat "$tmp/failed-events.log")"
+grep -qF "Host: Bitcoin is not coming up: it kept failing to start for 11 minutes, so it was stopped. Last error: $adx" "$tmp/failed-events.log" || fail "a slow crash loop was not alerted"
+[ "$(markers)" = 'failed-bitcoin failed-dogecoin failed-zcash failing-bitcoincash failing-tari ' ] || fail "stopped nodes kept their loop markers or lost their records: $(markers)"
+RESOURCE_NOW_EPOCH=$((t0 + 700))
+inspect_json btc-id 15 143 false $((t0 + 640)) $((t0 + 661))
+inspect_json bch-id 3 0 false $((t0 + 650)) $((t0 + 658))
+FAKE_PS_ID_ROWS=$(node_rows zc-id exited running restarting exited)
+run_profile
+failed_is "{\"zcash\": \"$adx\", \"dogecoin\": \"$oom\", \"bitcoin\": \"$adx\"}" "a node stopped mid-run lost its reason"
+[ -f "$case_root/state/resource-profile/failing-bitcoincash" ] || fail "a node up for under a minute lost its crash-loop marker"
+RESOURCE_NOW_EPOCH=$((t0 + 800))
+inspect_json zc2-id 0 0 false $((t0 + 790)) 0
+inspect_json btc-id 0 0 false $((t0 + 790)) $((t0 + 690))
+inspect_json tari-id 2 1 false $((t0 + 700)) $((t0 + 701))
+FAKE_PS_ID_ROWS=$(node_rows zc2-id running running exited running)
+run_profile
+failed_is "{\"dogecoin\": \"$oom\"}" "a recreated or restarted node kept its failure"
+[ "$(markers)" = 'failed-dogecoin ' ] || fail "stale markers survived a recreate, a restart, or a manual stop: $(markers)"
+RESOURCE_NOW_EPOCH=$((t0 + 900))
+run_profile
+[ "$(markers)" = 'failed-dogecoin ' ] || fail "a node that stayed up kept its failure record: $(markers)"
+[ "$(grep -cF "$doge_event" "$tmp/failed-events.log")" = 1 ] || fail "a node Docker gave up on was alerted more than once"
+doge_again="Host: Dogecoin is not coming up: Docker stopped restarting it after 5 failed starts. Last error: $adx"
+RESOURCE_NOW_EPOCH=$((t0 + 960))
+inspect_json doge-id 5 1 false $((t0 + 950)) $((t0 + 955))
+FAKE_DASHBOARD_DOWN=1 run_profile
+! grep -qF "$doge_again" "$tmp/failed-events.log" || fail "an alert was written while the dashboard was down"
+RESOURCE_NOW_EPOCH=$((t0 + 1020))
+run_profile
+[ "$(grep -cF "$doge_again" "$tmp/failed-events.log")" = 1 ] || fail "a second give-up after Start node was not alerted once the dashboard was back"
+jq -e --arg adx "$adx" '.failed.dogecoin == $adx' "$tmp/host-stats-payload.json" >/dev/null || fail "a second give-up kept the old reason: $(jq -c .failed "$tmp/host-stats-payload.json")"
+RESOURCE_NOW_EPOCH=$((t0 + 1080))
+run_profile
+[ "$(grep -cF "$doge_again" "$tmp/failed-events.log")" = 1 ] || fail "a retried alert was sent twice"
+unset FAKE_INSPECT_DIR FAKE_HOST_STATS_OUT FAKE_EVENTS_OUT FAKE_PS_ID_ROWS FAKE_LOGS
+
+new_case failed-secret
+mkdir -p "$case_root/inspect"
+t0=$RESOURCE_NOW_EPOCH
+inspect_json doge-id 5 1 false $((t0 - 30)) $((t0 - 20))
+FAKE_LOGS='Error parsing config line 6: rpcpassword=hunter2'
+FAKE_PS_ID_ROWS='doge-id dogecoin exited'
+export FAKE_LOGS FAKE_PS_ID_ROWS FAKE_INSPECT_DIR=$case_root/inspect FAKE_HOST_STATS_OUT=$tmp/host-stats-payload.json FAKE_EVENTS_OUT=$tmp/secret-events.log
+run_profile
+jq -e '.failed.dogecoin == "It exited with an error."' "$tmp/host-stats-payload.json" >/dev/null || fail "a log line with a password became the failure reason: $(jq -c .failed "$tmp/host-stats-payload.json")"
+grep -q 'Dogecoin is not coming up: .* Last error: It exited with an error.$' "$tmp/secret-events.log" || fail "the redacted failure was not alerted"
+! grep -rq hunter2 "$tmp/secret-events.log" "$tmp/host-stats-payload.json" "$case_root/state/resource-profile" || fail "a password from the container log leaked"
+unset FAKE_INSPECT_DIR FAKE_HOST_STATS_OUT FAKE_EVENTS_OUT FAKE_PS_ID_ROWS FAKE_LOGS
 
 host_proc=$case_root/proc host_sys=$case_root/sys
 mkdir -p "$host_proc/net" "$case_root/proc-next/net" "$tmp/bin" "$case_root/zones/0" "$case_root/zones/1" "$case_root/zones/2"
@@ -464,11 +566,20 @@ printf '70000\n' >"$case_root/zones/2/temp"; printf 'iwlwifi_1\n' >"$case_root/z
 cat >"$tmp/bin/sleep" <<'EOF'
 #!/bin/sh
 cp -R "$FAKE_PROC_NEXT"/. "$RESOURCE_PROC_ROOT"/
+[ -z "${FAKE_CGROUP_NEXT:-}" ] || cp -R "$FAKE_CGROUP_NEXT"/. "$RESOURCE_CGROUP_ROOT"/
 EOF
 chmod +x "$tmp/bin/sleep"
+printf 'cpu  400 0 100 1500 0 0 0 0 0 0\n' >"$case_root/proc-next/stat"
+mkdir -p "$case_root/cgroup/system.slice/docker-cid-monero.scope" "$case_root/cgroup-next/system.slice/docker-cid-monero.scope"
+printf 'usage_usec 1000000\n' >"$case_root/cgroup/system.slice/docker-cid-monero.scope/cpu.stat"
+printf 'usage_usec 3500000\n' >"$case_root/cgroup-next/system.slice/docker-cid-monero.scope/cpu.stat"
 export RESOURCE_PROC_ROOT=$host_proc RESOURCE_SYS_ROOT=$host_sys RESOURCE_THERMAL_GLOB="$case_root/zones/*/temp"
+export RESOURCE_CGROUP_ROOT=$case_root/cgroup FAKE_CGROUP_NEXT=$case_root/cgroup-next
 export FAKE_PROC_NEXT=$case_root/proc-next FAKE_HOST_STATS_OUT=$tmp/host-stats-payload.json
 PATH="$tmp/bin:$PATH" run_profile
+unset RESOURCE_CGROUP_ROOT FAKE_CGROUP_NEXT
+jq -e '.host_cpu_pct == 30 and .nodes.monero.cpu_pct == 30' "$tmp/host-stats-payload.json" >/dev/null ||
+  fail "container CPU was not measured over the host CPU window: $(jq -c '{host_cpu_pct, monero: .nodes.monero.cpu_pct}' "$tmp/host-stats-payload.json")"
 jq -e '.cpu_temp_c == 59 and .board_temp_c == 45 and .fans_rpm == [0, 2506] and .uptime_s == 1002 and .net_rx_bps == 3000 and .net_tx_bps == 500' "$tmp/host-stats-payload.json" >/dev/null ||
   fail "host health readings are wrong: $(jq -c '{cpu_temp_c, board_temp_c, fans_rpm, uptime_s, net_rx_bps, net_tx_bps}' "$tmp/host-stats-payload.json")"
 ! grep -Eq 'enp3s0f0|wlp2s0|tailscale0|docker0|veth|iwlwifi|coretemp' "$tmp/host-stats-payload.json" || fail "host stats leaked interface or sensor names"
