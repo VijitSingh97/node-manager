@@ -279,7 +279,7 @@ func validHostControlShape(action, node string, enabled *bool, dataDir string, i
 		action == "install" && normalizeNodeID(node) != "" && enabled == nil && (dataDir == "" && interfaces == nil || validInstallOptions(node, dataDir, interfaces)) ||
 		action == "migrate" && normalizeNodeID(node) != "" && enabled == nil && safeHostPath(dataDir) && interfaces == nil ||
 		toggleHostAction(action) && node == "" && enabled != nil && dataDir == "" && interfaces == nil ||
-		action == "utxo_index" && node == nodeLitecoin && enabled != nil && dataDir == "" && interfaces == nil ||
+		action == "utxo_index" && utxoChains[node] != nil && enabled != nil && dataDir == "" && interfaces == nil ||
 		action == "utxo_seed" && (node == nodeBitcoin || node == nodeLitecoin) && enabled == nil && dataDir == "" && interfaces == nil ||
 		action == "apply_config" && node == "" && enabled == nil && dataDir == "" && interfaces == nil
 }
