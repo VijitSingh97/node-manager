@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -38,14 +40,21 @@ type actuatorChain struct {
 	SyncProgress *float64 `json:"sync_progress,omitempty"`
 	Peers        *int64   `json:"peers,omitempty"`
 	Version      string   `json:"version,omitempty"`
+
+	Services []actuatorService `json:"services,omitempty"`
 }
 
-func (a *app) healthEndpointsEnabled() bool {
-	return a.monitor != nil && a.monitor.notificationSettings().HealthEndpoints
-}
-
-func anonymousHealthRequest(r *http.Request) bool {
-	return r.URL.EscapedPath() == "/actuator/health"
+type actuatorService struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Exposed     bool   `json:"exposed"`
+	Protocol    string `json:"protocol"`
+	Auth        string `json:"auth"`
+	BindAddress string `json:"bind_address,omitempty"`
+	Port        int    `json:"port,omitempty"`
+	URI         string `json:"uri,omitempty"`
+	Username    string `json:"username,omitempty"`
+	Password    string `json:"password,omitempty"`
 }
 
 func (a *app) updateNodeInfo(id string, update func(*nodeInfoSnapshot)) {
@@ -184,22 +193,62 @@ func (a *app) healthComponents() map[string]actuatorComponent {
 	return components
 }
 
-func (a *app) actuatorHealth(w http.ResponseWriter, r *http.Request) {
-	if !a.healthEndpointsEnabled() {
-		http.NotFound(w, r)
-		return
-	}
+func (a *app) actuatorHealth(w http.ResponseWriter, _ *http.Request) {
 	components := a.healthComponents()
 	status := aggregateStatus(components)
-	body := map[string]any{"status": status}
-	if a.configurationAllowed(r) {
-		body["components"] = components
-	}
+	body := map[string]any{"status": status, "components": components}
 	w.Header().Set("Content-Type", "application/json")
 	if status == statusDown {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+type lanServiceSpec struct {
+	id, scheme, protocol, auth string
+}
+
+var nodeLANServices = map[string][]lanServiceSpec{
+	nodeBitcoin:     {{"bitcoin_rpc", "http", "json-rpc", "basic"}},
+	nodeMonero:      {{"monero_rpc", "http", "json-rpc", "digest"}, {"monero_zmq", "tcp", "zmq", "none"}},
+	nodeTari:        {{"tari_grpc", "", "grpc", "none"}},
+	nodeLitecoin:    {{"litecoin_rpc", "http", "json-rpc", "basic"}},
+	nodeDogecoin:    {{"dogecoin_rpc", "http", "json-rpc", "basic"}},
+	nodeBitcoinCash: {{"bitcoincash_rpc", "http", "json-rpc", "basic"}},
+	nodeZcash:       {{"zcash_rpc", "http", "json-rpc", "basic"}},
+}
+
+func (a *app) lanEndpoint(node, id string) string {
+	switch id {
+	case "bitcoin_rpc":
+		return a.cfg.bitcoinRPCEndpoint
+	case "monero_rpc":
+		return a.cfg.moneroRPCEndpoint
+	case "monero_zmq":
+		return a.cfg.moneroZMQEndpoint
+	}
+	return a.cfg.nodes[node].RPCEndpoint
+}
+
+func (a *app) lanServices(node string) []actuatorService {
+	user, password, available := a.interfaceCredentials(node)
+	var services []actuatorService
+	for _, spec := range nodeLANServices[node] {
+		service := actuatorService{ID: spec.id, Name: portControlLabel(spec.id), Protocol: spec.protocol, Auth: spec.auth}
+		if host, portText, err := net.SplitHostPort(a.lanEndpoint(node, spec.id)); err == nil {
+			service.Exposed, service.BindAddress = true, host
+			service.Port, _ = strconv.Atoi(portText)
+			service.URI = spec.scheme + "://" + net.JoinHostPort(host, portText)
+			if spec.scheme == "" {
+				service.URI = net.JoinHostPort(host, portText)
+			}
+			if spec.auth != "none" && available {
+				service.Username, service.Password = user, password
+			}
+		}
+		services = append(services, service)
+	}
+	return services
 }
 
 func (a *app) installKind() string {
@@ -216,13 +265,10 @@ func (a *app) installKind() string {
 	return "source"
 }
 
-func (a *app) actuatorInfo(w http.ResponseWriter, r *http.Request) {
-	if !a.healthEndpointsEnabled() {
-		http.NotFound(w, r)
-		return
-	}
+func (a *app) actuatorInfo(w http.ResponseWriter, _ *http.Request) {
 	chains := map[string]actuatorChain{}
 	for _, chain := range a.actuatorChains() {
+		chain.Services = a.lanServices(chain.id)
 		chains[chain.id] = chain
 	}
 	writeJSON(w, map[string]any{

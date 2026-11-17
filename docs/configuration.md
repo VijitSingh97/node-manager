@@ -405,10 +405,13 @@ tower and find separate **Alerts** and **LAN access** sections under **Node
 controls**, after the wallet section and before deactivation.
 Block alerts are off by default.
 
-Settings → **Health endpoints** (off by default, applied with **Save**) serves
-`/actuator/health` and `/actuator/info` for uptime monitors and scripts; see
-[Monitoring integrations](operations.md#monitoring-integrations). It is a
-dashboard setting saved in the dashboard volume, not a `config.json` key.
+Settings → **Actuator** has two switches, **Serve /actuator/health** and **Serve
+/actuator/info** (both off by default, applied with **Save**), for uptime
+monitors and scripts. Both always need HTTP Basic auth with the actuator
+username and password shown next to the switches; see
+[Monitoring integrations](operations.md#monitoring-integrations). They are
+dashboard settings saved in the dashboard volume, not `config.json` keys, and
+the generated password lives in `actuator-credentials.json` in that volume.
 
 Under **Telegram → Alert preferences**, choose whether to notify when the monitor
 starts, a node goes offline or recovers, synchronization completes, disk space

@@ -24,8 +24,8 @@ includes them. Saved overrides take priority over the notification values in
 and restores those values, including each node's new-block alert (off unless
 `config.json` turns it on). It also fills in the default for every other
 Settings control: Label towers, Node manager usage and Thermal throttle off,
-USD, all six Alert preferences on with 3 minutes and 50 GiB, health endpoints
-off, launch at boot/login off, both Network switches on, and the Balance index
+USD, all six Alert preferences on with 3 minutes and 50 GiB, both actuator
+switches (health and info) off, launch at boot/login off, both Network switches on, and the Balance index
 off. It drops staged installs, data
 moves and a pending config run. LAN access, installed nodes, data folders and
 the dashboard password stay as they are. After editing the server file, apply it and reset the override if needed.

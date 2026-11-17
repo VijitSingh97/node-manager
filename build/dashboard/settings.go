@@ -61,7 +61,9 @@ type notificationSettings struct {
 	ComputerStats            bool   `json:"computer_stats"`
 	ThermalThrottle          bool   `json:"thermal_throttle"`
 	DefaultCurrency          string `json:"default_currency"`
-	HealthEndpoints          bool   `json:"health_endpoints"`
+	ActuatorHealth           bool   `json:"actuator_health"`
+	ActuatorInfo             bool   `json:"actuator_info"`
+	LegacyHealthEndpoints    *bool  `json:"health_endpoints,omitempty"`
 }
 
 type settingsUpdate struct {
@@ -90,7 +92,8 @@ type settingsUpdate struct {
 	ComputerStats            *bool   `json:"computer_stats,omitempty"`
 	ThermalThrottle          *bool   `json:"thermal_throttle,omitempty"`
 	DefaultCurrency          *string `json:"default_currency,omitempty"`
-	HealthEndpoints          *bool   `json:"health_endpoints,omitempty"`
+	ActuatorHealth           *bool   `json:"actuator_health,omitempty"`
+	ActuatorInfo             *bool   `json:"actuator_info,omitempty"`
 	present                  map[string]bool
 }
 
@@ -162,6 +165,11 @@ func loadNotificationSettings(path string, baseline notificationSettings) (notif
 		if !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 			return notificationSettings{}, false, errors.New("notification settings field missing")
 		}
+	}
+	if legacy := settings.LegacyHealthEndpoints; legacy != nil {
+		settings.ActuatorHealth = settings.ActuatorHealth || *legacy
+		settings.ActuatorInfo = settings.ActuatorInfo || *legacy
+		settings.LegacyHealthEndpoints = nil
 	}
 	if err := validateStoredSettings(settings); err != nil {
 		return notificationSettings{}, false, err
@@ -320,8 +328,11 @@ func (update settingsUpdate) apply(current notificationSettings) (notificationSe
 	if update.DefaultCurrency != nil {
 		next.DefaultCurrency = *update.DefaultCurrency
 	}
-	if update.HealthEndpoints != nil {
-		next.HealthEndpoints = *update.HealthEndpoints
+	if update.ActuatorHealth != nil {
+		next.ActuatorHealth = *update.ActuatorHealth
+	}
+	if update.ActuatorInfo != nil {
+		next.ActuatorInfo = *update.ActuatorInfo
 	}
 	if next.TelegramEnabled {
 		if update.TelegramBotToken != nil && *update.TelegramBotToken != "" {
@@ -400,7 +411,8 @@ func globalSettingsView(settings notificationSettings) map[string]any {
 		"computer_stats":          settings.ComputerStats,
 		"thermal_throttle":        settings.ThermalThrottle,
 		"default_currency":        settings.DefaultCurrency,
-		"health_endpoints":        settings.HealthEndpoints,
+		"actuator_health":         settings.ActuatorHealth,
+		"actuator_info":           settings.ActuatorInfo,
 	}
 }
 
@@ -526,11 +538,14 @@ func (a *app) apiSettingsGet(w http.ResponseWriter, r *http.Request) {
 	}
 	view["port_control"] = a.portControlView()
 	view["dashboard_password_set"] = a.hasDashboardPassword()
+	view["actuator_username"], view["actuator_password"] = a.actuator.Username, a.actuator.Password
 	if r.URL.Query().Get("scope") == "nodes" {
 		delete(view, "telegram_bot_token")
 		delete(view, "telegram_chat_id")
 		delete(view, "healthchecks_url")
 		delete(view, "defaults")
+		delete(view, "actuator_username")
+		delete(view, "actuator_password")
 	}
 	writeJSON(w, view)
 }
@@ -573,11 +588,14 @@ func (a *app) apiSettingsPost(w http.ResponseWriter, r *http.Request) {
 	}
 	view["port_control"] = a.portControlView()
 	view["dashboard_password_set"] = a.hasDashboardPassword()
+	view["actuator_username"], view["actuator_password"] = a.actuator.Username, a.actuator.Password
 	if r.URL.Query().Get("scope") == "nodes" {
 		delete(view, "telegram_bot_token")
 		delete(view, "telegram_chat_id")
 		delete(view, "healthchecks_url")
 		delete(view, "defaults")
+		delete(view, "actuator_username")
+		delete(view, "actuator_password")
 	}
 	writeJSON(w, view)
 }
