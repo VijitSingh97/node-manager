@@ -125,7 +125,7 @@ new_case() {
   cat >"$case_root/root/stack" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$*" >>"$FAKE_STACK_LOG"
-if [ "${1:-}" = apply-port-settings ] && [ -n "${FAKE_DASH_RECREATED:-}" ]; then : >"$FAKE_DASH_RECREATED"; fi
+case "${1:-}" in apply-port-settings | apply-credential-settings) [ -z "${FAKE_DASH_RECREATED:-}" ] || : >"$FAKE_DASH_RECREATED" ;; esac
 if [ "${FAKE_APPLY_FAIL_ONCE:-0}" = 1 ] && [ ! -e "$FAKE_APPLY_FAIL_MARKER" ]; then
   : >"$FAKE_APPLY_FAIL_MARKER"
   if [ "${1:-}" = apply-credential-settings ] && [ "${2:-}" = bitcoin ]; then
@@ -763,6 +763,18 @@ credential_request '{"id":"abababababababababababababababab","node":"bitcoin","r
 scripts/node-port-control
 [ "$(credential_status .state)" = rejected ] || fail "replayed credential reset was accepted"
 [ "$(grep -c '^apply-credential-settings bitcoin$' "$FAKE_STACK_LOG")" = 1 ] || fail "credential replay invoked apply"
+
+new_case credential-reset-dashboard-recreated
+jq 'del(.bitcoin.enabled)' "$case_root/config/config.json" >"$case_root/config/config.next"
+mv "$case_root/config/config.next" "$case_root/config/config.json"
+export FAKE_DASH_RECREATED=$case_root/dashboard-recreated
+credential_request '{"id":"abababababababababababababababac","node":"bitcoin","requested_at":1000}'
+scripts/node-port-control || fail "credential reset failed after it recreated the dashboard"
+[ "$(credential_status .state)" = applied ] || fail "a credential reset that recreated the dashboard did not report applied"
+[ ! -e "$FAKE_DASH_STATE/credential-control.request" ] && [ ! -e "$FAKE_DASH_STATE/credential-control.processing" ] || fail "the credential request was left behind after the dashboard was recreated"
+scripts/node-port-control
+[ "$(credential_status .state)" = applied ] || fail "a later run turned the applied reset into a replay rejection"
+unset FAKE_DASH_RECREATED
 
 new_case credential-conflict
 request '{"id":"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd","changes":[{"port":"bitcoin_rpc","enabled":false}],"requested_at":1000}'
