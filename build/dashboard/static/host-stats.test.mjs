@@ -119,7 +119,7 @@ test("pieView builds node, other, and remainder slices for both pies", () => {
   assert.deepEqual(view.mem.map((s) => s.id), ["bitcoin", "monero", "other", "free"]);
   assert.equal(Math.round(view.mem[1].percent), 25);
   assert.match(view.mem[1].title, /Monero — 4\.00 GiB \(25\.0%\)/);
-  assert.match(view.cpu[2].title, /Node Manager itself — 5\.0% CPU/);
+  assert.match(view.cpu[2].title, /Node Manager \(dashboard and Tor\) — 5\.0% CPU/);
   assert.equal(view.cpuLabel, "CPU 35%");
   assert.equal(view.cpuLabelTitle, "2.8 of 8 cores");
   assert.equal(view.memLabel, "Mem 44%");

@@ -10,6 +10,7 @@ docker_bin=${DOCKER_BIN:-docker}
 now=${NODE_CONTROL_NOW_EPOCH:-$(date +%s)}
 package_managed=${BITCOIN_STACK_PACKAGE_MANAGED:-0}
 host_os=${NODE_CONTROL_OS:-$(uname -s)}
+host_arch=${NODE_CONTROL_ARCH:-$(uname -m)}
 project_name=${BITCOIN_STACK_PROJECT_NAME:-$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' "$env_file" 2>/dev/null | tail -n 1)}
 if [ -z "$project_name" ]; then
   case "$package_managed" in brew) project_name=bitcoin-starter-stack-brew ;; 1 | apt) project_name=bitcoin-starter-stack-apt ;; *) project_name=bitcoin-starter-stack ;; esac
@@ -37,11 +38,16 @@ write_status() {
     '{id:$id,node:$node,active:$active,state:$state,message:$message} | if $error_code=="" then . else .error_code=$error_code end' |
     $docker_bin exec -i -u 1000 "$dashboard_id" sh -c 'umask 077; cat > /state/.node-control.status.tmp; mv /state/.node-control.status.tmp /state/node-control.status' >/dev/null
 }
+host_event() {
+  printf '%sZ Host: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%S)" "$1" |
+    "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c 'cat >> /state/events.log' >/dev/null 2>&1 || true
+}
 clear_request() { dashboard_exec rm -f /state/node-control.processing >/dev/null 2>&1 || true; }
 write_host_status() {
   jq -nc --arg id "$1" --arg action "$2" --arg state "$3" --arg message "$4" \
-    --arg node "${5:-}" --arg enabled "${6:-}" --arg error_code "${7:-}" --arg port "${8:-}" '
+    --arg node "${5:-}" --arg enabled "${6:-}" --arg error_code "${7:-}" --arg port "${8:-}" --arg detail "${9:-}" '
     {id:$id,action:$action,state:$state,message:$message} |
+    if $detail=="" then . else .detail=$detail end |
     if $node=="" then . else .node=$node end |
     if $enabled=="" then . else .enabled=($enabled=="true") end |
     if $error_code=="" then . else .error_code=$error_code end |
@@ -304,6 +310,21 @@ case "$package_managed:$host_os" in
   brew:Darwin) host_platform=mac; boot_kind=login; boot_supported=true ;;
   brew:Linux) host_platform=linux; boot_kind=login; boot_supported=true ;;
 esac
+zakura_cpu_supported() {
+  case "$host_arch" in x86_64 | amd64) ;; *) return 0 ;; esac
+  if [ -n "${NODE_CONTROL_CPU_FLAGS+set}" ]; then
+    flags=$NODE_CONTROL_CPU_FLAGS
+  elif [ "$host_os" = Darwin ]; then
+    flags=$(sysctl -n machdep.cpu.leaf7_features 2>/dev/null | tr '[:upper:]' '[:lower:]' || true)
+  else
+    flags=$(sed -n 's/^flags[[:space:]]*:[[:space:]]*//p' /proc/cpuinfo 2>/dev/null | head -n 1)
+  fi
+  [ -n "$flags" ] || return 0
+  case " $flags " in *" bmi2 "*) ;; *) return 1 ;; esac
+  case " $flags " in *" adx "*) ;; *) return 1 ;; esac
+}
+unsupported_nodes='[]'
+zakura_cpu_supported || unsupported_nodes='["zcash"]'
 publish_host_capability() {
   boot_enabled=false
   restart_policy=$(sed -n 's/^STACK_RESTART_POLICY=//p' "$env_file" 2>/dev/null || true)
@@ -342,8 +363,8 @@ publish_host_capability() {
   jq -nc --argjson timestamp "$now" --arg platform "$host_platform" --arg boot_kind "$boot_kind" \
     --argjson boot_supported "$boot_supported" --argjson boot_enabled "$boot_enabled" --argjson config_pending "$pending" \
     --argjson clearnet_over_tor "$clearnet_over_tor" --argjson inbound_connections "$inbound_connections" --argjson utxo_index "$utxo_index" --argjson utxo_index_litecoin "$utxo_index_litecoin" \
-    --arg config_revision "$revision" --arg config_path "$config_path" --argjson data_paths "$data_paths" \
-    '{timestamp:$timestamp,install_supported:true,migrate_supported:true,utxo_seed_supported:true,boot_supported:$boot_supported,boot_enabled:$boot_enabled,clearnet_over_tor:$clearnet_over_tor,inbound_connections:$inbound_connections,utxo_index:$utxo_index,utxo_index_litecoin:$utxo_index_litecoin,config_pending:$config_pending,config_revision:$config_revision,platform:$platform,boot_kind:$boot_kind,config_path:$config_path,data_paths:$data_paths}' |
+    --arg config_revision "$revision" --arg config_path "$config_path" --argjson data_paths "$data_paths" --argjson unsupported_nodes "$unsupported_nodes" \
+    '{timestamp:$timestamp,install_supported:true,migrate_supported:true,utxo_seed_supported:true,boot_supported:$boot_supported,boot_enabled:$boot_enabled,clearnet_over_tor:$clearnet_over_tor,inbound_connections:$inbound_connections,utxo_index:$utxo_index,utxo_index_litecoin:$utxo_index_litecoin,config_pending:$config_pending,config_revision:$config_revision,platform:$platform,boot_kind:$boot_kind,config_path:$config_path,data_paths:$data_paths} + if $unsupported_nodes == [] then {} else {unsupported_nodes:$unsupported_nodes} end' |
     $docker_bin exec -i -u 1000 "$dashboard_id" sh -c 'umask 077; cat > /state/.node-control.capability.tmp; mv /state/.node-control.capability.tmp /state/node-control.capability' >/dev/null
 }
 publish_host_capability
@@ -370,7 +391,7 @@ host_remember_seen() {
 host_finish() {
   clear_migrate_progress
   publish_host_capability
-  write_host_status "$host_id" "$host_action" "$1" "$2" "${3:-}" "${4:-}" "${5:-}" "${6:-}"
+  write_host_status "$host_id" "$host_action" "$1" "$2" "${3:-}" "${4:-}" "${5:-}" "${6:-}" "${7:-}"
   host_remember_seen
   clear_request
   [ -z "${host_cleanup_transaction:-}" ] || rm -rf "$host_cleanup_transaction"
@@ -451,6 +472,7 @@ if [ "$host_request" = true ]; then
   mkdir -p "$config_root"
   exec 8>"$state_root/.config.lock"
   flock 8
+  rm -f "$state_root"/node-control/.install-errors.*
   if [ "$host_action" != apply_config ] && config_pending; then
     host_finish rejected "Review the pending config change first." "$(printf '%s' "$request" | jq -r '.node // empty')" "$(printf '%s' "$request" | jq -r '.enabled // empty')" config_pending
   fi
@@ -478,6 +500,8 @@ if [ "$host_request" = true ]; then
     [ -f "$config_file" ] && current=$(cat "$config_file")
     configured=$(printf '%s' "$current" | jq -r --arg node "$host_node" 'if $node=="bitcoin" then ((.bitcoin//{}|has("enabled")|not) or .bitcoin.enabled==true) else .[$node].enabled==true end')
     [ "$configured" != true ] || host_finish rejected "Node is already installed." "$host_node" "" already_installed
+    printf '%s' "$unsupported_nodes" | jq -e --arg node "$host_node" 'index($node) == null' >/dev/null ||
+      host_finish rejected "This processor cannot run that node." "$host_node" "" unsupported_cpu
     memory=4096
     [ "$host_node" != bitcoin ] && [ "$host_node" != monero ] || memory=2048
     candidate=$(mktemp "$config_root/.config.install.XXXXXX")
@@ -552,10 +576,12 @@ if [ "$host_request" = true ]; then
     chmod 600 "$candidate" "$transaction_tmp"/*
     mv "$transaction_tmp" "$install_transaction"
     mv "$candidate" "$config_file"
+    install_errors=$(mktemp "$state_root/node-control/.install-errors.XXXXXX")
     if BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root" \
-      BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" pull --policy missing >/dev/null 2>&1 &&
+      BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" pull --policy missing >/dev/null 2>"$install_errors" &&
       BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root" \
-      BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" apply >/dev/null 2>&1; then
+      BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" apply >/dev/null 2>>"$install_errors"; then
+      rm -f "$install_errors"
       transaction_meta_tmp=$(mktemp "$install_transaction/.meta.XXXXXX")
       jq '.phase="applied"' "$install_transaction/meta.json" >"$transaction_meta_tmp"
       chmod 600 "$transaction_meta_tmp"
@@ -563,9 +589,21 @@ if [ "$host_request" = true ]; then
       host_cleanup_transaction=$install_transaction
       host_finish applied "Node installed." "$host_node"
     fi
+    install_detail=$(awk -v fallback="" '
+      { gsub(/[[:cntrl:]]\[[0-9;]*[A-Za-z]/, ""); gsub(/[[:cntrl:]]/, ""); if ($0 ~ /[^[:space:]]/) last = $0 }
+      END {
+        lower = tolower(last)
+        if (lower ~ /passw|secret|token|auth|login|cookie|phrase|seed|mnemonic|private|prv|pub[0-9a-z]|api.?key|bearer|onion|:\/\/[^\/ ]*@/) last = ""
+        n = split(last, words, /[^A-Za-z0-9+=_-]+/)
+        for (i = 1; i <= n; i++) if (length(words[i]) >= 40) last = ""
+        print (last == "" ? fallback : substr(last, 1, 240))
+      }' "$install_errors" 2>/dev/null || true)
+    rm -f "$install_errors"
+    case "$host_node" in (bitcoincash) host_label="Bitcoin Cash" ;; (*) host_label="$(printf '%s' "$host_node" | cut -c1 | tr '[:lower:]' '[:upper:]')$(printf '%s' "$host_node" | cut -c2-)" ;; esac
+    host_event "$host_label install failed${install_detail:+: $install_detail}"
     restore_install_transaction ||
-      host_finish failed "Node installation failed and prior configuration could not be fully restored." "$host_node" "" rollback_failed
-    host_finish failed "Node installation failed; prior configuration restored." "$host_node" "" apply_failed
+      host_finish failed "Node installation failed and prior configuration could not be fully restored." "$host_node" "" rollback_failed "" "$install_detail"
+    host_finish failed "Node installation failed; prior configuration restored." "$host_node" "" apply_failed "" "$install_detail"
   fi
   if [ "$host_action" = migrate ]; then
     host_node=$(printf '%s' "$request" | jq -r .node)
