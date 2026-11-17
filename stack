@@ -560,7 +560,7 @@ utxo_bench_print() {
   jq -r '(.refusals // [])[] | "refused: " + .' <<<"$result"
   jq -r '(.failures // [])[] | "FAILED: " + .' <<<"$result"
   jq -e '(.wallets // []) | length > 0' <<<"$result" >/dev/null || return 0
-  jq -r '"\(.chain // "bitcoin") index \(.state) at height \(.index_tip_height // "?"), node at \(.node_tip_height // "?"), repeat \(.repeat)"' <<<"$result"
+  jq -r '"\(if (.chain // "bitcoin") == "bitcoin" then "Index" else "\(.chain) index" end) \(.state) at height \(.index_tip_height // "?"), node at \(.node_tip_height // "?"), repeat \(.repeat)"' <<<"$result"
   jq -r '[.wallets[] | select(.fallback)] | length | select(. > 0) | "warning: \(.) wallet(s) fell back (shape not indexed) and are left out of the lookups, batches and scan comparison."' <<<"$result"
   echo
   echo "Per wallet (seconds):"
@@ -574,15 +574,17 @@ utxo_bench_print() {
     ((.batches // [])[] | [.wallets, .scripts, .expected_scripts, .fallback_wallets, .coins, (.lookup.first_s | f), (.lookup.p50_s | f), (.lookup.p99_s | f), (.lookup.max_s | f)] | join("\t"))' <<<"$result" | { column -t -s "$tab" 2>/dev/null || cat; }
   jq -r 'def f: ((. * 10000 | round) / 10000 | tostring);
     if .cached_read then "\nCached read (seconds): p50 \(.cached_read.p50_s | f), p99 \(.cached_read.p99_s | f), max \(.cached_read.max_s | f), roster wallets \(.cached_read.roster_wallets // "?")" else empty end' <<<"$result"
-  jq -r 'select((.cached_read.roster_wallets // 0) == 0) | "note: the watch roster is empty, so the cached read figure does not count."' <<<"$result"
+  jq -r 'select(.cached_read and (.cached_read.roster_wallets // 0) == 0) | "note: the watch roster is empty, so the cached read figure does not count."' <<<"$result"
   jq -e '.scan' <<<"$result" >/dev/null 2>&1 || return 0
   echo
   jq -r 'def f: ((. * 10000 | round) / 10000 | tostring);
-    "Without the index (scantxoutset): batch of \(.wallets | length) \(.scan.batch_s | f) s at height \(.scan.batch_height); each wallet alone, in seconds:",
+    "Without the index (scantxoutset): batch of \([.wallets[] | select(.fallback | not)] | length) \(.scan.batch_s | f) s at height \(.scan.batch_height); each wallet alone, in seconds:"' <<<"$result"
+  jq -r 'def f: ((. * 10000 | round) / 10000 | tostring);
     (["wallet", "height", "scan", "index_p50", "faster", "scan_coins", "index_coins", "scan_sats", "index_sats", "match"] | join("\t")),
-    ([.wallets, (.scan.wallets // [])] | transpose[] | select(.[1]) | .[0].lookup.p50_s as $p50 | .[1] |
-      [.name, .height, (.scan_s | f), ($p50 // null | if . == null then "-" else f end), (if ($p50 // 0) > 0 then "\(.scan_s / $p50 | round)x" else "-" end),
-       .coins, .index_coins, .sats, .index_sats, (.match | if . == null then "n/a" else tostring end)] | join("\t"))' <<<"$result" | { column -t -s "$tab" 2>/dev/null || cat; }
+    ([.wallets, (.scan.wallets // [])] | transpose[] | select(.[1]) | .[0].lookup.p50_s as $p50 | .[0].fallback as $fallback | .[1] |
+      if $fallback then [.name, "-", "fallback", "-", "-", "-", "-", "-", "-", "n/a"] else
+        [.name, .height, (.scan_s | f), ($p50 // null | if . == null then "-" else f end), (if ($p50 // 0) > 0 then "\(.scan_s / $p50 | round)x" else "-" end),
+         .coins, .index_coins, .sats, .index_sats, (.match | if . == null then "n/a" else tostring end)] end | join("\t"))' <<<"$result" | { column -t -s "$tab" 2>/dev/null || cat; }
   jq -r 'select([(.scan.wallets // [])[] | select(.match == null)] | length > 0) | "note: n/a is a wallet the index does not serve, or one whose scan ran at another block than its index lookup; repeat the run for the second."' <<<"$result"
 }
 

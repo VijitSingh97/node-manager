@@ -593,6 +593,10 @@ func (s *prunedScanner) publicScanObject(ctx context.Context, descriptor string)
 }
 
 func validatedScanOutputs(result scanTxOutSetResult) ([]validatedScanOutput, error) {
+	return scanOutputsUpTo(result, 21_000_000*1e8)
+}
+
+func scanOutputsUpTo(result scanTxOutSetResult, maxSatoshis int64) ([]validatedScanOutput, error) {
 	if !result.Success || result.Height < 0 || len(result.BestBlock) != 64 || result.TxOuts < int64(len(result.Unspents)) {
 		return nil, errors.New("invalid scantxoutset result")
 	}
@@ -602,7 +606,6 @@ func validatedScanOutputs(result scanTxOutSetResult) ([]validatedScanOutput, err
 	seen := make(map[string]int64, len(result.Unspents))
 	outputs := make([]validatedScanOutput, 0, len(result.Unspents))
 	var total int64
-	const maxSatoshis = int64(21_000_000 * 1e8)
 	for _, output := range result.Unspents {
 		if len(output.TxID) != 64 || output.Vout < 0 || output.ScriptPubKey == "" || output.Desc == "" || output.Height < 0 || output.Height > result.Height {
 			return nil, errors.New("invalid scantxoutset output")
@@ -610,7 +613,7 @@ func validatedScanOutputs(result scanTxOutSetResult) ([]validatedScanOutput, err
 		if _, err := hex.DecodeString(output.TxID); err != nil {
 			return nil, errors.New("invalid scantxoutset transaction")
 		}
-		sats, ok := btcSatoshis(output.Amount)
+		sats, ok := coinSatoshis(output.Amount, maxSatoshis)
 		if !ok {
 			return nil, errors.New("invalid scantxoutset amount")
 		}
@@ -628,7 +631,7 @@ func validatedScanOutputs(result scanTxOutSetResult) ([]validatedScanOutput, err
 		total += sats
 		outputs = append(outputs, validatedScanOutput{scanOutpoint: scanOutpoint{TxID: output.TxID, Vout: output.Vout, Sats: sats, Height: output.Height}, Desc: output.Desc})
 	}
-	expected, ok := btcSatoshis(result.TotalAmount)
+	expected, ok := coinSatoshis(result.TotalAmount, maxSatoshis)
 	if !ok || expected != total {
 		return nil, errors.New("scantxoutset total does not match outputs")
 	}
@@ -648,7 +651,11 @@ func validatedScanBalance(result scanTxOutSetResult) (float64, error) {
 }
 
 func btcSatoshis(value float64) (int64, bool) {
-	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 21_000_000 {
+	return coinSatoshis(value, 21_000_000*1e8)
+}
+
+func coinSatoshis(value float64, maxSatoshis int64) (int64, bool) {
+	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > float64(maxSatoshis)/1e8 || value*1e8 >= math.MaxInt64 {
 		return 0, false
 	}
 	sats := math.Round(value * 1e8)

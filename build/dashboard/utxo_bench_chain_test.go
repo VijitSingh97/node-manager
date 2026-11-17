@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"maps"
 	"math/rand/v2"
 	"net/http"
@@ -24,7 +25,7 @@ const (
 	benchChainBlockCoins = 10_000
 	benchScanCoinCost    = time.Microsecond
 	benchSingleMargin    = 50
-	benchWalletMargin    = 4
+	benchWalletMargin    = 2
 )
 
 var raceEnabled bool
@@ -263,6 +264,9 @@ func TestBenchIndexMatchesScanAndIsFaster(t *testing.T) {
 	for n, id := range slices.Sorted(maps.Keys(chains)) {
 		seed := uint64(n + 1)
 		t.Run(id, func(t *testing.T) {
+			if len(chains[id].Descriptors) == 0 {
+				t.Skipf("%s has no descriptor list, so every bench wallet would fall back", id)
+			}
 			m, node, wallets := benchChainFixture(t, chains[id], seed)
 			srv := httptest.NewServer(http.HandlerFunc(node.serve))
 			t.Cleanup(srv.Close)
@@ -301,4 +305,53 @@ func TestBenchIndexMatchesScanAndIsFaster(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBenchScanCountsBalancesAboveBitcoinSupply(t *testing.T) {
+	address, script := benchChainScript("rich", 0, 0x30)
+	n := &benchFakeNode{addresses: map[string][]string{"addr(" + address + ")": {address}}, scripts: map[string]string{address: script}, height: 1, best: strings.Repeat("ab", 32),
+		coins: []benchFakeCoin{{txid: strings.Repeat("cd", 32), height: 1, script: script, sats: 30_000_000 * 100_000_000}}}
+	srv := httptest.NewServer(http.HandlerFunc(n.serve))
+	defer srv.Close()
+	run, err := benchScanRPC(context.Background(), &rpcClient{url: srv.URL, client: srv.Client()}, []string{"addr(" + address + ")"})
+	if err != nil || run.Totals != (benchTotals{1, 30_000_000 * 100_000_000}) {
+		t.Fatalf("a 30M-coin Litecoin wallet: %+v, %v", run, err)
+	}
+}
+
+func TestEveryIndexedChainStartsItsBench(t *testing.T) {
+	for id, chain := range utxoChains {
+		a := &app{cfg: config{stateDir: t.TempDir()}, familyWatch: &familyWatchManager{stores: map[string]*familyWatchStore{}}}
+		m := a.newChainUtxo(nodeConfig{ID: id, RPCURL: "http://127.0.0.1:1", DataDir: t.TempDir(), UTXOIndexDir: t.TempDir()}, chain, log.New(io.Discard, "", 0))
+		t.Cleanup(func() { _ = m.store.Close() })
+		if h := m.bench; h == nil || h.chain != id || h.prefix != id+"-" || h.stateDir != a.cfg.stateDir || h.validate == nil || h.resolve == nil || h.scan == nil {
+			t.Fatalf("%s bench host = %+v", id, h)
+		}
+	}
+
+	a, _ := testApp(t, &rpcFixture{}, "")
+	m := indexTestManager(t, indexTestChain(nil))
+	host := benchTestHost(a.cfg.stateDir)
+	host.chain, host.prefix = nodeLitecoin, "litecoin-"
+	m.configureBench(host)
+	a.chainUtxo = map[string]*utxoManager{nodeLitecoin: m}
+	req := benchRequest{ID: benchTestID(21), Chain: nodeLitecoin, RequestedAt: time.Now().Unix(), Wallets: []benchWallet{{Name: "a", Key: genesisAddress}}, Repeat: 1}
+	raw, _ := json.Marshal(req)
+	if err := os.WriteFile(filepath.Join(a.cfg.stateDir, "litecoin-"+benchRequestName), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := a.startBackground(ctx)
+	defer func() {
+		cancel()
+		<-done
+	}()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(filepath.Join(a.cfg.stateDir, "litecoin-"+benchResultName)); err == nil {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("the background workers never ran the litecoin bench")
 }

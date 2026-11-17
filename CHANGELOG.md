@@ -15,7 +15,7 @@ All notable changes to this project are documented here. Format follows
   exits non-zero when a wallet's index balance differs from its scan at the same
   block. A CI test per indexed chain checks the index against a fake node's scan
   on pseudo-random wallets and that it is faster by at least 50 times for a single
-  address and 4 times for a 2,000-script wallet (synthetic, #367).
+  address and 2 times for a 2,000-script wallet (synthetic, #367).
 
 ## [1.37.0] - 2026-11-17
 

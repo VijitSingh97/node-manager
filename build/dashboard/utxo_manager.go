@@ -286,6 +286,10 @@ func (m *utxoManager) Lookup(scripts [][]byte) (coins []utxoCoin, height uint32,
 	if m == nil || m.Status().State != utxoStateReady {
 		return
 	}
+	return m.lookupAtTip(scripts)
+}
+
+func (m *utxoManager) lookupAtTip(scripts [][]byte) (coins []utxoCoin, height uint32, hash [32]byte, ok bool) {
 	store := m.currentStore()
 	for range 2 {
 		h, tipHash, has, err := store.Tip()

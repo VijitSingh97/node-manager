@@ -10,7 +10,7 @@ How to measure balance lookups with and without a balance index on the reference
 - times the index lookup of each wallet once cold, then `--repeat` times in all (default 20): first, p50, p99 and max seconds, with the coin count;
 - times one lookup over the combined scripts of the first 1, 5 and 20 wallets, or as many as the file has;
 - on Bitcoin only, times `/api/watch`'s cached read (`ListWithChain`) `--repeat` times over the wallets in the owner's watch roster, not the bench wallets, and records the roster size;
-- with `--scan`, holds the chain's watch scanner and measures the time without the index: one `scantxoutset` over every wallet, then one over each wallet alone. Right before each wallet's own scan it looks the wallet up in the index again, and compares the coin count and total sats when the scan and that lookup answered at the same block hash. Otherwise `match` is `n/a` (a block arrived in between, or the wallet fell back). A `false` adds a `failures` line, and the command prints it as `FAILED:` and exits non-zero. A run that compared no wallet at all is refused, so it cannot pass unchecked.
+- with `--scan`, holds the chain's watch scanner and measures the time without the index: one `scantxoutset` over every indexed wallet, then one over each indexed wallet alone. A wallet that fell back is not scanned, and the table shows it as `fallback`. Right before each wallet's own scan it looks the wallet up in the index again, and compares the coin count and total sats when the scan and that lookup answered at the same block hash; otherwise `match` is `n/a` because a block arrived in between. The lookup does not wait for the index to show `ready`: a node slowed by the previous scan can briefly flip it to `catching_up` without changing the index, and the block hash check is what makes the comparison valid. A `false` adds a `failures` line, and the command prints it as `FAILED:` and exits non-zero. A run that compared no wallet at all is refused, so it cannot pass unchecked. The scan totals are not capped at Bitcoin's 21 million coins, so a large Litecoin wallet is counted as it is.
 
 The result goes to `utxo-bench.result` in the state volume (mode 600). The command prints it as tables and saves a copy as `utxo-bench-<UTC time>.json` in the state directory, also mode 600. The dashboard log gets two lines with counts and durations only.
 
@@ -130,28 +130,26 @@ Record the host, release, chain height, other chains running and the date, as th
 
 ## CI test per indexed chain
 
-`TestBenchIndexMatchesScanAndIsFaster` (`build/dashboard/utxo_bench_chain_test.go`) runs the bench with `--scan` and `--repeat 20` for every chain in `utxoChains`, plus Bitcoin, through that chain's own bench hook. Each run builds a synthetic index of 200,000 coins: six single addresses (one holds 1,500 coins), three 2,000-script `pkh` descriptor wallets, and noise on 40,000 other scripts. Coin counts, amounts and positions are pseudo-random from a fixed seed per chain, so a failure reproduces. A fake node answers the descriptor RPCs and `scantxoutset` over the same coins. Its scan walks every coin and takes at least 1 µs per coin, 0.2 s in all. That is mini-1's rate: the 163.6 s single-address scan above, over the 163.3 million coins counted in ADR 0001 (#216, at an earlier height). It is a model, not a measurement.
+`TestBenchIndexMatchesScanAndIsFaster` (`build/dashboard/utxo_bench_chain_test.go`) runs the bench with `--scan` and `--repeat 20` for every chain in `utxoChains` that has a `Descriptors` list, plus Bitcoin, through that chain's own bench hook. A chain without one is skipped with a logged reason, because every bench wallet would fall back. Each run builds a synthetic index of 200,000 coins: six single addresses (one holds 1,500 coins), three 2,000-script `pkh` descriptor wallets, and noise on 40,000 other scripts. Coin counts, amounts and positions are pseudo-random from a fixed seed per chain, so a failure reproduces. A fake node answers the descriptor RPCs and `scantxoutset` over the same coins. Its scan walks every coin and takes at least 1 µs per coin, 0.2 s in all. That is mini-1's rate: the 163.6 s single-address scan in [Balance index lookups on mainnet](lookup-bench-mainnet.md), over the 163.3 million coins counted in ADR 0001 (#216, at an earlier height). It is a model, not a measurement.
 
 The test fails unless:
 
 - every wallet is indexed with the expected script count;
 - the index and the scan both equal the coins the test generated, and `match` is true;
-- the index p50 is at least 50 times faster than the wallet's scan for a single address, and at least 4 times for a 2,000-script wallet;
+- the index p50 is at least 50 times faster than the wallet's scan for a single address, and at least 2 times for a 2,000-script wallet;
 - removing one coin from the fake node makes that wallet fail with `FAILED`.
 
-The margins are low because the synthetic set is about 800 times smaller than mainnet's, and a scan grows with the set while a lookup barely does. On mainnet the index was about 1,000 times faster for one address, and 70 times for the 13-wallet batch with derivation included.
+The margins are low because the synthetic set is about 800 times smaller than mainnet's, and a scan grows with the set while a lookup barely does. The 2,000-script limit is 0.1 s, chosen for slow CI runners: here the test catches a 20-times per-script lookup slowdown but not a 10-times one. On mainnet the index was about 1,000 times faster for one address, and 70 times for the 13-wallet batch with derivation included.
 
-Synthetic, on an Apple M5 Max (go1.27.1, darwin/arm64), load average about 12 on 18 cores, 2026-11-17, one run:
+Synthetic, on an Apple M5 Max (go1.27.1, darwin/arm64), load average 10 to 12 on 18 cores, 2026-11-17, five runs in a row of both chains: the 30 samples of 2,000-script wallets had a p50 of 5.3 to 15.9 ms against scans of at least 0.2 s, so 13 to 38 times faster, against the 2-times margin. Each run took 15 to 18 s.
 
-| Chain | Single address, index p50 | 1,500-coin address, index p50 | 2,000-script wallet, index p50 | Scan | Slowest speedup, address / 2,000 scripts |
-| --- | --- | --- | --- | --- | --- |
-| bitcoin | 15 µs or less | 0.21 ms | 9.8 to 10.0 ms | 0.20 s | 1,006x / 20x |
-| litecoin | 15 µs or less | 0.17 ms | 7.7 to 13.1 ms | 0.20 s | 1,240x / 15x |
-
-The whole test took 17.9 s. An earlier run of the same code on a quieter machine gave 6 to 10 ms for the 2,000-script wallets.
-
-The race detector slows Pebble lookups about 40 to 80 times (the 2,000-script p50 rose to 0.14 to 0.28 s), so the test skips under `-race`. CI runs it in a separate `go test` without `-race` in the `test` job.
+The race detector slows Pebble lookups about 40 to 80 times (the 2,000-script p50 rose to 0.14 to 0.28 s), so the test skips under `-race`. CI runs it in a separate `go test` without `-race` in the `test` job, and so does `tests/run.sh`.
 
 ### Adding a chain
 
-A chain gets the bench and the CI test when it joins `utxoChains` in `utxo_chain.go`; `newChainUtxo` gives it `chainBenchHost`. That hook reads wallets through the node's `getdescriptorinfo`, `deriveaddresses` and `validateaddress`, and uses its `scantxoutset` as the baseline. On the `stack` side, `--chain` accepts any chain `utxo_select_chain` knows. A node without those RPCs needs its own `validate`, `resolve` and `scan` in its bench host, and a nil `scan` makes `--scan` refuse with "no scan to compare against".
+Every chain in `utxoChains` gets a bench host from `newChainUtxo` (`chainBenchHost`). The host reads wallets through the node's `getdescriptorinfo`, `deriveaddresses` and `validateaddress`, and uses its `scantxoutset` as the baseline. To plug a chain into the bench and the CI test:
+
+- give its `utxoChainParams` a `Descriptors` list of the descriptor shapes its node derives, or every wallet falls back and the CI test skips the chain;
+- leave `LocalScripts` false unless the dashboard's own decoder (`addressScript`, Bitcoin only) reads the chain's addresses; false asks the node's `validateaddress` for each script;
+- check that its node answers those four RPCs as Bitcoin Core does; a node without them needs its own `validate`, `resolve` and `scan` in its bench host, and a nil `scan` makes `--scan` refuse with "no scan to compare against";
+- on the `stack` side, `--chain` accepts any chain `utxo_select_chain` knows; list the chain in the bench usage strings.

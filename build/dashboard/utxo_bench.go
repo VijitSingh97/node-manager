@@ -342,15 +342,21 @@ func (m *utxoManager) benchScan(ctx context.Context, req benchRequest, res *benc
 		refuse("the %s node has no scan to compare against", h.chain)
 		return
 	}
+	var keys []string
+	for i, w := range req.Wallets {
+		if !res.Wallets[i].Fallback {
+			keys = append(keys, w.Key)
+		}
+	}
+	if len(keys) == 0 {
+		refuse("every wallet fell back, so no wallet can be compared with a scan")
+		return
+	}
 	if !h.hold() {
 		refuse("a watch scan is running")
 		return
 	}
 	defer h.release()
-	keys := make([]string, len(req.Wallets))
-	for i, w := range req.Wallets {
-		keys[i] = w.Key
-	}
 	batch, err := h.scan(ctx, keys)
 	if err != nil {
 		refuse("the batched scan failed or timed out")
@@ -359,15 +365,21 @@ func (m *utxoManager) benchScan(ctx context.Context, req benchRequest, res *benc
 	res.Scan = &benchScan{BatchSeconds: batch.Seconds, BatchHeight: batch.Height, Wallets: []benchScanWallet{}}
 	compared := 0
 	for i, w := range req.Wallets {
-		coins, _, hash, indexed := m.Lookup(scripts[i])
-		run, err := h.scan(ctx, keys[i:i+1])
+		sw := benchScanWallet{Name: w.Name}
+		if res.Wallets[i].Fallback {
+			res.Scan.Wallets = append(res.Scan.Wallets, sw)
+			continue
+		}
+		// A slow node can flip the index out of ready during the previous scan without changing it; the hash check below suffices.
+		coins, _, hash, indexed := m.lookupAtTip(scripts[i])
+		run, err := h.scan(ctx, []string{w.Key})
 		if err != nil {
 			refuse("wallet %d: the scan failed or timed out", i+1)
 			return
 		}
 		index := benchTotalsOf(coins)
-		sw := benchScanWallet{Name: w.Name, Seconds: run.Seconds, Height: run.Height, Coins: run.Totals.Coins, Sats: run.Totals.Sats, IndexCoins: index.Coins, IndexSats: index.Sats}
-		if indexed && !res.Wallets[i].Fallback && reverseHex(hash) == run.Best {
+		sw.Seconds, sw.Height, sw.Coins, sw.Sats, sw.IndexCoins, sw.IndexSats = run.Seconds, run.Height, run.Totals.Coins, run.Totals.Sats, index.Coins, index.Sats
+		if indexed && reverseHex(hash) == run.Best {
 			match := run.Totals == index
 			sw.Match = &match
 			compared++
@@ -378,7 +390,7 @@ func (m *utxoManager) benchScan(ctx context.Context, req benchRequest, res *benc
 		res.Scan.Wallets = append(res.Scan.Wallets, sw)
 	}
 	if compared == 0 {
-		refuse("no wallet was compared with its scan: each fell back or met a new block; run it again")
+		refuse("no wallet was compared with its scan: each met a new block; run it again")
 	}
 }
 
@@ -459,7 +471,7 @@ func benchScanRPC(ctx context.Context, rpc *rpcClient, keys []string) (benchScan
 		return benchScanRun{}, err
 	}
 	run := benchScanRun{Seconds: time.Since(started).Seconds(), Height: result.Height, Best: result.BestBlock}
-	outputs, err := validatedScanOutputs(result)
+	outputs, err := scanOutputsUpTo(result, math.MaxInt64)
 	if err != nil {
 		return benchScanRun{}, err
 	}

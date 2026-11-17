@@ -288,10 +288,10 @@ func TestBenchScanComparesEachWalletAtTheSameBlock(t *testing.T) {
 	m.configureBench(host)
 	keys := []string{genesisAddress, publicExampleAddress, genesisAddress, fallbackKey}
 	res := benchTestPoll(t, m, dir, benchTestRequest(benchTestID(6), keys, 2, true))
-	if len(res.Refusals) != 0 || res.Scan == nil || len(scans) != 5 || len(scans[0]) != 4 {
+	if len(res.Refusals) != 0 || res.Scan == nil || len(scans) != 4 || len(scans[0]) != 3 || scans[0][2] != genesisAddress {
 		t.Fatalf("result %+v, scans %v", res, scans)
 	}
-	for i, key := range keys {
+	for i, key := range keys[:3] {
 		if len(scans[i+1]) != 1 || scans[i+1][0] != key {
 			t.Fatalf("scan %d = %v, want wallet %d alone", i+1, scans[i+1], i+1)
 		}
@@ -300,7 +300,7 @@ func TestBenchScanComparesEachWalletAtTheSameBlock(t *testing.T) {
 		t.Fatalf("hold/release = %d/%d", holds.Load(), releases.Load())
 	}
 	sw := res.Scan.Wallets
-	if len(sw) != 4 || sw[0].Match == nil || !*sw[0].Match || sw[1].Match == nil || *sw[1].Match || sw[2].Match != nil || sw[3].Match != nil || sw[3].Coins != wantCoins || sw[3].IndexCoins != 0 {
+	if len(sw) != 4 || sw[0].Match == nil || !*sw[0].Match || sw[1].Match == nil || *sw[1].Match || sw[2].Match != nil || sw[3] != (benchScanWallet{Name: "w3"}) {
 		t.Fatalf("scan = %+v", res.Scan)
 	}
 	if res.Scan.BatchSeconds != 1 || res.Scan.BatchHeight != int64(height) || sw[0].Seconds != 2 || sw[2].Seconds != 4 || sw[0].Height != int64(height) || sw[0].IndexCoins != wantCoins || sw[0].IndexSats != sats {
@@ -329,6 +329,16 @@ func TestBenchScanComparesEachWalletAtTheSameBlock(t *testing.T) {
 	res = benchTestPoll(t, m, dir, benchTestRequest(benchTestID(18), keys, 2, true))
 	if len(res.Refusals) != 1 || !strings.Contains(res.Refusals[0], "no wallet was compared") || res.Failures != nil || len(res.Scan.Wallets) != len(keys) {
 		t.Fatalf("a run that compared nothing = %+v", res)
+	}
+
+	host.scan = func(context.Context, []string) (benchScanRun, error) {
+		t.Error("a run with only fallback wallets scanned")
+		return benchScanRun{}, nil
+	}
+	m.configureBench(host)
+	res = benchTestPoll(t, m, dir, benchTestRequest(benchTestID(19), []string{fallbackKey}, 2, true))
+	if len(res.Refusals) != 1 || !strings.Contains(res.Refusals[0], "every wallet fell back") || res.Scan != nil {
+		t.Fatalf("an all-fallback run = %+v", res)
 	}
 
 	host.hold = func() bool { return false }
@@ -504,4 +514,28 @@ func keysOf(wallets []benchWallet) []string {
 		keys[i] = w.Key
 	}
 	return keys
+}
+
+func TestBenchComparesWhenTheIndexLeavesReadyDuringAScan(t *testing.T) {
+	m := indexTestManager(t, indexTestChain(nil))
+	wantCoins, wantBTC := indexExpected(t, m, indexTestScript)
+	height, tipHash, _ := m.Tip()
+	dir := t.TempDir()
+	host := benchTestHost(dir)
+	host.scan = func(context.Context, []string) (benchScanRun, error) {
+		m.mu.Lock()
+		m.setLocked(utxoStateCatching, "node is not answering")
+		m.mu.Unlock()
+		return benchScanRun{Height: int64(height), Best: reverseHex(tipHash), Totals: benchTotals{Coins: wantCoins, Sats: int64(wantBTC*1e8 + 0.5)}}, nil
+	}
+	m.configureBench(host)
+	res := benchTestPoll(t, m, dir, benchTestRequest(benchTestID(20), []string{genesisAddress, publicExampleAddress}, 2, true))
+	if len(res.Refusals) != 0 || len(res.Failures) != 0 || res.Scan == nil || len(res.Scan.Wallets) != 2 {
+		t.Fatalf("result = %+v", res)
+	}
+	for i, sw := range res.Scan.Wallets {
+		if sw.Match == nil || !*sw.Match {
+			t.Fatalf("wallet %d was not compared after the index left ready: %+v", i, sw)
+		}
+	}
 }

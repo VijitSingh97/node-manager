@@ -562,7 +562,7 @@ case "$args" in
            cached_read: {first_s: 0.001, p50_s: 0.002, p99_s: 0.004, max_s: 0.005, roster_wallets: 3}} +
           (if $req[0].scan then {scan: {batch_s: 41.5, batch_height: 900, wallets: [
              {name: "alpha", scan_s: 20.25, height: 900, coins: 7, sats: 1234, index_coins: 7, index_sats: (if $bad then 1235 else 1234 end), match: ($bad | not)},
-             {name: "beta", scan_s: 19.5, height: 900, coins: 3, sats: 5, index_coins: 0, index_sats: 0}]}} else {} end) +
+             {name: "beta", scan_s: 0, height: 0, coins: 0, sats: 0, index_coins: 0, index_sats: 0}]}} else {} end) +
           (if $bad then {failures: ["wallet 1: the index and the scan differ at height 900"]} else {} end) +
           (if $scenario == "scanrefused" then {scan: {batch_s: 41.5, batch_height: 900, wallets: null}, refusals: ["wallet 1: the scan failed or timed out"]} else {} end)'
         ;;
@@ -812,7 +812,7 @@ grep -q 'Cached read (seconds): p50 0.002, p99 0.004, max 0.005, roster wallets 
 grep -q 'warning: 1 wallet(s) fell back' "$tmp/ubench.out" || fail "utxo-index bench did not warn about the fallback wallet"
 grep -q '^2  *2000  *2000  *1  *7' "$tmp/ubench.out" || fail "utxo-index bench did not print expected scripts and fallback wallets per batch"
 grep -q 'Without the index' "$tmp/ubench.out" && fail "utxo-index bench printed a scan section without --scan"
-grep -q '^bitcoin index ready at height 900' "$tmp/ubench.out" || fail "utxo-index bench did not name the chain"
+grep -q '^Index ready at height 900' "$tmp/ubench.out" || fail "utxo-index bench changed its Bitcoin header"
 
 reset_ubench
 ubench utxo-index bench "$bench_wallets" --chain litecoin >"$tmp/ubench.out" 2>&1 && fail "utxo-index bench --chain litecoin ran without the Litecoin overlay"
@@ -844,9 +844,9 @@ reset_ubench
 ubench utxo-index bench "$bench_wallets" --repeat 7 --scan -y >"$tmp/ubench.out" 2>&1 || fail "utxo-index bench --scan -y failed"
 jq -e '.repeat == 7 and .scan == true' "$FAKE_UTXO/bench-request.json" >/dev/null || fail "utxo-index bench did not pass --repeat and --scan"
 grep -q 'owner approved' "$tmp/ubench.out" || fail "utxo-index bench --scan did not warn about the heavy scan"
-grep -q 'Without the index (scantxoutset): batch of 2 41.5 s at height 900' "$tmp/ubench.out" || fail "utxo-index bench did not print the batch scan"
+grep -q 'Without the index (scantxoutset): batch of 1 41.5 s at height 900' "$tmp/ubench.out" || fail "utxo-index bench did not print the batch scan of the indexed wallets"
 grep -q 'alpha  *900  *20.25  *0.3  *68x  *7  *7  *1234  *1234  *true' "$tmp/ubench.out" || fail "utxo-index bench did not print the per-wallet scan, speedup and match"
-grep -q 'beta  *900  *19.5  *-  *-  .*n/a' "$tmp/ubench.out" || fail "utxo-index bench did not print n/a for the fallback wallet"
+grep -q 'beta  *-  *fallback  .*n/a' "$tmp/ubench.out" || fail "utxo-index bench did not mark the fallback wallet in the scan table"
 grep -q 'FAILED' "$tmp/ubench.out" && fail "utxo-index bench printed a failure for matching balances"
 
 reset_ubench
