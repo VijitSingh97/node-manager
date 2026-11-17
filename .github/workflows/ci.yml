@@ -59,6 +59,7 @@ jobs:
         run: |
           cd build/dashboard
           go test -race ./...
+          go test -count=1 -run '^TestBenchIndexMatchesScanAndIsFaster$' .
           go vet ./...
           go build -o /tmp/dashboard .
 
