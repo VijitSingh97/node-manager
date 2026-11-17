@@ -318,6 +318,7 @@ delete_volume_names() {
   case "$1" in
     bitcoin) printf '%s\n' utxo_index ;;
     litecoin) printf '%s\n' utxo_index_litecoin ;;
+    bitcoincash) printf '%s\n' utxo_index_bitcoincash ;;
     monero) printf '%s\n' monero_wallets ;;
     tari) printf '%s\n' tari_wallet tari_wallet_data ;;
   esac
@@ -464,9 +465,11 @@ publish_host_capability() {
   inbound_connections=true
   utxo_index=false
   utxo_index_litecoin=false
+  utxo_index_bitcoincash=false
   if [ -f "$approved_config" ]; then
     utxo_index=$(jq -r '.bitcoin.utxo_index == true' "$approved_config" 2>/dev/null || printf false)
     utxo_index_litecoin=$(jq -r '.litecoin.utxo_index == true' "$approved_config" 2>/dev/null || printf false)
+    utxo_index_bitcoincash=$(jq -r '.bitcoincash.utxo_index == true' "$approved_config" 2>/dev/null || printf false)
     clearnet_over_tor=$(jq -r '.network.clearnet_over_tor != false' "$approved_config" 2>/dev/null || printf true)
     inbound_connections=$(jq -r '.network.inbound_connections != false' "$approved_config" 2>/dev/null || printf true)
   fi
@@ -488,9 +491,9 @@ publish_host_capability() {
   done
   jq -nc --argjson timestamp "$now" --arg platform "$host_platform" --arg boot_kind "$boot_kind" \
     --argjson boot_supported "$boot_supported" --argjson boot_enabled "$boot_enabled" --argjson config_pending "$pending" \
-    --argjson clearnet_over_tor "$clearnet_over_tor" --argjson inbound_connections "$inbound_connections" --argjson utxo_index "$utxo_index" --argjson utxo_index_litecoin "$utxo_index_litecoin" \
+    --argjson clearnet_over_tor "$clearnet_over_tor" --argjson inbound_connections "$inbound_connections" --argjson utxo_index "$utxo_index" --argjson utxo_index_litecoin "$utxo_index_litecoin" --argjson utxo_index_bitcoincash "$utxo_index_bitcoincash" \
     --arg config_revision "$revision" --arg config_path "$config_path" --argjson data_paths "$data_paths" --argjson unsupported_nodes "$unsupported_nodes" \
-    '{timestamp:$timestamp,install_supported:true,migrate_supported:true,delete_supported:true,utxo_seed_supported:true,boot_supported:$boot_supported,boot_enabled:$boot_enabled,clearnet_over_tor:$clearnet_over_tor,inbound_connections:$inbound_connections,utxo_index:$utxo_index,utxo_index_litecoin:$utxo_index_litecoin,config_pending:$config_pending,config_revision:$config_revision,platform:$platform,boot_kind:$boot_kind,config_path:$config_path,data_paths:$data_paths} + if $unsupported_nodes == [] then {} else {unsupported_nodes:$unsupported_nodes} end' |
+    '{timestamp:$timestamp,install_supported:true,migrate_supported:true,delete_supported:true,utxo_seed_supported:true,boot_supported:$boot_supported,boot_enabled:$boot_enabled,clearnet_over_tor:$clearnet_over_tor,inbound_connections:$inbound_connections,utxo_index:$utxo_index,utxo_index_litecoin:$utxo_index_litecoin,utxo_index_bitcoincash:$utxo_index_bitcoincash,config_pending:$config_pending,config_revision:$config_revision,platform:$platform,boot_kind:$boot_kind,config_path:$config_path,data_paths:$data_paths} + if $unsupported_nodes == [] then {} else {unsupported_nodes:$unsupported_nodes} end' |
     $docker_bin exec -i -u 1000 "$dashboard_id" sh -c 'umask 077; cat > /state/.node-control.capability.tmp; mv /state/.node-control.capability.tmp /state/node-control.capability' >/dev/null
 }
 publish_host_capability
@@ -618,7 +621,7 @@ elif printf '%s' "$request" | jq -e --argjson now "$now" '
 ' >/dev/null 2>&1; then
   host_request=true
 elif printf '%s' "$request" | jq -e --argjson now "$now" '
-  type=="object" and keys==["action","enabled","id","node","requested_at"] and .action=="utxo_index" and .node=="litecoin" and
+  type=="object" and keys==["action","enabled","id","node","requested_at"] and .action=="utxo_index" and (.node=="litecoin" or .node=="bitcoincash") and
   (.id|type=="string" and test("^[0-9a-f]{32}$")) and (.enabled|type=="boolean") and
   (.requested_at|type=="number" and floor==. and . >= $now-300 and . <= $now+30)
 ' >/dev/null 2>&1; then
@@ -684,7 +687,8 @@ if [ "$host_request" = true ]; then
       .[$node].enabled=true | .[$node].active=true |
       .[$node].resource_profile //= "compact" |
       if $node=="bitcoin" and (.bitcoin.prune_mb // 10000) != 0 and (.bitcoin // {} | has("utxo_index") | not) then .bitcoin.utxo_index=true
-      elif $node=="litecoin" and (.litecoin // {} | has("utxo_index") | not) then .litecoin.utxo_index=true else . end |
+      elif $node=="litecoin" and (.litecoin // {} | has("utxo_index") | not) then .litecoin.utxo_index=true
+      elif $node=="bitcoincash" and (.bitcoincash // {} | has("utxo_index") or has("prune_mb") | not) then .bitcoincash.prune_mb=0 | .bitcoincash.utxo_index=true else . end |
       if $node=="zcash" and ((.zcash.address_index|type)!="boolean") then .zcash.address_index=true else . end |
       .[$node].steady_cpus //= 1 | .[$node].steady_mem_limit_mb //= $memory |
       if $data_dir!="" then .[$node].data_dir=$data_dir else . end |
@@ -707,8 +711,15 @@ if [ "$host_request" = true ]; then
       BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$validate" \
         BITCOIN_STACK_VALIDATE_ONLY=1 BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/configure.sh" >/dev/null 2>&1
     }
-    if ! validate_candidate && ! { [ "$host_node" = zcash ] && [ "$(printf '%s' "$current" | jq -r '(.zcash.address_index|type)')" != boolean ] &&
-      jq 'del(.zcash.address_index)' "$candidate" >"$validate/config.json" && cp "$validate/config.json" "$candidate" && validate_candidate; }; then
+    # Defaults the user never set fall back when they do not validate, for example archival on a data directory that holds a pruned chain.
+    install_fallback=
+    if [ "$host_node" = zcash ] && [ "$(printf '%s' "$current" | jq -r '(.zcash.address_index|type)')" != boolean ]; then
+      install_fallback='del(.zcash.address_index)'
+    elif [ "$host_node" = bitcoincash ] && [ "$(printf '%s' "$current" | jq -r '.bitcoincash // {} | has("utxo_index") or has("prune_mb")')" = false ]; then
+      install_fallback='del(.bitcoincash.prune_mb, .bitcoincash.utxo_index)'
+    fi
+    if ! validate_candidate && ! { [ -n "$install_fallback" ] &&
+      jq "$install_fallback" "$candidate" >"$validate/config.json" && cp "$validate/config.json" "$candidate" && validate_candidate; }; then
       rm -rf "$candidate" "$validate"
       host_finish rejected "Node defaults are invalid." "$host_node" "" validation_failed
     fi
@@ -992,6 +1003,10 @@ if [ "$host_request" = true ]; then
     if [ "$host_action" = utxo_index ] && [ "$host_enabled" = true ] && [ "$host_section" = litecoin ] &&
       [ "$(printf '%s' "$current" | jq -r '.litecoin.enabled == true')" != true ]; then
       host_finish rejected "$host_label requires Litecoin to be enabled." "$host_toggle_node" "$host_enabled" validation_failed
+    fi
+    if [ "$host_action" = utxo_index ] && [ "$host_enabled" = true ] && [ "$host_section" = bitcoincash ] &&
+      [ "$(printf '%s' "$current" | jq -r '.bitcoincash.enabled == true and .bitcoincash.prune_mb == 0')" != true ]; then
+      host_finish rejected "$host_label requires Bitcoin Cash to be enabled as an archival node (bitcoincash.prune_mb 0)." "$host_toggle_node" "$host_enabled" validation_failed
     fi
     [ "$(printf '%s' "$current" | jq -r --arg section "$host_section" --arg key "$host_action" "$host_read")" != "$host_enabled" ] ||
       host_finish rejected "$host_label is already in that state." "$host_toggle_node" "$host_enabled" unchanged

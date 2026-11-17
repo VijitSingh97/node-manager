@@ -88,6 +88,8 @@ type utxoManager struct {
 	bound    bool
 	lowDisk  atomic.Bool
 	stop     context.CancelFunc
+	// blocked names a block the index cannot apply; it stays parked there until the dashboard restarts.
+	blocked string
 
 	now            func() time.Time
 	seedJobs       chan utxoSeedJob
@@ -286,6 +288,10 @@ func (m *utxoManager) Lookup(scripts [][]byte) (coins []utxoCoin, height uint32,
 	if m == nil || m.Status().State != utxoStateReady {
 		return
 	}
+	return m.lookupAtTip(scripts)
+}
+
+func (m *utxoManager) lookupAtTip(scripts [][]byte) (coins []utxoCoin, height uint32, hash [32]byte, ok bool) {
 	store := m.currentStore()
 	for range 2 {
 		h, tipHash, has, err := store.Tip()
@@ -421,7 +427,9 @@ func (m *utxoManager) finishSeed(err error) {
 		return
 	}
 	if m.chain.Replay {
-		if m.state == utxoStateSeeding {
+		if errors.Is(err, errUtxoBlockTooLarge) {
+			m.stopAtBlockLocked(err)
+		} else if m.state == utxoStateSeeding {
 			state := utxoStateNotSeeded
 			if m.indexTip != nil {
 				state = utxoStateCatching
@@ -434,6 +442,12 @@ func (m *utxoManager) finishSeed(err error) {
 	m.setLocked(utxoStateNotSeeded, "")
 	m.mu.Unlock()
 	_ = m.resetStore()
+}
+
+func (m *utxoManager) stopAtBlockLocked(err error) {
+	m.blocked = err.Error()
+	m.log.Printf("utxo index: stopped: %s", m.blocked)
+	m.setLocked(utxoStateDegraded, m.blocked)
 }
 
 func seedableState(state string, replay bool) bool {
@@ -587,7 +601,7 @@ func (m *utxoManager) AlertsSuppressed() bool {
 
 func (m *utxoManager) tick(ctx context.Context) {
 	m.mu.Lock()
-	skip := m.state == utxoStateInvalid || m.seeding
+	skip := m.state == utxoStateInvalid || m.seeding || m.blocked != ""
 	wasReady := m.state == utxoStateReady
 	m.mu.Unlock()
 	if skip {
@@ -657,6 +671,12 @@ func (m *utxoManager) tick(ctx context.Context) {
 	err = m.follower.Step(stepCtx)
 	stop()
 	if ctx.Err() != nil {
+		return
+	}
+	if errors.Is(err, errUtxoBlockTooLarge) {
+		m.mu.Lock()
+		m.stopAtBlockLocked(err)
+		m.mu.Unlock()
 		return
 	}
 	if m.lowDisk.Load() {
@@ -784,6 +804,7 @@ func pathsOverlap(a, b string) bool {
 
 // newChainUtxo builds the index for a chain other than Bitcoin; its seed holds that chain's watch scan.
 func (a *app) newChainUtxo(node nodeConfig, chain *utxoChainParams, logger *log.Logger) *utxoManager {
+	// shortcut: 64 MiB holds a 32 MB Bitcoin Cash block as hex; raise it, and the 2 GiB cap, if Bitcoin Cash blocks grow past 32 MB.
 	rpc := &rpcClient{url: node.RPCURL, user: node.RPCUser, password: node.RPCPassword, client: newInternalHTTPClient(2 * time.Minute), maxBody: 64 << 20}
 	m := newUtxoManager(node.UTXOIndexDir, nil, rpc, logger, chain)
 	m.blockWait = rpc
@@ -797,6 +818,7 @@ func (a *app) newChainUtxo(node nodeConfig, chain *utxoChainParams, logger *log.
 		}
 		m.configureSeed(utxoSeedHost{prefix: node.ID + "-", stateDir: a.cfg.stateDir, dataDir: node.DataDir, dump: &dump, hold: hold, release: release, lock: &a.utxoSeedLock,
 			autoSeed: func() (string, string) { return a.queueSeedHostAction(node.ID) }})
+		m.configureBench(a.chainBenchHost(node.ID, rpc, chain, hold, release))
 	}
 	return m
 }

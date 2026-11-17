@@ -6,6 +6,38 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- Instant Bitcoin Cash balances: `bitcoincash.utxo_index` (Settings → Balance
+  index → "Instant Bitcoin Cash balances") keeps a Bitcoin Cash balance index, and
+  the Bitcoin Cash watch-only card reads its balances from it once it is at the
+  node's tip. It needs an archival node (`bitcoincash.prune_mb: 0`). Bitcoin Cash
+  Node has no coin-set export, so the index replays every block from genesis once
+  the node has synced: a long one-time job that keeps its progress across stops
+  and restarts. A Bitcoin Cash install from the dashboard is now archival with the
+  index on, and the install dialog shows the archival size. Existing installs keep
+  their setting. The Bitcoin Cash card now holds 50 addresses. With the index on,
+  the dashboard's memory limit is 2 GiB with `GOMEMLIMIT=1600MiB`, not 1 GiB:
+  plan for the dashboard using up to 2 GiB on top of the Bitcoin Cash node's own
+  plan in docs/nodes.md. That is a cap, not memory set aside: on ordinary blocks
+  the dashboard should stay near today's use, and it only climbs while it applies
+  a block of tens of MB. It applies a block of up to 1.2 million coin operations;
+  a larger block, or one over 32 MB, stops the index at that height without
+  discarding it, until such blocks can be applied in pieces (#363). On regtest,
+  31 MB blocks of about 0.9 million operations peaked at 1.50 GiB; these are
+  lower bounds, and mainnet is not measured yet.
+- A weekly, on-demand test that starts every node (Tari and its wallet, Litecoin,
+  Dogecoin, Bitcoin Cash and Zcash as well as Bitcoin and Monero) and checks that
+  none can reach the internet or resolve a public name while Tor is stopped.
+- `utxo-index bench --chain litecoin` measures the Litecoin balance index the
+  same way as Bitcoin's; `--chain bitcoin` is the default. With `--scan` the
+  bench now runs `scantxoutset` for each wallet alone as well as for all of them,
+  prints each wallet's scan time next to its index p50 with the speedup, and
+  exits non-zero when a wallet's index balance differs from its scan at the same
+  block. A CI test per indexed chain checks the index against a fake node's scan
+  on pseudo-random wallets and that it is faster by at least 50 times for a single
+  address and 2 times for a 2,000-script wallet (synthetic, #367).
+
 ### Changed
 
 - Adding a Bitcoin watch-only wallet to the balance index derives its 2,000

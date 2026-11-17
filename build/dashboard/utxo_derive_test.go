@@ -50,16 +50,17 @@ func TestAddressScriptRejectsBadInput(t *testing.T) {
 }
 
 type fakeBatch struct {
-	t        *testing.T
-	batches  atomic.Int32
-	perAddr  time.Duration
-	inflight atomic.Int32
-	peak     atomic.Int32
-	ranges   [][2]int
-	mu       sync.Mutex
-	deriveFn func(desc string) (any, string)
-	infoFail func(desc string) bool
-	addrAt   func(desc string, idx int) string
+	t          *testing.T
+	batches    atomic.Int32
+	perAddr    time.Duration
+	inflight   atomic.Int32
+	peak       atomic.Int32
+	ranges     [][2]int
+	mu         sync.Mutex
+	deriveFn   func(desc string) (any, string)
+	infoFail   func(desc string) bool
+	addrAt     func(desc string, idx int) string
+	validateFn func(address string) any
 }
 
 func (f *fakeBatch) server() *httptest.Server {
@@ -93,6 +94,8 @@ func (f *fakeBatch) server() *httptest.Server {
 					break
 				}
 				item["result"] = map[string]any{"descriptor": desc + "#abcdefgh", "isrange": strings.Contains(desc, "*"), "hasprivatekeys": false}
+			case "validateaddress":
+				item["result"] = f.validateFn(desc)
 			case "deriveaddresses":
 				result, failure := f.deriveFn(desc)
 				if failure != "" {
@@ -405,5 +408,50 @@ func BenchmarkResolveWalletScriptsColdAdd(b *testing.B) {
 		if _, err := resolveWalletScripts(context.Background(), rpc, utxoBitcoin, []string{testXpub}); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func TestResolveWalletScriptsAsksTheNodeForFamilyScripts(t *testing.T) {
+	f := &fakeBatch{t: t, deriveFn: func(desc string) (any, string) {
+		switch {
+		case strings.Contains(desc, "/1/*"):
+			return []string{"rltc1-two", "rltc1-one"}, ""
+		case strings.Contains(desc, "bad"):
+			return []string{"rltc1-one", "rltc1-invalid"}, ""
+		case strings.Contains(desc, "odd"):
+			return []string{"rltc1-nothex"}, ""
+		}
+		return []string{"rltc1-one"}, ""
+	}, validateFn: func(address string) any {
+		switch address {
+		case "rltc1-one":
+			return map[string]any{"isvalid": true, "scriptPubKey": "0014aa"}
+		case "rltc1-two":
+			return map[string]any{"isvalid": true, "scriptPubKey": "0014bb"}
+		case "rltc1-nothex":
+			return map[string]any{"isvalid": true, "scriptPubKey": "zz"}
+		}
+		return map[string]any{"isvalid": false}
+	}}
+	srv := f.server()
+	defer srv.Close()
+	rpc := &rpcClient{url: srv.URL, client: srv.Client()}
+	got, err := resolveWalletScripts(context.Background(), rpc, utxoLitecoin, []string{testXpub, "addr(bad)", "addr(odd)", "addr(fine)"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[0].Fallback || len(got[0].Scripts) != 2 || hex.EncodeToString(got[0].Scripts[0]) != "0014aa" || hex.EncodeToString(got[0].Scripts[1]) != "0014bb" {
+		t.Fatalf("xpub wallet: %+v", got[0])
+	}
+	if !got[1].Fallback || got[1].Scripts != nil || !got[2].Fallback || got[2].Scripts != nil {
+		t.Fatalf("an address the node rejects or a bad script did not fall back: %+v %+v", got[1], got[2])
+	}
+	if got[3].Fallback || len(got[3].Scripts) != 1 {
+		t.Fatalf("address wallet: %+v", got[3])
+	}
+	deriveCalls := 2*((deriveRangeEnd-deriveRangeStart+deriveChunkScripts)/deriveChunkScripts) + 3
+	deriveSize := max(1, min(deriveBatchSize, (deriveCalls+deriveParallelCalls-1)/deriveParallelCalls))
+	if want := 1 + (deriveCalls+deriveSize-1)/deriveSize + (2000+4+deriveBatchSize-1)/deriveBatchSize; int(f.batches.Load()) != want {
+		t.Fatalf("%d HTTP calls, want %d: one info batch, %d derive calls in batches of %d, then 2,004 addresses validated %d at a time", f.batches.Load(), want, deriveCalls, deriveSize, deriveBatchSize)
 	}
 }

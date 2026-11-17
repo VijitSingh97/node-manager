@@ -73,6 +73,7 @@ class ComposeBoundaryTest(unittest.TestCase):
             ("    cap_add: [\"CHOWN\", \"DAC_READ_SEARCH\"", "    cap_add: [\"NET_ADMIN\", \"CHOWN\"", "network capability"),
             ("        host_ip: \"${DASHBOARD_BIND_IP:-127.0.0.1}\"", "        host_ip: \"${DASHBOARD_BIND_IP:-0.0.0.0}\"", "loopback-default"),
             ("        ipv4_address: 172.29.0.25\n", "        ipv4_address: 172.29.0.99\n", "tor is not at 172.29.0.25"),
+            ("      ZAKURA_RPC__COOKIE_DIR: /data\n", "      ZAKURA_RPC__COOKIE_DIR: /data\n      ZAKURA_NETWORK__P2P_STACK: dual\n", "unpinned Zakura variables"),
         ]
         for old, new, expected in cases:
             with self.subTest(expected=expected):
@@ -240,6 +241,8 @@ class NodeConfigTest(unittest.TestCase):
                 self.assertTrue(lib.zcash_violations(mutated(toml, '"172.29.0.25:18233"', '"1.2.3.4:8233"'), relays))
                 self.assertTrue(lib.zcash_violations(mutated(toml, "cache_dir = false", "cache_dir = true"), relays))
                 self.assertTrue(lib.zcash_violations(mutated(toml, "127.0.0.1:8233", "0.0.0.0:8233"), relays))
+                self.assertTrue(lib.zcash_violations(mutated(toml, 'p2p_stack = "legacy"', 'p2p_stack = "dual"'), relays))
+                self.assertTrue(lib.zcash_violations(toml + "\n[zcashd_compat]\nenabled = true\n", relays))
 
 
 class HostScriptTest(unittest.TestCase):
@@ -307,6 +310,19 @@ class RuntimeProbeWiringTest(unittest.TestCase):
             with self.subTest(marker=marker):
                 self.assertIn(marker, e2e)
         self.assertRegex(e2e, r'for probed in "\$\{probed_services\[@\]\}"; do')
+
+    def test_the_all_nodes_mode_requires_every_node_in_the_probe(self):
+        e2e = read("tests/test_e2e.sh")
+        self.assertIn("E2E_ALL_NODES", e2e)
+        self.assertRegex(e2e, r"required_services\+=\(tari tari-wallet litecoin dogecoin bitcoincash zcash\)")
+        self.assertRegex(e2e, r"for required in \"\$\{required_services\[@\]\}\"; do")
+        for flag in ("bmi2", "adx"):
+            self.assertIn(flag, e2e)
+        workflow = read(".github/workflows/e2e-all-nodes.yml")
+        self.assertIn("E2E_ALL_NODES", workflow)
+        triggers = workflow.split("permissions:")[0]
+        self.assertRegex(triggers, r"pull_request:\n    paths:\n      - \.github/workflows/e2e-all-nodes\.yml\n  schedule:")
+        self.assertEqual(triggers.count("- "), 2, "the pull_request trigger must stay limited to this workflow file")
 
     def test_the_boundary_tests_run_with_the_suite(self):
         runner = read("tests/run.sh")
