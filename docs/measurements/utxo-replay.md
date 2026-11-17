@@ -26,9 +26,19 @@ The node itself is not capped. Each figure is the median of three runs.
 
 ## Bitcoin Cash Node 29.2.0
 
-The same test with `UTXO_REPLAY_CHAIN=bitcoincash BCH_REGTEST_IMAGE=ghcr.io/vijitsingh97/node-manager-bitcoincash:1.34.0` replays a BCHN regtest chain the way the index does: raw blocks and the reverse key, in a container capped at 0.5 CPU and 2 GiB with `GOMEMLIMIT=1600MiB`.
+The same test with `UTXO_REPLAY_CHAIN=bitcoincash BCH_REGTEST_IMAGE=ghcr.io/vijitsingh97/node-manager-bitcoincash:1.34.0` replays a BCHN regtest chain the way the index does: raw blocks and the reverse key, in a container capped at 0.5 CPU and 2 GiB with `GOMEMLIMIT=1600MiB`. Measured 2026-11-17; each figure is the median of three runs.
 
-**Its rates are not measured yet.** The figures first published here came from the verbose-JSON design, which the index no longer uses, so they were removed. Since the switch the measuring machine has been under heavy unrelated load, and rates taken under it would mislead.
+| Blocks | Per block | Batched | Batched / per block |
+| --- | --- | --- | --- |
+| 20,001 coinbase-only | 3,420 blocks/s (2,844 to 3,424) | 7,751 blocks/s (7,674 to 8,163) | 2.27x |
+| 300 with a 200-output transaction | 710 blocks/s (668 to 734) | 933 blocks/s (870 to 1,006) | 1.31x |
+
+Both modes matched `scantxoutset` on 18,969 coins in every run.
+
+- **The machine was not idle.** The load average read 2.0 when the run started and 6.0 when it ended, with Spotlight indexing at the end.
+- **Bitcoin, right after, under similar load** (5.0 to 6.0): on coinbase-only blocks 2,375 blocks/s per block and 3,330 batched; on busy blocks 242 and 243.
+- **On busy blocks the raw Bitcoin Cash path ran about 3.8 times Bitcoin's batched rate** in the same session. Decoding verbose JSON is the likely difference; that is inferred, not profiled.
+- **The Bitcoin Cash figures first published here** came from the verbose-JSON design and were removed.
 
 `TestUtxoBitcoinCashRawReplayRegtestLive` checks the raw parser against BCHN's own verbose view of every block, with CashTokens activated at height 200 (`-upgrade9activationheight=200`).
 
