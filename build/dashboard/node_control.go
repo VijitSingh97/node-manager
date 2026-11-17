@@ -209,6 +209,7 @@ type hostStatsFile struct {
 	CPUTempC      *float64                  `json:"cpu_temp_c,omitempty"`
 	BoardTempC    *float64                  `json:"board_temp_c,omitempty"`
 	FansRPM       []int                     `json:"fans_rpm,omitempty"`
+	FansMaxRPM    []int                     `json:"fans_max_rpm,omitempty"`
 	UptimeS       int64                     `json:"uptime_s,omitempty"`
 	NetRxBps      *float64                  `json:"net_rx_bps,omitempty"`
 	NetTxBps      *float64                  `json:"net_tx_bps,omitempty"`

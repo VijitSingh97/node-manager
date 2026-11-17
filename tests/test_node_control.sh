@@ -269,15 +269,18 @@ if [ -e "$state/node-control/install-transaction" ] || [ -e "$dashboard_state/no
   fail "applied install recovery was not finalized"
 fi
 
+printf 'STACK_RESTART_POLICY=on-failure:5\n' >>"$state/.env"
 request '{"action":"launch_at_boot","enabled":true,"id":"76767676767676767676767676767676","requested_at":1000}'
 FAKE_DOCKER_UPDATE_FAIL_ONCE=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 [ "$(status .error_code)" = apply_failed ] || fail "failed launch policy update lacked typed status"
 [ "$(jq -r '.dashboard.launch_at_boot // false' "$config/config.json")" = false ] || fail "failed launch policy update changed config"
 grep -q '^update --restart=on-failure:3 dashboard-id$' "$tmp/stack.log" || fail "failed launch policy update did not restore retry count"
+printf 'DASHBOARD_PASSWORD=testpassword\nSTACK_RESTART_POLICY=on-failure:5\n' >"$state/.env"
 request '{"action":"launch_at_boot","enabled":true,"id":"75757575757575757575757575757575","requested_at":1000}'
 FAKE_DOCKER_UPDATE_FAIL=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 [ "$(status .error_code)" = rollback_failed ] || fail "failed launch policy rollback lacked typed status"
 [ "$(jq -r '.dashboard.launch_at_boot // false' "$config/config.json")" = false ] || fail "failed launch policy rollback changed config"
+printf 'DASHBOARD_PASSWORD=testpassword\nSTACK_RESTART_POLICY=on-failure:5\n' >"$state/.env"
 request '{"action":"launch_at_boot","enabled":true,"id":"77777777777777777777777777777777","requested_at":1000}'
 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 [ "$(jq -r .dashboard.launch_at_boot "$config/config.json")" = true ] || fail "launch-at-boot setting was not saved"
@@ -292,10 +295,37 @@ jq -e '.boot_kind=="login" and (.boot_enabled|not)' "$dashboard_state/node-contr
 BITCOIN_STACK_PACKAGE_MANAGED=brew NODE_CONTROL_OS=Darwin "$root/scripts/node-control"
 jq -e '.boot_kind=="login" and (.boot_enabled|not)' "$dashboard_state/node-control.capability" >/dev/null || fail "disabled launch state changed when reopened"
 
+jq 'del(.dashboard.launch_at_boot)' "$config/config.json" >"$tmp/config.apt" && mv "$tmp/config.apt" "$config/config.json"
+printf 'DASHBOARD_PASSWORD=testpassword\nSTACK_RESTART_POLICY=unless-stopped\n' >"$state/.env"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(jq -r .boot_enabled "$dashboard_state/node-control.capability")" = true ] || fail "an APT host with no launch key did not report launch at boot from its saved policy"
+boot_case() {
+  jq -S --argjson key "$1" 'if $key == null then del(.dashboard.launch_at_boot) else .dashboard.launch_at_boot=$key end' "$config/config.json" >"$state/.approved-config.json"
+  if [ -n "$2" ]; then printf 'DASHBOARD_PASSWORD=testpassword\nSTACK_RESTART_POLICY=%s\n' "$2" >"$state/.env"; else printf 'DASHBOARD_PASSWORD=testpassword\n' >"$state/.env"; fi
+  BITCOIN_STACK_PACKAGE_MANAGED=${4:-1} NODE_CONTROL_OS=${5:-Linux} "$root/scripts/node-control"
+  [ "$(jq -r .boot_enabled "$dashboard_state/node-control.capability")" = "$3" ] || fail "launch at boot key=$1 policy=$2 reported $(jq -r .boot_enabled "$dashboard_state/node-control.capability"), wanted $3"
+}
+boot_case true no true
+boot_case false unless-stopped false
+boot_case null no false
+boot_case null on-failure:5 false
+boot_case null always true
+boot_case null "" true
+boot_case null unless-stopped false 0 Linux
+request '{"action":"launch_at_boot","enabled":true,"id":"72727272727272727272727272727273","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state)" = applied ] || fail "an already-enabled launch request blocked the queue"
+[ "$(jq -r '.dashboard | has("launch_at_boot")' "$config/config.json")" = false ] || fail "an already-enabled launch request changed config"
+request '{"action":"launch_at_boot","enabled":false,"id":"72727272727272727272727272727274","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state)" = applied ] || fail "an APT host could not turn launch at boot off"
+[ "$(jq -r .dashboard.launch_at_boot "$config/config.json")" = false ] || fail "disabling launch at boot on an APT host did not save"
+
 jq -e '.clearnet_over_tor and .inbound_connections' "$dashboard_state/node-control.capability" >/dev/null || fail "network settings did not default on"
 request '{"action":"inbound_connections","enabled":true,"id":"71717171717171717171717171717171","requested_at":1000}'
 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
-[ "$(status .error_code)" = unchanged ] || fail "unchanged network setting was applied"
+[ "$(status .state)" = applied ] || fail "unchanged network setting blocked the queue"
 rm -f "$FAKE_STACK_FAIL_MARKER"
 request '{"action":"inbound_connections","enabled":false,"id":"70707070707070707070707070707070","requested_at":1000}'
 FAKE_STACK_FAIL_APPLY_ONCE=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
@@ -330,7 +360,7 @@ BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-contro
 jq -e '.utxo_index == false' "$dashboard_state/node-control.capability" >/dev/null || fail "balance index did not default off"
 request '{"action":"utxo_index","enabled":false,"id":"e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4","requested_at":1000}'
 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
-[ "$(status .error_code)" = unchanged ] || fail "unchanged balance index setting was applied"
+[ "$(status .state)" = applied ] || fail "unchanged balance index setting blocked the queue"
 cp "$config/config.json" "$tmp/config.keep"
 jq '.bitcoin.enabled=false' "$tmp/config.keep" >"$config/config.json"
 jq -S . "$config/config.json" >"$state/.approved-config.json"

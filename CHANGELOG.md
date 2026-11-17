@@ -22,6 +22,13 @@ All notable changes to this project are documented here. Format follows
   test, since Dogecoin Core 1.14.9 has none of the RPCs it uses; its index is
   checked by a regtest test against the node's own `gettxout`. The seed time and
   index size on mainnet are not measured yet.
+- Host vitals redesign: the Node Manager usage panel now shows Temperature,
+  Fan, Uptime and Network as four tiles above the disk bars. Temperature has a
+  dot that runs from blue to red up to the 88 °C throttle limit, the fan icon
+  spins in proportion to rpm over the fan's maximum (still at 0 rpm), uptime has
+  a ring that fills over each day, and network down and up are green and blue.
+  The collector now reports each fan's maximum (`fans_max_rpm`, from hwmon
+  `fanN_max`). Animations stop when the system asks for reduced motion.
 - Instant Bitcoin Cash balances: `bitcoincash.utxo_index` (Settings → Balance
   index → "Instant Bitcoin Cash balances") keeps a Bitcoin Cash balance index, and
   the Bitcoin Cash watch-only card reads its balances from it once it is at the
@@ -51,6 +58,12 @@ All notable changes to this project are documented here. Format follows
   block. A CI test per indexed chain checks the index against a fake node's scan
   on pseudo-random wallets and that it is faster by at least 50 times for a single
   address and 2 times for a 2,000-script wallet (synthetic, #367).
+
+### Fixed
+
+- Turning Launch at boot off on an APT install no longer fails with "Launch
+  setting is already in that state", and a Settings change that is already in
+  effect no longer drops the changes queued after it, such as a node delete.
 
 ## [1.37.0] - 2026-11-17
 

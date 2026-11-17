@@ -453,15 +453,20 @@ zakura_cpu_supported() {
 }
 unsupported_nodes='[]'
 zakura_cpu_supported || unsupported_nodes='["zcash"]'
+launch_at_boot_state() {
+  case "$(jq -r 'if ((.dashboard // {}) | has("launch_at_boot")) then (.dashboard.launch_at_boot == true | tostring) else "missing" end' "$1" 2>/dev/null || printf missing)" in
+    true) printf true; return ;;
+    false) printf false; return ;;
+  esac
+  [ -f "$env_file" ] || { printf false; return; }
+  case "$(sed -n 's/^STACK_RESTART_POLICY=//p' "$env_file" 2>/dev/null || true)" in
+    no | on-failure:5) printf false ;;
+    *) printf true ;;
+  esac
+}
 publish_host_capability() {
   boot_enabled=false
-  restart_policy=$(sed -n 's/^STACK_RESTART_POLICY=//p' "$env_file" 2>/dev/null || true)
-  if [ "$restart_policy" = unless-stopped ]; then
-    boot_enabled=true
-  elif [ "$restart_policy" != no ] && [ -f "$approved_config" ] &&
-    [ "$(jq -r '.dashboard.launch_at_boot == true' "$approved_config" 2>/dev/null || true)" = true ]; then
-    boot_enabled=true
-  fi
+  [ "$boot_supported" != true ] || boot_enabled=$(launch_at_boot_state "$approved_config")
   clearnet_over_tor=true
   inbound_connections=true
   utxo_index=false
@@ -1035,7 +1040,7 @@ if [ "$host_request" = true ]; then
       host_finish rejected "$host_label requires Bitcoin Cash to be enabled as an archival node (bitcoincash.prune_mb 0)." "$host_toggle_node" "$host_enabled" validation_failed
     fi
     [ "$(printf '%s' "$current" | jq -r --arg section "$host_section" --arg key "$host_action" "$host_read")" != "$host_enabled" ] ||
-      host_finish rejected "$host_label is already in that state." "$host_toggle_node" "$host_enabled" unchanged
+      host_finish applied "$host_label is already in that state." "$host_toggle_node" "$host_enabled"
     if [ "$host_action" = utxo_index ] && [ "$host_enabled" = false ] &&
       dashboard_exec cat "/state/${host_toggle_node:+$host_toggle_node-}utxo-seed.json" 2>/dev/null | jq -e '.seed_state == "seeding" or .seed_state == "checking"' >/dev/null 2>&1; then
       host_finish rejected "$host_label cannot change while a seed is running." "$host_toggle_node" "$host_enabled" seed_running
@@ -1074,9 +1079,7 @@ if [ "$host_request" = true ]; then
     host_enabled=$(printf '%s' "$request" | jq -r .enabled)
     current='{}'
     [ -f "$config_file" ] && current=$(cat "$config_file")
-    old_enabled=false
-    [ "$(printf '%s' "$current" | jq -r '.dashboard.launch_at_boot == true')" != true ] || old_enabled=true
-    [ "$old_enabled" != "$host_enabled" ] || host_finish rejected "Launch setting is already in that state." "" "$host_enabled" unchanged
+    [ "$(launch_at_boot_state "$config_file")" != "$host_enabled" ] || host_finish applied "Launch setting is already in that state." "" "$host_enabled"
     candidate=$(mktemp "$config_root/.config.boot.XXXXXX")
     printf '%s' "$current" | jq --argjson enabled "$host_enabled" '.dashboard.launch_at_boot=$enabled' >"$candidate"
     validate=$(mktemp -d "$state_root/node-control/.validate.XXXXXX")
