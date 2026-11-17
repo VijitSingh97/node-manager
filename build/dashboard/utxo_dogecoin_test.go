@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -44,17 +45,22 @@ func TestDogecoinIndexConfigAndWiring(t *testing.T) {
 
 // chainstateSeedRPC answers like a Dogecoin node restarted right after the copy: the first header lookups fail while it loads its block index.
 type chainstateSeedRPC struct {
-	mu      sync.Mutex
-	best    string
-	height  uint32
-	warmup  int
-	offMain bool
+	mu          sync.Mutex
+	best        string
+	height      uint32
+	warmup      int
+	offMain     bool
+	pruneHeight int
 }
 
 func (r *chainstateSeedRPC) call(_ context.Context, method string, params any, out any) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	switch method {
+	case "getblockchaininfo":
+		return json.Unmarshal(fmt.Appendf(nil, `{"chain":"regtest","blocks":400,"headers":400,"pruned":true,"pruneheight":%d}`, r.pruneHeight), out)
+	case "getblockhash":
+		return json.Unmarshal([]byte(`"0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"`), out)
 	case "getblockheader":
 		if r.warmup > 0 {
 			r.warmup--
@@ -130,5 +136,19 @@ func TestDogecoinChainstateSeedFailsCleanlyOnABadCopyOrAForkedTip(t *testing.T) 
 		if _, _, ok, _ := m.currentStore().Tip(); ok {
 			t.Fatalf("%s: a failed seed left an index", name)
 		}
+	}
+}
+
+func TestDogecoinIndexAsksForASeedOnceAPrunedNodeDropsBlocksItNeeds(t *testing.T) {
+	swapReplayRetries(t, 1, time.Millisecond)
+	rpc := &chainstateSeedRPC{best: "2f9d802dd325448211bc2d04b33f63739f0e4f9e49319588c1700c37e23868dc", height: 202, pruneHeight: 300}
+	m, _ := newChainstateSeedManager(t, rpc)
+	m.seedRequested(t.Context(), newSeedRequestID())
+	m.tick(t.Context())
+	if st := m.Status(); st.State != utxoStateInvalid || !strings.Contains(st.Reason, "seed it again") {
+		t.Fatalf("an index behind a pruned node's blocks reads %+v", st)
+	}
+	if !seedableState(m.Status().State, false) {
+		t.Fatal("the stopped index cannot be seeded again")
 	}
 }

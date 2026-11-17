@@ -295,6 +295,24 @@ Shielded addresses additionally need a viewing key and wallet scanner; a public
 address alone is insufficient. Zallet and lightwalletd are separate wallet/index
 services, not a small switch that enables balances in our existing database.
 
+## Dogecoin balance index
+
+`dogecoin.utxo_index` (Settings → Balance index → "Instant Dogecoin balances", on
+for Dogecoin installed from the dashboard) gives Dogecoin addresses instant
+balances, on a pruned node too. Dogecoin Core 1.14.9 has neither `dumptxoutset`
+nor `scantxoutset`, but its chainstate holds every unspent coin whether or not the
+node prunes. To seed the index, the stack stops the Dogecoin node for a few
+seconds, copies its chainstate beside it with the tables hardlinked, and starts it
+again. The dashboard builds the index from the copy, then follows new blocks from
+the copy's tip, reading merge-mined blocks raw. The copy is removed once the seed
+has finished; until then it keeps the node's older tables on disk.
+
+When the index is ready, Dogecoin balances come from it and update within a minute
+of each block, and the archival watch wallet below is not needed. Without the watch
+wallet, balances wait until the index is ready. If a pruned node drops blocks the
+index still needs, the index is marked invalid and **Seed now** seeds it again.
+The seed time and index size on mainnet are not measured yet.
+
 ## Dogecoin archival watch wallet (opt-in)
 
 Set `"watch_wallet": true` and `"prune_mb": 0` under `dogecoin` in `config.json`.

@@ -92,7 +92,7 @@ Wallet capabilities differ by chain:
 | Monero | Primary address plus private view key, with optional signed key images. Without complete key images, the amount is received-only rather than a verified current balance. |
 | Litecoin | Address-only confirmed UTXO snapshots from the local node. |
 | Bitcoin Cash | Address-only confirmed UTXO snapshots from the local node. |
-| Dogecoin | **Wallet balance not available** by default: the pruned daemon cannot discover an arbitrary address balance. With the opt-in `dogecoin.watch_wallet` (archival node, fresh unpruned sync, hours-long rescans, disk not yet measured here), public addresses are read from the local node's watch-only wallet and the Dogecoin Foundation address is shown as an example. |
+| Dogecoin | Address-only confirmed UTXO snapshots from the local node with `dogecoin.utxo_index`, pruned or archival, which Dogecoin installs from the dashboard turn on; the index seeds from a copy of the node's chainstate. Without it, **wallet balance is not available**: the pruned daemon cannot discover an arbitrary address balance. With the opt-in `dogecoin.watch_wallet` (archival node, fresh unpruned sync, hours-long rescans, disk not yet measured here), public addresses are read from the local node's watch-only wallet and the Dogecoin Foundation address is shown as an example. |
 | Zcash / Zakura | **Wallet balance** needs `zcash.address_index`, which new Zcash installs from the dashboard turn on (slower and less secure upstream than checkpoint sync, disk not yet measured). Existing installs keep their setting, and enabling it later needs a fresh data directory and resync. With it, transparent `t1`/`t3` addresses are read from the local node and the Zcash Community Grants address is shown as an example. |
 | Tari | One native view-only wallet using a public spend key, private view key, and optional `YYYY-MM-DD` birthday. Blank birthday scans from genesis. No seed or private spend key is accepted. |
 
@@ -337,7 +337,8 @@ node that is already deactivated and is not the last installed node; otherwise
 its tooltip says what is missing. The confirmation dialog warns that the step
 cannot be undone and lists exactly what goes: the node's data folder shown in
 Settings, its balance-index or wallet Docker volumes (Bitcoin `utxo_index`,
-Litecoin `utxo_index_litecoin`, Bitcoin Cash `utxo_index_bitcoincash`, Monero
+Litecoin `utxo_index_litecoin`, Bitcoin Cash `utxo_index_bitcoincash`, Dogecoin
+`utxo_index_dogecoin`, Monero
 `monero_wallets`, Tari `tari_wallet` and `tari_wallet_data`), its `config.json` section with the credentials in it, and
 the watch-only wallets you added for that coin with their saved balances and
 history. Delete stays disabled until you type the node's name (`zcash`,

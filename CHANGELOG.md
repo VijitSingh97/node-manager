@@ -8,6 +8,16 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
+- Instant Dogecoin balances: `dogecoin.utxo_index` (Settings → Balance index →
+  "Instant Dogecoin balances") keeps a Dogecoin balance index, on a pruned node
+  too, and the Dogecoin watch-only card reads its balances from it once it is at
+  the node's tip. Dogecoin Core 1.14.9 has no coin-set export, so a seed stops the
+  Dogecoin node for a few seconds to copy its chainstate, starts it again, and
+  builds the index from the copy; the index then follows new blocks, merge-mined
+  ones included. A Dogecoin install from the dashboard turns the index on, and the
+  archival watch wallet is no longer needed for balances. If a pruned node drops
+  blocks the index still needs, Settings offers Seed now. The seed time and index
+  size on mainnet are not measured yet.
 - Instant Bitcoin Cash balances: `bitcoincash.utxo_index` (Settings → Balance
   index → "Instant Bitcoin Cash balances") keeps a Bitcoin Cash balance index, and
   the Bitcoin Cash watch-only card reads its balances from it once it is at the
