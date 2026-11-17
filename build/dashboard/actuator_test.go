@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -567,5 +568,142 @@ func TestOperationsDocsStateThatTheActuatorUsesTheDashboardLogin(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("docs missing %q", want)
 		}
+	}
+}
+
+func actuatorCurlPost(handler http.Handler, body string, mutate func(*http.Request)) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "http://mini-1.local/api/settings/actuator-curl", strings.NewReader(body))
+	req.Host = "mini-1.local"
+	req.Header.Set("X-Requested-With", "fetch")
+	if mutate != nil {
+		mutate(req)
+	}
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	return w
+}
+
+func sessionAuth(session *http.Cookie) func(*http.Request) {
+	return func(r *http.Request) {
+		r.URL.Scheme, r.URL.Host, r.Host, r.TLS = "https", "nodes.example", "nodes.example", &tls.ConnectionState{}
+		r.Header.Set("Origin", "https://nodes.example")
+		r.AddCookie(session)
+	}
+}
+
+func basicAuth(req *http.Request) { req.SetBasicAuth("admin", "dashboard-secret") }
+
+func TestActuatorCurlChecksThePasswordUnderTheCredentialGate(t *testing.T) {
+	a, handler := testApp(t, &rpcFixture{}, "dashboard-secret")
+	var logs strings.Builder
+	a.log = log.New(&logs, "", 0)
+	setActuator(t, handler, true, false)
+	good := `{"endpoint":"health","password":"dashboard-secret"}`
+
+	w := actuatorCurlPost(handler, good, basicAuth)
+	if w.Code != http.StatusOK || w.Header().Get("Cache-Control") != "no-store" || strings.TrimSpace(w.Body.String()) != `{"username":"admin"}` || strings.Contains(w.Body.String(), "dashboard-secret") {
+		t.Fatalf("verified request = %d %q %q", w.Code, w.Header().Get("Cache-Control"), w.Body.String())
+	}
+	session := signIn(t, handler, "dashboard-secret")
+	if w := actuatorCurlPost(handler, good, sessionAuth(session)); w.Code != http.StatusOK {
+		t.Fatalf("recent session = %d %s", w.Code, w.Body.String())
+	}
+	key, _ := dashboardSessionKey(session.Value)
+	a.sessions.mu.Lock()
+	old := a.sessions.sessions[key]
+	old.issued = time.Now().Add(-dashboardSessionRecent - time.Minute)
+	a.sessions.sessions[key] = old
+	a.sessions.mu.Unlock()
+	if w := actuatorCurlPost(handler, good, sessionAuth(session)); w.Code != http.StatusUnauthorized {
+		t.Fatalf("stale session = %d", w.Code)
+	}
+	if w := actuatorCurlPost(handler, good, nil); w.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous = %d", w.Code)
+	}
+
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/api/settings/actuator-curl", nil)
+		basicAuth(req)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed && rec.Code != http.StatusNotFound {
+			t.Fatalf("%s = %d", method, rec.Code)
+		}
+	}
+	if w := actuatorCurlPost(handler, good, func(r *http.Request) { basicAuth(r); r.Header.Del("X-Requested-With") }); w.Code != http.StatusForbidden {
+		t.Fatalf("missing CSRF header = %d", w.Code)
+	}
+	if w := actuatorCurlPost(handler, good, func(r *http.Request) { basicAuth(r); r.Header.Set("Origin", "http://evil.example") }); w.Code != http.StatusForbidden {
+		t.Fatalf("cross-origin = %d", w.Code)
+	}
+	if w := actuatorCurlPost(handler, good, func(r *http.Request) { basicAuth(r); r.Header.Set("Sec-Fetch-Site", "cross-site") }); w.Code != http.StatusForbidden {
+		t.Fatalf("cross-site = %d", w.Code)
+	}
+
+	for name, body := range map[string]string{
+		"unknown endpoint": `{"endpoint":"metrics","password":"dashboard-secret"}`,
+		"empty password":   `{"endpoint":"health","password":""}`,
+		"extra field":      `{"endpoint":"health","password":"dashboard-secret","x":1}`,
+		"not json":         `nope`,
+	} {
+		if w := actuatorCurlPost(handler, body, basicAuth); w.Code != http.StatusBadRequest {
+			t.Fatalf("%s = %d", name, w.Code)
+		}
+	}
+	wrong := actuatorCurlPost(handler, `{"endpoint":"health","password":"wrong-secret-value"}`, basicAuth)
+	if wrong.Code != http.StatusForbidden || strings.Contains(wrong.Body.String(), "wrong-secret-value") {
+		t.Fatalf("wrong password = %d %s", wrong.Code, wrong.Body.String())
+	}
+	if w := actuatorCurlPost(handler, `{"endpoint":"info","password":"dashboard-secret"}`, basicAuth); w.Code != http.StatusConflict {
+		t.Fatalf("switched-off endpoint = %d", w.Code)
+	}
+	if strings.Contains(logs.String(), "dashboard-secret") || strings.Contains(logs.String(), "wrong-secret-value") {
+		t.Fatalf("password reached the log: %q", logs.String())
+	}
+}
+
+func TestActuatorCurlIsRefusedWithoutADashboardPassword(t *testing.T) {
+	a, handler := testApp(t, &rpcFixture{}, "dashboard-secret")
+	setActuator(t, handler, true, true)
+	a.dashboardAuth.mu.Lock()
+	a.dashboardAuth.enabled = false
+	a.dashboardAuth.mu.Unlock()
+	if w := actuatorCurlPost(handler, `{"endpoint":"health","password":"dashboard-secret"}`, basicAuth); w.Code != http.StatusForbidden && w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("read-only mode = %d", w.Code)
+	}
+}
+
+func TestWWWAuthenticateIsOnlyOnActuator401And429(t *testing.T) {
+	a, handler := testApp(t, &rpcFixture{}, "dashboard-secret")
+	setActuator(t, handler, true, true)
+	if w := actuatorGetAs(handler, "/actuator/health", "admin", "wrong"); w.Code != http.StatusUnauthorized || w.Header().Get("WWW-Authenticate") == "" {
+		t.Fatalf("actuator 401 = %d %q", w.Code, w.Header().Get("WWW-Authenticate"))
+	}
+	if w := actuatorGet(a, handler, "/actuator/health"); w.Header().Get("WWW-Authenticate") != "" {
+		t.Fatal("successful actuator response carries a challenge")
+	}
+	a.dashboardAuth.mu.Lock()
+	a.dashboardAuth.enabled = false
+	a.dashboardAuth.mu.Unlock()
+	if w := anonymousRequest(t, handler, http.MethodGet, "/actuator/health"); w.Code != http.StatusServiceUnavailable || w.Header().Get("WWW-Authenticate") != "" {
+		t.Fatalf("actuator 503 = %d %q", w.Code, w.Header().Get("WWW-Authenticate"))
+	}
+}
+
+func TestLeftoverActuatorFileDeleteFailureLogsAFixedMessage(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "actuator-credentials.json")
+	if err := os.MkdirAll(filepath.Join(path, "child"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var logs strings.Builder
+	removeLegacyActuatorCredentials(dir, log.New(&logs, "", 0))
+	if strings.TrimSpace(logs.String()) != "leftover actuator credentials file could not be deleted" {
+		t.Fatalf("log = %q", logs.String())
+	}
+	logs.Reset()
+	removeLegacyActuatorCredentials(t.TempDir(), log.New(&logs, "", 0))
+	if logs.Len() != 0 {
+		t.Fatalf("missing file logged %q", logs.String())
 	}
 }

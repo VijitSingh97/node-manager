@@ -1,9 +1,14 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
+	"log"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 func actuatorRequest(r *http.Request) bool {
@@ -35,9 +40,48 @@ func (a *app) actuatorEndpoint(handle http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func removeLegacyActuatorCredentials(stateDir string) {
+func removeLegacyActuatorCredentials(stateDir string, logger *log.Logger) {
 	if stateDir == "" {
 		return
 	}
-	_ = os.Remove(filepath.Join(stateDir, "actuator-credentials.json"))
+	if err := os.Remove(filepath.Join(stateDir, "actuator-credentials.json")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		logger.Print("leftover actuator credentials file could not be deleted")
+	}
+}
+
+func (a *app) apiActuatorCurl(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if !a.hasDashboardPassword() {
+		http.Error(w, "set a dashboard password to copy an actuator command", http.StatusForbidden)
+		return
+	}
+	if !a.requireRecentSignIn(w, r) || rejectCredentialCSRF(w, r) {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	var input struct {
+		Endpoint string `json:"endpoint"`
+		Password string `json:"password"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&input) != nil || ensureJSONEnd(decoder) != nil || input.Endpoint != "health" && input.Endpoint != "info" || input.Password == "" {
+		http.Error(w, "invalid actuator request", http.StatusBadRequest)
+		return
+	}
+	settings := a.monitor.notificationSettings()
+	if input.Endpoint == "health" && !settings.ActuatorHealth || input.Endpoint == "info" && !settings.ActuatorInfo {
+		http.Error(w, "this endpoint is switched off; save the setting first", http.StatusConflict)
+		return
+	}
+	_, status, retry := a.passwordAttempt(r, "admin", input.Password, false, false)
+	switch status {
+	case http.StatusOK:
+		writeJSON(w, map[string]string{"username": "admin"})
+	case http.StatusTooManyRequests:
+		w.Header().Set("Retry-After", strconv.Itoa(max(1, int(math.Ceil(retry.Seconds())))))
+		http.Error(w, "Too many attempts. Try again shortly.", status)
+	default:
+		http.Error(w, "dashboard password is incorrect", http.StatusForbidden)
+	}
 }

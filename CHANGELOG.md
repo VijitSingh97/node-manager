@@ -41,6 +41,17 @@ All notable changes to this project are documented here. Format follows
   sign-in limit. A monitor given this login can also sign in to the dashboard.
   Upgrade note: monitors that sent the generated login must be changed to the
   dashboard login.
+- Settings → Actuator has **Copy curl for health** and **Copy curl for info**
+  buttons, shown while the matching switch is saved on. Each asks for the
+  dashboard password, has the server check it, then copies a complete
+  `curl --user 'admin:<password>' '<address>/actuator/...'` command. On a plain
+  `http://` address, where the browser blocks clipboard access, it falls back
+  to a selected field with a **Copy again** button (pressed with the click, so
+  Safari allows it) or Ctrl+C / Cmd+C. The command holds the password and will
+  stay in shell history.
+- The `WWW-Authenticate` challenge is now sent only with actuator 401 and 429
+  answers, and a leftover actuator credentials file that cannot be deleted is
+  logged with a fixed message.
 
 ## [1.37.0] - 2026-11-17
 

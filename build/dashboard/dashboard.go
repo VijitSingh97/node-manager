@@ -152,7 +152,7 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 	if cfg.stateDir != "" {
 		a.sessions.persist(filepath.Join(cfg.stateDir, "sessions.json"), a.dashboardAuth.sessionBinding(), time.Now())
 	}
-	removeLegacyActuatorCredentials(cfg.stateDir)
+	removeLegacyActuatorCredentials(cfg.stateDir, a.log)
 	a.watch = NewWatchStore(cfg.stateDir)
 	if a.watch.ScanErr() != nil {
 		a.log.Print("watch balance cache unavailable; pruned balance scans disabled until the cache is repaired and the dashboard restarts")

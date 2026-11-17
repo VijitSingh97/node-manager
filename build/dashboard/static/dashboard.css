@@ -239,6 +239,10 @@ body:not([data-node=""]) .node-close-backdrop { display: block; }
 }
 .settings-dialog .settings-check { display: flex; align-items: center; gap: 8px; }
 .settings-dialog .settings-note { color: var(--muted); font-size: 0.8rem; }
+.settings-actuator-copy { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.settings-actuator-copy button { padding: 6px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--tag-bg); color: var(--text); }
+.settings-actuator-copy [hidden], #settings-actuator-copy-note[hidden], #actuator-curl-fallback-label[hidden], #actuator-curl-submit[hidden] { display: none !important; }
+#actuator-curl-fallback { display: block; box-sizing: border-box; width: 100%; margin-top: 6px; padding: 9px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; font: 0.75rem ui-monospace, monospace; overflow-wrap: anywhere; }
 .settings-host-nodes { display: grid; gap: 8px; }
 .settings-host-node { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .settings-host-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, monospace; font-size: 0.78rem; opacity: 0.75; }

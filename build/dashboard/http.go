@@ -49,6 +49,7 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /api/settings/credentials", a.apiCredentialsGet)
 	mux.HandleFunc("POST /api/settings/credentials/reveal", a.apiCredentialsReveal)
 	mux.HandleFunc("POST /api/settings/credentials/reset", a.apiCredentialsReset)
+	mux.HandleFunc("POST /api/settings/actuator-curl", a.apiActuatorCurl)
 	mux.HandleFunc("GET /api/settings", a.apiSettingsGet)
 	mux.HandleFunc("POST /api/settings", a.apiSettingsPost)
 	mux.HandleFunc("GET /api/settings/ports", a.apiPortControlGet)

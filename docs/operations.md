@@ -272,7 +272,9 @@ first — a live copy of `chainstate/` is corrupt by construction.
     access; if no dashboard password is configured they answer 503 like the
     rest of the API. A switched-off endpoint answers 404 whatever credentials
     are sent. A monitor given this login can also sign in to the dashboard.
-    Settings saved before this release with the old single switch on turn
+    A monitor polling with a wrong password counts against the same
+    sign-in limit, so with no `dashboard.public_url` set it can briefly
+    throttle dashboard sign-in too. Settings saved before this release with the old single switch on turn
     both endpoints on after the upgrade; the generated `actuator` login from
     earlier releases is gone, so update monitors to the dashboard login.
   - `GET /actuator/health` returns the overall `status` and `components`: HTTP
@@ -329,6 +331,16 @@ first — a live copy of `chainstate/` is corrupt by construction.
   service.** The actuator uses the same login as the dashboard for both
   endpoints, so any client that can poll `/actuator/health` can also read
   `/actuator/info` and those passwords. If monitors must not see them, leave **Serve /actuator/info** off.
+  Settings → **Actuator** shows **Copy curl for health** and **Copy curl for
+  info** under the switches, for each switch that is saved on. After you type
+  the dashboard password (checked by the server, after a recent sign-in), the
+  button copies `curl --user 'admin:<password>' '<address>/actuator/health'`
+  (or `/info`) using the address the page was opened from. **The copied
+  command contains the password and will land in shell history.** For scripts
+  and monitors prefer `curl --user admin <url>`, which prompts. On a plain
+  `http://` dashboard the browser blocks the clipboard API, so the button
+  falls back to a temporary copy, then to a selected field you copy with
+  Ctrl+C or Cmd+C.
   Neither endpoint returns wallet data, onion addresses or host paths.
   A configured `dashboard.public_url` still limits which host name they answer
   on, except for Basic-auth clients on the private network, as for `/metrics`.

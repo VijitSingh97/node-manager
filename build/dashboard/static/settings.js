@@ -1,3 +1,4 @@
+import { actuatorCurlController } from "./actuator-curl.js";
 import { credentialSettingsController } from "./credentials.js";
 import { dashboardFetch as fetch } from "./session.js";
 import { requestSeed } from "./utxo-index.js";
@@ -538,6 +539,7 @@ if (typeof document !== "undefined") {
   byId("port-impact")?.remove();
   const accountDialog = document.getElementById("account-dialog");
   const credentialSettings = credentialSettingsController(accountDialog, document);
+  const actuatorCurl = actuatorCurlController(document);
   let saved = {};
   let savedPorts = {};
   let allowed = false;
@@ -970,6 +972,7 @@ if (typeof document !== "undefined") {
       input.disabled = !allowed;
     }
     renderPortControl(data.port_control);
+    actuatorCurl.render(saved, allowed);
     if (scope === "global") {
       applyAppearance(data);
       if (Object.hasOwn(data, "telegram_chat_id")) chat.value = data.telegram_chat_id || "";
@@ -1098,7 +1101,7 @@ if (typeof document !== "undefined") {
     installDialog.close();
     renderHostActions();
   });
-  dialog.addEventListener("close", () => { clearSecrets(); delete saved.telegram_bot_token; delete saved.telegram_chat_id; delete saved.healthchecks_url; });
+  dialog.addEventListener("close", () => { actuatorCurl.closeDialog(); clearSecrets(); delete saved.telegram_bot_token; delete saved.telegram_chat_id; delete saved.healthchecks_url; });
   window.addEventListener("node-selected", (event) => {
     credentialSettings.closeNode();
     if (event.detail?.node) {
