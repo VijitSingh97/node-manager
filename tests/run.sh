@@ -38,6 +38,7 @@ if command -v go >/dev/null; then
     trap 'rm -f "$dashboard_check"' EXIT
     cd build/dashboard
     go test -race ./...
+    go test -count=1 -run '^TestBenchIndexMatchesScanAndIsFaster$' .
     go vet ./...
     go build -o "$dashboard_check" .
   )
