@@ -166,10 +166,14 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 	a.monitor.configureNodes(!cfg.bitcoinDisabled, cfg.moneroEnabled, cfg.moneroDataDir)
 	a.monitor.configureAdditionalNodes(cfg.nodes)
 	a.monitor.transitioning = a.monitorTransitioning
+	a.monitor.restarting = a.nodeRestarting
 	if a.monitor.settingsErr != nil {
 		a.log.Print("notification settings unavailable; alerts disabled until the state file is repaired and the dashboard restarts")
 	}
 	a.prices = NewPriceCache()
+	if cfg.stateDir != "" {
+		a.prices.Persist(filepath.Join(cfg.stateDir, "prices.json"))
+	}
 	a.moneroWatch = NewMoneroWatchStore(cfg)
 	a.moneroFees = NewMoneroFeeHistory(cfg.stateDir)
 	a.familyWatch = newFamilyWatchManager(a)

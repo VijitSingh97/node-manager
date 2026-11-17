@@ -41,6 +41,12 @@ All notable changes to this project are documented here. Format follows
   Host event, forwarded to Telegram), and the panel shows Stopped with the same
   reason; **Start node** tries again. Nodes that crash after running a while, or
   recover within 10 minutes, keep Docker's normal restarts.
+- "Price unavailable" no longer appears for a minute or two after a settings
+  change restarts Tor and the dashboard. The dashboard now saves its last good
+  prices in its state directory (`prices.json`), shows them as stale with their
+  original time after a restart, and replaces them when the next fetch over Tor
+  succeeds. While prices are unavailable or stale the page checks every 10
+  seconds instead of every minute, so fresh prices appear as soon as Tor is up.
 - A failed node install now says why. Settings shows the last error line from
   the step that failed (for example an image that could not be pulled), and a
   "<Node> install failed" Host event reaches Telegram. Host events other than
@@ -99,6 +105,19 @@ All notable changes to this project are documented here. Format follows
   dashboard, seeds itself like the Bitcoin index, and has `utxo-seed litecoin`
   and `utxo-index remove litecoin`. Only one balance index seeds at a time.
   Balances cover transparent outputs only; funds inside MWEB are not counted.
+- Nodes that are restarting because of a settings change now turn grey with a
+  **Restarting** badge and "Restarting after a settings change…" on the panel,
+  instead of looking down or connecting. A node counts as restarting from the
+  moment an apply of the pending configuration, a network setting change (clearnet
+  over Tor, incoming connections), a node install or data move, a node
+  activation, or an RPC password reset is requested until its RPC answers again,
+  for at most 10 minutes. `/api/nodes` reports it as `restarting`, so it survives
+  a page reload, and node-down alerts stay quiet meanwhile; the dashboard keeps
+  probing restarting nodes so the flag clears as soon as they answer. After an
+  apply the host helper lists the services it recreated in the status file, so
+  only those nodes show as restarting. A node that is known to
+  have failed to start still shows Stopped with the reason. LAN port changes
+  restart only Tor and the dashboard, so nodes stay as they are.
 - The Bitcoin balance index is on by default for new pruned installs. APT and
   Homebrew setup, and installing Bitcoin from the dashboard, write
   `bitcoin.utxo_index: true` when the node is pruned; existing installs and

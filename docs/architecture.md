@@ -123,6 +123,9 @@ that makes `tor_egress` Tor's deterministic default route.
   cache. Initial failures retry sooner while Tor starts. DNS resolves through Tor,
   TLS is verified, and failures never fall back to
   a direct connection. Quotes become stale after a failed fetch or fifteen minutes.
+  The last good quotes are saved in the dashboard state directory (`prices.json`)
+  and loaded at startup as stale, so a restart never blanks the prices; the page
+  checks every 10 seconds while they are unavailable or stale.
 
 ## Trust boundaries — and non-boundaries
 

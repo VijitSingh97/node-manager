@@ -20,6 +20,10 @@ container_id() {
     --filter "label=com.docker.compose.project=$project_name" \
     --filter "label=com.docker.compose.service=$1" | head -n 1
 }
+service_ids() {
+  "$docker_bin" ps -a --filter "label=com.docker.compose.project=$project_name" \
+    --format '{{.Label "com.docker.compose.service"}} {{.ID}}' 2>/dev/null | sort || true
+}
 dashboard_id=$(container_id dashboard)
 mkdir -p "$state_root/node-control"
 chmod 700 "$state_root/node-control"
@@ -45,8 +49,9 @@ host_event() {
 clear_request() { dashboard_exec rm -f /state/node-control.processing >/dev/null 2>&1 || true; }
 write_host_status() {
   jq -nc --arg id "$1" --arg action "$2" --arg state "$3" --arg message "$4" \
-    --arg node "${5:-}" --arg enabled "${6:-}" --arg error_code "${7:-}" --arg port "${8:-}" --arg detail "${9:-}" '
+    --arg node "${5:-}" --arg enabled "${6:-}" --arg error_code "${7:-}" --arg port "${8:-}" --arg detail "${9:-}" --arg restarted "${host_restarted:-}" '
     {id:$id,action:$action,state:$state,message:$message} |
+    if $restarted=="" then . else .restarted=($restarted|fromjson) end |
     if $detail=="" then . else .detail=$detail end |
     if $node=="" then . else .node=$node end |
     if $enabled=="" then . else .enabled=($enabled=="true") end |
@@ -518,6 +523,15 @@ host_remember_seen() {
 }
 host_finish() {
   clear_migrate_progress
+  host_restarted=
+  case "$host_action:$1" in
+    apply_config:applied | clearnet_over_tor:applied | inbound_connections:applied)
+      if [ -n "${host_ids_before:-}" ]; then
+        host_restarted=$(service_ids | while IFS= read -r line; do
+          printf '%s\n' "$host_ids_before" | grep -Fxq -- "$line" || printf '%s\n' "${line%% *}"
+        done | jq -R . | jq -sc .)
+      fi ;;
+  esac
   publish_host_capability
   write_host_status "$host_id" "$host_action" "$1" "$2" "${3:-}" "${4:-}" "${5:-}" "${6:-}" "${7:-}"
   host_remember_seen
@@ -626,6 +640,7 @@ fi
 if [ "$host_request" = true ]; then
   host_id=$(printf '%s' "$request" | jq -r .id)
   host_action=$(printf '%s' "$request" | jq -r .action)
+  host_ids_before=$(service_ids)
   if [ -r "$host_seen_file" ] && grep -Fxq "$host_id" "$host_seen_file"; then
     host_finish rejected "Request already processed." "$(printf '%s' "$request" | jq -r '.node // empty')" "$(printf '%s' "$request" | jq -r '.enabled // empty')" replayed
   fi
