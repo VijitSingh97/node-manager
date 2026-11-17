@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Boots a preseeded stack and verifies node auth, Tor-only wiring, onion ingress, and dashboard auth end to end.
 # E2E_SYNC=1 also verifies preseeded and zero-config sync starts over real Tor; it is slow and opt-in.
+# E2E_ALL_NODES=1 also boots every node service (no sync needed) so the egress probe covers all of them; Linux with BMI2 and ADX only.
 # Post-sync behavior on an already-synced node is covered by tests/test_postsync.sh.
 # This is the test that catches config-plumbing bugs the static contract
 # test can't.
@@ -20,6 +21,13 @@ fi
 if [ -f config.json ] || [ -f .env ] || [ -f .approved-config.json ] || [ -f .approved.env ]; then
   echo "FAIL: runtime configuration already exists — run the e2e from a clean checkout"
   exit 1
+fi
+
+if [ -n "${E2E_ALL_NODES:-}" ]; then
+  for cpu_flag in bmi2 adx; do
+    grep -qw "$cpu_flag" /proc/cpuinfo 2>/dev/null ||
+      { echo "FAIL: E2E_ALL_NODES needs a Linux host CPU with $cpu_flag (Zakura's x86-64 image requires BMI2 and ADX)"; exit 1; }
+  done
 fi
 
 export BITCOIN_STACK_PROJECT_NAME="node-manager-e2e-$$-$RANDOM"
@@ -48,7 +56,9 @@ service_inspect() {
 BITCOIN_DATA_DIR=$(mktemp -d)
 MONERO_DATA_DIR=$(mktemp -d)
 WALLET_DATA_DIR=$(mktemp -d)
-chmod 777 "$BITCOIN_DATA_DIR" "$MONERO_DATA_DIR" "$WALLET_DATA_DIR" # nodes run as uid 1000; CI runners often aren't
+ALL_NODES_DATA_DIR=""
+[ -z "${E2E_ALL_NODES:-}" ] || ALL_NODES_DATA_DIR=$(mktemp -d)
+chmod 777 "$BITCOIN_DATA_DIR" "$MONERO_DATA_DIR" "$WALLET_DATA_DIR" ${ALL_NODES_DATA_DIR:+"$ALL_NODES_DATA_DIR"} # nodes run as uid 1000; CI runners often aren't
 
 # bitcoind writes as uid 1000, which the invoking user may not be able to
 # delete — clean the datadir through a root container instead of rm -rf
@@ -57,6 +67,10 @@ cleanup() {
   docker run --rm -v "$BITCOIN_DATA_DIR":/cleanup alpine:3.24 sh -c 'rm -rf /cleanup/* /cleanup/.[!.]*' >/dev/null 2>&1 || true
   docker run --rm -v "$MONERO_DATA_DIR":/cleanup alpine:3.24 sh -c 'rm -rf /cleanup/* /cleanup/.[!.]*' >/dev/null 2>&1 || true
   docker run --rm -v "$WALLET_DATA_DIR":/cleanup alpine:3.24 sh -c 'rm -rf /cleanup/* /cleanup/.[!.]*' >/dev/null 2>&1 || true
+  if [ -n "$ALL_NODES_DATA_DIR" ]; then
+    docker run --rm -v "$ALL_NODES_DATA_DIR":/cleanup alpine:3.24 sh -c 'rm -rf /cleanup/* /cleanup/.[!.]*' >/dev/null 2>&1 || true
+    rmdir "$ALL_NODES_DATA_DIR" 2>/dev/null || true
+  fi
   rmdir "$BITCOIN_DATA_DIR" 2>/dev/null || true
   rmdir "$MONERO_DATA_DIR" 2>/dev/null || true
   rmdir "$WALLET_DATA_DIR" 2>/dev/null || true
@@ -108,14 +122,30 @@ jq -n --arg bitcoin_data "$BITCOIN_DATA_DIR" --arg monero_data "$MONERO_DATA_DIR
      .bitcoin.rpc_expose = true | .bitcoin.rpc_bind_ip = $ip | .bitcoin.rpc_port = 18332 |
      .monero.rpc_expose = true | .monero.rpc_bind_ip = $ip | .monero.rpc_port = 28081
    else . end' >config.json
+if [ -n "$ALL_NODES_DATA_DIR" ]; then
+  all_nodes_config=$(jq --arg base "$ALL_NODES_DATA_DIR" '
+    .tari = {enabled: true, data_dir: ($base + "/tari"), steady_mem_limit_mb: 1024} |
+    .litecoin = {enabled: true, node_username: "admin", data_dir: ($base + "/litecoin"), prune_mb: 550, steady_mem_limit_mb: 1024} |
+    .dogecoin = {enabled: true, node_username: "admin", data_dir: ($base + "/dogecoin"), prune_mb: 2200, steady_mem_limit_mb: 1024} |
+    .bitcoincash = {enabled: true, node_username: "admin", data_dir: ($base + "/bitcoincash"), prune_mb: 550, steady_mem_limit_mb: 1024} |
+    .zcash = {enabled: true, node_username: "admin", data_dir: ($base + "/zcash"), steady_mem_limit_mb: 1024}' config.json)
+  printf '%s\n' "$all_nodes_config" >config.json
+  mkdir -m 777 "$ALL_NODES_DATA_DIR"/{tari,litecoin,dogecoin,bitcoincash,zcash}
+fi
 chmod 600 config.json
 ./configure.sh >/dev/null
 test_stack_version=$(sed -n 's/^STACK_VERSION=//p' .env)
 [ -n "$test_stack_version" ] || fail "configure.sh did not render STACK_VERSION"
-STACK_VERSION="$test_stack_version" docker compose build tor monero monero-wallet dashboard >/dev/null ||
+build_services=(tor monero monero-wallet dashboard)
+pull_services=(bitcoin)
+if [ -n "$ALL_NODES_DATA_DIR" ]; then
+  build_services+=(tari-wallet litecoin dogecoin bitcoincash)
+  pull_services+=(tari zcash)
+fi
+STACK_VERSION="$test_stack_version" docker compose build "${build_services[@]}" >/dev/null ||
   fail "local E2E images did not build"
-STACK_VERSION="$test_stack_version" docker compose pull bitcoin >/dev/null ||
-  fail "pinned Bitcoin image did not download"
+STACK_VERSION="$test_stack_version" docker compose pull "${pull_services[@]}" >/dev/null ||
+  fail "pinned upstream images did not download"
 ./stack init >/dev/null || fail "preseeded first-run initialization failed"
 dashboard_url="http://$host_ip:80"
 
@@ -137,8 +167,10 @@ wallet_rpc() {
     --data-binary @- http://127.0.0.1:18082/json_rpc
 }
 
-docker compose up -d --pull never --no-build --wait --wait-timeout 300 ||
-  fail "stack did not reach healthy within 5 minutes"
+up_wait_timeout=300
+[ -z "$ALL_NODES_DATA_DIR" ] || up_wait_timeout=900
+docker compose up -d --pull never --no-build --wait --wait-timeout "$up_wait_timeout" ||
+  fail "stack did not reach healthy within $((up_wait_timeout / 60)) minutes"
 # --wait passing also proves the cookie-based bitcoin healthcheck works
 docker compose exec -T dashboard sh -c 'test -z "$(find /app -name "*.test.mjs" -o -name "*_test.go" -o -name tests -o -name parity)"' ||
   fail "dashboard image includes development-only files"
@@ -406,7 +438,9 @@ probed_services=()
 while IFS= read -r running_service; do
   [ "$running_service" = tor ] || probed_services+=("$running_service")
 done < <(docker compose ps --services --status running)
-for required in bitcoin monero monero-wallet dashboard; do
+required_services=(bitcoin monero monero-wallet dashboard)
+[ -z "$ALL_NODES_DATA_DIR" ] || required_services+=(tari tari-wallet litecoin dogecoin bitcoincash zcash)
+for required in "${required_services[@]}"; do
   [[ " ${probed_services[*]} " == *" $required "* ]] || fail "the egress audit would skip $required"
 done
 # Positive control: the same direct TCP probe succeeds from Tor, so the failures below mean the boundary, not a broken probe.
@@ -444,14 +478,15 @@ done
 
 # Egress audit: every ESTABLISHED connection from every application
 # container must terminate inside the stack subnet (172.29.0.x renders as
-# xx001DAC in /proc/net/tcp little-endian hex) — i.e. everything goes to tor
-# or intra-stack RPC, and nothing dials clearnet directly.
+# xx001DAC in /proc/net/tcp little-endian hex) or on the container's own
+# loopback — i.e. everything goes to tor or intra-stack RPC, and nothing dials
+# clearnet directly.
 for c in "${probed_services[@]}"; do
   # The helper image shares the service's network namespace, so this works even when the service image has no awk.
-  bad=$(probe "$c" "awk 'NR>1 && \$4==\"01\" {split(\$3,r,\":\"); if (r[1] !~ /001DAC\$/) print r[1]\":\"r[2]}' /proc/net/tcp") ||
+  bad=$(probe "$c" "awk 'NR>1 && \$4==\"01\" {split(\$3,r,\":\"); if (r[1] !~ /001DAC\$/ && r[1] !~ /7F\$/) print r[1]\":\"r[2]}' /proc/net/tcp") ||
     fail "could not read the open connections of $c"
   [ -z "$bad" ] || fail "clearnet egress from $c: $bad"
-  bad6=$(probe "$c" "[ ! -e /proc/net/tcp6 ] || awk 'NR>1 && \$4==\"01\" {print \$3}' /proc/net/tcp6") ||
+  bad6=$(probe "$c" "[ ! -e /proc/net/tcp6 ] || awk 'NR>1 && \$4==\"01\" && substr(\$3, 1, 33) != \"00000000000000000000000001000000:\" {print \$3}' /proc/net/tcp6") ||
     fail "could not read the open IPv6 connections of $c"
   [ -z "$bad6" ] || fail "unexpected IPv6 egress from $c: $bad6"
 done
