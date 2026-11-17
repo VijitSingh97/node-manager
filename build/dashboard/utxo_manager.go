@@ -38,6 +38,7 @@ const (
 	utxoPhasePaused     = "paused"
 	utxoPhaseCancelling = "cancelling"
 	utxoPhaseReplaying  = "replaying"
+	utxoPhaseRetrying   = "retrying"
 
 	utxoAlertCap = 15 * time.Minute
 )

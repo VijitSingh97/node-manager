@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -20,6 +21,8 @@ const utxoReplayPrefetch = 32
 var (
 	utxoReplayBatch    = 1000
 	utxoReplayBatchOps = 200_000
+	// Blocks fetched ahead and not yet taken into a batch stay within this many coin operations; a larger block goes through alone.
+	utxoReplayInflightOps = 200_000
 )
 
 const (
@@ -387,11 +390,23 @@ func (f *utxoFollower) applyRange(ctx context.Context, from, to uint32) error {
 		err error
 	}
 	queue := make(chan fetched, utxoReplayPrefetch)
+	var freed atomic.Int64
+	wake := make(chan struct{}, 1)
 	fetcher.Go(func() {
 		defer close(queue)
+		var taken int64
 		for h := from; h <= to && ctx.Err() == nil; h++ {
 			start := time.Now()
 			blk, err := f.fetchBlock(ctx, h)
+			cost := int64(len(blk.Creates) + len(blk.Spends))
+			for held := taken - freed.Load(); held > 0 && held+cost > int64(utxoReplayInflightOps); held = taken - freed.Load() {
+				select {
+				case <-wake:
+				case <-ctx.Done():
+					return
+				}
+			}
+			taken += cost
 			select {
 			case queue <- fetched{blk, time.Since(start), err}:
 			case <-ctx.Done():
@@ -419,6 +434,11 @@ func (f *utxoFollower) applyRange(ctx context.Context, from, to uint32) error {
 		return err
 	}
 	for item := range queue {
+		freed.Add(int64(len(item.blk.Creates) + len(item.blk.Spends)))
+		select {
+		case wake <- struct{}{}:
+		default:
+		}
 		if item.err != nil {
 			if err := flush(); err != nil {
 				return err

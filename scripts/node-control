@@ -302,6 +302,127 @@ prepare_install_data_dir() {
   fi
   printf '%s\n' "$prepare_canonical"
 }
+delete_service_names() {
+  case "$1" in
+    monero) printf '%s\n' monero-wallet monero ;;
+    tari) printf '%s\n' tari-wallet tari ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+delete_volume_names() {
+  case "$1" in
+    bitcoin) printf '%s\n' utxo_index ;;
+    litecoin) printf '%s\n' utxo_index_litecoin ;;
+    monero) printf '%s\n' monero_wallets ;;
+    tari) printf '%s\n' tari_wallet tari_wallet_data ;;
+  esac
+}
+delete_display_name() {
+  case "$1" in
+    bitcoincash) printf 'Bitcoin Cash\n' ;;
+    *) printf '%s\n' "$1" | awk '{print toupper(substr($0, 1, 1)) substr($0, 2)}' ;;
+  esac
+}
+delete_configured_dir() {
+  delete_dir_value=$(env_get "$(printf '%s_DATA_DIR' "$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')")")
+  [ -n "$delete_dir_value" ] || delete_dir_value=$(jq -r --arg node "$1" '.[$node].data_dir // ""' "$approved_config" 2>/dev/null || true)
+  [ -n "$delete_dir_value" ] || delete_dir_value=./data/$1
+  case "$delete_dir_value" in
+    /*) ;;
+    *) delete_dir_value=$(cd "$state_root" && pwd -P)/${delete_dir_value#./} ;;
+  esac
+  printf '%s\n' "$delete_dir_value"
+}
+delete_path_overlaps() {
+  case "$1/" in "$2/"*) return 0 ;; esac
+  case "$2/" in "$1/"*) return 0 ;; esac
+  return 1
+}
+delete_data_dir_check() {
+  check_node=$1
+  check_path=$2
+  case "$check_path" in /*) ;; *) return 1 ;; esac
+  check_walk=
+  check_rest=${check_path#/}
+  while [ -n "$check_rest" ]; do
+    check_part=${check_rest%%/*}
+    case "$check_part" in '' | . | ..) return 1 ;; esac
+    check_walk=$check_walk/$check_part
+    [ ! -L "$check_walk" ] || return 1
+    [ "$check_rest" != "$check_part" ] || break
+    check_rest=${check_rest#*/}
+  done
+  check_canonical=$check_path
+  if [ -e "$check_path" ]; then
+    [ -d "$check_path" ] || return 1
+    check_canonical=$(cd "$check_path" 2>/dev/null && pwd -P) || return 1
+    [ "$check_canonical" = "$check_path" ] && [ -w "$check_canonical" ] || return 1
+  fi
+  [ "$check_canonical" != / ] || return 1
+  check_docker=$("$docker_bin" info --format '{{.DockerRootDir}}' 2>/dev/null || true)
+  for check_root in "$stack_root" "$state_root" "$config_root" "${HOME:-}"; do
+    [ -n "$check_root" ] && [ -d "$check_root" ] || continue
+    check_original=$check_root
+    check_root=$(cd "$check_root" 2>/dev/null && pwd -P) || return 1
+    [ "$check_canonical" != "$check_root" ] || return 1
+    case "$check_root/" in "$check_canonical/"*) return 1 ;; esac
+    case "$check_canonical/" in
+      "$check_root/"*)
+        [ "$check_original" != "${HOME:-}" ] || continue
+        [ "$check_original" = "$state_root" ] && [ "$check_canonical" = "$check_root/data/$check_node" ] || return 1
+        ;;
+    esac
+  done
+  for check_root in /var/lib/docker "$check_docker"; do
+    [ -n "$check_root" ] || continue
+    ! delete_path_overlaps "$check_canonical" "$check_root" || return 1
+  done
+  for check_other in bitcoin monero tari litecoin dogecoin bitcoincash zcash; do
+    [ "$check_other" != "$check_node" ] || continue
+    ! delete_path_overlaps "$check_canonical" "$(delete_configured_dir "$check_other")" || return 1
+  done
+  [ ! -e "$check_canonical" ] || printf '%s\n' "$check_canonical"
+}
+delete_node_data() {
+  wipe_node=$1
+  wipe_dir=$2
+  wipe_failed=0
+  delete_handoff_failed=0
+  printf '%s\n' "$host_id" |
+    "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c "umask 077; cat > /state/.node-delete.tmp; mv /state/.node-delete.tmp /state/node-delete.$wipe_node" >/dev/null 2>&1 || { wipe_failed=1; delete_handoff_failed=1; }
+  for wipe_service in $(delete_service_names "$wipe_node"); do
+    wipe_id=$(container_id "$wipe_service")
+    [ -z "$wipe_id" ] || "$docker_bin" rm -f "$wipe_id" >/dev/null 2>&1 || wipe_failed=1
+  done
+  for wipe_volume in $(delete_volume_names "$wipe_node"); do
+    wipe_volume=${project_name}_$wipe_volume
+    wipe_listed=$("$docker_bin" volume ls -q --filter "name=$wipe_volume") || { wipe_failed=1; continue; }
+    printf '%s\n' "$wipe_listed" | grep -qxF "$wipe_volume" || continue
+    if [ -n "$("$docker_bin" ps -aq --filter "volume=$wipe_volume" 2>/dev/null)" ]; then
+      wipe_failed=1
+      continue
+    fi
+    "$docker_bin" volume rm "$wipe_volume" >/dev/null 2>&1 || wipe_failed=1
+  done
+  if [ -n "$wipe_dir" ] && [ -d "$wipe_dir" ]; then
+    if delete_data_dir_check "$wipe_node" "$wipe_dir" >/dev/null; then
+      find "$wipe_dir" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + || wipe_failed=1
+      rmdir "$wipe_dir" 2>/dev/null || true
+    else
+      wipe_failed=1
+    fi
+  fi
+  for wipe_service in $(delete_service_names "$wipe_node"); do
+    rm -f "$state_root/resource-profile/$wipe_service" "$state_root/thermal-throttle/$wipe_service"
+  done
+  rm -f "$state_root/resource-profile/failing-$wipe_node" "$state_root/resource-profile/failed-$wipe_node"
+  wipe_prefix=
+  [ "$wipe_node" = bitcoin ] || wipe_prefix=$wipe_node-
+  dashboard_exec rm -f "/state/${wipe_prefix}utxo-seed.json" "/state/${wipe_prefix}utxo-seed.request" "/state/${wipe_prefix}utxo-seed.cancel" >/dev/null 2>&1 || wipe_failed=1
+  printf '%sZ Host: %s deleted\n' "$(date -u +%Y-%m-%dT%H:%M:%S)" "$(delete_display_name "$wipe_node")" |
+    "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c 'cat >> /state/events.log' >/dev/null 2>&1 || true
+  [ "$wipe_failed" = 0 ]
+}
 host_platform=source
 boot_kind=unsupported
 boot_supported=false
@@ -364,16 +485,23 @@ publish_host_capability() {
     --argjson boot_supported "$boot_supported" --argjson boot_enabled "$boot_enabled" --argjson config_pending "$pending" \
     --argjson clearnet_over_tor "$clearnet_over_tor" --argjson inbound_connections "$inbound_connections" --argjson utxo_index "$utxo_index" --argjson utxo_index_litecoin "$utxo_index_litecoin" \
     --arg config_revision "$revision" --arg config_path "$config_path" --argjson data_paths "$data_paths" --argjson unsupported_nodes "$unsupported_nodes" \
-    '{timestamp:$timestamp,install_supported:true,migrate_supported:true,utxo_seed_supported:true,boot_supported:$boot_supported,boot_enabled:$boot_enabled,clearnet_over_tor:$clearnet_over_tor,inbound_connections:$inbound_connections,utxo_index:$utxo_index,utxo_index_litecoin:$utxo_index_litecoin,config_pending:$config_pending,config_revision:$config_revision,platform:$platform,boot_kind:$boot_kind,config_path:$config_path,data_paths:$data_paths} + if $unsupported_nodes == [] then {} else {unsupported_nodes:$unsupported_nodes} end' |
+    '{timestamp:$timestamp,install_supported:true,migrate_supported:true,delete_supported:true,utxo_seed_supported:true,boot_supported:$boot_supported,boot_enabled:$boot_enabled,clearnet_over_tor:$clearnet_over_tor,inbound_connections:$inbound_connections,utxo_index:$utxo_index,utxo_index_litecoin:$utxo_index_litecoin,config_pending:$config_pending,config_revision:$config_revision,platform:$platform,boot_kind:$boot_kind,config_path:$config_path,data_paths:$data_paths} + if $unsupported_nodes == [] then {} else {unsupported_nodes:$unsupported_nodes} end' |
     $docker_bin exec -i -u 1000 "$dashboard_id" sh -c 'umask 077; cat > /state/.node-control.capability.tmp; mv /state/.node-control.capability.tmp /state/node-control.capability' >/dev/null
 }
 publish_host_capability
+delete_marker=$state_root/node-control/delete-pending.json
+size=0
 if ! dashboard_exec test -f /state/node-control.processing >/dev/null 2>&1; then
-  dashboard_exec test -f /state/node-control.request >/dev/null 2>&1 || exit 0
-  dashboard_exec mv /state/node-control.request /state/node-control.processing >/dev/null 2>&1 || exit 0
+  if dashboard_exec test -f /state/node-control.request >/dev/null 2>&1; then
+    dashboard_exec mv /state/node-control.request /state/node-control.processing >/dev/null 2>&1 || exit 0
+  else
+    [ -f "$delete_marker" ] || exit 0
+  fi
 fi
-size=$(dashboard_exec sh -c 'wc -c < /state/node-control.processing' 2>/dev/null | tr -d ' ' || true)
-case "$size" in '' | *[!0-9]*) size=4097 ;; esac
+if dashboard_exec test -f /state/node-control.processing >/dev/null 2>&1; then
+  size=$(dashboard_exec sh -c 'wc -c < /state/node-control.processing' 2>/dev/null | tr -d ' ' || true)
+  case "$size" in '' | *[!0-9]*) size=4097 ;; esac
+fi
 if [ "$size" -gt 4096 ]; then
   write_status "" "" false rejected "Invalid request." invalid_request
   clear_request
@@ -397,6 +525,30 @@ host_finish() {
   [ -z "${host_cleanup_transaction:-}" ] || rm -rf "$host_cleanup_transaction"
   exit 0
 }
+if [ -f "$delete_marker" ]; then
+  mkdir -p "$config_root"
+  exec 8>"$state_root/.config.lock"
+  flock 8
+  if jq -e '
+    type=="object" and keys==["data_dir","id","node"] and (.id|type=="string" and test("^[0-9a-f]{32}$")) and
+    (.node=="bitcoin" or .node=="monero" or .node=="tari" or .node=="litecoin" or .node=="dogecoin" or .node=="bitcoincash" or .node=="zcash") and
+    (.data_dir|type=="string")
+  ' "$delete_marker" >/dev/null 2>&1; then
+    host_id=$(jq -r .id "$delete_marker")
+    host_node=$(jq -r .node "$delete_marker")
+    recovery_dir=$(jq -r .data_dir "$delete_marker")
+    host_action=delete
+    refresh_dashboard_id
+    if delete_node_data "$host_node" "$recovery_dir"; then
+      rm -f "$delete_marker"
+      host_finish applied "Node deleted." "$host_node"
+    fi
+    [ "$delete_handoff_failed" = 1 ] || rm -f "$delete_marker"
+    host_finish failed "Node deleted, but some of its data could not be removed." "$host_node" "" delete_incomplete
+  fi
+  rm -f "$delete_marker"
+fi
+[ -n "$request" ] || exit 0
 host_request=false
 if printf '%s' "$request" | jq -e --argjson now "$now" '
   def node_interface($node):
@@ -433,6 +585,14 @@ elif printf '%s' "$request" | jq -e --argjson now "$now" '
     (contains("//")|not) and (split("/")|all(. != "." and . != ".."))) and
   (.id|type=="string" and test("^[0-9a-f]{32}$")) and
   (.node=="bitcoin" or .node=="monero" or .node=="tari" or .node=="litecoin" or .node=="dogecoin" or .node=="bitcoincash" or .node=="zcash") and
+  (.requested_at|type=="number" and floor==. and . >= $now-300 and . <= $now+30)
+' >/dev/null 2>&1; then
+  host_request=true
+elif printf '%s' "$request" | jq -e --argjson now "$now" '
+  type=="object" and keys==["action","confirmation","id","node","requested_at"] and .action=="delete" and
+  (.id|type=="string" and test("^[0-9a-f]{32}$")) and
+  (.node=="bitcoin" or .node=="monero" or .node=="tari" or .node=="litecoin" or .node=="dogecoin" or .node=="bitcoincash" or .node=="zcash") and
+  .confirmation==.node and
   (.requested_at|type=="number" and floor==. and . >= $now-300 and . <= $now+30)
 ' >/dev/null 2>&1; then
   host_request=true
@@ -725,6 +885,57 @@ if [ "$host_request" = true ]; then
     BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root"       BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" apply >/dev/null 2>&1 || true
     host_finish failed "Migration failed; the node was restored in place." "$host_node" "" apply_failed
   fi
+  if [ "$host_action" = delete ]; then
+    host_node=$(printf '%s' "$request" | jq -r .node)
+    current='{}'
+    [ -f "$config_file" ] && current=$(cat "$config_file")
+    configured=$(printf '%s' "$current" | jq -r --arg node "$host_node" 'if $node=="bitcoin" then ((.bitcoin//{}|has("enabled")|not) or .bitcoin.enabled==true) else .[$node].enabled==true end')
+    [ "$configured" = true ] || host_finish rejected "Node is not installed." "$host_node" "" not_installed
+    delete_active=$(printf '%s' "$current" | jq -r --arg node "$host_node" 'if (.[$node] // {} | has("active")) then .[$node].active else true end')
+    [ "$delete_active" != true ] || host_finish rejected "Deactivate the node before deleting it." "$host_node" "" node_active
+    delete_enabled_count=$(printf '%s' "$current" | jq -r '. as $c | [("bitcoin","monero","tari","litecoin","dogecoin","bitcoincash","zcash") as $n | select(if $n=="bitcoin" then (($c.bitcoin//{})|has("enabled")|not) or $c.bitcoin.enabled==true else $c[$n].enabled==true end) | $n] | length')
+    [ "$delete_enabled_count" -gt 1 ] || host_finish rejected "At least one node must stay installed." "$host_node" "" last_node
+    delete_source=$(delete_configured_dir "$host_node")
+    if ! delete_dir=$(delete_data_dir_check "$host_node" "$delete_source"); then
+      host_finish rejected "The data folder is not a safe location to delete." "$host_node" "" data_path_invalid
+    fi
+    candidate=$(mktemp "$config_root/.config.delete.XXXXXX")
+    printf '%s' "$current" | jq --arg node "$host_node" 'if $node=="bitcoin" then .bitcoin={enabled:false} | del(.wallets) else del(.[$node]) end' >"$candidate"
+    validate=$(mktemp -d "$state_root/node-control/.validate.XXXXXX")
+    cp "$candidate" "$validate/config.json"
+    if ! BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$validate" \
+      BITCOIN_STACK_VALIDATE_ONLY=1 BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/configure.sh" >/dev/null 2>&1; then
+      rm -rf "$candidate" "$validate"
+      host_finish rejected "The node set without this node is invalid." "$host_node" "" validation_failed
+    fi
+    rm -rf "$validate"
+    backup=$(mktemp "$state_root/node-control/.config.backup.XXXXXX")
+    printf '%s' "$current" >"$backup"
+    chmod 600 "$candidate" "$backup"
+    mv "$candidate" "$config_file"
+    if BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root" \
+      BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" apply >/dev/null 2>&1; then
+      rm -f "$backup"
+      refresh_dashboard_id
+      marker_tmp=$(mktemp "$state_root/node-control/.delete-pending.XXXXXX")
+      jq -nc --arg id "$host_id" --arg node "$host_node" --arg data_dir "$delete_dir" '{id:$id,node:$node,data_dir:$data_dir}' >"$marker_tmp"
+      chmod 600 "$marker_tmp"
+      mv "$marker_tmp" "$delete_marker"
+      if delete_node_data "$host_node" "$delete_dir"; then
+        rm -f "$delete_marker"
+        host_finish applied "Node deleted." "$host_node"
+      fi
+      [ "$delete_handoff_failed" = 1 ] || rm -f "$delete_marker"
+      host_finish failed "Node deleted, but some of its data could not be removed." "$host_node" "" delete_incomplete
+    fi
+    if ! mv "$backup" "$config_file" || ! BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root" \
+      BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" apply >/dev/null 2>&1; then
+      refresh_dashboard_id
+      host_finish failed "Node deletion failed and its prior configuration could not be fully restored." "$host_node" "" rollback_failed
+    fi
+    refresh_dashboard_id
+    host_finish failed "Node deletion could not be applied; the prior configuration was restored." "$host_node" "" apply_failed
+  fi
   if [ "$host_action" = utxo_seed ]; then
     host_node=$(printf '%s' "$request" | jq -r .node)
     seed_prefix=
@@ -866,7 +1077,7 @@ if [ "$host_request" = true ]; then
     host_finish failed "Launch setting could not be changed; prior setting restored." "" "$host_enabled" apply_failed
   fi
 fi
-if printf '%s' "$request" | jq -e 'type=="object" and (.action=="install" or .action=="launch_at_boot" or .action=="apply_config" or .action=="clearnet_over_tor" or .action=="inbound_connections" or .action=="utxo_index" or .action=="utxo_seed")' >/dev/null 2>&1; then
+if printf '%s' "$request" | jq -e 'type=="object" and (.action=="install" or .action=="delete" or .action=="launch_at_boot" or .action=="apply_config" or .action=="clearnet_over_tor" or .action=="inbound_connections" or .action=="utxo_index" or .action=="utxo_seed")' >/dev/null 2>&1; then
   invalid_host_id=$(printf '%s' "$request" | jq -r 'if (.id|type)=="string" and (.id|test("^[0-9a-f]{32}$")) then .id else "" end')
   invalid_host_action=$(printf '%s' "$request" | jq -r .action)
   write_host_status "$invalid_host_id" "$invalid_host_action" rejected "Invalid request." "" "" invalid_request

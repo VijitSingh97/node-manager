@@ -23,9 +23,10 @@ cat >"$fake" <<'EOF'
 #!/bin/sh
 set -eu
 printf '%s\n' "$*" >>"$FAKE_DOCKER_LOG"
+dash_id() { if [ -n "${FAKE_DASH_RECREATED:-}" ] && [ -e "$FAKE_DASH_RECREATED" ]; then echo dashboard-new; else echo dashboard-id; fi; }
 if [ "$1" = inspect ]; then
   case "$3:$4" in
-    '{{.Id}}:dashboard') printf '%s\n' dashboard-id ;;
+    '{{.Id}}:dashboard') dash_id ;;
     '{{.Id}}:tor') printf '%s\n' tor-id ;;
     *project.config_files*':tor-id') printf '%s\n' "${FAKE_TOR_CONFIG_FILES:-$BITCOIN_STACK_ROOT/docker-compose.yml}" ;;
     *project.config_files*) printf '%s\n' "${FAKE_CONFIG_FILES:-$BITCOIN_STACK_ROOT/docker-compose.yml}" ;;
@@ -40,7 +41,7 @@ if [ "$1" = inspect ]; then
 fi
 if [ "$1" = ps ] && [ "$2" = -aq ]; then
   case "$*" in
-    *com.docker.compose.service=dashboard*) [ "${FAKE_DASHBOARD_MISSING:-0}" = 1 ] || printf '%s\n' dashboard-id ;;
+    *com.docker.compose.service=dashboard*) [ "${FAKE_DASHBOARD_MISSING:-0}" = 1 ] || dash_id ;;
     *com.docker.compose.service=tor*) printf '%s\n' tor-id ;;
     *com.docker.compose.service=bitcoincash*) printf '%s\n' bitcoincash-id ;;
     *com.docker.compose.service=bitcoin*) printf '%s\n' bitcoin-id ;;
@@ -66,7 +67,7 @@ fi
 shift
 if [ "${1:-}" = -i ]; then shift; fi
 if [ "${1:-}" = -u ]; then shift 2; fi
-[ "$1" = dashboard-id ]
+[ "$1" = "$(dash_id)" ]
 shift
 if [ "$1" = sh ] && [ "$2" = -c ]; then
   command=$3
@@ -124,6 +125,7 @@ new_case() {
   cat >"$case_root/root/stack" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$*" >>"$FAKE_STACK_LOG"
+case "${1:-}" in apply-port-settings | apply-credential-settings) [ -z "${FAKE_DASH_RECREATED:-}" ] || : >"$FAKE_DASH_RECREATED" ;; esac
 if [ "${FAKE_APPLY_FAIL_ONCE:-0}" = 1 ] && [ ! -e "$FAKE_APPLY_FAIL_MARKER" ]; then
   : >"$FAKE_APPLY_FAIL_MARKER"
   if [ "${1:-}" = apply-credential-settings ] && [ "${2:-}" = bitcoin ]; then
@@ -293,6 +295,18 @@ scripts/node-port-control
 [ "$(jq -r '.monero.zmq_port' "$case_root/config/config.json")" = 28083 ] || fail "Monero ZMQ port was not saved"
 [ "$(status .state)" = applied ] || fail "successful open status was not applied"
 grep -qx apply-port-settings "$FAKE_STACK_LOG" || fail "open did not use the bounded port-settings apply"
+
+new_case dashboard-recreated
+jq '.monero.rpc_expose=false' "$case_root/config/config.json" >"$case_root/config/config.next"
+mv "$case_root/config/config.next" "$case_root/config/config.json"
+export FAKE_DASH_RECREATED=$case_root/dashboard-recreated
+request '{"id":"10101010101010101010101010101011","changes":[{"port":"monero_rpc","enabled":true,"bind_ip":"192.168.1.10","host_port":28081}],"requested_at":1000}'
+scripts/node-port-control || fail "port-control failed after the change recreated the dashboard"
+[ "$(status .state)" = applied ] || fail "a change that recreated the dashboard did not report applied: $(cat "$FAKE_DASH_STATE/port-control.status" 2>/dev/null)"
+[ ! -e "$FAKE_DASH_STATE/port-control.processing" ] && [ ! -e "$FAKE_DASH_STATE/port-control.request" ] || fail "the request was left behind after the dashboard was recreated"
+scripts/node-port-control
+[ "$(status .state)" = applied ] || fail "a later run turned the applied change into a replay rejection"
+unset FAKE_DASH_RECREATED
 
 new_case change-open-port
 request '{"id":"11111111111111111111111111111112","changes":[{"port":"bitcoin_rpc","enabled":true,"bind_ip":"172.16.1.20","host_port":38332}],"requested_at":1000}'
@@ -749,6 +763,18 @@ credential_request '{"id":"abababababababababababababababab","node":"bitcoin","r
 scripts/node-port-control
 [ "$(credential_status .state)" = rejected ] || fail "replayed credential reset was accepted"
 [ "$(grep -c '^apply-credential-settings bitcoin$' "$FAKE_STACK_LOG")" = 1 ] || fail "credential replay invoked apply"
+
+new_case credential-reset-dashboard-recreated
+jq 'del(.bitcoin.enabled)' "$case_root/config/config.json" >"$case_root/config/config.next"
+mv "$case_root/config/config.next" "$case_root/config/config.json"
+export FAKE_DASH_RECREATED=$case_root/dashboard-recreated
+credential_request '{"id":"abababababababababababababababac","node":"bitcoin","requested_at":1000}'
+scripts/node-port-control || fail "credential reset failed after it recreated the dashboard"
+[ "$(credential_status .state)" = applied ] || fail "a credential reset that recreated the dashboard did not report applied"
+[ ! -e "$FAKE_DASH_STATE/credential-control.request" ] && [ ! -e "$FAKE_DASH_STATE/credential-control.processing" ] || fail "the credential request was left behind after the dashboard was recreated"
+scripts/node-port-control
+[ "$(credential_status .state)" = applied ] || fail "a later run turned the applied reset into a replay rejection"
+unset FAKE_DASH_RECREATED
 
 new_case credential-conflict
 request '{"id":"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd","changes":[{"port":"bitcoin_rpc","enabled":false}],"requested_at":1000}'

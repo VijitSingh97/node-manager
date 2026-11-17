@@ -37,6 +37,7 @@ func (a *app) startBackground(ctx context.Context) <-chan struct{} {
 	}
 	if hasNode {
 		start(func() { a.prices.Run(ctx) })
+		start(func() { a.every(ctx, 10*time.Second, func(context.Context) { a.processNodeDeletions() }) })
 	}
 	if a.familyWatch != nil && a.familyWatchWorkerWanted() {
 		start(func() { a.familyWatch.run(ctx) })

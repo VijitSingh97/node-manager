@@ -2,7 +2,9 @@
 
 Date: 2026-11-16. Measured for the shared replay seeder (#326) on an Apple M5 Max under Docker Desktop (8 VM CPUs). These are regtest numbers. They are not reference-node or mainnet numbers.
 
-A chain with no UTXO export (Bitcoin Cash, Dogecoin) seeds its index by applying every block from genesis through the follower. On those chains the follower fetches up to 32 blocks ahead on one goroutine and commits them in batches. A batch ends at 1,000 blocks or 200,000 coin operations, whichever comes first, with one sync and one meta write. Bitcoin and Litecoin still commit one block at a time, which the "per block" rows below measure.
+A chain with no UTXO export (Bitcoin Cash, Dogecoin) seeds its index by applying every block from genesis through the follower. On those chains the follower fetches up to 32 blocks ahead on one goroutine and commits them in batches. A batch ends at 1,000 blocks or 200,000 coin operations, whichever comes first, with one sync and one meta write. The blocks fetched ahead and not yet taken into a batch stay within 200,000 coin operations; a single larger block goes through alone. Bitcoin and Litecoin still commit one block at a time, which the "per block" rows below measure.
+
+The replay needs every block, so a pruned node is refused before it starts. The replay runs as a seed job until the index is within 10,000 blocks of the node's tip. From there the follower takes over, batching the same way. A node restart, an RPC timeout or a reorg near the tip is retried within the replay, 10 seconds apart; any committed progress resets the count, so the replay gives up and waits for the hourly check only after about five minutes of failures in a row. Storage and integrity errors stop it at once.
 
 ## Method
 

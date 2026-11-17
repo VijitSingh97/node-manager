@@ -2,6 +2,7 @@
 # Run the full local test suite. Skips what the machine can't run.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+exec </dev/null
 
 if docker info >/dev/null 2>&1; then
   scripts/lint.sh

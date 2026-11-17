@@ -21,6 +21,12 @@ All notable changes to this project are documented here. Format follows
 - The Tari wallet config no longer names a Tor control port the stack never
   opens. The wallet does not use that setting in Tari v6.2.0. This was checked
   against the Tari source only; the wallet image was not started with the new file.
+- Saving LAN port changes, or resetting a node's RPC password, reported
+  "Request already processed." even though the change applied. Both recreate
+  the dashboard, and the host helper then wrote its result into the old
+  dashboard container, failed, and left the request to be seen again as a replay
+  on its next run. It now finds the current dashboard container for every
+  write.
 - Exposing a node's RPC, ZMQ or gRPC port on the LAN failed with "Port
   availability could not be checked." on hosts running Tailscale. The port check
   could not read listeners that `ss` prints with an interface scope, such as
@@ -71,7 +77,21 @@ All notable changes to this project are documented here. Format follows
   fails on any new direct network use (including the Tari wallet launcher), and the container end-to-end test now
   probes every running service for direct TCP, IPv6 and DNS egress with Tor
   stopped, with a positive control from the Tor container.
-
+- Settings → Node set has a **Delete…** button next to **Move data…** that
+  removes a deactivated node so it can be installed again from scratch. It is
+  disabled for an active node, a node that is not installed, and the last
+  installed node. A dialog warns that the step cannot be undone, names the data
+  folder, balance-index or wallet volumes, configuration and credentials, and
+  watch-only wallets with their saved balances and history that will go, and
+  needs the node's name typed before it enables **Delete on Save**. The host
+  re-checks the request, applies the smaller configuration first (a failed apply
+  restores the old one and deletes nothing), refuses unsafe data folders
+  (symbolic links, `/`, your home, the app, state, config or Docker
+  directories, another node's folder), then removes the node's containers,
+  volumes and data, clears its resource-profile and seed state, and logs a
+  `Host: <Node> deleted` event. The dashboard drops that coin's watch-only
+  wallets and balance history and keeps retrying across restarts; a failed
+  handoff of that removal to the dashboard is retried on the next helper run.
 - Instant Litecoin balances: `litecoin.utxo_index` (Settings → Balance index →
   "Instant Litecoin balances") keeps a Litecoin balance index, and the Litecoin
   watch-only card reads its balances from it once it is seeded, updating within a
