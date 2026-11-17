@@ -12,9 +12,14 @@ All notable changes to this project are documented here. Format follows
   on, Docker retried a crashing container indefinitely and the dashboard showed
   it as connecting. The host helper now stops a node whose container keeps
   exiting with an error within a minute of starting for 10 minutes (at least 5
-  restarts), and the panel shows Stopped with the reason from its last log line;
-  **Start node** tries again. Nodes that crash after running a while, or recover
-  within 10 minutes, keep Docker's normal restarts.
+  restarts), sends one "<Node> is not coming up" alert with the last error (a
+  Host event, forwarded to Telegram), and the panel shows Stopped with the same
+  reason; **Start node** tries again. Nodes that crash after running a while, or
+  recover within 10 minutes, keep Docker's normal restarts.
+- A failed node install now says why. Settings shows the last error line from
+  the step that failed (for example an image that could not be pulled), and a
+  "<Node> install failed" Host event reaches Telegram. Host events other than
+  thermal ones are now marked 🔴 instead of 🌡.
 - Zcash can no longer be installed on an x86-64 processor without the BMI2 and
   ADX instructions (before Intel Core 5th generation or AMD Ryzen). Zakura 1.8
   images require them and exit at startup otherwise; Settings now disables the

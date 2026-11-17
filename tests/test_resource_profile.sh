@@ -35,7 +35,7 @@ if [ "$1" = compose ]; then
         bitcoincash) printf '%s\n' "${FAKE_BITCOINCASH_ID:-bch-id}" ;;
         tari) printf '%s\n' tari-id ;;
         zcash) printf '%s\n' zcash-id ;;
-        dashboard) printf '%s\n' dashboard-id ;;
+        dashboard) [ "${FAKE_DASHBOARD_DOWN:-0}" = 1 ] || printf '%s\n' dashboard-id ;;
       esac
       ;;
     exec)
@@ -470,7 +470,9 @@ FAKE_PS_ID_ROWS=$(node_rows zc-id restarting restarting restarting running)
 export FAKE_LOGS FAKE_PS_ID_ROWS FAKE_INSPECT_DIR=$case_root/inspect FAKE_HOST_STATS_OUT=$tmp/host-stats-payload.json FAKE_EVENTS_OUT=$tmp/failed-events.log
 run_profile
 failed_is "{\"dogecoin\": \"$oom\"}" "only the node whose restarts ran out should be reported at first"
-[ "$(markers)" = 'failing-bitcoin failing-bitcoincash failing-tari failing-zcash ' ] || fail "crash loops were not all remembered: $(markers)"
+[ "$(markers)" = 'failed-dogecoin failing-bitcoin failing-bitcoincash failing-tari failing-zcash ' ] || fail "crash loops were not all remembered: $(markers)"
+doge_event="Host: Dogecoin is not coming up: Docker stopped restarting it after 5 failed starts. Last error: $oom"
+[ "$(grep -cF "$doge_event" "$tmp/failed-events.log")" = 1 ] || fail "a node Docker gave up on was not alerted once: $(cat "$tmp/failed-events.log")"
 RESOURCE_NOW_EPOCH=$((t0 + 300))
 inspect_json zc-id 12 1 false $((t0 + 297)) $((t0 + 298))
 inspect_json btc-id 8 1 false $((t0 + 290)) $((t0 + 245))
@@ -484,11 +486,11 @@ inspect_json bch-id 3 1 false $((t0 + 657)) $((t0 + 658))
 run_profile
 [ "$(grep '^stop ' "$log" | tr '\n' ' ')" = 'stop -t 30 zc-id stop -t 30 btc-id ' ] || fail "only the two nodes that kept failing should be stopped: $(grep '^stop ' "$log" | tr '\n' ' ')"
 failed_is "{\"zcash\": \"$adx\", \"dogecoin\": \"$oom\", \"bitcoin\": \"$adx\"}" "stopped nodes were misreported"
-grep -q 'Host: stopped zcash: it kept failing to start for 11 minutes' "$tmp/failed-events.log" || fail "the stopped node was not logged as an event"
-grep -q 'Host: stopped bitcoin: it kept failing to start for 11 minutes' "$tmp/failed-events.log" || fail "a slow crash loop was not logged as an event"
-[ "$(markers)" = 'failed-bitcoin failed-zcash failing-bitcoincash failing-tari ' ] || fail "stopped nodes kept their loop markers or lost their records: $(markers)"
+grep -qF "Host: Zcash is not coming up: it kept failing to start for 11 minutes, so it was stopped. Last error: $adx" "$tmp/failed-events.log" || fail "the stopped node was not alerted with its error: $(cat "$tmp/failed-events.log")"
+grep -qF "Host: Bitcoin is not coming up: it kept failing to start for 11 minutes, so it was stopped. Last error: $adx" "$tmp/failed-events.log" || fail "a slow crash loop was not alerted"
+[ "$(markers)" = 'failed-bitcoin failed-dogecoin failed-zcash failing-bitcoincash failing-tari ' ] || fail "stopped nodes kept their loop markers or lost their records: $(markers)"
 RESOURCE_NOW_EPOCH=$((t0 + 700))
-inspect_json btc-id 15 0 false $((t0 + 680)) $((t0 + 690))
+inspect_json btc-id 15 143 false $((t0 + 640)) $((t0 + 661))
 inspect_json bch-id 3 0 false $((t0 + 650)) $((t0 + 658))
 FAKE_PS_ID_ROWS=$(node_rows zc-id exited running restarting exited)
 run_profile
@@ -501,10 +503,36 @@ inspect_json tari-id 2 1 false $((t0 + 700)) $((t0 + 701))
 FAKE_PS_ID_ROWS=$(node_rows zc2-id running running exited running)
 run_profile
 failed_is "{\"dogecoin\": \"$oom\"}" "a recreated or restarted node kept its failure"
-[ "$(markers)" = 'failed-bitcoin ' ] || fail "stale markers survived a recreate, a manual stop, or a minute of uptime: $(markers)"
+[ "$(markers)" = 'failed-dogecoin ' ] || fail "stale markers survived a recreate, a restart, or a manual stop: $(markers)"
 RESOURCE_NOW_EPOCH=$((t0 + 900))
 run_profile
-[ -z "$(markers)" ] || fail "a node that stayed up kept its failure record: $(markers)"
+[ "$(markers)" = 'failed-dogecoin ' ] || fail "a node that stayed up kept its failure record: $(markers)"
+[ "$(grep -cF "$doge_event" "$tmp/failed-events.log")" = 1 ] || fail "a node Docker gave up on was alerted more than once"
+doge_again="Host: Dogecoin is not coming up: Docker stopped restarting it after 5 failed starts. Last error: $adx"
+RESOURCE_NOW_EPOCH=$((t0 + 960))
+inspect_json doge-id 5 1 false $((t0 + 950)) $((t0 + 955))
+FAKE_DASHBOARD_DOWN=1 run_profile
+! grep -qF "$doge_again" "$tmp/failed-events.log" || fail "an alert was written while the dashboard was down"
+RESOURCE_NOW_EPOCH=$((t0 + 1020))
+run_profile
+[ "$(grep -cF "$doge_again" "$tmp/failed-events.log")" = 1 ] || fail "a second give-up after Start node was not alerted once the dashboard was back"
+jq -e --arg adx "$adx" '.failed.dogecoin == $adx' "$tmp/host-stats-payload.json" >/dev/null || fail "a second give-up kept the old reason: $(jq -c .failed "$tmp/host-stats-payload.json")"
+RESOURCE_NOW_EPOCH=$((t0 + 1080))
+run_profile
+[ "$(grep -cF "$doge_again" "$tmp/failed-events.log")" = 1 ] || fail "a retried alert was sent twice"
+unset FAKE_INSPECT_DIR FAKE_HOST_STATS_OUT FAKE_EVENTS_OUT FAKE_PS_ID_ROWS FAKE_LOGS
+
+new_case failed-secret
+mkdir -p "$case_root/inspect"
+t0=$RESOURCE_NOW_EPOCH
+inspect_json doge-id 5 1 false $((t0 - 30)) $((t0 - 20))
+FAKE_LOGS='Error parsing config line 6: rpcpassword=hunter2'
+FAKE_PS_ID_ROWS='doge-id dogecoin exited'
+export FAKE_LOGS FAKE_PS_ID_ROWS FAKE_INSPECT_DIR=$case_root/inspect FAKE_HOST_STATS_OUT=$tmp/host-stats-payload.json FAKE_EVENTS_OUT=$tmp/secret-events.log
+run_profile
+jq -e '.failed.dogecoin == "It exited with an error."' "$tmp/host-stats-payload.json" >/dev/null || fail "a log line with a password became the failure reason: $(jq -c .failed "$tmp/host-stats-payload.json")"
+grep -q 'Dogecoin is not coming up: .* Last error: It exited with an error.$' "$tmp/secret-events.log" || fail "the redacted failure was not alerted"
+! grep -rq hunter2 "$tmp/secret-events.log" "$tmp/host-stats-payload.json" "$case_root/state/resource-profile" || fail "a password from the container log leaked"
 unset FAKE_INSPECT_DIR FAKE_HOST_STATS_OUT FAKE_EVENTS_OUT FAKE_PS_ID_ROWS FAKE_LOGS
 
 host_proc=$case_root/proc host_sys=$case_root/sys

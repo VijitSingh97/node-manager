@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 )
 
 type hostControlCapability struct {
@@ -92,6 +93,23 @@ type hostControlStatus struct {
 	Message   string `json:"message,omitempty"`
 	ErrorCode string `json:"error_code,omitempty"`
 	Port      string `json:"port,omitempty"`
+	Detail    string `json:"detail,omitempty"`
+}
+
+func hostStatusDetail(status hostControlStatus) string {
+	if status.State != "failed" {
+		return ""
+	}
+	detail := strings.TrimSpace(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, status.Detail))
+	if runes := []rune(detail); len(runes) > 240 {
+		detail = string(runes[:240])
+	}
+	return detail
 }
 
 type hostControlView struct {
@@ -360,6 +378,7 @@ func (a *app) hostControlStatus() (*hostControlStatus, bool) {
 		return nil, false
 	}
 	status.Message = canonicalHostStatusMessage(status)
+	status.Detail = hostStatusDetail(status)
 	status.ErrorCode = ""
 	return &status, false
 }

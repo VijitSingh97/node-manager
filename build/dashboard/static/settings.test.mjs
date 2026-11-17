@@ -61,6 +61,9 @@ test("host controls expose installed nodes, platform startup wording, and revisi
 });
 
 test("completed installs reveal each new node without treating pending work as installed", () => {
+  const failed = hostControlModel({ status: { action: "install", state: "failed", node: "dogecoin", message: "The host could not apply that change.", detail: "Error response from daemon: manifest unknown" } });
+  assert.equal(failed.status.message, "The host could not apply that change. Error response from daemon: manifest unknown");
+  assert.equal(hostControlModel({ status: { action: "install", state: "applied", message: "Dogecoin installed." } }).status.message, "Dogecoin installed.");
   const empty = hostControlModel({ nodes: [] });
   const pending = hostControlModel({
     nodes: [], status: { action: "install", state: "pending", message: "Installing Bitcoin…" },
