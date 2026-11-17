@@ -7,7 +7,7 @@ const TOKEN = "123456789:ui-flow-token";
 const customised = {
   telegram_enabled: true, telegram_bot_token: TOKEN, telegram_chat_id: "-10042", healthchecks_enabled: true, healthchecks_url: "https://hc-ping.invalid/ui-flow-check",
   alert_new_block: true, alert_monitor_online: false, alert_node_down: false, alert_node_recovered: false, alert_sync_complete: false, alert_low_disk: false,
-  alert_updates: false, node_down_after_minutes: 7, low_disk_gib: 9, tower_labels: true, computer_stats: true, thermal_throttle: true, default_currency: "EUR", health_endpoints: true,
+  alert_updates: false, node_down_after_minutes: 7, low_disk_gib: 9, tower_labels: true, computer_stats: true, thermal_throttle: true, default_currency: "EUR", actuator_health: true, actuator_info: true,
 };
 
 const readFields = (page) => page.evaluate(() => {
@@ -18,7 +18,7 @@ const readFields = (page) => page.evaluate(() => {
     alert_node_recovered: get("alert-node-recovered").checked, alert_sync_complete: get("alert-sync-complete").checked, alert_low_disk: get("alert-low-disk").checked,
     alert_updates: get("alert-updates").checked, node_down_after_minutes: Number(get("node-down-after-minutes").value), low_disk_gib: Number(get("low-disk-gib").value),
     tower_labels: get("tower-labels").checked, computer_stats: get("computer-stats").checked, thermal_throttle: get("thermal-throttle").checked,
-    default_currency: get("default-currency").value, health_endpoints: get("health-endpoints").checked,
+    default_currency: get("default-currency").value, actuator_health: get("actuator-health").checked, actuator_info: get("actuator-info").checked,
   };
 });
 

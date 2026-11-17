@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { notificationPayload, notificationChanged, configurationAccess, configuredNodeVisibility, portControlModel, portChanges, portCollision, portStatusMessage, portStatusNode, portDraftAfterStatus, portSubmissionOutcome, shouldPollPort, settingsSaveMessage, normalizeDefaultCurrency, applyAppearance, requestSettings, scopedSettingsPayload, splitNodeControlSections, alertPreferenceModel, hostControlModel, hostActionPayload, bootControlLabel, newlyInstalledNodes, shouldPollHost, pendingHostNode, latestRequestGate, hostToggleChanges, hostQueueSettled, savedHostActions, resetSaveRequests, hostToggleDefaults } from "./settings.js";
+import { notificationPayload, notificationChanged, configurationAccess, configuredNodeVisibility, portControlModel, portChanges, portCollision, portStatusMessage, portStatusNode, portDraftAfterStatus, portSubmissionOutcome, shouldPollPort, settingsSaveMessage, normalizeDefaultCurrency, applyAppearance, requestSettings, scopedSettingsPayload, splitNodeControlSections, alertPreferenceModel, hostControlModel, hostActionPayload, bootControlLabel, newlyInstalledNodes, shouldPollHost, pendingHostNode, latestRequestGate, hostToggleChanges, hostQueueSettled, savedHostActions, resetSaveRequests, hostToggleDefaults, copyField } from "./settings.js";
 
 const alertDefaults = {
   alert_monitor_online: true,
@@ -164,10 +164,12 @@ test("global alert preferences default on and accept only bounded thresholds", (
 test("a port-only save does not create an unnecessary notification override", () => {
   const saved = {
     telegram_enabled: false, telegram_chat_id: "", healthchecks_enabled: false,
-    alert_new_block: false, alert_new_block_bitcoin: false, alert_new_block_monero: false, alert_new_block_tari:false, alert_new_block_litecoin:false, alert_new_block_dogecoin:false, alert_new_block_bitcoincash:false, alert_new_block_zcash:false, tower_labels: false, computer_stats: false, thermal_throttle: false, default_currency: "USD", health_endpoints: false,
+    alert_new_block: false, alert_new_block_bitcoin: false, alert_new_block_monero: false, alert_new_block_tari:false, alert_new_block_litecoin:false, alert_new_block_dogecoin:false, alert_new_block_bitcoincash:false, alert_new_block_zcash:false, tower_labels: false, computer_stats: false, thermal_throttle: false, default_currency: "USD", actuator_health: false, actuator_info: false,
   };
   assert.equal(notificationChanged(saved, notificationPayload({})), false);
-  assert.equal(notificationChanged(saved, notificationPayload({ health_endpoints: true })), true);
+  assert.equal(notificationChanged(saved, notificationPayload({ actuator_health: true })), true);
+  assert.equal(notificationChanged(saved, notificationPayload({ actuator_info: true })), true);
+  assert.equal(notificationChanged({ ...saved, actuator_health: true, actuator_info: true }, notificationPayload({ actuator_health: true, actuator_info: true })), false);
   assert.equal(notificationChanged(saved, notificationPayload({ alert_new_block_monero: true })), true);
   assert.equal(notificationChanged(saved, notificationPayload({ default_currency: "CNY" })), true);
 });
@@ -271,7 +273,8 @@ test("blank secret fields keep saved secrets without copying them into the reque
     computer_stats: false,
     thermal_throttle: false,
     default_currency: "USD",
-    health_endpoints: false,
+    actuator_health: false,
+    actuator_info: false,
     ...alertDefaults,
   });
 });
@@ -287,7 +290,8 @@ test("disabled services do not send stale secrets or chat IDs", () => {
     computer_stats: false,
     thermal_throttle: false,
     default_currency: "USD",
-    health_endpoints: false,
+    actuator_health: false,
+    actuator_info: false,
     ...alertDefaults,
   });
 });
@@ -464,7 +468,7 @@ test("Reset to default sends one reset, plus the edited values when the form cha
   const defaults = {
     telegram_enabled: true, telegram_bot_token: "123:server-token", telegram_chat_id: "server-chat",
     healthchecks_enabled: false, healthchecks_url: "", tower_labels: false, computer_stats: false,
-    thermal_throttle: false, default_currency: "USD", health_endpoints: false, ...alertDefaults,
+    thermal_throttle: false, default_currency: "USD", actuator_health: false, actuator_info: false, ...alertDefaults,
   };
   const form = { ...defaults, alert_new_block_bitcoin: true };
   assert.deepEqual(resetSaveRequests(defaults, scopedSettingsPayload("global", form)), [{ reset: true }]);
@@ -490,4 +494,48 @@ test("Settings ends with Reset to default, Cancel and Save, and Cancel closes li
   assert.match(html, /<div class="settings-footer">\s*<div class="settings-actions"><button id="settings-reset" type="button">Reset to default<\/button><button id="settings-cancel" type="button">Cancel<\/button><button id="settings-save" type="submit">Save<\/button><\/div>\s*<p id="settings-status"/);
   assert.doesNotMatch(html + source, /Use server config|Server config on Save/);
   assert.match(source, /for \(const id of \["close", "cancel"\]\) byId\(id\)\.addEventListener\("click", \(\) => dialog\.close\(\)\)/);
+});
+
+test("the two actuator toggles are independent in the settings payload and default off", () => {
+  for (const [values, health, info] of [[{}, false, false], [{ actuator_health: true }, true, false], [{ actuator_info: true }, false, true], [{ actuator_health: true, actuator_info: true }, true, true]]) {
+    const payload = notificationPayload(values);
+    assert.equal(payload.actuator_health, health);
+    assert.equal(payload.actuator_info, info);
+    assert.equal(Object.hasOwn(payload, "health_endpoints"), false);
+  }
+  assert.equal(notificationPayload({ actuator_health: "true", actuator_info: 1 }).actuator_health, true);
+});
+
+test("Reset to default turns off whichever actuator endpoint is on, and keeps one reset request when nothing else changed", () => {
+  const defaults = { telegram_enabled: false, healthchecks_enabled: false, default_currency: "USD", actuator_health: false, actuator_info: false, ...alertDefaults };
+  const saved = scopedSettingsPayload("global", { ...defaults, actuator_health: true, actuator_info: true });
+  assert.deepEqual(resetSaveRequests(defaults, scopedSettingsPayload("global", defaults)), [{ reset: true }]);
+  for (const edited of [{ actuator_health: true }, { actuator_info: true }]) {
+    const payload = scopedSettingsPayload("global", { ...defaults, ...edited });
+    assert.deepEqual(resetSaveRequests(defaults, payload), [{ reset: true }, payload]);
+  }
+  assert.equal(notificationChanged({ ...defaults, actuator_health: true, actuator_info: true }, scopedSettingsPayload("global", defaults)), true);
+  assert.equal(saved.actuator_health && saved.actuator_info, true);
+});
+
+test("copyField copies the field and falls back to selecting it when the clipboard is unavailable", async () => {
+  const written = [];
+  let selected = 0;
+  const input = { value: "secret", select: () => { selected++; } };
+  assert.equal(await copyField(input, { writeText: async (text) => { written.push(text); } }), true);
+  assert.deepEqual(written, ["secret"]);
+  assert.equal(selected, 0);
+  assert.equal(await copyField(input, { writeText: async () => { throw new Error("denied"); } }), false);
+  assert.equal(await copyField(input, undefined), false);
+  assert.equal(selected, 2);
+});
+
+test("the settings page shows the actuator login read-only next to both toggles and never keeps the password after close", async () => {
+  const page = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const source = await readFile(new URL("./settings.js", import.meta.url), "utf8");
+  for (const id of ["actuator-health", "actuator-info", "actuator-username", "actuator-password"]) assert.match(page, new RegExp(`id="settings-${id}"`));
+  assert.match(page, /id="settings-actuator-username" type="text" readonly/);
+  assert.match(page, /id="settings-actuator-password" type="text" readonly/);
+  assert.doesNotMatch(page + source, /health-endpoints|health_endpoints/);
+  assert.match(source, /dialog\.addEventListener\("close", \(\) => \{ clearSecrets\(\); actuatorPassword\.value = ""; delete saved\.actuator_password;/);
 });

@@ -21,7 +21,7 @@ export const defaultSettings = {
   alert_new_block_dogecoin: false, alert_new_block_bitcoincash: false, alert_new_block_zcash: false,
   alert_monitor_online: true, alert_node_down: true, alert_node_recovered: true, alert_sync_complete: true,
   alert_low_disk: true, alert_updates: true, node_down_after_minutes: 3, low_disk_gib: 50,
-  tower_labels: false, computer_stats: false, thermal_throttle: false, default_currency: "USD", health_endpoints: false,
+  tower_labels: false, computer_stats: false, thermal_throttle: false, default_currency: "USD", actuator_health: false, actuator_info: false,
 };
 
 export const nodeIDs = ["bitcoin", "monero", "tari", "litecoin", "dogecoin", "bitcoincash", "zcash"];

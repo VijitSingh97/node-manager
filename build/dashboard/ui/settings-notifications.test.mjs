@@ -162,19 +162,32 @@ flow("Healthchecks shows the server's refusal of a plain http URL", async ({ das
   assert.equal(dash.settings(), undefined);
 });
 
-const anonymousHealth = async (dash) => (await fetch(`${dash.url}/actuator/health`, { redirect: "manual" })).status;
+const actuatorStatus = async (dash, endpoint, login) => {
+  const headers = login ? { authorization: `Basic ${Buffer.from(`${login.username}:${login.password}`).toString("base64")}` } : {};
+  return (await fetch(`${dash.url}/actuator/${endpoint}`, { headers, redirect: "manual" })).status;
+};
 
-for (const turnOn of [true, false]) {
-  flow(`Health endpoints turned ${turnOn ? "on" : "off"}`, { settings: turnOn ? undefined : { health_endpoints: true } }, async ({ dash, page }) => {
-    assert.ok(turnOn ? ![200, 503].includes(await anonymousHealth(dash)) : [200, 503].includes(await anonymousHealth(dash)));
-    await openSettings(page);
-    assert.equal(await page.checked("#settings-health-endpoints"), !turnOn);
-    await page.setChecked("#settings-health-endpoints", turnOn);
-    await save(page, "Settings saved.");
-    assert.equal(lastGlobalBody(page).health_endpoints, turnOn);
-    expectSettings(dash, { health_endpoints: turnOn });
-    assert.equal([200, 503].includes(await anonymousHealth(dash)), turnOn);
-    await reopenSettings(page);
-    assert.equal(await page.checked("#settings-health-endpoints"), turnOn);
-  });
+for (const endpoint of ["health", "info"]) {
+  const key = `actuator_${endpoint}`;
+  const serving = (status) => (endpoint === "health" ? [200, 503].includes(status) : status === 200);
+  for (const turnOn of [true, false]) {
+    flow(`Actuator ${endpoint} turned ${turnOn ? "on" : "off"}`, { settings: turnOn ? undefined : { [key]: true } }, async ({ dash, page }) => {
+      const login = dash.readJSON("actuator-credentials.json");
+      assert.equal(login.username, "actuator");
+      assert.equal(serving(await actuatorStatus(dash, endpoint, login)), !turnOn);
+      await openSettings(page);
+      assert.equal(await page.value("#settings-actuator-username"), login.username);
+      assert.equal(await page.value("#settings-actuator-password"), login.password);
+      assert.equal(await page.checked(`#settings-actuator-${endpoint}`), !turnOn);
+      await page.setChecked(`#settings-actuator-${endpoint}`, turnOn);
+      await save(page, "Settings saved.");
+      assert.equal(lastGlobalBody(page)[key], turnOn);
+      expectSettings(dash, { [key]: turnOn });
+      const status = await actuatorStatus(dash, endpoint, login);
+      assert.equal(serving(status), turnOn);
+      assert.equal(turnOn ? await actuatorStatus(dash, endpoint) : status, turnOn ? 401 : 404);
+      await reopenSettings(page);
+      assert.equal(await page.checked(`#settings-actuator-${endpoint}`), turnOn);
+    });
+  }
 }
