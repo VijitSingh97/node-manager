@@ -60,6 +60,7 @@ printf '%s\n' "$*" >>"$FAKE_STACK_LOG"
 }
 [ "${FAKE_STACK_FAIL_APPLY:-0}" != 1 ] || [ "${1:-}" != apply ] || exit 1
 [ "${FAKE_STACK_FAIL:-0}" != 1 ]
+[ "${1:-}" != apply ] || [ ! -f "${FAKE_RECREATE_TO:-/nonexistent}" ] || cp "$FAKE_RECREATE_TO" "$FAKE_SERVICE_IDS"
 if [ "${1:-}" = apply ] || [ "${1:-}" = approve-rendered-config ]; then
   jq -S . "$BITCOIN_STACK_CONFIG_DIR/config.json" >"$BITCOIN_STACK_STATE_DIR/.approved-config.tmp"
   chmod 600 "$BITCOIN_STACK_STATE_DIR/.approved-config.tmp"
@@ -73,6 +74,7 @@ cat >"$tmp/docker" <<'EOF'
 #!/usr/bin/env bash
 set -eu
 if [ "$1" = ps ]; then
+  case "$*" in *--format*) [ ! -f "${FAKE_SERVICE_IDS:-/nonexistent}" ] || cat "$FAKE_SERVICE_IDS"; exit 0 ;; esac
   case "$*" in *--filter\ volume=*)
     [ "${FAKE_VOLUME_IN_USE:-0}" != 1 ] || printf 'container-using-volume\n'
     exit 0 ;;
@@ -310,6 +312,16 @@ BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-contro
 [ "$(jq -r .network.clearnet_over_tor "$config/config.json")" = false ] || fail "clearnet setting was not saved"
 grep -qx apply "$tmp/stack.log" || fail "network setting did not re-apply the stack"
 jq -e '(.clearnet_over_tor|not) and .inbound_connections' "$dashboard_state/node-control.capability" >/dev/null || fail "network capability was stale after save"
+printf 'bitcoin b1\nlitecoin l1\ntor t1\n' >"$tmp/service-ids"
+printf 'bitcoin b1\nlitecoin l2\ntor t2\ndashboard d2\n' >"$tmp/service-ids.after"
+request '{"action":"inbound_connections","enabled":false,"id":"6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c","requested_at":1000}'
+FAKE_SERVICE_IDS=$tmp/service-ids FAKE_RECREATE_TO=$tmp/service-ids.after BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state)" = applied ] || fail "inbound setting was not applied"
+[ "$(status '.restarted|join(",")')" = "dashboard,litecoin,tor" ] || fail "applied status did not list the recreated services: $(status .restarted)"
+request '{"action":"inbound_connections","enabled":true,"id":"6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state)" = applied ] || fail "inbound setting was not restored"
+[ "$(status 'has("restarted")')" = false ] || fail "status listed recreated services without a container snapshot"
 request '{"action":"clearnet_over_tor","enabled":"no","id":"6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e","requested_at":1000}'
 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 [ "$(status .error_code)" = invalid_request ] || fail "malformed network request was not rejected"

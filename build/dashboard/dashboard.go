@@ -120,6 +120,7 @@ type app struct {
 	passwordWork     *passwordWorkLimiter
 	passwordAttempts chan struct{}
 	controlMu        sync.Mutex
+	provisionLocks   sync.Map
 	ctx              context.Context
 }
 
@@ -166,17 +167,21 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 	a.monitor.configureNodes(!cfg.bitcoinDisabled, cfg.moneroEnabled, cfg.moneroDataDir)
 	a.monitor.configureAdditionalNodes(cfg.nodes)
 	a.monitor.transitioning = a.monitorTransitioning
+	a.monitor.restarting = a.nodeRestarting
 	if a.monitor.settingsErr != nil {
 		a.log.Print("notification settings unavailable; alerts disabled until the state file is repaired and the dashboard restarts")
 	}
 	a.prices = NewPriceCache()
+	if cfg.stateDir != "" {
+		a.prices.Persist(filepath.Join(cfg.stateDir, "prices.json"))
+	}
 	a.moneroWatch = NewMoneroWatchStore(cfg)
 	a.moneroFees = NewMoneroFeeHistory(cfg.stateDir)
 	a.familyWatch = newFamilyWatchManager(a)
 	a.tariWatch = NewTariWatchStore(cfg)
 	if cfg.utxoIndexEnabled && !cfg.bitcoinDisabled {
 		blockRPC := *rpc
-		blockRPC.client, blockRPC.maxBody = &http.Client{Timeout: 2 * time.Minute}, 64<<20
+		blockRPC.client, blockRPC.maxBody = newInternalHTTPClient(2*time.Minute), 64<<20
 		a.utxo = newUtxoManager(cfg.utxoIndexDir, nil, &blockRPC, logger, utxoBitcoin)
 		a.utxo.blockWait = &blockRPC
 		a.watchWake = make(chan struct{}, 1)
@@ -189,7 +194,7 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 		if cfg.stateDir != "" {
 			a.utxo.setSeedStatePath(filepath.Join(cfg.stateDir, "utxo-seed.json"))
 			dumpRPC := *rpc
-			dumpRPC.client, dumpRPC.maxBody = &http.Client{}, 1<<20
+			dumpRPC.client, dumpRPC.maxBody = newInternalHTTPClient(0), 1<<20
 			a.utxo.configureSeed(utxoSeedHost{stateDir: cfg.stateDir, dataDir: cfg.dataDir, dump: &dumpRPC, hold: a.scanner.hold, release: a.scanner.release, lock: &a.utxoSeedLock,
 				autoSeed: func() (string, string) { return a.queueSeedHostAction(nodeBitcoin) }})
 			a.utxo.configureBench(a.benchHost())

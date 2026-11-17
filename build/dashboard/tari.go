@@ -34,7 +34,7 @@ func (a *app) fetchTariStatus(ctx context.Context, node nodeConfig, status gener
 	if err != nil || endpoint.Host == "" {
 		return status, errors.New("invalid Tari gRPC endpoint")
 	}
-	connection, err := grpc.NewClient(endpoint.Host, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	connection, err := grpc.NewClient(endpoint.Host, grpc.WithNoProxy(), internalGRPCDialer, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return status, err
 	}

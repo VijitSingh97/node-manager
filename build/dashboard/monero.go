@@ -121,9 +121,7 @@ func (a *app) apiMonero(w http.ResponseWriter, r *http.Request) {
 		url:      a.cfg.moneroRPCURL,
 		user:     a.cfg.moneroRPCUser,
 		password: a.cfg.moneroRPCPassword,
-		client: &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		}},
+		client:   newInternalHTTPClient(5 * time.Second),
 	}
 	var info moneroInfo
 	if err := rpc.call(ctx, "get_info", &info); err != nil {

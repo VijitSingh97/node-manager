@@ -109,6 +109,14 @@ func (a *app) credentialTransitioning(node string) bool {
 	return pending && status.Node == node && status.ID != ""
 }
 
+func (a *app) savedCredentialStatus() (credentialStatus, bool) {
+	b, err := readSmallFile(a.credentialPath("status"), 2048)
+	var saved credentialStatus
+	decoder := json.NewDecoder(bytes.NewReader(b))
+	decoder.DisallowUnknownFields()
+	return saved, err == nil && decoder.Decode(&saved) == nil && ensureJSONEnd(decoder) == nil && validPortControlID(saved.ID) && passwordNode(saved.Node)
+}
+
 func (a *app) controlRequestPending() bool {
 	for _, prefix := range []string{"node-control", "port-control", "credential-control"} {
 		for _, suffix := range []string{"request", "processing"} {
@@ -132,11 +140,7 @@ func (a *app) credentialControlView() map[string]any {
 	}
 	status, pending := a.pendingCredentials()
 	if !pending {
-		b, err := readSmallFile(a.credentialPath("status"), 2048)
-		var saved credentialStatus
-		decoder := json.NewDecoder(bytes.NewReader(b))
-		decoder.DisallowUnknownFields()
-		if err == nil && decoder.Decode(&saved) == nil && ensureJSONEnd(decoder) == nil && validPortControlID(saved.ID) && passwordNode(saved.Node) {
+		if saved, ok := a.savedCredentialStatus(); ok {
 			switch saved.State {
 			case "applied":
 				saved.Message = nodeDisplayName(saved.Node) + " RPC password reset. Reveal the new credentials to reconnect your apps."

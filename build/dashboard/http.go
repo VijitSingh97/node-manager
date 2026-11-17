@@ -144,7 +144,7 @@ func (a *app) walletRPC(wallet, method string, params []any, timeout time.Durati
 	}
 	rpc := *a.rpc
 	rpc.url = strings.TrimRight(rpc.url, "/") + "/wallet/" + url.PathEscape(wallet)
-	rpc.client = &http.Client{Timeout: timeout}
+	rpc.client = newInternalHTTPClient(timeout)
 	var result any
 	if rpc.call(a.ctx, method, params, &result) != nil {
 		return nil

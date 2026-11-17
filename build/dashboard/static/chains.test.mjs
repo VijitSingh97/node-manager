@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {powerView,powerRequest,controlView,chainFeesView,nodeBecameActive} from './chains.js';
+import {powerView,powerBadge,powerRequest,controlView,chainFeesView,nodeBecameActive,setNodeActive,nodePollDelay,nodeRefreshable} from './chains.js';
 import {genericNodeView,normalizeNode} from './nodes.js';
 import {overviewLayout,previewDepth,GRID} from './tower.js';
 
@@ -76,4 +76,64 @@ test('the bouquet fits its canvas and staggers node heights instead of lining th
 
 test('Bitcoin Cash fee does not promise confirmation targets', () => {
   assert.deepEqual(chainFeesView('bitcoincash', {fees_available:true,fee_estimates:['1'],fee_unit:'sat/B'}), {label:'Fee sat/B:',value:'1'});
+});
+
+test('a restarting node greys out, shows Restarting, and cannot be toggled',()=>{
+  const view=powerView({...active,restarting:true});
+  assert.deepEqual([view.active,view.restarting,view.disabled,view.button,view.status],[false,true,true,'Restarting…','Restarting after a settings change…']);
+  assert.equal(powerBadge(view),'Restarting');
+  assert.equal(powerView({...active,restarting:true,stopped:true}).restarting,true);
+  assert.equal(powerView({...active,active:false,restarting:true}).restarting,undefined);
+  assert.equal(powerView({...active,restarting:false}).active,true);
+  assert.equal(powerBadge(powerView({...active,stopped:true})),'Stopped');
+  assert.equal(powerBadge(powerView({...active,active:false})),'Inactive');
+  assert.equal(powerBadge(powerView({...active,supported:false})),'Unavailable');
+  assert.equal(nodeBecameActive({...active,restarting:true},active),false);
+});
+test('the tower choice and panel go grey with a Restarting badge and status line',()=>{
+  const el=(extra={})=>({dataset:{},hidden:false,attrs:{},classes:new Set(),textContent:'',style:{},
+    classList:{toggle(name,on){on?this.owner.classes.add(name):this.owner.classes.delete(name)}},
+    setAttribute(name,value){this.attrs[name]=value},...extra});
+  const make=(extra)=>{const e=el(extra);e.classList.owner=e;return e};
+  const choice=make(),panel=make({querySelector:()=>null}),button=make(),texts={'litecoin-badge':make(),'litecoin-power-status':make(),'litecoin-state':make(),'litecoin-details':make(),'litecoin-live':make()};
+  globalThis.document={
+    querySelectorAll:()=>[choice],
+    getElementById:(id)=>id==='litecoin-panel'?panel:texts[id]||null,
+    querySelector:()=>button,
+  };
+  globalThis.window={dispatchEvent(){}};
+  globalThis.CustomEvent=class{constructor(type,init){this.type=type;this.detail=init?.detail}};
+  try {
+    setNodeActive('litecoin',{...active,restarting:true});
+    assert.equal(choice.dataset.nodeActive,'0');
+    assert.equal(panel.dataset.nodeActive,'0');
+    assert.equal(choice.classes.has('inactive'),true);
+    assert.match(choice.attrs['aria-label'],/restarting/);
+    assert.equal(texts['litecoin-badge'].textContent,'Restarting');
+    assert.equal(texts['litecoin-state'].textContent,'Restarting after a settings change…');
+    assert.equal(texts['litecoin-power-status'].textContent,'Restarting after a settings change…');
+    assert.equal(button.disabled,true);
+    setNodeActive('litecoin',active);
+    assert.equal(choice.dataset.nodeActive,'1');
+    assert.equal(choice.classes.has('inactive'),false);
+  } finally {
+    delete globalThis.document; delete globalThis.window; delete globalThis.CustomEvent;
+  }
+});
+
+test('the node list polls fast while a change applies or any node restarts',()=>{
+  assert.equal(nodePollDelay(true,[]),2000);
+  assert.equal(nodePollDelay(true,[{restarting:true}]),2000);
+  assert.equal(nodePollDelay(false,[{},{restarting:true}]),5000);
+  assert.equal(nodePollDelay(false,[{},{restarting:false}]),30000);
+});
+
+test('restarting nodes are not probed by the page',()=>{
+  assert.equal(nodeRefreshable('litecoin',active),true);
+  assert.equal(nodeRefreshable('litecoin',{...active,restarting:true}),false);
+  assert.equal(nodeRefreshable('litecoin',{...active,stopped:true}),false);
+  assert.equal(nodeRefreshable('litecoin',{...active,active:false}),false);
+  assert.equal(nodeRefreshable('bitcoin',active),false);
+  assert.equal(nodeRefreshable('monero',active),false);
+  assert.equal(nodeRefreshable('litecoin',undefined),false);
 });

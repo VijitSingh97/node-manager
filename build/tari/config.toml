@@ -1,6 +1,9 @@
 [common]
 base_path = "/var/tari/node"
 
+[auto_update]
+check_interval = 0
+
 [mainnet.p2p.seeds]
 dns_seeds = []
 peer_seeds = [

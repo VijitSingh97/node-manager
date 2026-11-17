@@ -101,6 +101,7 @@ type Monitor struct {
 	extraDataDirs  map[string]string
 	extraEnabled   map[string]bool
 	transitioning  func(string) bool
+	restarting     func(string) bool
 	healthTicks    int
 	healthPingDue  int
 
@@ -327,6 +328,10 @@ func (m *Monitor) tickNodes(ctx context.Context, bitcoinInfo, moneroInfo map[str
 	}
 }
 
+func (m *Monitor) alertsSuppressed(id string) bool {
+	return m.transitioning != nil && m.transitioning(id) || m.restarting != nil && m.restarting(id)
+}
+
 func (m *Monitor) RunConfiguredNodes(ctx context.Context, probes map[string]func() map[string]any) {
 	onlinePending := make(map[string]bool, len(probes))
 	for id := range probes {
@@ -365,7 +370,7 @@ func (m *Monitor) RunConfiguredNodes(ctx context.Context, probes map[string]func
 			}
 		}
 		for id, info := range infos {
-			if m.transitioning != nil && m.transitioning(id) {
+			if m.alertsSuppressed(id) {
 				continue
 			}
 			if info != nil && info["active"] == false {
@@ -451,7 +456,7 @@ func (m *Monitor) tickConfiguredNodes(ctx context.Context, infos map[string]map[
 	settings := m.notificationSettings()
 	anySynced, activeCount := false, 0
 	for id, info := range infos {
-		if m.transitioning != nil && m.transitioning(id) {
+		if m.alertsSuppressed(id) {
 			continue
 		}
 		if info != nil && info["active"] == false {

@@ -21,6 +21,7 @@ type retryBitcoinMock struct {
 	creates     int
 	imports     int
 	unloads     int
+	createDelay time.Duration
 }
 
 func (m *retryBitcoinMock) handler(w http.ResponseWriter, r *http.Request) {
@@ -30,6 +31,9 @@ func (m *retryBitcoinMock) handler(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&request)
 	wallet := strings.TrimPrefix(r.URL.Path, "/wallet/")
+	if request.Method == "createwallet" {
+		time.Sleep(m.createDelay)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var result any
@@ -90,6 +94,34 @@ func (m *retryBitcoinMock) handler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"result": result, "error": nil})
 }
 
+func startRetryDashboard(t *testing.T, server *httptest.Server, stateDir string, seed bool) (*app, context.CancelFunc) {
+	t.Helper()
+	cfg := config{dashboardPassword: "secret", stateDir: stateDir, dataDir: t.TempDir(), version: "1.31.1"}
+	dashboard, err := newApp(cfg, &rpcClient{url: server.URL, client: server.Client()}, "index.html", "static", log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocked := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("mock provider unavailable")
+	})}
+	dashboard.prices.client = blocked
+	dashboard.monitor.client = blocked
+	dashboard.monitor.output = io.Discard
+	if seed {
+		if _, err := dashboard.watch.Add("Cold", parityZpub, "2021-01-01"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := dashboard.startBackground(ctx)
+	stop := func() {
+		cancel()
+		<-done
+	}
+	t.Cleanup(stop)
+	return dashboard, stop
+}
+
 func TestWatchImportFailureRecoversThroughDashboardAfterRestart(t *testing.T) {
 	t.Setenv("TELEGRAM_BOT_TOKEN", "")
 	t.Setenv("TELEGRAM_CHAT_ID", "")
@@ -98,54 +130,93 @@ func TestWatchImportFailureRecoversThroughDashboardAfterRestart(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(bitcoin.handler))
 	defer server.Close()
 	stateDir := t.TempDir()
-	newDashboard := func() (*app, context.CancelFunc) {
-		t.Helper()
-		cfg := config{dashboardPassword: "secret", stateDir: stateDir, dataDir: t.TempDir(), version: "1.31.1"}
-		dashboard, err := newApp(cfg, &rpcClient{url: server.URL, client: server.Client()}, "index.html", "static", log.New(io.Discard, "", 0))
-		if err != nil {
-			t.Fatal(err)
-		}
-		blocked := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-			return nil, errors.New("mock provider unavailable")
-		})}
-		dashboard.prices.client = blocked
-		dashboard.monitor.client = blocked
-		dashboard.monitor.output = io.Discard
-		ctx, cancel := context.WithCancel(t.Context())
-		done := dashboard.startBackground(ctx)
-		stop := func() {
-			cancel()
-			<-done
-		}
-		t.Cleanup(stop)
-		return dashboard, stop
-	}
-	first, stopFirst := newDashboard()
-	req := httptest.NewRequest(http.MethodPost, "/api/watch", strings.NewReader(`{"name":"Cold","key":"`+parityZpub+`","birthday":"2021-01-01"}`))
-	req.SetBasicAuth("admin", "secret")
-	req.Header.Set("X-Requested-With", "fetch")
-	response := httptest.NewRecorder()
-	first.routes().ServeHTTP(response, req)
-	if response.Code != http.StatusOK {
-		t.Fatalf("add response = %d %q", response.Code, response.Body.String())
-	}
-	row := waitForWalletState(t, first.routes(), "error")
+	first, stopFirst := startRetryDashboard(t, server, stateDir, true)
+	row := waitForWalletState(t, first, "error")
 	if row["btc"] != nil {
 		t.Fatalf("failed import row = %#v", row)
 	}
 	stopFirst()
-	restarted, _ := newDashboard()
-	row = waitForWalletState(t, restarted.routes(), "ok")
+	restarted, _ := startRetryDashboard(t, server, stateDir, false)
+	row = waitForWalletState(t, restarted, "ok")
 	if row["name"] != "Cold" || row["btc"] != "1.25" {
 		t.Fatalf("recovered row = %#v", row)
 	}
 }
 
-func waitForWalletState(t *testing.T, handler http.Handler, state string) map[string]any {
+func TestWatchAddThroughAPIProvisionsWallet(t *testing.T) {
+	t.Setenv("TELEGRAM_BOT_TOKEN", "")
+	t.Setenv("TELEGRAM_CHAT_ID", "")
+	t.Setenv("HEALTHCHECKS_URL", "")
+	bitcoin := &retryBitcoinMock{}
+	server := httptest.NewServer(http.HandlerFunc(bitcoin.handler))
+	defer server.Close()
+	dashboard, _ := startRetryDashboard(t, server, t.TempDir(), false)
+	token, err := dashboard.sessions.issue(time.Now(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/watch", strings.NewReader(`{"name":"Cold","key":"`+parityZpub+`","birthday":"2021-01-01"}`))
+	req.AddCookie(&http.Cookie{Name: "node-manager-session", Value: token})
+	req.Header.Set("X-Requested-With", "fetch")
+	response := httptest.NewRecorder()
+	dashboard.routes().ServeHTTP(response, req)
+	if response.Code != http.StatusOK {
+		t.Fatalf("add response = %d %q", response.Code, response.Body.String())
+	}
+	waitForWalletState(t, dashboard, "error")
+	bitcoin.mu.Lock()
+	defer bitcoin.mu.Unlock()
+	if bitcoin.creates < 1 {
+		t.Fatalf("add through the API created %d wallets", bitcoin.creates)
+	}
+}
+
+func TestProvisionStateSerializesConcurrentCallsForOneWallet(t *testing.T) {
+	t.Setenv("TELEGRAM_BOT_TOKEN", "")
+	t.Setenv("TELEGRAM_CHAT_ID", "")
+	t.Setenv("HEALTHCHECKS_URL", "")
+	bitcoin := &retryBitcoinMock{createDelay: 100 * time.Millisecond}
+	server := httptest.NewServer(http.HandlerFunc(bitcoin.handler))
+	defer server.Close()
+	cfg := config{dashboardPassword: "secret", stateDir: t.TempDir(), dataDir: t.TempDir(), version: "1.31.1"}
+	dashboard, err := newApp(cfg, &rpcClient{url: server.URL, client: server.Client()}, "index.html", "static", log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, err := dashboard.watch.Add("Cold", parityZpub, "2021-01-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			dashboard.provisionState(entry, false, false)
+		}()
+	}
+	wg.Wait()
+	bitcoin.mu.Lock()
+	defer bitcoin.mu.Unlock()
+	if bitcoin.creates != 1 {
+		t.Fatalf("concurrent provisioning created %d wallets, want 1", bitcoin.creates)
+	}
+}
+
+func waitForWalletState(t *testing.T, dashboard *app, state string) map[string]any {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	token, err := dashboard.sessions.issue(time.Now(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := dashboard.routes()
+	deadline := time.Now().Add(10 * time.Second)
 	for {
-		row := watchResponseRow(t, request(t, handler, http.MethodGet, "/api/watch", "secret"))
+		req := httptest.NewRequest(http.MethodGet, "/api/watch", nil)
+		req.AddCookie(&http.Cookie{Name: "node-manager-session", Value: token})
+		poll := httptest.NewRecorder()
+		handler.ServeHTTP(poll, req)
+		row := watchResponseRow(t, poll)
 		if row["state"] == state {
 			return row
 		}

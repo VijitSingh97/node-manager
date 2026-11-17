@@ -114,9 +114,7 @@ func (a *app) fetchMoneroFeeEstimate(ctx context.Context) ([]uint64, error) {
 		url:      a.cfg.moneroRPCURL,
 		user:     a.cfg.moneroRPCUser,
 		password: a.cfg.moneroRPCPassword,
-		client: &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		}},
+		client:   newInternalHTTPClient(5 * time.Second),
 	}
 	var estimate moneroFeeEstimate
 	if err := rpc.call(ctx, "get_fee_estimate", &estimate); err != nil || !strings.EqualFold(estimate.Status, "OK") || len(estimate.Fees) < 4 {

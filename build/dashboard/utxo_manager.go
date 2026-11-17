@@ -801,13 +801,13 @@ func pathsOverlap(a, b string) bool {
 // newChainUtxo builds the index for a chain other than Bitcoin; its seed holds that chain's watch scan.
 func (a *app) newChainUtxo(node nodeConfig, chain *utxoChainParams, logger *log.Logger) *utxoManager {
 	// shortcut: 64 MiB holds a 32 MB Bitcoin Cash block as hex; raise it, and the 2 GiB cap, if Bitcoin Cash blocks grow past 32 MB.
-	rpc := &rpcClient{url: node.RPCURL, user: node.RPCUser, password: node.RPCPassword, client: &http.Client{Timeout: 2 * time.Minute}, maxBody: 64 << 20}
+	rpc := &rpcClient{url: node.RPCURL, user: node.RPCUser, password: node.RPCPassword, client: newInternalHTTPClient(2 * time.Minute), maxBody: 64 << 20}
 	m := newUtxoManager(node.UTXOIndexDir, nil, rpc, logger, chain)
 	m.blockWait = rpc
 	if a.cfg.stateDir != "" {
 		m.setSeedStatePath(filepath.Join(a.cfg.stateDir, node.ID+"-utxo-seed.json"))
 		dump := *rpc
-		dump.client, dump.maxBody = &http.Client{}, 1<<20
+		dump.client, dump.maxBody = newInternalHTTPClient(0), 1<<20
 		hold, release := func() bool { return true }, func() {}
 		if store := a.familyWatch.stores[node.ID]; store != nil {
 			hold, release = store.scanMu.TryLock, store.scanMu.Unlock
