@@ -124,7 +124,8 @@ four 31 MB blocks under the 2 GiB cap peaked at 954 MiB of live heap and 1.50 Gi
 RSS; under 1 GiB without `GOMEMLIMIT` the same replay was killed. In that run
 Bitcoin Cash Node, on regtest defaults, peaked at about 1.21 GiB serving those
 blocks. A host replaying such blocks therefore needs about 2.7 GiB of RAM for the
-two (the two peaks added), plus whatever else it runs.
+two (the two peaks added), plus whatever else it runs. The index is sized for
+blocks up to 32 MB; a larger block would stop it at that height.
 
 Fresh state includes two sourced public examples:
 

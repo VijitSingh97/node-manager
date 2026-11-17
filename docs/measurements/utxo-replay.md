@@ -26,14 +26,9 @@ The node itself is not capped. Each figure is the median of three runs.
 
 ## Bitcoin Cash Node 29.2.0
 
-The same test with `UTXO_REPLAY_CHAIN=bitcoincash BCH_REGTEST_IMAGE=ghcr.io/vijitsingh97/node-manager-bitcoincash:1.34.0` replays a BCHN regtest chain with the Bitcoin Cash chain parameters, under the same caps. Each figure is the median of three runs.
+The same test with `UTXO_REPLAY_CHAIN=bitcoincash BCH_REGTEST_IMAGE=ghcr.io/vijitsingh97/node-manager-bitcoincash:1.34.0` replays a BCHN regtest chain the way the index does: raw blocks and the reverse key, in a container capped at 0.5 CPU and 2 GiB with `GOMEMLIMIT=1600MiB`.
 
-| Blocks | Per block | Batched | Batched / per block |
-| --- | --- | --- | --- |
-| 20,001 coinbase-only | 2,853 blocks/s (2,106 to 3,042) | 5,848 blocks/s (4,783 to 6,328) | 2.05x |
-| 300 with a 200-output transaction | 456 blocks/s (419 to 533) | 544 blocks/s (215 to 607) | 1.19x |
-
-Both modes matched `scantxoutset` on 18,795 coins in every run. One batched busy run fell to 215 blocks/s, and the other two ran at 544 and 607 blocks/s. Bitcoin Cash blocks decode faster than Bitcoin's here, since they carry no witness data.
+**Its rates are not measured yet.** The figures first published here came from the verbose-JSON design, which the index no longer uses, so they were removed. Since the switch the measuring machine has been under heavy unrelated load, and rates taken under it would mislead.
 
 `TestUtxoBitcoinCashRawReplayRegtestLive` checks the raw parser against BCHN's own verbose view of every block, with CashTokens activated at height 200 (`-upgrade9activationheight=200`).
 
