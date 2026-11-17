@@ -538,14 +538,11 @@ func (a *app) apiSettingsGet(w http.ResponseWriter, r *http.Request) {
 	}
 	view["port_control"] = a.portControlView()
 	view["dashboard_password_set"] = a.hasDashboardPassword()
-	view["actuator_username"], view["actuator_password"] = a.actuator.Username, a.actuator.Password
 	if r.URL.Query().Get("scope") == "nodes" {
 		delete(view, "telegram_bot_token")
 		delete(view, "telegram_chat_id")
 		delete(view, "healthchecks_url")
 		delete(view, "defaults")
-		delete(view, "actuator_username")
-		delete(view, "actuator_password")
 	}
 	writeJSON(w, view)
 }
@@ -588,14 +585,11 @@ func (a *app) apiSettingsPost(w http.ResponseWriter, r *http.Request) {
 	}
 	view["port_control"] = a.portControlView()
 	view["dashboard_password_set"] = a.hasDashboardPassword()
-	view["actuator_username"], view["actuator_password"] = a.actuator.Username, a.actuator.Password
 	if r.URL.Query().Get("scope") == "nodes" {
 		delete(view, "telegram_bot_token")
 		delete(view, "telegram_chat_id")
 		delete(view, "healthchecks_url")
 		delete(view, "defaults")
-		delete(view, "actuator_username")
-		delete(view, "actuator_password")
 	}
 	writeJSON(w, view)
 }

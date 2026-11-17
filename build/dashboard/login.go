@@ -145,13 +145,16 @@ func (a *app) auth(next http.Handler) http.Handler {
 			http.Error(w, "same-origin request required", http.StatusForbidden)
 			return
 		}
-		if actuatorRequest(r) || r.URL.Path == "/login" || r.URL.Path == "/logout" || strings.HasPrefix(r.URL.Path, "/static/") {
+		if (actuatorRequest(r) && !a.actuatorEnabled(r)) || r.URL.Path == "/login" || r.URL.Path == "/logout" || strings.HasPrefix(r.URL.Path, "/static/") {
 			next.ServeHTTP(w, r)
 			return
 		}
 		if !a.hasDashboardPassword() {
 			http.Error(w, "Dashboard sign-in is not configured", http.StatusServiceUnavailable)
 			return
+		}
+		if actuatorRequest(r) {
+			w.Header().Set("WWW-Authenticate", `Basic realm="node-manager", charset="UTF-8"`)
 		}
 		if a.sessions.valid(a.sessionToken(r), time.Now()) {
 			r = r.WithContext(context.WithValue(r.Context(), dashboardAuthMethod{}, "session"))

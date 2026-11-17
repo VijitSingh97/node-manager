@@ -408,11 +408,10 @@ Block alerts are off by default.
 
 Settings → **Actuator** has two switches, **Serve /actuator/health** and **Serve
 /actuator/info** (both off by default, applied with **Save**), for uptime
-monitors and scripts. Both always need HTTP Basic auth with the actuator
-username and password shown next to the switches; see
+monitors and scripts. Both always need HTTP Basic auth with the same login as
+the dashboard (`admin` and the dashboard password); see
 [Monitoring integrations](operations.md#monitoring-integrations). They are
-dashboard settings saved in the dashboard volume, not `config.json` keys, and
-the generated password lives in `actuator-credentials.json` in that volume.
+dashboard settings saved in the dashboard volume, not `config.json` keys.
 
 Under **Telegram → Alert preferences**, choose whether to notify when the monitor
 starts, a node goes offline or recovers, synchronization completes, disk space

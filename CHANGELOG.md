@@ -30,6 +30,18 @@ All notable changes to this project are documented here. Format follows
   Dogecoin, Bitcoin Cash and Zcash as well as Bitcoin and Monero) and checks that
   none can reach the internet or resolve a public name while Tor is stopped.
 
+### Changed
+
+- The actuator endpoints now use the same login as the dashboard (user `admin`
+  and the dashboard password, over HTTP Basic auth) instead of a generated
+  `actuator` login. Settings no longer shows an actuator username and
+  password, and a leftover `actuator-credentials.json` is deleted on start.
+  A wrong login still gets a 401 with a `WWW-Authenticate` challenge, a
+  switched-off endpoint a 404, and repeated wrong passwords share the dashboard
+  sign-in limit. A monitor given this login can also sign in to the dashboard.
+  Upgrade note: monitors that sent the generated login must be changed to the
+  dashboard login.
+
 ## [1.37.0] - 2026-11-17
 
 ### Added

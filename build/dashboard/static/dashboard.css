@@ -239,8 +239,6 @@ body:not([data-node=""]) .node-close-backdrop { display: block; }
 }
 .settings-dialog .settings-check { display: flex; align-items: center; gap: 8px; }
 .settings-dialog .settings-note { color: var(--muted); font-size: 0.8rem; }
-.settings-copy { display: flex; gap: 8px; align-items: center; }
-.settings-copy input { flex: 1; min-width: 0; font-family: ui-monospace, monospace; }
 .settings-host-nodes { display: grid; gap: 8px; }
 .settings-host-node { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .settings-host-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, monospace; font-size: 0.78rem; opacity: 0.75; }

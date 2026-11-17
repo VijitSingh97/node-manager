@@ -61,16 +61,6 @@ export function notificationPayload(values) {
   return payload;
 }
 
-export async function copyField(input, clipboard = globalThis.navigator?.clipboard) {
-  try {
-    await clipboard.writeText(input.value);
-    return true;
-  } catch {
-    input.select();
-    return false;
-  }
-}
-
 export function configurationAccess(data) {
   return data?.can_configure === true;
 }
@@ -457,8 +447,6 @@ if (typeof document !== "undefined") {
   const defaultCurrency = byId("default-currency");
   const actuatorHealth = byId("actuator-health");
   const actuatorInfo = byId("actuator-info");
-  const actuatorUsername = byId("actuator-username");
-  const actuatorPassword = byId("actuator-password");
   const save = byId("save");
   const reset = byId("reset");
   const hostNodes = byId("host-nodes");
@@ -984,8 +972,6 @@ if (typeof document !== "undefined") {
     renderPortControl(data.port_control);
     if (scope === "global") {
       applyAppearance(data);
-      actuatorUsername.value = data.actuator_username || "";
-      actuatorPassword.value = dialog.open ? data.actuator_password || "" : "";
       if (Object.hasOwn(data, "telegram_chat_id")) chat.value = data.telegram_chat_id || "";
       if (dialog.open) {
         if (Object.hasOwn(data, "telegram_bot_token")) token.value = data.telegram_bot_token || "";
@@ -1112,7 +1098,7 @@ if (typeof document !== "undefined") {
     installDialog.close();
     renderHostActions();
   });
-  dialog.addEventListener("close", () => { clearSecrets(); actuatorPassword.value = ""; delete saved.actuator_password; delete saved.telegram_bot_token; delete saved.telegram_chat_id; delete saved.healthchecks_url; });
+  dialog.addEventListener("close", () => { clearSecrets(); delete saved.telegram_bot_token; delete saved.telegram_chat_id; delete saved.healthchecks_url; });
   window.addEventListener("node-selected", (event) => {
     credentialSettings.closeNode();
     if (event.detail?.node) {
@@ -1120,10 +1106,6 @@ if (typeof document !== "undefined") {
       load("nodes");
     }
   });
-  for (const field of ["username", "password"]) {
-    const input = byId(`actuator-${field}`);
-    byId(`actuator-${field}-copy`).addEventListener("click", () => copyField(input));
-  }
   telegramEnabled.addEventListener("change", updateInputs);
   healthchecksEnabled.addEventListener("change", updateInputs);
   for (const [action, input] of Object.entries(hostToggles)) input.addEventListener("change", () => { hostDraft[action] = input.checked; });
