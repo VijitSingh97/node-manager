@@ -47,6 +47,18 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
+- Tests that fail when anything in the scripts or the Docker stack could leave
+  the Tor boundary, and `docs/tor-boundary.md`, which lists every egress path
+  with file and line evidence, the gaps found, and how to extend the tests. A
+  stdlib-only Python test checks the Compose files (only `tor` has an external
+  network, loopback-only DNS, no published node ports, no proxy overrides), the
+  Tor relays, and the Tor settings of every node, and scans scripts,
+  entrypoints and Dockerfiles for network commands against
+  `tests/tor_boundary_allowlist.txt`. A Go test walks the dashboard sources and
+  fails on any new direct network use (including the Tari wallet launcher), and the container end-to-end test now
+  probes every running service for direct TCP, IPv6 and DNS egress with Tor
+  stopped, with a positive control from the Tor container.
+
 - Instant Litecoin balances: `litecoin.utxo_index` (Settings → Balance index →
   "Instant Litecoin balances") keeps a Litecoin balance index, and the Litecoin
   watch-only card reads its balances from it once it is seeded, updating within a

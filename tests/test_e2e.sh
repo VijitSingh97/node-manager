@@ -398,57 +398,42 @@ for _ in $(seq 1 30); do
 done
 [ -n "$tor_bootstrapped" ] || fail "Tor never reached the public network"
 helper_image=$(service_inspect dashboard --format '{{.Config.Image}}')
+probe() {
+  docker run --rm --pull never --network "container:$(service_id "$1")" --entrypoint /bin/sh "$helper_image" -c "$2"
+}
+# Every running service except Tor is probed, so a service added later cannot escape the audit.
+probed_services=()
+while IFS= read -r running_service; do
+  [ "$running_service" = tor ] || probed_services+=("$running_service")
+done < <(docker compose ps --services --status running)
+for required in bitcoin monero monero-wallet dashboard; do
+  [[ " ${probed_services[*]} " == *" $required "* ]] || fail "the egress audit would skip $required"
+done
+# Positive control: the same direct TCP probe succeeds from Tor, so the failures below mean the boundary, not a broken probe.
+docker compose exec -T tor nc -z -w 10 1.1.1.1 443 || fail "Tor cannot reach a public address, so the direct-egress probes prove nothing"
 docker compose exec -T dashboard sh -c 'command -v nc >/dev/null && command -v nslookup >/dev/null && nc -z -w 3 172.29.0.26 8332' ||
   fail "dashboard network probes are unavailable or cannot reach local RPC"
-docker run --rm --pull never --network "container:$(service_id bitcoin)" --entrypoint /bin/sh "$helper_image" \
-  -c 'command -v nc >/dev/null && command -v nslookup >/dev/null && nc -z -w 3 172.29.0.25 9050' ||
-  fail "bitcoin network probes are unavailable or cannot reach local Tor"
-docker run --rm --pull never --network "container:$(service_id monero)" --entrypoint /bin/sh "$helper_image" \
-  -c 'command -v nc >/dev/null && command -v nslookup >/dev/null && nc -z -w 3 172.29.0.25 9050' ||
-  fail "Monero network probes are unavailable or cannot reach local Tor"
+for probed in "${probed_services[@]}"; do
+  probe "$probed" 'command -v nc >/dev/null && command -v nslookup >/dev/null && nc -z -w 3 172.29.0.25 9050' ||
+    fail "$probed network probes are unavailable or cannot reach local Tor"
+done
 docker compose stop tor >/dev/null
-[ "$(service_inspect bitcoin --format '{{json .HostConfig.Dns}}')" = '["127.0.0.1"]' ] ||
-  fail "bitcoin does not have loopback-only DNS configured"
-[ "$(service_inspect dashboard --format '{{json .HostConfig.Dns}}')" = '["127.0.0.1"]' ] ||
-  fail "dashboard does not have loopback-only DNS configured"
-[ "$(service_inspect monero --format '{{json .HostConfig.Dns}}')" = '["127.0.0.1"]' ] ||
-  fail "Monero does not have loopback-only DNS configured"
-if docker compose exec -T dashboard nc -z -w 3 1.1.1.1 443; then
-  fail "dashboard reached a public IP directly with Tor offline"
-fi
-if docker compose exec -T dashboard nc -z -w 3 2606:4700:4700::1111 443; then
-  fail "dashboard reached a public IPv6 address directly with Tor offline"
-fi
-if docker compose exec -T dashboard nslookup example.com >/dev/null 2>&1; then
-  fail "dashboard resolved public DNS with Tor offline"
-fi
-if docker compose exec -T dashboard nslookup example.com 8.8.8.8 >/dev/null 2>&1; then
-  fail "dashboard reached a public DNS server directly with Tor offline"
-fi
-if docker run --rm --pull never --network "container:$(service_id bitcoin)" --entrypoint /bin/sh "$helper_image" -c 'nc -z -w 3 1.1.1.1 443'; then
-  fail "bitcoin reached a public IP directly with Tor offline"
-fi
-if docker run --rm --pull never --network "container:$(service_id bitcoin)" --entrypoint /bin/sh "$helper_image" -c 'nc -z -w 3 2606:4700:4700::1111 443'; then
-  fail "bitcoin reached a public IPv6 address directly with Tor offline"
-fi
-if docker run --rm --pull never --network "container:$(service_id bitcoin)" --entrypoint /bin/sh "$helper_image" -c 'nslookup example.com' >/dev/null 2>&1; then
-  fail "bitcoin resolved public DNS with Tor offline"
-fi
-if docker run --rm --pull never --network "container:$(service_id bitcoin)" --entrypoint /bin/sh "$helper_image" -c 'nslookup example.com 8.8.8.8' >/dev/null 2>&1; then
-  fail "bitcoin reached a public DNS server directly with Tor offline"
-fi
-if docker run --rm --pull never --network "container:$(service_id monero)" --entrypoint /bin/sh "$helper_image" -c 'nc -z -w 3 1.1.1.1 443'; then
-  fail "Monero reached a public IP directly with Tor offline"
-fi
-if docker run --rm --pull never --network "container:$(service_id monero)" --entrypoint /bin/sh "$helper_image" -c 'nc -z -w 3 2606:4700:4700::1111 443'; then
-  fail "Monero reached a public IPv6 address directly with Tor offline"
-fi
-if docker run --rm --pull never --network "container:$(service_id monero)" --entrypoint /bin/sh "$helper_image" -c 'nslookup example.com' >/dev/null 2>&1; then
-  fail "Monero resolved public DNS with Tor offline"
-fi
-if docker run --rm --pull never --network "container:$(service_id monero)" --entrypoint /bin/sh "$helper_image" -c 'nslookup example.com 8.8.8.8' >/dev/null 2>&1; then
-  fail "Monero reached a public DNS server directly with Tor offline"
-fi
+for probed in "${probed_services[@]}"; do
+  [ "$(service_inspect "$probed" --format '{{json .HostConfig.Dns}}')" = '["127.0.0.1"]' ] ||
+    fail "$probed does not have loopback-only DNS configured"
+  if probe "$probed" 'nc -z -w 3 1.1.1.1 443'; then
+    fail "$probed reached a public IP directly with Tor offline"
+  fi
+  if probe "$probed" 'nc -z -w 3 2606:4700:4700::1111 443'; then
+    fail "$probed reached a public IPv6 address directly with Tor offline"
+  fi
+  if probe "$probed" 'nslookup example.com' >/dev/null 2>&1; then
+    fail "$probed resolved public DNS with Tor offline"
+  fi
+  if probe "$probed" 'nslookup example.com 8.8.8.8' >/dev/null 2>&1; then
+    fail "$probed reached a public DNS server directly with Tor offline"
+  fi
+done
 docker compose start tor >/dev/null
 for _ in $(seq 1 30); do
   [ "$(service_inspect tor --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}')" = "healthy" ] && break
@@ -457,11 +442,11 @@ done
 [ "$(service_inspect tor --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}')" = "healthy" ] ||
   fail "Tor did not recover after fail-closed egress test"
 
-# Egress audit: every ESTABLISHED connection from the bitcoin and dashboard
-# containers must terminate inside the stack subnet (172.29.0.x renders as
+# Egress audit: every ESTABLISHED connection from every application
+# container must terminate inside the stack subnet (172.29.0.x renders as
 # xx001DAC in /proc/net/tcp little-endian hex) — i.e. everything goes to tor
 # or intra-stack RPC, and nothing dials clearnet directly.
-for c in bitcoin monero monero-wallet dashboard; do
+for c in "${probed_services[@]}"; do
   bad=$(docker compose exec -T "$c" awk 'NR>1 && $4=="01" {split($3,r,":"); if (r[1] !~ /001DAC$/) print r[1]":"r[2]}' /proc/net/tcp 2>/dev/null || true)
   [ -z "$bad" ] || fail "clearnet egress from $c: $bad"
   bad6=$(docker compose exec -T "$c" sh -c 'awk "NR>1 && \$4==\"01\" {print \$3}" /proc/net/tcp6 2>/dev/null' || true)
