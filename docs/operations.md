@@ -334,8 +334,9 @@ first — a live copy of `chainstate/` is corrupt by construction.
   Settings → **Actuator** shows **Copy curl for health** and **Copy curl for
   info** under the switches, for each switch that is saved on. After you type
   the dashboard password (checked by the server, after a recent sign-in), the
-  button copies `curl --user 'admin:<password>' '<address>/actuator/health'`
-  (or `/info`) using the address the page was opened from. **The copied
+  button copies a complete curl command for `<address>/actuator/health`
+  (or `/info`), with the admin login and that password filled in, using the
+  address the page was opened from. **The copied
   command contains the password and will land in shell history.** For scripts
   and monitors prefer `curl --user admin <url>`, which prompts. On a plain
   `http://` dashboard the browser blocks the clipboard API, so the button

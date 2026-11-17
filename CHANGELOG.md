@@ -51,8 +51,8 @@ All notable changes to this project are documented here. Format follows
   dashboard login.
 - Settings → Actuator has **Copy curl for health** and **Copy curl for info**
   buttons, shown while the matching switch is saved on. Each asks for the
-  dashboard password, has the server check it, then copies a complete
-  `curl --user 'admin:<password>' '<address>/actuator/...'` command. On a plain
+  dashboard password, has the server check it, then copies a complete curl
+  command for the endpoint with the admin login and that password filled in. On a plain
   `http://` address, where the browser blocks clipboard access, it falls back
   to a selected field with a **Copy again** button (pressed with the click, so
   Safari allows it) or Ctrl+C / Cmd+C. The command holds the password and will
