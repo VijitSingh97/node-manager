@@ -177,21 +177,69 @@ function reading(value) {
   return value === null || value === undefined || value === "" ? NaN : Number(value);
 }
 
+export const TEMP_COOL_C = 40;
+export const THERMAL_LIMIT_C = 88;
+export const FAN_FAST_TURN_S = 0.35;
+export const FAN_DEFAULT_MAX_RPM = 5000;
+
+export function tempColor(celsius, limit = THERMAL_LIMIT_C) {
+  const top = limit > TEMP_COOL_C ? limit : THERMAL_LIMIT_C;
+  const heat = Math.min(1, Math.max(0, (celsius - TEMP_COOL_C) / (top - TEMP_COOL_C)));
+  return `hsl(${Math.round(215 + 145 * heat) % 360} 85% 52%)`;
+}
+
+export function fanTurnSeconds(rpm, maxRpm) {
+  if (!(rpm > 0)) return 0;
+  const top = maxRpm > 0 ? maxRpm : FAN_DEFAULT_MAX_RPM;
+  const share = Math.min(1, rpm / top);
+  return Number((FAN_FAST_TURN_S / share).toFixed(2));
+}
+
+export function uptimeRing(seconds) {
+  return { days: Math.floor(seconds / 86400), fill: (seconds % 86400) / 86400 };
+}
+
 export function healthView(stats) {
-  const temps = [["CPU", stats?.cpu_temp_c], ["Board", stats?.board_temp_c]]
-    .filter(([, celsius]) => Number.isFinite(reading(celsius)))
-    .map(([label, celsius]) => `${label} ${Math.round(reading(celsius))} °C`);
-  const fans = (Array.isArray(stats?.fans_rpm) ? stats.fans_rpm : []).map(reading).filter((rpm) => Number.isFinite(rpm) && rpm >= 0);
+  const readings = [["CPU", stats?.cpu_temp_c], ["Board", stats?.board_temp_c]]
+    .map(([label, celsius]) => [label, reading(celsius)])
+    .filter(([, celsius]) => Number.isFinite(celsius));
+  const temps = readings.map(([label, celsius]) => `${label} ${Math.round(celsius)} °C`);
+  const maxes = Array.isArray(stats?.fans_max_rpm) ? stats.fans_max_rpm : [];
+  const fans = (Array.isArray(stats?.fans_rpm) ? stats.fans_rpm : [])
+    .map((value, index) => ({ rpm: reading(value), max: Number(maxes[index]) || 0 }))
+    .filter(({ rpm }) => Number.isFinite(rpm) && rpm >= 0);
   // Unconnected fan headers read 0 rpm, so they are hidden while any fan spins.
-  const spinning = fans.filter((rpm) => rpm > 0).map(Math.round);
+  const spinning = fans.filter(({ rpm }) => rpm > 0);
   const uptime = reading(stats?.uptime_s);
   const rx = reading(stats?.net_rx_bps);
   const tx = reading(stats?.net_tx_bps);
+  const network = rx >= 0 && tx >= 0;
   return [
-    { label: "Temperature", value: temps.join(" · ") || NOT_AVAILABLE },
-    { label: spinning.length > 1 ? "Fans" : "Fan", value: fans.length ? `${spinning.join(" · ") || 0} rpm` : NOT_AVAILABLE },
-    { label: "Uptime", value: uptime > 0 ? formatUptime(uptime) : NOT_AVAILABLE },
-    { label: "Network", value: rx >= 0 && tx >= 0 ? `↓ ${formatCompactBytes(rx)}/s · ↑ ${formatCompactBytes(tx)}/s` : NOT_AVAILABLE },
+    {
+      label: "Temperature",
+      kind: "temp",
+      value: temps.join(" · ") || NOT_AVAILABLE,
+      lines: temps,
+      color: readings.length ? tempColor(Math.max(...readings.map(([, celsius]) => celsius))) : "",
+    },
+    {
+      label: spinning.length > 1 ? "Fans" : "Fan",
+      kind: "fan",
+      value: fans.length ? `${spinning.map(({ rpm }) => Math.round(rpm)).join(" · ") || 0} rpm` : NOT_AVAILABLE,
+      turnSeconds: fans.length ? fanTurnSeconds(spinning[0]?.rpm, spinning[0]?.max) : 0,
+    },
+    {
+      label: "Uptime",
+      kind: "uptime",
+      value: uptime > 0 ? formatUptime(uptime) : NOT_AVAILABLE,
+      ring: uptime > 0 ? uptimeRing(uptime) : null,
+    },
+    {
+      label: "Network",
+      kind: "network",
+      value: network ? `↓ ${formatCompactBytes(rx)}/s · ↑ ${formatCompactBytes(tx)}/s` : NOT_AVAILABLE,
+      rates: network ? [{ dir: "down", text: `↓ ${formatCompactBytes(rx)}/s` }, { dir: "up", text: `↑ ${formatCompactBytes(tx)}/s` }] : null,
+    },
   ];
 }
 
@@ -251,18 +299,92 @@ function renderPies(stats) {
   wrap.hidden = false;
 }
 
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function svgEl(tag, attrs) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [name, value] of Object.entries(attrs)) node.setAttribute(name, value);
+  return node;
+}
+
+function vitalGraphic(row) {
+  if (row.kind === "temp" && row.color) {
+    const dot = el("span", "vital-dot");
+    dot.style.setProperty("--dot", row.color);
+    return dot;
+  }
+  if (row.kind === "fan" && row.value !== NOT_AVAILABLE) {
+    const svg = svgEl("svg", { viewBox: "-12 -12 24 24", class: "vital-fan" });
+    const blades = svgEl("g", { fill: "currentColor" });
+    for (let turn = 0; turn < 4; turn++) {
+      blades.appendChild(svgEl("path", { d: "M0 0 C -2 -5 -1 -10 3 -10.5 C 6 -10 5 -4 0 0 Z", transform: `rotate(${turn * 90})` }));
+    }
+    svg.appendChild(blades);
+    svg.appendChild(svgEl("circle", { r: "1.8", fill: "var(--card)" }));
+    if (row.turnSeconds > 0) {
+      svg.classList.add("spinning");
+      svg.style.setProperty("--turn", `${row.turnSeconds}s`);
+    }
+    return svg;
+  }
+  if (row.kind === "uptime" && row.ring) {
+    const circumference = 2 * Math.PI * 9;
+    const svg = svgEl("svg", { viewBox: "-12 -12 24 24", class: "vital-ring" });
+    svg.appendChild(svgEl("circle", { r: "9", class: "vital-ring-track" }));
+    svg.appendChild(svgEl("circle", {
+      r: "9",
+      class: "vital-ring-fill",
+      "stroke-dasharray": `${(row.ring.fill * circumference).toFixed(2)} ${circumference.toFixed(2)}`,
+      transform: "rotate(-90)",
+    }));
+    const days = svgEl("text", { class: "vital-ring-days", "text-anchor": "middle", y: "3.2" });
+    days.textContent = `${row.ring.days}d`;
+    svg.appendChild(days);
+    return svg;
+  }
+  return null;
+}
+
+function vitalValue(row) {
+  const value = el("div", "vital-value");
+  if (row.rates) {
+    for (const rate of row.rates) value.appendChild(el("span", `vital-rate vital-${rate.dir}`, rate.text));
+  } else if (row.kind === "temp" && row.lines.length) {
+    for (const line of row.lines) value.appendChild(el("span", "vital-line", line));
+  } else {
+    value.textContent = row.value;
+    if (row.value === NOT_AVAILABLE) value.classList.add("vital-na");
+  }
+  return value;
+}
+
 function renderHealth(stats) {
-  const list = document.querySelector("#host-stats [data-host-health]");
-  if (!list) return;
-  list.hidden = !stats;
+  const grid = document.querySelector("#host-stats [data-host-health]");
+  if (!grid) return;
+  grid.hidden = !stats;
   if (!stats) return;
-  list.textContent = "";
-  for (const { label, value } of healthView(stats)) {
-    const term = document.createElement("dt");
-    term.textContent = label;
-    const detail = document.createElement("dd");
-    detail.textContent = value;
-    list.append(term, detail);
+  grid.textContent = "";
+  const rows = healthView(stats);
+  if (rows.every((row) => row.value === NOT_AVAILABLE)) {
+    grid.appendChild(el("span", "vital-none", "Host vitals not available"));
+    return;
+  }
+  for (const row of rows) {
+    const tile = el("div", "vital");
+    const head = el("div", "vital-head");
+    head.appendChild(el("span", "vital-label", row.label));
+    const graphic = vitalGraphic(row);
+    if (graphic) {
+      graphic.setAttribute("aria-hidden", "true");
+      head.appendChild(graphic);
+    }
+    tile.append(head, vitalValue(row));
+    grid.appendChild(tile);
   }
 }
 

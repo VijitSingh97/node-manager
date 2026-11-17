@@ -587,8 +587,16 @@ EOF
     awk '{ printf "uptime_s %.0f\n", $1 }' "$proc_root/uptime" 2>/dev/null
     printf '%s\n' "$net_rates"
   )
-  fans=$(cat "$sys_root"/class/hwmon/hwmon*/fan*_input "$sys_root"/class/hwmon/hwmon*/device/fan*_input 2>/dev/null |
-    awk '/^[0-9]+$/ { printf "%s%s", sep, $1; sep = " " }')
+  fan_pairs=$(for fan in "$sys_root"/class/hwmon/hwmon*/fan*_input "$sys_root"/class/hwmon/hwmon*/device/fan*_input; do
+    [ -f "$fan" ] || continue
+    rpm=$(cat "$fan" 2>/dev/null) || continue
+    case $rpm in (''|*[!0-9]*) continue ;; esac
+    max=$(cat "${fan%_input}_max" 2>/dev/null || true)
+    case $max in (''|*[!0-9]*) max=0 ;; esac
+    printf '%s %s\n' "$rpm" "$max"
+  done)
+  fans=$(printf '%s\n' "$fan_pairs" | awk 'NF { printf "%s%s", sep, $1; sep = " " }')
+  fans_max=$(printf '%s\n' "$fan_pairs" | awk 'NF { printf "%s%s", sep, $2; sep = " " }')
   host_disks=$(df -P -B1 2>/dev/null | awk 'NR > 1 && $1 ~ /^\/dev\//')
   disk_labels=$(printf '%s\n' "$host_disks" | awk '{print $1}' | sort -u | while read -r dev; do
     [ -b "$dev" ] || continue
@@ -694,7 +702,7 @@ EOF
         } + (([$group[].label | select(. != null)] | .[0]) as $label | if $label then {label: $label} else {} end))
       )} +
       (rows($health) | map({(.[0]): (.[1] | tonumber? // empty)}) | add // {}) +
-      (if $fans == "" then {} else {fans_rpm: ($fans | split(" ") | map(tonumber))} end)' --arg hostdisks "$host_disks" --arg nodedirs "$node_dirs" --arg nodesizes "$node_sizes" --arg containers "$containers" --arg failed "$failed_starts" --arg disklabels "$disk_labels" --arg health "$health" --arg fans "$fans") || return 0
+      (if $fans == "" then {} else {fans_rpm: ($fans | split(" ") | map(tonumber))} + (if ($fansmax | split(" ") | map(tonumber) | any(. > 0)) then {fans_max_rpm: ($fansmax | split(" ") | map(tonumber))} else {} end) end)' --arg hostdisks "$host_disks" --arg nodedirs "$node_dirs" --arg nodesizes "$node_sizes" --arg containers "$containers" --arg failed "$failed_starts" --arg disklabels "$disk_labels" --arg health "$health" --arg fans "$fans" --arg fansmax "$fans_max") || return 0
   [ -n "$payload" ] || return 0
   printf '%s' "$payload" | "$docker_bin" exec -i -u 1000 "$dashboard" sh -c 'umask 077; cat > /state/host-stats.json.tmp && mv /state/host-stats.json.tmp /state/host-stats.json' 2>/dev/null || true
 }

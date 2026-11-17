@@ -22,10 +22,10 @@
   <aside id="update-notice" class="update-notice update-notice-global" role="status"{{if not .UpdateNote}} hidden{{end}}>{{if .UpdateNote}}<strong>🆕 {{.UpdateNote}}</strong> <a href="https://github.com/VijitSingh97/node-manager#updating" target="_blank" rel="noopener noreferrer">How to update</a>{{end}}</aside>
   <main id="node-overview" class="node-overview" aria-label="Choose a node">
     <div id="host-stats" class="host-stats" hidden>
+      <div class="host-stats-health" data-host-health role="group" aria-label="Host vitals" hidden></div>
       <p class="host-stats-line" data-host-line></p>
       <div class="host-stats-disk" data-host-disk></div>
       <div class="host-stats-pies" data-host-pies hidden></div>
-      <dl class="host-stats-health" data-host-health hidden></dl>
     </div>
     <h1 class="node-set-title">{{.NodeName}} Node Set</h1><p id="node-overview-status" role="status">Loading node set…</p>
     <button class="node-choice node-choice-bitcoin" type="button" data-select-node="bitcoin" hidden data-node-active="1" style="--node-accent:#f2a900" aria-label="Bitcoin" aria-controls="bitcoin-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Bitcoin</b><small data-tower-price-asset="bitcoin">Price unavailable</small></span></button>
@@ -89,10 +89,10 @@
   <aside id="update-notice" class="update-notice update-notice-global" role="status"{{if not .UpdateNote}} hidden{{end}}>{{if .UpdateNote}}<strong>🆕 {{.UpdateNote}}</strong> <a href="https://github.com/VijitSingh97/node-manager#updating" target="_blank" rel="noopener noreferrer">How to update</a>{{end}}</aside>
   <main id="node-overview" class="node-overview" aria-label="Choose a node">
     <div id="host-stats" class="host-stats" hidden>
+      <div class="host-stats-health" data-host-health role="group" aria-label="Host vitals" hidden></div>
       <p class="host-stats-line" data-host-line></p>
       <div class="host-stats-disk" data-host-disk></div>
       <div class="host-stats-pies" data-host-pies hidden></div>
-      <dl class="host-stats-health" data-host-health hidden></dl>
     </div>
     <h1 class="node-set-title">{{.NodeName}} Node Set</h1><p id="node-overview-status" role="status">Loading node set…</p>
     <button class="node-choice node-choice-bitcoin" type="button" data-select-node="bitcoin" hidden data-node-active="1" style="--node-accent:#f2a900" aria-label="Bitcoin" aria-controls="bitcoin-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Bitcoin</b><small data-tower-price-asset="bitcoin">Price unavailable</small></span></button>

@@ -559,6 +559,7 @@ for iface in lo enp3s0f0 wlp2s0 tailscale0 docker0 br-26404e166c9c veth559171e; 
 mkdir -p "$host_sys/class/hwmon/hwmon1" "$host_sys/class/hwmon/hwmon2/device" "$host_sys/class/hwmon/hwmon3"
 printf 'coretemp\n' >"$host_sys/class/hwmon/hwmon1/name"
 printf '2506\n' >"$host_sys/class/hwmon/hwmon2/device/fan1_input"
+printf '4825\n' >"$host_sys/class/hwmon/hwmon2/device/fan1_max"
 printf '0\n' >"$host_sys/class/hwmon/hwmon3/fan2_input"
 printf '59000\n' >"$case_root/zones/0/temp"; printf 'x86_pkg_temp\n' >"$case_root/zones/0/type"
 printf '45000\n' >"$case_root/zones/1/temp"; printf 'acpitz\n' >"$case_root/zones/1/type"
@@ -580,13 +581,13 @@ PATH="$tmp/bin:$PATH" run_profile
 unset RESOURCE_CGROUP_ROOT FAKE_CGROUP_NEXT
 jq -e '.host_cpu_pct == 30 and .nodes.monero.cpu_pct == 30' "$tmp/host-stats-payload.json" >/dev/null ||
   fail "container CPU was not measured over the host CPU window: $(jq -c '{host_cpu_pct, monero: .nodes.monero.cpu_pct}' "$tmp/host-stats-payload.json")"
-jq -e '.cpu_temp_c == 59 and .board_temp_c == 45 and .fans_rpm == [0, 2506] and .uptime_s == 1002 and .net_rx_bps == 3000 and .net_tx_bps == 500' "$tmp/host-stats-payload.json" >/dev/null ||
+jq -e '.cpu_temp_c == 59 and .board_temp_c == 45 and .fans_rpm == [0, 2506] and .fans_max_rpm == [0, 4825] and .uptime_s == 1002 and .net_rx_bps == 3000 and .net_tx_bps == 500' "$tmp/host-stats-payload.json" >/dev/null ||
   fail "host health readings are wrong: $(jq -c '{cpu_temp_c, board_temp_c, fans_rpm, uptime_s, net_rx_bps, net_tx_bps}' "$tmp/host-stats-payload.json")"
 ! grep -Eq 'enp3s0f0|wlp2s0|tailscale0|docker0|veth|iwlwifi|coretemp' "$tmp/host-stats-payload.json" || fail "host stats leaked interface or sensor names"
 mkdir -p "$case_root/empty"
 export RESOURCE_PROC_ROOT=$case_root/empty RESOURCE_SYS_ROOT=$case_root/empty RESOURCE_THERMAL_GLOB="$case_root/empty/none*/temp"
 run_profile
-jq -e '.cpus == 4 and ([has("cpu_temp_c", "board_temp_c", "fans_rpm", "uptime_s", "net_rx_bps", "net_tx_bps")] | any | not)' "$tmp/host-stats-payload.json" >/dev/null ||
+jq -e '.cpus == 4 and ([has("cpu_temp_c", "board_temp_c", "fans_rpm", "fans_max_rpm", "uptime_s", "net_rx_bps", "net_tx_bps")] | any | not)' "$tmp/host-stats-payload.json" >/dev/null ||
   fail "missing sensors were not left out of the host stats payload"
 unset RESOURCE_PROC_ROOT RESOURCE_SYS_ROOT RESOURCE_THERMAL_GLOB FAKE_PROC_NEXT FAKE_HOST_STATS_OUT
 

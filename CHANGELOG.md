@@ -8,6 +8,13 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
+- Host vitals redesign: the Node Manager usage panel now shows Temperature,
+  Fan, Uptime and Network as four tiles above the disk bars. Temperature has a
+  dot that runs from blue to red up to the 88 °C throttle limit, the fan icon
+  spins in proportion to rpm over the fan's maximum (still at 0 rpm), uptime has
+  a ring that fills over each day, and network down and up are green and blue.
+  The collector now reports each fan's maximum (`fans_max_rpm`, from hwmon
+  `fanN_max`). Animations stop when the system asks for reduced motion.
 - Instant Bitcoin Cash balances: `bitcoincash.utxo_index` (Settings → Balance
   index → "Instant Bitcoin Cash balances") keeps a Bitcoin Cash balance index, and
   the Bitcoin Cash watch-only card reads its balances from it once it is at the
