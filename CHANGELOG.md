@@ -28,9 +28,10 @@ All notable changes to this project are documented here. Format follows
   on its next run. It now finds the current dashboard container for every
   write.
 - Exposing a node's RPC, ZMQ or gRPC port on the LAN failed with "Port
-  availability could not be checked." on hosts running Tailscale. The port check
-  could not read listeners that `ss` prints with an interface scope, such as
-  `[fd7a:…]%tailscale0:56603`, so it refused every change. It now reads them, and an
+  availability could not be checked." on any host with a listener that `ss`
+  prints with an interface scope, such as Tailscale's `[fd7a:…]%tailscale0:56603`
+  or a link-local service. The port check could not read such lines, so it
+  refused every change. It now reads them, and an
   IPv4 listener written as `address%interface:port` is still caught as a port in
   use.
 - A node that fails to start no longer restarts forever. With launch at boot
@@ -138,6 +139,15 @@ All notable changes to this project are documented here. Format follows
 - A **Seed now** button on the balance index card and in Settings → Balance
   index starts a seed through the host helper when the index needs one. The
   `utxo-seed` command is shown only where host controls are unavailable.
+- UI flow tests drive the real dashboard in headless Chrome: they flip every
+  Settings control on and off through the page, save, and check both what the
+  server or host helper received and what the reopened dialog shows, covering
+  appearance, Telegram, Healthchecks, health endpoints, new-block alerts, the
+  host switches and balance indexes (including a cancelled turn-off), Run new
+  config, Install and Move data staging, and node Activate, Deactivate and Start.
+  They run in CI as a "UI flows" step; see CONTRIBUTING.md. This is the first
+  phase: the password form, LAN ports, credential reveal, sign out, theme toggle,
+  per-card currency selects and wallet add and remove are not covered yet.
 - A node whose container is stopped outside the dashboard (`node-manager stop`,
   `docker stop`, a crash that exhausted its restarts) now shows its tower greyed
   with a Stopped status and a Start node button instead of Connecting forever.

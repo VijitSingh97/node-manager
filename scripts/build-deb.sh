@@ -70,7 +70,7 @@ for service in tor dashboard monero tari-wallet litecoin dogecoin bitcoincash; d
   mv "$compose_file.pinned" "$compose_file"
 done
 cp -R build "$root/"
-rm -rf "$root/build/dashboard/tests" "$root/build/dashboard/parity" \
+rm -rf "$root/build/dashboard/tests" "$root/build/dashboard/parity" "$root/build/dashboard/ui" \
   "$root/build/dashboard/.pytest_cache" "$root/build/dashboard/__pycache__"
 find "$root/build/dashboard" -name '*_test.go' -delete
 find "$root/build/tari-wallet" -name '*_test.go' -delete
