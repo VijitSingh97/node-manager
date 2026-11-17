@@ -533,7 +533,7 @@ case "$args" in
   *' ps -aq '*'service=bitcoin'* | *' ps -aq '*'service=litecoin'*) [ "${FAKE_BITCOIN_DOWN:-0}" = 1 ] || echo node-id ;;
   *' ps -aq '*'service=dashboard'*) echo dashboard-id ;;
   *' inspect --format {{.State.Running}} '*) echo true ;;
-  *' exec -T bitcoin bitcoin-cli -datadir=/data getrpcinfo '* | *' exec -T litecoin litecoin-cli -datadir=/data getrpcinfo '*)
+  *' exec -T bitcoin bitcoin-cli -datadir=/data getrpcinfo '* | *' exec -T litecoin litecoin-cli -datadir=/data -conf=/tmp/litecoin.conf getrpcinfo '*)
     [ "${FAKE_RPC_FAIL:-0}" != 1 ] || exit 1
     rn=$(($(cat "$FAKE_UTXO/rpc_n" 2>/dev/null || echo 0) + 1))
     echo "$rn" >"$FAKE_UTXO/rpc_n"
@@ -930,7 +930,7 @@ lseed utxo-seed litecoin -y </dev/null >"$tmp/lseed.out" 2>&1 || {
 }
 grep -q 'Seeding the Litecoin balance index' "$tmp/lseed.out" || fail "utxo-seed litecoin did not print its own warning"
 grep -q 'Seed finished' "$tmp/lseed.out" || fail "utxo-seed litecoin did not report success"
-grep -q ' exec -T litecoin litecoin-cli -datadir=/data getrpcinfo' "$FAKE_LOG" || fail "utxo-seed litecoin did not ask litecoind for running commands"
+grep -q ' exec -T litecoin litecoin-cli -datadir=/data -conf=/tmp/litecoin.conf getrpcinfo' "$FAKE_LOG" || fail "utxo-seed litecoin did not ask litecoind for running commands"
 grep -q ' exec -T litecoin mkfifo -m 600 /data/utxo-seed.dat.incomplete' "$FAKE_LOG" || fail "utxo-seed litecoin did not make the FIFO in the litecoin container"
 grep -q 'cat > /state/.litecoin-utxo-seed.request.tmp' "$FAKE_LOG" || fail "utxo-seed litecoin did not write its prefixed request"
 grep -q ' exec -T bitcoin ' "$FAKE_LOG" && fail "utxo-seed litecoin touched the bitcoin container"

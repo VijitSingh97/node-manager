@@ -276,10 +276,11 @@ guard_package_containers() {
 }
 utxo_select_chain() {
   utxo_chain=$1 utxo_arg='' utxo_prefix='' utxo_overlay=docker-compose.utxo-index.yml utxo_volume=utxo_index
-  utxo_cli=bitcoin-cli utxo_daemon=bitcoind utxo_name=Bitcoin
+  utxo_cli=bitcoin-cli utxo_conf='' utxo_daemon=bitcoind utxo_name=Bitcoin
+  # The family images write their RPC credentials to /tmp/<bin>.conf, not the data directory.
   if [ "$1" = litecoin ]; then
     utxo_arg="litecoin " utxo_prefix=litecoin- utxo_overlay=docker-compose.litecoin-utxo-index.yml utxo_volume=utxo_index_litecoin
-    utxo_cli=litecoin-cli utxo_daemon=litecoind utxo_name=Litecoin
+    utxo_cli=litecoin-cli utxo_conf=-conf=/tmp/litecoin.conf utxo_daemon=litecoind utxo_name=Litecoin
   fi
 }
 utxo_select_chain bitcoin
@@ -298,7 +299,7 @@ utxo_seed_running() {
 }
 
 utxo_seed_rpc_methods() {
-  compose exec -T "$utxo_chain" "$utxo_cli" -datadir=/data getrpcinfo 2>/dev/null | jq -r '.active_commands[].method'
+  compose exec -T "$utxo_chain" "$utxo_cli" -datadir=/data ${utxo_conf:+"$utxo_conf"} getrpcinfo 2>/dev/null | jq -r '.active_commands[].method'
 }
 
 utxo_seed_status() {
