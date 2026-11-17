@@ -663,13 +663,14 @@ if [ "$utxo_index" = "1" ]; then
   compose_file=$compose_file:docker-compose.utxo-index.yml
   echo "bitcoin.utxo_index is on: ./stack apply recreates the dashboard with a utxo_index volume, a 1g memory limit and 0.5 CPU. bitcoind is not restarted. The first seed takes about 20 minutes and the index uses about 7.5 GiB, up to about 17 GiB while it seeds."
 fi
-if [ "$bitcoincash_utxo_index" = "1" ]; then
-  compose_file=$compose_file:docker-compose.bitcoincash-utxo-index.yml
-  echo "bitcoincash.utxo_index is on: ./stack apply recreates the dashboard with a utxo_index_bitcoincash volume, a 1g memory limit and 0.5 CPU. The Bitcoin Cash node is not restarted. Once it has synced, the index replays every block from genesis, a one-time job whose mainnet duration is not measured yet."
-fi
 if [ "$litecoin_utxo_index" = "1" ]; then
   compose_file=$compose_file:docker-compose.litecoin-utxo-index.yml
   echo "litecoin.utxo_index is on: ./stack apply recreates the dashboard with a utxo_index_litecoin volume, a 1g memory limit and 0.5 CPU. litecoind is not restarted. Its seed time and size on mainnet are not measured yet."
+fi
+# Compose keeps the last file's mem_limit, so the Bitcoin Cash overlay's 2g must come after the 1g overlays.
+if [ "$bitcoincash_utxo_index" = "1" ]; then
+  compose_file=$compose_file:docker-compose.bitcoincash-utxo-index.yml
+  echo "bitcoincash.utxo_index is on: ./stack apply recreates the dashboard with a utxo_index_bitcoincash volume, a 2g memory limit with GOMEMLIMIT 1600MiB, and 0.5 CPU. The Bitcoin Cash node is not restarted. Once it has synced, the index replays every block from genesis, a one-time job whose mainnet duration is not measured yet."
 fi
 compose_profiles=
 append_profile() { [ -z "$compose_profiles" ] || compose_profiles=$compose_profiles,; compose_profiles=${compose_profiles}$1; }

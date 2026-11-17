@@ -113,6 +113,17 @@ and update within a minute of each block; until then the scan answers. Outputs
 that carry CashTokens count their BCH like any other output; token amounts are
 not shown. A pruned Bitcoin Cash node keeps the hourly scan.
 
+With the Bitcoin Cash index on, the dashboard's memory limit is 2 GiB, with
+`GOMEMLIMIT=1600MiB`, instead of the 1 GiB the Bitcoin and Litecoin indexes set.
+The limit is a cap, not memory set aside. On ordinary blocks the dashboard stays
+near what it uses today; Bitcoin Cash mainnet has not been measured, and the
+Bitcoin index peaked at 0.25 GiB RSS (#217). It only climbs while it applies a block
+of tens of MB. On regtest, replaying four 31 MB blocks peaked at about 953 MiB of
+live heap and 1.49 GiB RSS; the same replay was killed under a 1 GiB limit. Bitcoin
+Cash Node, on regtest defaults, peaked at about 1.22 GiB serving those blocks. A
+host replaying such blocks therefore needs about 2.7 GiB of RAM for the two
+(the two peaks added), plus whatever else it runs.
+
 Fresh state includes two sourced public examples:
 
 - **Linux Mint** for Litecoin, from its

@@ -1,8 +1,9 @@
 services:
   dashboard:
-    mem_limit: 1g
+    mem_limit: 2g
     cpus: 0.5
     environment:
+      GOMEMLIMIT: 1600MiB
       BITCOINCASH_UTXO_INDEX_ENABLED: "1"
       BITCOINCASH_UTXO_INDEX_DIR: /utxo-index-bitcoincash
     volumes:
