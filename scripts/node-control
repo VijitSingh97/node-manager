@@ -352,11 +352,13 @@ delete_data_dir_check() {
     [ "$check_rest" != "$check_part" ] || break
     check_rest=${check_rest#*/}
   done
-  [ -e "$check_path" ] || return 0
-  [ -d "$check_path" ] || return 1
-  check_canonical=$(cd "$check_path" 2>/dev/null && pwd -P) || return 1
-  [ "$check_canonical" = "$check_path" ] && [ "$check_canonical" != / ] || return 1
-  [ -w "$check_canonical" ] || return 1
+  check_canonical=$check_path
+  if [ -e "$check_path" ]; then
+    [ -d "$check_path" ] || return 1
+    check_canonical=$(cd "$check_path" 2>/dev/null && pwd -P) || return 1
+    [ "$check_canonical" = "$check_path" ] && [ -w "$check_canonical" ] || return 1
+  fi
+  [ "$check_canonical" != / ] || return 1
   check_docker=$("$docker_bin" info --format '{{.DockerRootDir}}' 2>/dev/null || true)
   for check_root in "$stack_root" "$state_root" "$config_root" "${HOME:-}"; do
     [ -n "$check_root" ] && [ -d "$check_root" ] || continue
@@ -379,7 +381,7 @@ delete_data_dir_check() {
     [ "$check_other" != "$check_node" ] || continue
     ! delete_path_overlaps "$check_canonical" "$(delete_configured_dir "$check_other")" || return 1
   done
-  printf '%s\n' "$check_canonical"
+  [ ! -e "$check_canonical" ] || printf '%s\n' "$check_canonical"
 }
 delete_node_data() {
   wipe_node=$1

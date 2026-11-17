@@ -742,7 +742,8 @@ config_real=$(cd "$config" && pwd -P)
 mkdir -p "$state_real/node-control" "$root_real/scripts" "$config_real/protected"
 ln -s "$del_base/monero" "$tmp/data-link"
 for unsafe in "$tmp/data-link" "$state_real" "$HOME" / "$del_base" "$del_base/monero" "$del_base/litecoin/" "$del_base/./litecoin" /var/lib/docker \
-  "$state_real/node-control" "$root_real/scripts" "$config_real/protected"; do
+  "$state_real/node-control" "$root_real/scripts" "$config_real/protected" \
+  "$root_real/missing-folder" "$state_real/missing-folder" "$del_base/monero/missing-folder"; do
   delete_setup
   jq --arg d "$unsafe" '.litecoin.data_dir=$d' "$config/config.json" >"$tmp/config.delete"
   write_config "$tmp/config.delete"
