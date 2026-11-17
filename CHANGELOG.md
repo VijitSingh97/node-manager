@@ -8,6 +8,12 @@ All notable changes to this project are documented here. Format follows
 
 ### Fixed
 
+- Saving LAN port changes, or resetting a node's RPC password, reported
+  "Request already processed." even though the change applied. Both recreate
+  the dashboard, and the host helper then wrote its result into the old
+  dashboard container, failed, and left the request to be seen again as a replay
+  on its next run. It now finds the current dashboard container for every
+  write.
 - Exposing a node's RPC, ZMQ or gRPC port on the LAN failed with "Port
   availability could not be checked." on any host with a listener that `ss`
   prints with an interface scope, such as Tailscale's `[fd7a:…]%tailscale0:56603`
@@ -48,15 +54,21 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
-- UI flow tests drive the real dashboard in headless Chrome: they flip every
-  Settings control on and off through the page, save, and check both what the
-  server or host helper received and what the reopened dialog shows, covering
-  appearance, Telegram, Healthchecks, health endpoints, new-block alerts, the
-  host switches and balance indexes (including a cancelled turn-off), Run new
-  config, Install and Move data staging, and node Activate, Deactivate and Start.
-  They run in CI as a "UI flows" step; see CONTRIBUTING.md. This is the first
-  phase: the password form, LAN ports, credential reveal, sign out, theme toggle,
-  per-card currency selects and wallet add and remove are not covered yet.
+- Settings → Node set has a **Delete…** button next to **Move data…** that
+  removes a deactivated node so it can be installed again from scratch. It is
+  disabled for an active node, a node that is not installed, and the last
+  installed node. A dialog warns that the step cannot be undone, names the data
+  folder, balance-index or wallet volumes, configuration and credentials, and
+  watch-only wallets with their saved balances and history that will go, and
+  needs the node's name typed before it enables **Delete on Save**. The host
+  re-checks the request, applies the smaller configuration first (a failed apply
+  restores the old one and deletes nothing), refuses unsafe data folders
+  (symbolic links, `/`, your home, the app, state, config or Docker
+  directories, another node's folder), then removes the node's containers,
+  volumes and data, clears its resource-profile and seed state, and logs a
+  `Host: <Node> deleted` event. The dashboard drops that coin's watch-only
+  wallets and balance history and keeps retrying across restarts; a failed
+  handoff of that removal to the dashboard is retried on the next helper run.
 - Instant Litecoin balances: `litecoin.utxo_index` (Settings → Balance index →
   "Instant Litecoin balances") keeps a Litecoin balance index, and the Litecoin
   watch-only card reads its balances from it once it is seeded, updating within a
@@ -79,6 +91,15 @@ All notable changes to this project are documented here. Format follows
 - A **Seed now** button on the balance index card and in Settings → Balance
   index starts a seed through the host helper when the index needs one. The
   `utxo-seed` command is shown only where host controls are unavailable.
+- UI flow tests drive the real dashboard in headless Chrome: they flip every
+  Settings control on and off through the page, save, and check both what the
+  server or host helper received and what the reopened dialog shows, covering
+  appearance, Telegram, Healthchecks, health endpoints, new-block alerts, the
+  host switches and balance indexes (including a cancelled turn-off), Run new
+  config, Install and Move data staging, and node Activate, Deactivate and Start.
+  They run in CI as a "UI flows" step; see CONTRIBUTING.md. This is the first
+  phase: the password form, LAN ports, credential reveal, sign out, theme toggle,
+  per-card currency selects and wallet add and remove are not covered yet.
 - A node whose container is stopped outside the dashboard (`node-manager stop`,
   `docker stop`, a crash that exhausted its restarts) now shows its tower greyed
   with a Stopped status and a Start node button instead of Connecting forever.

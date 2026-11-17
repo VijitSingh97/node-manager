@@ -10,7 +10,13 @@ fail() {
 repo=$PWD
 system_path=$PATH
 tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+cleanup() {
+  for pid_file in "$tmp"/*/state/.host-service.pid; do
+    [ ! -f "$pid_file" ] || kill "$(cat "$pid_file")" 2>/dev/null || true
+  done
+  rm -rf "$tmp"
+}
+trap cleanup EXIT
 fake_bin=$tmp/bin
 mkdir "$fake_bin"
 
@@ -89,7 +95,7 @@ exit 1
 EOF
 cat >"$fake_bin/crontab" <<'EOF'
 #!/bin/sh
-cat >/dev/null || true
+[ "${1:-}" != - ] || cat >/dev/null || true
 exit 1
 EOF
 cat >"$fake_bin/pgrep" <<'EOF'
