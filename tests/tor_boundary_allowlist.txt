@@ -1,0 +1,17 @@
+# Every network-capable command in the host scripts, entrypoints, Dockerfiles and compose files that
+# the Tor boundary test cannot prove is loopback-only, Tor-routed, or offline. Format:
+#   path | command | count | class | reason
+# Classes: install-time (package or image download, never application traffic), release-ci (runs
+# only in the maintainer's release pipeline), dev-tool (maintainer workstation only).
+# A new command, or a changed count, fails tests/test_tor_boundary.py until it is listed here.
+build/bitcoin-family/Dockerfile | apt | 1 | install-time | Image build installs pinned Debian packages; users pull the prebuilt image.
+build/bitcoin-family/Dockerfile | curl | 3 | install-time | Image build downloads each node release tarball and verifies its pinned SHA-256.
+build/monero/Dockerfile | apt | 1 | install-time | Image build installs Debian packages; users pull the prebuilt image.
+build/monero/Dockerfile | curl | 1 | install-time | Image build downloads the Monero release and verifies its pinned SHA-256.
+build/tor/Dockerfile | apt | 1 | install-time | Image build installs pinned Alpine packages for Tor, netcat and socat.
+build/dashboard/Dockerfile | go | 1 | install-time | Image build downloads the pinned Go module set.
+stack | compose pull | 1 | install-time | stack pull downloads container images with the host Docker settings.
+scripts/node-control | stack pull | 1 | install-time | Node install downloads a missing node image with the host Docker settings.
+scripts/release.sh | git | 2 | dev-tool | Maintainer checks and pushes the release tag.
+scripts/release.sh | gh | 1 | dev-tool | Maintainer reads CI status before tagging.
+scripts/resolve-runtime-images.sh | docker build | 1 | release-ci | Release pipeline reads published image digests from the registry.

@@ -30,7 +30,7 @@ tests/test_tor_supervisor.sh
 tests/test_e2e.sh
 tests/test_upgrade.sh
 tests/test_postsync.sh
-python3 -m unittest tests.test_developer_bot
+python3 -m unittest tests.test_developer_bot tests.test_tor_boundary
 
 if command -v go >/dev/null; then
   (

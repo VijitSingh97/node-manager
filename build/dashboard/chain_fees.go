@@ -43,7 +43,7 @@ func (a *app) sampleAdditionalFee(ctx context.Context, id string, node nodeConfi
 	if !a.nodeWorkerRunnable(id, true) {
 		return
 	}
-	rpc := &rpcClient{url: node.RPCURL, user: node.RPCUser, password: node.RPCPassword, client: &http.Client{Timeout: 5 * time.Second}}
+	rpc := &rpcClient{url: node.RPCURL, user: node.RPCUser, password: node.RPCPassword, client: newInternalHTTPClient(5 * time.Second)}
 	if node.Protocol == "zcash-json-rpc" {
 		rpc.user, rpc.password, rpc.cookiePath = "", "", node.RPCCookiePath
 		var chain zcashBlockchainInfo

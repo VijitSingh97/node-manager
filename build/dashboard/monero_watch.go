@@ -112,8 +112,8 @@ func NewMoneroWatchStore(cfg config) *MoneroWatchStore {
 		path: filepath.Join(cfg.stateDir, "monero_watch.json"), enabled: cfg.moneroWalletEnabled,
 		password: cfg.moneroWalletPassword, gate: make(chan struct{}, 1), queue: make(chan string, maxMoneroWatchWallets), now: time.Now,
 		// incoming_transfers lists every output (the example wallet's ~8,500 are 3.8 MB), up to the 100,000 refresh accepts.
-		rpc:    moneroRPC{url: cfg.moneroWalletRPCURL, user: cfg.moneroWalletRPCUser, password: cfg.moneroWalletRPCPassword, maxBody: 64 << 20, client: &http.Client{Timeout: moneroRefreshTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}},
-		daemon: moneroRPC{url: cfg.moneroRPCURL, user: cfg.moneroRPCUser, password: cfg.moneroRPCPassword, client: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}},
+		rpc:    moneroRPC{url: cfg.moneroWalletRPCURL, user: cfg.moneroWalletRPCUser, password: cfg.moneroWalletRPCPassword, maxBody: 64 << 20, client: newInternalHTTPClient(moneroRefreshTimeout)},
+		daemon: moneroRPC{url: cfg.moneroRPCURL, user: cfg.moneroRPCUser, password: cfg.moneroRPCPassword, client: newInternalHTTPClient(10 * time.Second)},
 	}
 	s.gate <- struct{}{}
 	if err := chmodExistingFile(s.path, 0600); err != nil && !errors.Is(err, os.ErrNotExist) {

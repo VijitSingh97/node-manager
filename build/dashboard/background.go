@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"math"
-	"net/http"
 	"sync"
 	"time"
 )
@@ -192,9 +191,7 @@ func (a *app) healthMonero(parent context.Context) map[string]any {
 	defer cancel()
 	rpc := moneroRPC{
 		url: a.cfg.moneroRPCURL, user: a.cfg.moneroRPCUser, password: a.cfg.moneroRPCPassword,
-		client: &http.Client{Timeout: healthRPCTimeout, CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		}},
+		client: newInternalHTTPClient(healthRPCTimeout),
 	}
 	var info moneroInfo
 	if rpc.call(ctx, "get_info", &info) != nil {
@@ -278,7 +275,7 @@ func (a *app) healthAdditionalNode(parent context.Context, id string, node nodeC
 		a.recordNodeHealth(id, true)
 		return nodeStatusInfo(status)
 	}
-	rpc := &rpcClient{url: node.RPCURL, user: node.RPCUser, password: node.RPCPassword, client: &http.Client{}}
+	rpc := &rpcClient{url: node.RPCURL, user: node.RPCUser, password: node.RPCPassword, client: newInternalHTTPClient(0)}
 	var result map[string]any
 	if rpc.call(ctx, "getblockchaininfo", nil, &result) != nil {
 		a.recordNodeHealth(id, false)

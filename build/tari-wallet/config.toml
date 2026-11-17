@@ -30,9 +30,7 @@ public_addresses = []
 type = "tor"
 
 [wallet.p2p.transport.tor]
-control_address = "/ip4/172.29.0.25/tcp/9051"
 socks_address_override = "/ip4/172.29.0.25/tcp/9050"
-control_auth = "auto"
 proxy_bypass_for_outbound_tcp = false
 proxy_bypass_addresses = []
 onion_port = 18141

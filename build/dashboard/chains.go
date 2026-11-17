@@ -259,7 +259,7 @@ func (a *app) apiAdditionalNode(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) fetchZcashStatus(ctx context.Context, node nodeConfig, status genericNodeStatus) (genericNodeStatus, error) {
-	rpc := &rpcClient{url: node.RPCURL, cookiePath: node.RPCCookiePath, client: &http.Client{Timeout: 5 * time.Second}}
+	rpc := &rpcClient{url: node.RPCURL, cookiePath: node.RPCCookiePath, client: newInternalHTTPClient(5 * time.Second)}
 	var chain zcashBlockchainInfo
 	if err := rpc.call(ctx, "getblockchaininfo", nil, &chain); err != nil {
 		return status, err
@@ -339,7 +339,7 @@ func (a *app) writeZcashStatus(w http.ResponseWriter, r *http.Request, node node
 func (a *app) writeBitcoinFamilyStatus(w http.ResponseWriter, r *http.Request, node nodeConfig, status genericNodeStatus) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	rpc := &rpcClient{url: node.RPCURL, user: node.RPCUser, password: node.RPCPassword, client: &http.Client{Timeout: 5 * time.Second}}
+	rpc := &rpcClient{url: node.RPCURL, user: node.RPCUser, password: node.RPCPassword, client: newInternalHTTPClient(5 * time.Second)}
 	var chain familyBlockchainInfo
 	if rpc.call(ctx, "getblockchaininfo", nil, &chain) != nil {
 		a.recordNodeHealth(node.ID, false)
