@@ -30,6 +30,12 @@ All notable changes to this project are documented here. Format follows
   Dogecoin, Bitcoin Cash and Zcash as well as Bitcoin and Monero) and checks that
   none can reach the internet or resolve a public name while Tor is stopped.
 
+### Fixed
+
+- Turning Launch at boot off on an APT install no longer fails with "Launch
+  setting is already in that state", and a Settings change that is already in
+  effect no longer drops the changes queued after it, such as a node delete.
+
 ## [1.37.0] - 2026-11-17
 
 ### Added
