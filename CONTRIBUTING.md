@@ -27,6 +27,37 @@ Anything the machine can't run is skipped with a `SKIP:` line. CI
 ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the same suite
 plus a full image build on every push and PR.
 
+### Dashboard UI flow tests
+
+`build/dashboard/ui/*.test.mjs` drive the compiled dashboard through the real
+page in headless Chrome, with no dependencies beyond Node 22 (built-in
+`WebSocket` and `fetch`). Each flow starts its own dashboard against a fake
+Bitcoin RPC and a temporary state directory, signs in through `/login`, clicks
+and types with real input events, and checks the files the dashboard writes
+(`notification_settings.json`, `node-control.request`) as well as the page. A
+small fake host helper in `ui/harness.mjs` consumes the request files and updates
+the capability and status files the way the installed helper does.
+
+```bash
+node --test "build/dashboard/ui/*.test.mjs"          # builds the dashboard with Go
+DASHBOARD_BIN=/tmp/dashboard node --test "build/dashboard/ui/*.test.mjs"   # reuse a built binary
+CHROME=/path/to/chrome node --test "build/dashboard/ui/*.test.mjs"        # pick a browser
+node --test --test-name-pattern="Telegram" "build/dashboard/ui/*.test.mjs"
+```
+
+Chrome is found from `$CHROME`, `google-chrome`, `google-chrome-stable`,
+`chromium`, or the macOS app. Without Chrome or a dashboard binary the flows skip
+locally with a message; with `CI=true` they fail instead. They are not part of
+`tests/run.sh`: CI runs them in their own "UI flows" step. New flows go in a new
+`*.test.mjs` file using `flow()` from `ui/harness.mjs`.
+
+This is phase 1: the Settings dialog and node Activate, Deactivate and Start.
+Not yet covered through the page: the dashboard password form, the LAN port
+rows, credential reveal and reset, sign out and the `/login` page itself, the
+theme toggle, the per-card currency selects, and wallet add and remove. Without
+`DASHBOARD_BIN` each test file builds its own binary into a temporary directory
+that it removes on exit, so set `DASHBOARD_BIN` to build once.
+
 The UTXO dump parser tests read small regtest fixtures committed in
 `build/dashboard/testdata/utxo/`, so CI and `go test` need no bitcoind. To
 regenerate them from the pinned bitcoin image, or to re-check the harness

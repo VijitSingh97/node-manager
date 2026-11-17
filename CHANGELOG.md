@@ -17,6 +17,15 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
+- UI flow tests drive the real dashboard in headless Chrome: they flip every
+  Settings control on and off through the page, save, and check both what the
+  server or host helper received and what the reopened dialog shows, covering
+  appearance, Telegram, Healthchecks, health endpoints, new-block alerts, the
+  host switches and balance indexes (including a cancelled turn-off), Run new
+  config, Install and Move data staging, and node Activate, Deactivate and Start.
+  They run in CI as a "UI flows" step; see CONTRIBUTING.md. This is the first
+  phase: the password form, LAN ports, credential reveal, sign out, theme toggle,
+  per-card currency selects and wallet add and remove are not covered yet.
 - Instant Litecoin balances: `litecoin.utxo_index` (Settings → Balance index →
   "Instant Litecoin balances") keeps a Litecoin balance index, and the Litecoin
   watch-only card reads its balances from it once it is seeded, updating within a

@@ -77,6 +77,13 @@ jobs:
           python parity/test_http.py
           DASHBOARD_COMMAND='["/tmp/dashboard"]' python parity/test_http.py
 
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - name: UI flows
+        run: DASHBOARD_BIN=/tmp/dashboard node --test "build/dashboard/ui/*.test.mjs"
+
       - name: Frontend unit tests
         run: node --test build/dashboard/static/*.test.mjs
 
