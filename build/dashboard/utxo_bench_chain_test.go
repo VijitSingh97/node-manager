@@ -68,7 +68,21 @@ func (n *benchFakeNode) call(method string, params []any) (any, string) {
 	case "deriveaddresses":
 		desc, _ := params[0].(string)
 		desc, _, _ = strings.Cut(desc, "#")
-		return n.addresses[desc], ""
+		addresses := n.addresses[desc]
+		// bitcoind returns only the requested [lo, hi] range.
+		if len(params) > 1 {
+			bounds, _ := params[1].([]any)
+			if len(bounds) != 2 {
+				return nil, "invalid range"
+			}
+			lo, _ := bounds[0].(float64)
+			hi, _ := bounds[1].(float64)
+			if lo < 0 || hi < lo || int(hi) >= len(addresses) {
+				return nil, "range out of bounds"
+			}
+			return addresses[int(lo) : int(hi)+1], ""
+		}
+		return addresses, ""
 	case "validateaddress":
 		address, _ := params[0].(string)
 		script, ok := n.scripts[address]
