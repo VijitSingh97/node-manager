@@ -245,16 +245,29 @@ first — a live copy of `chainstate/` is corrupt by construction.
   `curl --user admin https://node.example.com/metrics` prompts for the password
   locally. Browsers use session sign-in; use a cookie-free command-line client
   for Basic authentication.
-- **Health and info endpoints:** off by default. Turn on Settings → Health
-  endpoints and press **Save** to serve two JSON endpoints in the style of
-  Spring Boot Actuator. While off, both return 404 to signed-in callers and 401
-  to everyone else. They read state the dashboard already keeps (the node
-  probe that runs about once a minute, the balance index status and the last
-  Tor price fetch), so a request never calls a node.
-  - `GET /actuator/health` answers **without sign-in** with only the overall
-    `status`, so a plain uptime checker can poll it: HTTP 503 for `DOWN`, 200
-    for `UP` or `DEGRADED`. Signed-in callers (a dashboard session, or Basic
-    auth as for `/metrics`) also get `components`:
+- **Health and info endpoints:** off by default. Settings → **Actuator** has
+  two independent switches, **Serve /actuator/health** and **Serve
+  /actuator/info**; press **Save** to apply. They are JSON endpoints in the
+  style of Spring Boot Actuator and read state the dashboard already keeps
+  (the node probe that runs about once a minute, the balance index status and
+  the last Tor price fetch), so a request never calls a node.
+  - **Login.** The dashboard creates an actuator username and a random
+    password (256 bits) once and keeps them in the dashboard state volume
+    (`actuator-credentials.json`, mode 600). Settings → Actuator shows both
+    with a **Copy** button, to signed-in administrators only. Both endpoints
+    always require HTTP Basic auth with exactly this login when switched on.
+    Without it, or with the wrong login, they answer 401 with a
+    `WWW-Authenticate: Basic` challenge. The dashboard `admin` login and a
+    dashboard session do not open them, and there is no anonymous access. A
+    switched-off endpoint answers 404 whatever credentials are sent. Behind
+    `dashboard.public_url`, repeated wrong logins from one client are
+    throttled with a 429 and `Retry-After`, separately from dashboard
+    sign-in. If the file is deleted, unreadable, or readable by group or
+    others, a new password is generated on the next start; update your
+    monitors then. Settings saved before this release with the old single
+    switch on turn both endpoints on after the upgrade.
+  - `GET /actuator/health` returns the overall `status` and `components`: HTTP
+    503 for `DOWN`, 200 for `UP` or `DEGRADED`.
     - `dashboard`: always `UP`.
     - One entry per active node, with `details.state`:
       - `synced`: `UP`.
@@ -274,7 +287,7 @@ first — a live copy of `chainstate/` is corrupt by construction.
 
     The overall status is `DOWN` if any component is `DOWN`, `DEGRADED` if any
     is `DEGRADED`, otherwise `UP`.
-  - `GET /actuator/info` needs sign-in. It returns:
+  - `GET /actuator/info` returns:
     - `app`: `name`, `version`, and `install_kind` (`apt`, `homebrew`,
       `source`, or `unknown` without the host helper).
     - `chains`: one entry per installed node, with `name`, `active` and
@@ -284,15 +297,36 @@ first — a live copy of `chainstate/` is corrupt by construction.
       Bitcoin, Litecoin, Dogecoin and Bitcoin Cash report `peers` and
       `version` once their tower has been opened. `network` is the node's own
       word (`main` for the Bitcoin family, `mainnet` for Monero); Tari and
-      Zcash report none.
+      Zcash report none. Each entry also has `services`: every
+      [private-LAN endpoint](nodes.md#private-lan-endpoints) the node can
+      offer (Bitcoin, Litecoin, Dogecoin, Bitcoin Cash and Zcash RPC, Monero
+      RPC and ZMQ, Tari gRPC), whether or not it is switched on:
+      - `id`, `name`, `protocol` (`json-rpc`, `zmq` or `grpc`), `auth`
+        (`basic`, `digest` or `none`) and `exposed`.
+      - When `exposed` is true: `bind_address`, `port` and a ready-to-use
+        `uri`, for example `http://192.168.1.117:18081` for Monero RPC,
+        `tcp://192.168.1.117:18083` for Monero ZMQ and `192.168.1.117:18142`
+        (host and port) for Tari gRPC. They come from the exposure the
+        dashboard started with, the same values as the LAN ports in Settings.
+      - When `auth` is `basic` or `digest` and the node is active: the
+        `username` and `password` a LAN client sends, the same login Settings
+        shows for that node's RPC. A deactivated node shows none.
+        Zcash's is the login to the dashboard's read-only proxy. Monero ZMQ
+        and Tari gRPC have no login, so they show `auth: none` and no
+        credentials. A service that is not exposed carries no address and no
+        credentials.
 
-  Neither endpoint returns wallet data, credentials, onion addresses or
-  host paths. A configured `dashboard.public_url` still limits which host
-  name they answer on. For example,
-  `curl -fsS https://node.example.com/actuator/health` exits non-zero when
-  something is down, and
-  `curl --user admin https://node.example.com/actuator/info` prompts for the
-  dashboard password.
+  **The info response contains the RPC passwords of every exposed LAN
+  service.** There is one actuator login for both endpoints, so any client
+  that can poll `/actuator/health` can also read `/actuator/info` and those
+  passwords. If monitors must not see them, leave **Serve /actuator/info** off.
+  Neither endpoint returns wallet data, onion addresses or host paths.
+  A configured `dashboard.public_url` still limits which host name they answer
+  on, except for Basic-auth clients on the private network, as for `/metrics`.
+  For example, `curl -fsS --user actuator:PASSWORD
+  https://node.example.com/actuator/health` exits non-zero when something is
+  down, and `curl --user actuator https://node.example.com/actuator/info`
+  prompts for the password.
 - **Telegram / Healthchecks.io:** see [Notifications](notifications.md).
 - **Fee sparkline:** the dashboard samples the next-block fee once a minute
   into an in-memory 24-hour series (reset on restart) and draws it under the
