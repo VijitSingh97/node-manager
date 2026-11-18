@@ -232,9 +232,9 @@ malformed, conflicting, and already-used bindings before applying a change.
 | Node | Default host port | Authentication and intended use |
 |---|---:|---|
 | Bitcoin Core | 8332 | Generated Bitcoin RPC login; trusted wallet apps |
-| Monero restricted RPC | 18081 | Generated Digest-auth login; wallets and Pithead/P2Pool |
+| Monero restricted RPC | 18081 | Generated Digest-auth login; wallets and mining software such as P2Pool |
 | Monero ZMQ | 18083 | No application authentication; trusted P2Pool host only |
-| Tari gRPC | 18142 | No application authentication; Pithead remote Tari base node on trusted LAN/WireGuard |
+| Tari gRPC | 18142 | No application authentication; a remote mining client on a trusted LAN or WireGuard link |
 | Litecoin | 9332 | Generated Litecoin RPC login |
 | Dogecoin | 22555 | Generated Dogecoin RPC login |
 | Bitcoin Cash Node | 8332 | Generated Bitcoin Cash RPC login |
@@ -248,22 +248,19 @@ The dashboard shows credentials only for the authenticated endpoints in this
 table. Monero ZMQ and Tari gRPC are intentionally unauthenticated and never show
 a username or password.
 
-## Pithead remote nodes
+## Remote mining
 
 For Monero, enable restricted RPC and, when P2Pool needs it, ZMQ. Enter the
 server's private address, the configured ports, and the **Monero RPC** login in
-Pithead. The dashboard login is unrelated. ZMQ has no password.
+the mining software. The dashboard login is unrelated. ZMQ has no password.
 
-For Tari, enable gRPC on port 18142 and configure Pithead with `tari.mode:
-remote`, this host, and the gRPC port. Pithead's current mining client uses
-plaintext unauthenticated gRPC, so use only a trusted LAN or WireGuard link.
+For Tari, enable gRPC on port 18142 and point the mining client at this host
+and the gRPC port. The endpoint is plaintext unauthenticated gRPC, so use only a
+trusted LAN or WireGuard link.
 The allowlist supports node status, mining-template creation, and block
 submission. The stack runs no miner or payout key. Its separate internal
 view-only wallet service has no published port and is not part of the mining
 endpoint.
-
-Pithead's current settings are documented in its
-[remote-node configuration](https://github.com/p2pool-starter-stack/pithead/blob/develop/docs/configuration.md#remote-tari-node).
 
 ## Deactivation
 
