@@ -571,13 +571,20 @@ func (g *seedGate) checkpoint() error {
 // utxoChainstateCopyName is the directory the host helper fills with the stopped node's chainstate, inside the node's data directory.
 const utxoChainstateCopyName = "utxo-seed-chainstate"
 
-func (m *utxoManager) seedFromChainstate(parent context.Context) error {
+func (m *utxoManager) seedFromChainstate(parent context.Context) (err error) {
 	ctx, cancel := context.WithCancelCause(parent)
 	defer cancel(nil)
 	go m.watchSeedCancel(ctx, cancel)
 	if c, err := m.temp(); thermalStartGuard(c, err) != nil {
 		return errSeedThermal
 	}
+	// A tampered copy can make Pebble panic; that fails this seed instead of crash-looping the dashboard.
+	defer func() {
+		if r := recover(); r != nil {
+			m.log.Printf("utxo index: reading the chainstate copy panicked: %v", r)
+			err = errSeedChainstate
+		}
+	}()
 	copied, err := openChainstateCopy(filepath.Join(m.host.dataDir, utxoChainstateCopyName))
 	if err != nil {
 		m.log.Printf("utxo index: %v", err)

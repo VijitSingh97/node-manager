@@ -314,10 +314,12 @@ utxo_chainstate_copy() {
     return 1
   }
   echo "Stopping $utxo_daemon to copy its chainstate..."
-  # From here the node is down, so an interrupt or a failure starts it again and leaves no partial copy pinning its tables.
-  local saved
-  saved=$(trap -p INT TERM)
-  trap 'rm -rf -- "$dst"; compose start "$node" >/dev/null 2>&1; exit 130' INT TERM
+  compose exec -T -u 1000 dashboard touch "/state/$node-chainstate-copy.processing" >/dev/null 2>&1 || true
+  # From here the node is down, so an interrupt, a hang-up or a failure starts it again and leaves no partial copy pinning its tables.
+  local saved status=0
+  saved=$(trap -p INT TERM HUP)
+  trap 'rm -rf -- "$dst"; utxo_copy_start "$node" || true; exit 130' INT TERM HUP
+  utxo_copy_stopped=1
   if compose stop "$node" >/dev/null 2>&1; then
     id=$(container_id "$node" 2>/dev/null || true)
     # The node's container could swap the chainstate for a symlink until it stopped, so it is checked again now that it cannot.
@@ -345,11 +347,15 @@ utxo_chainstate_copy() {
   else
     ok=0
   fi
-  [ "$ok" = 1 ] || rm -rf -- "$dst"
-  compose start "$node" >/dev/null 2>&1 || ok=0
-  trap - INT TERM
+  if utxo_copy_start "$node"; then
+    [ "$ok" = 1 ] || status=2
+  else
+    status=3
+  fi
+  [ "$status" = 0 ] || rm -rf -- "$dst"
+  trap - INT TERM HUP
   [ -z "$saved" ] || eval "$saved"
-  [ "$ok" = 1 ]
+  return "$status"
 }
 
 # The node's data directory as configured, resolved against the state directory like Compose's relative paths.
@@ -360,7 +366,20 @@ utxo_chainstate_copy_dir() {
   case "$root" in /*) ;; *) root=$(cd "$state_dir" && pwd -P)/${root#./} ;; esac
   printf '%s/utxo-seed-chainstate\n' "$root"
 }
+
+# The marks hold back the node-down alert while the copy has the node down; a node that fails to start loses them.
+utxo_copy_start() {
+  local mark="/state/$1-chainstate-copy"
+  if compose start "$1" >/dev/null 2>&1; then
+    utxo_copy_stopped=0
+    compose exec -T -u 1000 dashboard sh -c "touch $mark.status; rm -f $mark.processing" >/dev/null 2>&1 || true
+  else
+    compose exec -T -u 1000 dashboard rm -f "$mark.processing" >/dev/null 2>&1 || true
+    return 1
+  fi
+}
 utxo_select_chain bitcoin
+utxo_copy_stopped=0
 
 utxo_seed_overlay_enabled() {
   case ":$(env_get COMPOSE_FILE):" in
@@ -404,7 +423,10 @@ utxo_seed_finish_pipe() {
   [ "$utxo_replay" = 1 ] && return 0
   if [ "$utxo_chainstate" = 1 ]; then
     rm -rf -- "$(utxo_chainstate_copy_dir "$utxo_chain")"
-    compose start "$utxo_chain" >/dev/null 2>&1 || true
+    # A node the owner stopped during the seed stays stopped; only one the copy left down is started.
+    if [ "$utxo_copy_stopped" = 1 ]; then
+      utxo_copy_start "$utxo_chain" || true
+    fi
     return 0
   fi
   utxo_seed_unpark
@@ -533,9 +555,14 @@ EOF
   trap 'trap - INT TERM; compose exec -T -u 1000 dashboard rm -f "/state/${utxo_prefix}utxo-seed.request" >/dev/null 2>&1 || true; utxo_seed_finish_pipe; echo; exit 130' INT TERM
   if [ "$utxo_chainstate" = 1 ]; then
     utxo_chainstate_copy "$utxo_chain" || {
+      local copy_status=$?
       trap - INT TERM
       utxo_seed_finish_pipe
-      echo "No seed was started; the $utxo_name node is running." >&2
+      case "$copy_status:$utxo_copy_stopped" in
+        1:*) echo "No seed was started; nothing was changed." >&2 ;;
+        *:0) echo "No seed was started: the $utxo_name chainstate could not be copied, and the node was started again." >&2 ;;
+        *) echo "No seed was started, and the $utxo_name node did not start again; start it with: $stack_command up" >&2 ;;
+      esac
       return 1
     }
   elif [ "$utxo_replay" != 1 ]; then

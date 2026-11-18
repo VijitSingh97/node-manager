@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"sync/atomic"
 
 	"github.com/cockroachdb/pebble"
@@ -41,6 +42,23 @@ type chainstateCopy struct {
 }
 
 func openChainstateCopy(dir string) (*chainstateCopy, error) {
+	// The node's user owns the copy, so a symlink in it could point the reader at files the node cannot read itself.
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return nil, fmt.Errorf("open chainstate copy: %w", err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("%w: %s is not a directory", errChainstateFormat, dir)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("open chainstate copy: %w", err)
+	}
+	for _, e := range entries {
+		if !e.Type().IsRegular() {
+			return nil, fmt.Errorf("%w: %s is not a regular file", errChainstateFormat, e.Name())
+		}
+	}
 	c := &chainstateCopy{}
 	db, err := pebble.Open(dir, &pebble.Options{ReadOnly: true, FS: chainstateFS{vfs.Default}, Logger: chainstateLogger{&c.fatal}})
 	if err != nil {

@@ -39,11 +39,6 @@ func hostRestartNodes(status hostControlStatus, pending bool) []string {
 		return nodes
 	case "install", "migrate":
 		return []string{status.Node}
-	case "utxo_seed":
-		// A chainstate seed stops the node while its chainstate is copied.
-		if chain := utxoChains[status.Node]; chain != nil && chain.Chainstate {
-			return []string{status.Node}
-		}
 	}
 	return nil
 }
@@ -68,6 +63,13 @@ func (a *app) nodeRestartEvents() []nodeRestartEvent {
 		}
 	} else if status := a.readNodeControlStatus(); status != nil && status.State == "applied" && status.Active {
 		add("node-control", []string{status.Node}, false)
+	}
+	// The chainstate copy stops the node from the command line too, where no host request marks it.
+	for id, chain := range utxoChains {
+		if chain.Chainstate {
+			add(id+"-chainstate-copy", []string{id}, true)
+			add(id+"-chainstate-copy", []string{id}, false)
+		}
 	}
 	credentialNodes := func(node string) []string {
 		if node == nodeZcash {

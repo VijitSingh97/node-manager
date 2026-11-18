@@ -553,13 +553,16 @@ chainstate, which a pruned node keeps whole.
 - From the command line, `./stack utxo-seed dogecoin` (`sudo node-manager utxo-seed dogecoin` on APT)
   does the same and waits for the outcome. `./stack utxo-seed dogecoin cancel` stops the dashboard's
   build.
-- **Alerts:** a seed through the host helper marks Dogecoin as restarting from the request until its RPC
-  answers again, for at most 10 minutes, so the stop for the copy raises no node-down alert. A seed
-  started from the command line is not marked: if the node stays down longer than the node-down
-  threshold (3 minutes by default), a node-down alert follows.
+- **Alerts:** either way, the copy marks Dogecoin as restarting from just before the stop until its RPC
+  answers after the start, for at most 10 minutes, so the stop raises no node-down alert. If the node
+  does not start again, the mark is dropped and the alert follows.
 - The copy keeps the node's older tables on disk until it is removed. The host helper removes it once
   the dashboard reports the seed finished, or when an interrupted copy left it with no seed at all; the
-  command line removes it when it ends. An interrupted copy starts the node again.
+  command line removes it when it ends. An interrupted or hung-up copy starts the node again. If the
+  owner stops the node while the index is being built, the seed leaves it stopped.
+- The seed reports which of three things happened when it does not start: it refused before the stop
+  (nothing changed), the copy failed and the node was started again, or the node did not start again
+  (start it with `./stack up`).
 - `./stack utxo-index remove dogecoin` deletes the index volume once `dogecoin.utxo_index` is off and
   applied.
 - If a pruned node drops blocks the index still needs, the index turns invalid and **Seed now** seeds it

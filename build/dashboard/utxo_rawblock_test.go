@@ -299,7 +299,7 @@ func TestParseRawBlockGuardsTheMergeMinedProof(t *testing.T) {
 	}
 	// 2^59 hashes of 32 bytes overflow to zero bytes, so without the count bound the rest of this block would read as valid.
 	huge := binary.LittleEndian.AppendUint64([]byte{0xff}, 1<<59)
-	if _, err := parseRawBlock(rawTestBlock(0x00620104, [32]byte{}, proof(coinbase, huge), coinbase), 5, utxoDogecoin); !errors.Is(err, errUtxoBadBlock) {
+	if _, err := parseRawBlock(rawTestBlock(0x00620104, [32]byte{}, proof(coinbase, huge), coinbase), 5, utxoDogecoin); !errors.Is(err, errUtxoBadBlock) || !strings.Contains(err.Error(), "cannot fit") {
 		t.Fatalf("a merkle branch of 2^59 hashes gave %v", err)
 	}
 	// Dogecoin's deserializer reads a zero-input transaction with flags 0 as having no outputs either, and rejects any flag but the witness one.
@@ -307,8 +307,12 @@ func TestParseRawBlockGuardsTheMergeMinedProof(t *testing.T) {
 	if blk, err := parseRawBlock(rawTestBlock(0x00620104, [32]byte{}, proof(empty, []byte{0}), coinbase), 5, utxoDogecoin); err != nil || len(blk.Creates) != 1 {
 		t.Fatalf("a parent coinbase with flags 0 gave %+v, %v", blk, err)
 	}
-	flagged := append(binary.LittleEndian.AppendUint32(nil, 1), 0, 2)
-	if _, err := parseRawBlock(rawTestBlock(0x00620104, [32]byte{}, proof(flagged, []byte{0}), coinbase), 5, utxoDogecoin); !errors.Is(err, errUtxoBadBlock) {
-		t.Fatalf("a parent coinbase with unknown flags 2 gave %v", err)
+	flagged := witnessTestTx()
+	if _, err := parseRawBlock(rawTestBlock(0x00620104, [32]byte{}, proof(flagged, []byte{0}), coinbase), 5, utxoDogecoin); err != nil {
+		t.Fatalf("a witness parent coinbase gave %v", err)
+	}
+	flagged[5] = 2
+	if _, err := parseRawBlock(rawTestBlock(0x00620104, [32]byte{}, proof(flagged, []byte{0}), coinbase), 5, utxoDogecoin); !errors.Is(err, errUtxoBadBlock) || !strings.Contains(err.Error(), "unknown transaction flags 2") {
+		t.Fatalf("a witness-shaped parent coinbase with flags 2 gave %v", err)
 	}
 }

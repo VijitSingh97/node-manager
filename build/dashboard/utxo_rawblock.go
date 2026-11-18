@@ -19,7 +19,10 @@ type rawReader struct {
 }
 
 func (r *rawReader) take(n uint64) []byte {
-	if r.err != nil || n > uint64(len(r.b)-r.off) {
+	if r.err != nil {
+		return nil
+	}
+	if n > uint64(len(r.b)-r.off) {
 		r.err = fmt.Errorf("%w: truncated raw block", errUtxoBadBlock)
 		return nil
 	}

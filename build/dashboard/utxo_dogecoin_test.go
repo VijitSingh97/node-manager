@@ -51,6 +51,7 @@ type chainstateSeedRPC struct {
 	height      uint32
 	warmup      int
 	offMain     bool
+	panics      bool
 	pruneHeight int
 }
 
@@ -63,6 +64,9 @@ func (r *chainstateSeedRPC) call(_ context.Context, method string, params any, o
 	case "getblockhash":
 		return json.Unmarshal([]byte(`"0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"`), out)
 	case "getblockheader":
+		if r.panics {
+			panic("a read of the copy panicked")
+		}
 		if r.warmup > 0 {
 			r.warmup--
 			return errors.New("RPC getblockheader returned an error: Loading block index...")
@@ -125,6 +129,19 @@ func TestDogecoinChainstateSeedFailsCleanlyOnABadCopyOrAForkedTip(t *testing.T) 
 		"best block off the node's chain": func(rpc *chainstateSeedRPC, _ string) { rpc.offMain = true },
 		"node never answers":              func(rpc *chainstateSeedRPC, _ string) { rpc.warmup = 10 },
 		"copy missing":                    func(_ *chainstateSeedRPC, data string) { _ = os.RemoveAll(filepath.Join(data, utxoChainstateCopyName)) },
+		"a read panics":                   func(rpc *chainstateSeedRPC, _ string) { rpc.panics = true },
+		"a symlink in the copy": func(_ *chainstateSeedRPC, data string) {
+			current, moved := filepath.Join(data, utxoChainstateCopyName, "CURRENT"), filepath.Join(data, "CURRENT")
+			if os.Rename(current, moved) != nil || os.Symlink(moved, current) != nil {
+				t.Fatal("could not plant the symlink")
+			}
+		},
+		"the copy is a symlink": func(_ *chainstateSeedRPC, data string) {
+			copied, moved := filepath.Join(data, utxoChainstateCopyName), filepath.Join(data, "elsewhere")
+			if os.Rename(copied, moved) != nil || os.Symlink(moved, copied) != nil {
+				t.Fatal("could not plant the symlink")
+			}
+		},
 	} {
 		rpc := &chainstateSeedRPC{best: "2f9d802dd325448211bc2d04b33f63739f0e4f9e49319588c1700c37e23868dc", height: 202}
 		m, data := newChainstateSeedManager(t, rpc)
@@ -133,6 +150,9 @@ func TestDogecoinChainstateSeedFailsCleanlyOnABadCopyOrAForkedTip(t *testing.T) 
 		st := m.Status()
 		if st.LastSeed == nil || st.LastSeed.Outcome != "failed" || st.State != utxoStateNotSeeded {
 			t.Fatalf("%s: %+v, last %+v", name, st, st.LastSeed)
+		}
+		if name != "best block off the node's chain" && name != "node never answers" && st.LastSeed.Reason != errSeedChainstate.Error() {
+			t.Fatalf("%s: failed as %q", name, st.LastSeed.Reason)
 		}
 		if _, _, ok, _ := m.currentStore().Tip(); ok {
 			t.Fatalf("%s: a failed seed left an index", name)

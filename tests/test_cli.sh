@@ -540,7 +540,10 @@ case "$args" in
       ln -s "$FAKE_DOGE_DATA/chainstate.real" "$FAKE_DOGE_DATA/chainstate"
     fi
     ;;
-  *' compose '*' start dogecoin '*) rm -f "$FAKE_UTXO/stopped" ;;
+  *' compose '*' start dogecoin '*)
+    [ "${FAKE_DOGE_START_FAIL:-0}" != 1 ] || exit 1
+    rm -f "$FAKE_UTXO/stopped"
+    ;;
   *' exec -T dogecoin dogecoin-cli -datadir=/data -conf=/tmp/dogecoin.conf getblockchaininfo '*)
     [ "${FAKE_RPC_FAIL:-0}" != 1 ] || exit 1
     echo "{\"initialblockdownload\":${FAKE_DOGE_IBD:-false}}"
@@ -559,6 +562,14 @@ case "$args" in
   *'.utxo-seed.request.tmp'* | *'.litecoin-utxo-seed.request.tmp'* | *'.bitcoincash-utxo-seed.request.tmp'* | *'.dogecoin-utxo-seed.request.tmp'*)
     cat >"$FAKE_UTXO/request.json"
     [ -z "${FAKE_DOGE_DATA:-}" ] || ls -i "$FAKE_DOGE_DATA/chainstate" "$FAKE_DOGE_DATA/utxo-seed-chainstate" >"$FAKE_UTXO/copy.ls" 2>&1
+    if [ "${FAKE_REQUEST_INTERRUPT:-0}" = 1 ]; then
+      pid=$PPID top=''
+      while [ "${pid:-1}" -gt 1 ]; do
+        case "$(ps -o args= -p "$pid")" in *'stack utxo-seed'*) top=$pid ;; esac
+        pid=$(ps -o ppid= -p "$pid" | tr -d ' ')
+      done
+      kill -TERM "$top"
+    fi
     ;;
   *'/state/utxo-seed.cancel'* | *'/state/litecoin-utxo-seed.cancel'* | *'/state/bitcoincash-utxo-seed.cancel'* | *'/state/dogecoin-utxo-seed.cancel'*) : >"$FAKE_UTXO/cancelled" ;;
   *'.utxo-bench.request.tmp'* | *'.litecoin-utxo-bench.request.tmp'*) cat >"$FAKE_UTXO/bench-request.json" ;;
@@ -621,7 +632,7 @@ EOS
 chmod +x "$utxo_stub/docker"
 cat >"$utxo_stub/cp" <<'EOS'
 #!/usr/bin/env bash
-[ "${FAKE_CP_INTERRUPT:-0}" != 1 ] || kill -TERM "$PPID"
+[ -z "${FAKE_CP_INTERRUPT:-}" ] || kill -"$FAKE_CP_INTERRUPT" "$PPID"
 exec /bin/cp "$@"
 EOS
 chmod +x "$utxo_stub/cp"
@@ -1059,10 +1070,21 @@ for file in 000006.log CURRENT MANIFEST-000004; do
 done
 [ "$(grep -Ec ' (LOCK|LOG)$' "$FAKE_UTXO/copy.ls")" = 2 ] || fail "the copy took the node's LOCK or LOG file"
 [ ! -e "$doge_data/utxo-seed-chainstate" ] || fail "the chainstate copy was left behind after the seed"
+[ "$(grep -c ' start dogecoin$' "$FAKE_LOG")" = 1 ] || fail "utxo-seed dogecoin started the node again after the seed, though the copy had already started it"
+mark_line=$(grep -n 'touch /state/dogecoin-chainstate-copy.processing$' "$FAKE_LOG" | head -n 1 | cut -d: -f1 || true)
+status_line=$(grep -n 'touch /state/dogecoin-chainstate-copy.status;' "$FAKE_LOG" | head -n 1 | cut -d: -f1 || true)
+[ -n "$mark_line" ] && [ -n "$status_line" ] && [ "$mark_line" -lt "$stop_line" ] && [ "$start_line" -lt "$status_line" ] ||
+  fail "the copy did not mark the node as restarting across its stop and start"
+reset_useed
+dseed_status=0
+FAKE_REQUEST_INTERRUPT=1 dseed utxo-seed dogecoin -y </dev/null >"$tmp/dseed.out" 2>&1 || dseed_status=$?
+[ "$dseed_status" = 130 ] || fail "utxo-seed dogecoin interrupted after the copy exited $dseed_status, so the copy did not restore the caller's trap"
+grep -q 'dashboard rm -f /state/dogecoin-utxo-seed.request$' "$FAKE_LOG" || fail "utxo-seed dogecoin interrupted after the copy did not withdraw its request"
 reset_useed
 FAKE_DOGE_IBD=true dseed utxo-seed dogecoin -y </dev/null >"$tmp/dseed.out" 2>&1 && fail "utxo-seed dogecoin ran while the node was syncing"
 grep -q ' stop dogecoin$' "$FAKE_LOG" && fail "utxo-seed dogecoin stopped a syncing node"
 grep -q 'still syncing' "$tmp/dseed.out" || fail "utxo-seed dogecoin did not say why it refused"
+grep -q 'No seed was started; nothing was changed' "$tmp/dseed.out" || fail "utxo-seed dogecoin did not say a refused copy changed nothing"
 reset_useed
 mv "$doge_data/chainstate" "$doge_data/chainstate.real"
 ln -s "$doge_data/chainstate.real" "$doge_data/chainstate"
@@ -1073,9 +1095,24 @@ mv "$doge_data/chainstate.real" "$doge_data/chainstate"
 reset_useed
 ln -s /etc/hosts "$doge_data/chainstate/000007.log"
 dseed utxo-seed dogecoin -y </dev/null >"$tmp/dseed.out" 2>&1 && fail "utxo-seed dogecoin copied a symlink planted in the chainstate"
-[ "$(tail -n 1 "$FAKE_LOG" | grep -c ' start dogecoin$')" = 1 ] || grep -q ' start dogecoin$' "$FAKE_LOG" || fail "a failed copy left the node stopped"
+grep -q ' start dogecoin$' "$FAKE_LOG" || fail "a failed copy left the node stopped"
 [ ! -e "$FAKE_UTXO/request.json" ] || fail "a failed copy still requested a seed"
+grep -q 'could not be copied, and the node was started again' "$tmp/dseed.out" || fail "utxo-seed dogecoin did not say the copy failed and the node runs"
+reset_useed
+dseed_status=0
+dseed utxo-chainstate-copy dogecoin </dev/null >"$tmp/dseed.out" 2>&1 || dseed_status=$?
+[ "$dseed_status" = 2 ] && [ ! -f "$FAKE_UTXO/stopped" ] && [ ! -e "$doge_data/utxo-seed-chainstate" ] ||
+  fail "the host helper's copy of a chainstate with a planted symlink exited $dseed_status, left the node stopped or kept a partial copy"
 rm "$doge_data/chainstate/000007.log"
+reset_useed
+dseed_status=0
+FAKE_DOGE_START_FAIL=1 dseed utxo-chainstate-copy dogecoin </dev/null >"$tmp/dseed.out" 2>&1 || dseed_status=$?
+[ "$dseed_status" = 3 ] && [ ! -e "$doge_data/utxo-seed-chainstate" ] || fail "a copy whose node did not start again exited $dseed_status or kept its copy"
+grep -q 'chainstate-copy.status' "$FAKE_LOG" && fail "a node that did not start again was still marked as restarting"
+grep -q 'dashboard rm -f /state/dogecoin-chainstate-copy.processing$' "$FAKE_LOG" || fail "a node that did not start again kept its restarting mark"
+reset_useed
+FAKE_DOGE_START_FAIL=1 dseed utxo-seed dogecoin -y </dev/null >"$tmp/dseed.out" 2>&1 && fail "utxo-seed dogecoin went on after the node did not start again"
+grep -q 'did not start again' "$tmp/dseed.out" && [ ! -e "$FAKE_UTXO/request.json" ] || fail "utxo-seed dogecoin did not say the node is still stopped, or requested a seed"
 reset_useed
 FAKE_DOGE_SWAP=1 dseed utxo-seed dogecoin -y </dev/null >"$tmp/dseed.out" 2>&1 && fail "utxo-seed dogecoin copied a chainstate swapped for a symlink while the node stopped"
 [ ! -e "$FAKE_UTXO/request.json" ] && [ ! -e "$doge_data/utxo-seed-chainstate" ] || fail "a refused copy left a request or a copy"
@@ -1084,15 +1121,15 @@ rm "$doge_data/chainstate"
 mv "$doge_data/chainstate.real" "$doge_data/chainstate"
 reset_useed
 dseed_status=0
-FAKE_CP_INTERRUPT=1 dseed utxo-seed dogecoin -y </dev/null >"$tmp/dseed.out" 2>&1 || dseed_status=$?
+FAKE_CP_INTERRUPT=TERM dseed utxo-seed dogecoin -y </dev/null >"$tmp/dseed.out" 2>&1 || dseed_status=$?
 [ "$dseed_status" = 130 ] || fail "an interrupted copy exited with $dseed_status, not 130"
 [ "$(grep -c ' start dogecoin$' "$FAKE_LOG")" -ge 1 ] && [ ! -f "$FAKE_UTXO/stopped" ] || fail "an interrupted copy left the node stopped"
 [ ! -e "$doge_data/utxo-seed-chainstate" ] && [ ! -e "$FAKE_UTXO/request.json" ] || fail "an interrupted copy left a partial copy or a request"
 reset_useed
 dseed_status=0
-FAKE_CP_INTERRUPT=1 dseed utxo-chainstate-copy dogecoin </dev/null >"$tmp/dseed.out" 2>&1 || dseed_status=$?
+FAKE_CP_INTERRUPT=HUP dseed utxo-chainstate-copy dogecoin </dev/null >"$tmp/dseed.out" 2>&1 || dseed_status=$?
 [ "$dseed_status" = 130 ] && [ ! -f "$FAKE_UTXO/stopped" ] && [ ! -e "$doge_data/utxo-seed-chainstate" ] ||
-  fail "the host helper's copy, interrupted, exited $dseed_status and left the node stopped or a partial copy"
+  fail "the host helper's copy, hung up, exited $dseed_status and left the node stopped or a partial copy"
 dseed utxo-index bench "$tmp/wallets.json" --chain dogecoin >"$tmp/dbench.out" 2>&1 && fail "utxo-index bench took --chain dogecoin"
 grep -q 'Dogecoin is not in utxo-index bench' "$tmp/dbench.out" || fail "utxo-index bench --chain dogecoin did not say why"
 reset_useed

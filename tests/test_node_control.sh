@@ -40,7 +40,10 @@ EOF
 cat >"$root/stack" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$*" >>"$FAKE_STACK_LOG"
-[ "${1:-}" != utxo-chainstate-copy ] || [ "${FAKE_COPY_FAIL:-0}" != 1 ] || exit 1
+if [ "${1:-}" = utxo-chainstate-copy ]; then
+  [ -z "${FAKE_CLOCK:-}" ] || echo $(($(cat "$FAKE_CLOCK") + 300)) >"$FAKE_CLOCK"
+  [ "${FAKE_COPY_STATUS:-0}" = 0 ] || exit "$FAKE_COPY_STATUS"
+fi
 [ "${FAKE_STACK_INTERRUPT_ON_PULL:-0}" != 1 ] || [ "${1:-}" != pull ] || {
   kill -KILL "$PPID"
   exit 1
@@ -434,16 +437,32 @@ jq -S . "$config/config.json" >"$state/.approved-config.json"
 jq -e '.utxo_index_dogecoin' "$dashboard_state/node-control.capability" >/dev/null || fail "Dogecoin index capability was not published"
 : >"$tmp/stack.log"
 request '{"action":"utxo_seed","id":"fbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfb","node":"dogecoin","requested_at":1000}'
-FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+mkdir -p "$tmp/clockbin"
+cat >"$tmp/clockbin/date" <<EOF
+#!/bin/sh
+if [ "\$*" = +%s ]; then cat "\$FAKE_CLOCK"; else exec $(command -v date) "\$@"; fi
+EOF
+chmod +x "$tmp/clockbin/date"
+echo 1000 >"$tmp/clock"
+FAKE_CLOCK=$tmp/clock PATH="$tmp/clockbin:$PATH" FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 [ "$(status .state):$(status .node)" = applied:dogecoin ] || { cat "$dashboard_state/node-control.status"; fail "the Dogecoin seed was not prepared"; }
 grep -qx 'utxo-chainstate-copy dogecoin' "$tmp/stack.log" || fail "the Dogecoin seed did not copy the chainstate"
 jq -e '.id=="fbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfb"' "$dashboard_state/dogecoin-utxo-seed.request" >/dev/null || fail "the Dogecoin seed request was not written under its prefix"
+jq -e '.requested_at==1300' "$dashboard_state/dogecoin-utxo-seed.request" >/dev/null || fail "the Dogecoin seed request was stamped before the copy, so a slow stop leaves it stale"
 [ ! -e "$FAKE_NODE_DATA/dogecoin/utxo-seed.dat.incomplete" ] || fail "a seed pipe was made for a chainstate seed"
 rm -f "$dashboard_state/dogecoin-utxo-seed.request"
 request '{"action":"utxo_seed","id":"fcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfc","node":"dogecoin","requested_at":1000}'
-FAKE_COPY_FAIL=1 FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+FAKE_COPY_STATUS=2 FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 [ "$(status .state):$(status .error_code)" = failed:apply_failed ] && [ ! -e "$dashboard_state/dogecoin-utxo-seed.request" ] || { cat "$dashboard_state/node-control.status"; fail "a failed chainstate copy still requested a seed"; }
-status .message | grep -q 'started again' || fail "a failed chainstate copy did not say the node was started again"
+status .message | grep -q 'the node was started again' || fail "a failed chainstate copy did not say the node was started again"
+request '{"action":"utxo_seed","id":"c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7","node":"dogecoin","requested_at":1000}'
+FAKE_COPY_STATUS=3 FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state):$(status .error_code)" = failed:apply_failed ] && [ ! -e "$dashboard_state/dogecoin-utxo-seed.request" ] || { cat "$dashboard_state/node-control.status"; fail "a copy whose node did not start again still requested a seed"; }
+status .message | grep -q 'did not start again' || fail "a copy whose node did not start again said otherwise"
+request '{"action":"utxo_seed","id":"c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8","node":"dogecoin","requested_at":1000}'
+FAKE_COPY_STATUS=1 FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state):$(status .error_code)" = rejected:validation_failed ] && [ ! -e "$dashboard_state/dogecoin-utxo-seed.request" ] || { cat "$dashboard_state/node-control.status"; fail "a refused chainstate copy was not reported as refused"; }
+status .message | grep -q 'Nothing was changed' || fail "a refused chainstate copy did not say nothing was changed"
 
 # A finished seed's copy is removed, but not while the dashboard may still be reading it.
 doge_copy=$tmp/doge-data/utxo-seed-chainstate

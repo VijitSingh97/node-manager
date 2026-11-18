@@ -8,6 +8,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/cockroachdb/pebble"
@@ -195,11 +196,14 @@ func TestChainstateCopyRefusesACorruptChainstate(t *testing.T) {
 		rows      map[string][]byte
 		atOpen    bool
 	}{
-		"short obfuscation key": {key: []byte{4, 1, 2, 3, 4}, best: best, atOpen: true},
-		"long obfuscation key":  {key: append(slices.Clone(key), 9), best: best, atOpen: true},
-		"short best block":      {key: key, best: best[:16], atOpen: true},
-		"missing best block":    {key: key, atOpen: true},
-		"coins key of 31 bytes": {key: key, best: best, rows: map[string][]byte{"c" + string(bytes.Repeat([]byte{0xab}, 31)): {1, 2, 9, 0}}},
+		"obfuscation key length byte": {key: []byte{4, 1, 2, 3, 4}, best: best, atOpen: true},
+		"short obfuscation key":       {key: []byte{8, 1, 2, 3, 4}, best: best, atOpen: true},
+		"long obfuscation key":        {key: append(slices.Clone(key), 9), best: best, atOpen: true},
+		"short best block":            {key: key, best: best[:16], atOpen: true},
+		"long best block":             {key: key, best: append(slices.Clone(best), 0x42), atOpen: true},
+		"missing best block":          {key: key, atOpen: true},
+		// The row itself parses, so only the key length can refuse it.
+		"coins key of 32 bytes": {key: key, best: best, rows: map[string][]byte{"c" + string(bytes.Repeat([]byte{0xab}, 31)): append(append([]byte{1, 2, 9, 0}, bytes.Repeat([]byte{0x11}, 20)...), 77)}},
 	} {
 		c, err := openChainstateCopy(writeTestChainstate(t, tc.key, tc.best, tc.rows))
 		if tc.atOpen {
@@ -213,7 +217,7 @@ func TestChainstateCopyRefusesACorruptChainstate(t *testing.T) {
 		}
 		_, err = c.parse(nil, func(utxoRecord) error { return nil })
 		_ = c.Close()
-		if !errors.Is(err, errChainstateFormat) {
+		if !errors.Is(err, errChainstateFormat) || !strings.Contains(err.Error(), "coins key of 32 bytes") {
 			t.Fatalf("%s: parsed with %v", name, err)
 		}
 	}

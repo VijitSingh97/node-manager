@@ -16,9 +16,9 @@ All notable changes to this project are documented here. Format follows
   builds the index from the copy; the index then follows new blocks, merge-mined
   ones included. A Dogecoin install from the dashboard turns the index on, and the
   archival watch wallet is no longer needed for balances. If a pruned node drops
-  blocks the index still needs, Settings offers Seed now. Seed now and the
-  automatic seed mark Dogecoin as restarting while it is stopped, so the copy
-  raises no node-down alert. Dogecoin is not in `utxo-index bench` or its CI
+  blocks the index still needs, Settings offers Seed now. The copy marks
+  Dogecoin as restarting while it is stopped, from Settings or the command line,
+  so it raises no node-down alert. Dogecoin is not in `utxo-index bench` or its CI
   test, since Dogecoin Core 1.14.9 has none of the RPCs it uses; its index is
   checked by a regtest test against the node's own `gettxout`. The seed time and
   index size on mainnet are not measured yet.
