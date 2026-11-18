@@ -59,6 +59,29 @@ All notable changes to this project are documented here. Format follows
   on pseudo-random wallets and that it is faster by at least 50 times for a single
   address and 2 times for a 2,000-script wallet (synthetic, #367).
 
+### Changed
+
+- The actuator endpoints now use the same login as the dashboard (user `admin`
+  and the dashboard password, over HTTP Basic auth) instead of a generated
+  `actuator` login. Settings no longer shows an actuator username and
+  password, and a leftover `actuator-credentials.json` is deleted on start.
+  A wrong login still gets a 401 with a `WWW-Authenticate` challenge, a
+  switched-off endpoint a 404, and repeated wrong passwords share the dashboard
+  sign-in limit. A monitor given this login can also sign in to the dashboard.
+  Upgrade note: monitors that sent the generated login must be changed to the
+  dashboard login.
+- Settings → Actuator has **Copy curl for health** and **Copy curl for info**
+  buttons, shown while the matching switch is saved on. Each asks for the
+  dashboard password, has the server check it, then copies a complete curl
+  command for the endpoint with the admin login and that password filled in. On a plain
+  `http://` address, where the browser blocks clipboard access, it falls back
+  to a selected field with a **Copy again** button (pressed with the click, so
+  Safari allows it) or Ctrl+C / Cmd+C. The command holds the password and will
+  stay in shell history.
+- The `WWW-Authenticate` challenge is now sent only with actuator 401 and 429
+  answers, and a leftover actuator credentials file that cannot be deleted is
+  logged with a fixed message.
+
 ### Fixed
 
 - Turning Launch at boot off on an APT install no longer fails with "Launch

@@ -263,21 +263,20 @@ first — a live copy of `chainstate/` is corrupt by construction.
   style of Spring Boot Actuator and read state the dashboard already keeps
   (the node probe that runs about once a minute, the balance index status and
   the last Tor price fetch), so a request never calls a node.
-  - **Login.** The dashboard creates an actuator username and a random
-    password (256 bits) once and keeps them in the dashboard state volume
-    (`actuator-credentials.json`, mode 600). Settings → Actuator shows both
-    with a **Copy** button, to signed-in administrators only. Both endpoints
-    always require HTTP Basic auth with exactly this login when switched on.
-    Without it, or with the wrong login, they answer 401 with a
-    `WWW-Authenticate: Basic` challenge. The dashboard `admin` login and a
-    dashboard session do not open them, and there is no anonymous access. A
-    switched-off endpoint answers 404 whatever credentials are sent. Behind
-    `dashboard.public_url`, repeated wrong logins from one client are
-    throttled with a 429 and `Retry-After`, separately from dashboard
-    sign-in. If the file is deleted, unreadable, or readable by group or
-    others, a new password is generated on the next start; update your
-    monitors then. Settings saved before this release with the old single
-    switch on turn both endpoints on after the upgrade.
+  - **Login.** Both endpoints use the same login as the dashboard: user
+    `admin` and the dashboard password, over HTTP Basic auth, with the same
+    wrong-password throttling (429 with `Retry-After`). A dashboard session
+    cookie also works, as on the rest of the protected API, and a Basic
+    request does not start a session. Without a valid login they answer 401
+    with a `WWW-Authenticate: Basic` challenge, and there is no anonymous
+    access; if no dashboard password is configured they answer 503 like the
+    rest of the API. A switched-off endpoint answers 404 whatever credentials
+    are sent. A monitor given this login can also sign in to the dashboard.
+    A monitor polling with a wrong password counts against the same
+    sign-in limit, so with no `dashboard.public_url` set it can briefly
+    throttle dashboard sign-in too. Settings saved before this release with the old single switch on turn
+    both endpoints on after the upgrade; the generated `actuator` login from
+    earlier releases is gone, so update monitors to the dashboard login.
   - `GET /actuator/health` returns the overall `status` and `components`: HTTP
     503 for `DOWN`, 200 for `UP` or `DEGRADED`.
     - `dashboard`: always `UP`.
@@ -329,16 +328,27 @@ first — a live copy of `chainstate/` is corrupt by construction.
         credentials.
 
   **The info response contains the RPC passwords of every exposed LAN
-  service.** There is one actuator login for both endpoints, so any client
-  that can poll `/actuator/health` can also read `/actuator/info` and those
-  passwords. If monitors must not see them, leave **Serve /actuator/info** off.
+  service.** The actuator uses the same login as the dashboard for both
+  endpoints, so any client that can poll `/actuator/health` can also read
+  `/actuator/info` and those passwords. If monitors must not see them, leave **Serve /actuator/info** off.
+  Settings → **Actuator** shows **Copy curl for health** and **Copy curl for
+  info** under the switches, for each switch that is saved on. After you type
+  the dashboard password (checked by the server, after a recent sign-in), the
+  button copies a complete curl command for `<address>/actuator/health`
+  (or `/info`), with the admin login and that password filled in, using the
+  address the page was opened from. **The copied
+  command contains the password and will land in shell history.** For scripts
+  and monitors prefer `curl --user admin <url>`, which prompts. On a plain
+  `http://` dashboard the browser blocks the clipboard API, so the button
+  falls back to a temporary copy, then to a selected field you copy with
+  Ctrl+C or Cmd+C.
   Neither endpoint returns wallet data, onion addresses or host paths.
   A configured `dashboard.public_url` still limits which host name they answer
   on, except for Basic-auth clients on the private network, as for `/metrics`.
-  For example, `curl -fsS --user actuator https://node.example.com/actuator/health`
-  prompts for the password and exits non-zero when something is down. Uptime
-  monitors that cannot prompt take the same username and password in their
-  own Basic-auth settings.
+  For example, `curl -fsS --user admin https://node.example.com/actuator/info`
+  prompts for the password; use `/actuator/health` to exit non-zero when
+  something is down. Uptime monitors that cannot prompt take the same
+  username and password in their own Basic-auth settings.
 - **Telegram / Healthchecks.io:** see [Notifications](notifications.md).
 - **Fee sparkline:** the dashboard samples the next-block fee once a minute
   into an in-memory 24-hour series (reset on restart) and draws it under the
