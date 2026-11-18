@@ -74,10 +74,22 @@ this repository.
 starts a pruned Bitcoin node, and prints the dashboard URL. The package itself
 does not start containers during installation.
 
+On amd64 and arm64, APT also installs the recommended `node-manager-hostd`
+helper, which refreshes host readings every 10 seconds, and `init` starts it.
+Check it with `systemctl status node-manager-host-stats.timer`. Readings show
+in the dashboard once Settings -> Node manager usage is ticked (see
+[Host readings](docs/operations.md#host-readings)). Other architectures, source
+installs, and Homebrew installs keep the minute-by-minute shell collector.
+
 Later `apt upgrade` runs download the release images and recreate changed
 services for an initialized, running stack. This may briefly restart affected
 nodes. A stopped stack stays stopped, and pending configuration edits are not
 applied automatically.
+
+On amd64 or arm64, after upgrading from 1.37.0 or earlier, run
+`dpkg -s node-manager-hostd`. If it says not installed, run
+`sudo apt install node-manager-hostd`. This starts the timer; no `init` rerun
+is needed. Verify with `systemctl status node-manager-host-stats.timer`.
 
 Configuration: `/etc/node-manager/config.json`<br>
 State and chain data: `/var/lib/node-manager/`
@@ -224,6 +236,11 @@ Sync is uncapped by default. The experimental post-sync caps are **1 CPU / 2 GiB
 for Bitcoin and Monero and **1 CPU / 4 GiB** for the other nodes. Wallet services,
 Tor, Docker, and your operating system need additional memory. These are editable
 ceilings, not qualified minimum hardware.
+
+APT and Homebrew installs turn on these caps and the Bitcoin balance index
+after the node syncs; a source install starts with both off. The index adds a
+dashboard limit of 1 GiB and 0.5 CPU and its own volume. Progress is described
+in [seeding the Bitcoin balance index](docs/operations.md#seeding-the-bitcoin-balance-index).
 
 See [per-node disk and resource estimates](docs/nodes.md) before adding chains.
 

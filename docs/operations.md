@@ -40,12 +40,12 @@ shows recent probe output when diagnosing.
 ## Host readings
 
 With **Node manager usage** ticked in Settings, the usage panel at the top left
-lists the host's temperature, fan speed, uptime and network rate under the disk
-bars and CPU and memory pies. On Debian and Ubuntu installs the small
+shows the host's temperature, fan speed, uptime and network rate as four tiles
+above the disk bars. On APT installs (amd64 and arm64) the small
 `node-manager-hostd` helper writes them every 10 seconds. New installs get it as
-a recommended package; an existing install upgraded with `--only-upgrade` or
-`apt-get upgrade` does not, so install it once with
-`sudo apt-get install node-manager-hostd`. Elsewhere, and whenever the helper
+a recommended package. On an older install, check with
+`dpkg -s node-manager-hostd`; if it is missing, install it once with
+`sudo apt install node-manager-hostd`. Elsewhere, and whenever the helper
 is not running, the resource-profile shell helper collects them once a minute.
 Either way the dashboard container needs no extra mounts or privileges.
 
@@ -87,7 +87,7 @@ same second as the host total, and its memory is its anonymous memory plus its
 own kernel memory (page tables, unreclaimable slab, socket buffers), not file
 cache. Docker Desktop hosts use `docker stats` instead.
 
-The health rows below the pies read:
+The four vitals tiles read:
 
 - **Temperature** — the same `/sys/class/thermal` zones the thermal throttle
   reads. `CPU` is the hottest CPU package zone (`x86_pkg_temp`, `cpu-thermal`,
@@ -185,6 +185,9 @@ sudo apt upgrade
 APT upgrades automatically download the new release images and recreate the
 services that were running. Changed services may restart. A stopped deployment
 stays stopped, and configuration edits still awaiting approval are not applied.
+A release that adds a recommended package may not install it on upgrade. Check
+the host helper with `dpkg -s node-manager-hostd`; if it is missing, run
+`sudo apt install node-manager-hostd` once (see [Host readings](#host-readings)).
 If Docker or the registry is unavailable, APT keeps the package installed and
 reports activation as pending. After correcting the problem, retry with
 `sudo node-manager package-upgrade`. Inspect `sudo node-manager status` and
