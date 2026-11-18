@@ -111,6 +111,7 @@ func TestChainstateCopyMarksOnlyItsNodeRestartingUntilItAnswersAfterTheStart(t *
 	a := restartTestApp(t)
 	mark := filepath.Join(a.cfg.stateDir, nodeDogecoin+"-chainstate-copy")
 	writeControlFile(t, mark+".processing", nil, time.Minute)
+	writeControlFile(t, filepath.Join(a.cfg.stateDir, nodeLitecoin+"-chainstate-copy.processing"), nil, time.Minute)
 	a.recordNodeHealth(nodeDogecoin, true)
 	if got := restartingSet(a); !equalIDs(got, nodeDogecoin) {
 		t.Fatalf("while the copy has the node down = %v", got)

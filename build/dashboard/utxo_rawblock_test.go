@@ -315,4 +315,8 @@ func TestParseRawBlockGuardsTheMergeMinedProof(t *testing.T) {
 	if _, err := parseRawBlock(rawTestBlock(0x00620104, [32]byte{}, proof(flagged, []byte{0}), coinbase), 5, utxoDogecoin); !errors.Is(err, errUtxoBadBlock) || !strings.Contains(err.Error(), "unknown transaction flags 2") {
 		t.Fatalf("a witness-shaped parent coinbase with flags 2 gave %v", err)
 	}
+	// Cut right after the bad coinbase, the block also runs out, which must not hide the first error.
+	if _, err := parseRawBlock(rawTestBlock(0x00620104, [32]byte{}, flagged), 5, utxoDogecoin); err == nil || !strings.Contains(err.Error(), "unknown transaction flags 2") {
+		t.Fatalf("a bad parent coinbase in a cut block gave %v", err)
+	}
 }

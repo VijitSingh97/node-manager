@@ -65,25 +65,30 @@ func openChainstateCopy(dir string) (*chainstateCopy, error) {
 		return nil, fmt.Errorf("open chainstate copy: %w", err)
 	}
 	c.db = db
+	// Any early return, a panic included, closes the copy so no descriptor pins its tables.
+	opened := false
+	defer func() {
+		if !opened {
+			_ = db.Close()
+		}
+	}()
 	key, err := c.get(chainstateObfuscateKey)
 	switch {
 	case errors.Is(err, pebble.ErrNotFound):
 	case err != nil:
-		_ = db.Close()
 		return nil, err
 	case len(key) != 9 || key[0] != 8:
-		_ = db.Close()
-		return nil, fmt.Errorf("%w: obfuscation key of %d bytes", errChainstateFormat, len(key))
+		return nil, fmt.Errorf("%w: obfuscation key %x", errChainstateFormat, key)
 	default:
 		c.xor = key[1:]
 	}
 	best, err := c.get([]byte{'B'})
 	if err != nil || len(best) != 32 {
-		_ = db.Close()
 		return nil, fmt.Errorf("%w: no best block (%v)", errChainstateFormat, err)
 	}
 	c.unmask(best)
 	copy(c.Best[:], best)
+	opened = true
 	return c, nil
 }
 

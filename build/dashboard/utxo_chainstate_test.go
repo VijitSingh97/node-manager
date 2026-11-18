@@ -196,7 +196,7 @@ func TestChainstateCopyRefusesACorruptChainstate(t *testing.T) {
 		rows      map[string][]byte
 		atOpen    bool
 	}{
-		"obfuscation key length byte": {key: []byte{4, 1, 2, 3, 4}, best: best, atOpen: true},
+		"obfuscation key length byte": {key: []byte{4, 1, 2, 3, 4, 5, 6, 7, 8}, best: best, atOpen: true},
 		"short obfuscation key":       {key: []byte{8, 1, 2, 3, 4}, best: best, atOpen: true},
 		"long obfuscation key":        {key: append(slices.Clone(key), 9), best: best, atOpen: true},
 		"short best block":            {key: key, best: best[:16], atOpen: true},

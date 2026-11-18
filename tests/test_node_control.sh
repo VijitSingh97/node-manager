@@ -459,6 +459,10 @@ request '{"action":"utxo_seed","id":"c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7","node":"d
 FAKE_COPY_STATUS=3 FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 [ "$(status .state):$(status .error_code)" = failed:apply_failed ] && [ ! -e "$dashboard_state/dogecoin-utxo-seed.request" ] || { cat "$dashboard_state/node-control.status"; fail "a copy whose node did not start again still requested a seed"; }
 status .message | grep -q 'did not start again' || fail "a copy whose node did not start again said otherwise"
+request '{"action":"utxo_seed","id":"c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9","node":"dogecoin","requested_at":1000}'
+FAKE_COPY_STATUS=130 FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state):$(status .error_code)" = failed:apply_failed ] && [ ! -e "$dashboard_state/dogecoin-utxo-seed.request" ] || { cat "$dashboard_state/node-control.status"; fail "an interrupted copy still requested a seed"; }
+status .message | grep -q 'interrupted' || fail "an interrupted copy was reported as a node that did not start"
 request '{"action":"utxo_seed","id":"c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8","node":"dogecoin","requested_at":1000}'
 FAKE_COPY_STATUS=1 FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 [ "$(status .state):$(status .error_code)" = rejected:validation_failed ] && [ ! -e "$dashboard_state/dogecoin-utxo-seed.request" ] || { cat "$dashboard_state/node-control.status"; fail "a refused chainstate copy was not reported as refused"; }
