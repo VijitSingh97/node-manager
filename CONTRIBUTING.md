@@ -40,7 +40,7 @@ the capability and status files the way the installed helper does.
 
 ```bash
 node --test "build/dashboard/ui/*.test.mjs"          # builds the dashboard with Go
-DASHBOARD_BIN=/tmp/dashboard node --test "build/dashboard/ui/*.test.mjs"   # reuse a built binary
+DASHBOARD_BIN=/tmp/dashboard node --test --test-timeout=600000 "build/dashboard/ui/*.test.mjs"   # reuse a built binary
 CHROME=/path/to/chrome node --test "build/dashboard/ui/*.test.mjs"        # pick a browser
 node --test --test-name-pattern="Telegram" "build/dashboard/ui/*.test.mjs"
 ```
