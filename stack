@@ -930,6 +930,7 @@ init() {
   ensure_resource_profile_timer
   ensure_port_control_timer
   ensure_node_control_timer
+  ensure_host_stats_timer
   ensure_agent
   echo "Nodes: $(env_get COMPOSE_PROFILES)"
   dashboard_public_url=$(env_get DASHBOARD_PUBLIC_URL)
@@ -970,6 +971,13 @@ ensure_node_control_timer() {
   systemctl daemon-reload >/dev/null 2>&1 || true
   systemctl enable --now node-manager-node-control.timer >/dev/null 2>&1 ||
     echo "WARN  could not enable node controls; run: sudo systemctl enable --now node-manager-node-control.timer"
+}
+
+ensure_host_stats_timer() {
+  [ "$package_managed" = "1" ] || return 0
+  [ -x "${BITCOIN_STACK_HOSTD:-$stack_root/hostd}" ] || return 0
+  systemctl enable --now node-manager-host-stats.timer >/dev/null 2>&1 ||
+    echo "WARN  could not enable host readings; run: sudo systemctl enable --now node-manager-host-stats.timer"
 }
 
 sync_node_runtime() {
@@ -1253,6 +1261,7 @@ package_upgrade() {
     ensure_resource_profile_timer
     ensure_port_control_timer
     ensure_node_control_timer
+    ensure_host_stats_timer
     return 0
   fi
 
@@ -1283,6 +1292,7 @@ package_upgrade() {
   ensure_resource_profile_timer
   ensure_port_control_timer
   ensure_node_control_timer
+  ensure_host_stats_timer
   echo "Updated the running Node Manager services."
 }
 
@@ -1709,6 +1719,7 @@ case "$cmd" in
     ensure_resource_profile_timer
     ensure_port_control_timer
     ensure_node_control_timer
+    ensure_host_stats_timer
     ensure_agent
     ;;
   init) init ;;
@@ -1778,6 +1789,7 @@ case "$cmd" in
     ensure_resource_profile_timer
     ensure_port_control_timer
     ensure_node_control_timer
+    ensure_host_stats_timer
     ensure_agent
     ;;
   approve-rendered-config)

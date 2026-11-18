@@ -96,6 +96,7 @@ Priority: optional
 Architecture: all
 Maintainer: Vijit Singh <VijitSingh97@users.noreply.github.com>
 Depends: bash, ca-certificates, curl, docker-ce | docker.io, docker-compose-plugin (>= 2.33.1) | docker-compose-v2 (>= 2.33.1) | docker-compose (>= 2.33.1), iproute2, jq, openssl, util-linux
+Recommends: node-manager-hostd
 Provides: bitcoin-starter-stack
 Replaces: bitcoin-starter-stack (<< $version)
 Conflicts: bitcoin-starter-stack (<< $version)
@@ -127,3 +128,41 @@ Description: Transitional package for node-manager
 CONTROL
 find "$transitional" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} +
 dpkg-deb --root-owner-group --build "$transitional" "dist/bitcoin-starter-stack_${version}_all.deb"
+
+if ! command -v go >/dev/null 2>&1; then
+  if [ "${HOSTD_REQUIRED:-0}" = 1 ]; then
+    echo "HOSTD_REQUIRED is set but no Go toolchain is available." >&2
+    exit 1
+  fi
+  echo "No Go toolchain: skipping the node-manager-hostd packages." >&2
+  exit 0
+fi
+for arch in amd64 arm64; do
+  hostd=$(mktemp -d)
+  trap 'rm -rf "$package" "$transitional" "$hostd"' EXIT
+  install -d "$hostd/DEBIAN" "$hostd/usr/lib/node-manager" "$hostd/usr/lib/systemd/system"
+  (cd build/hostd && CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -buildvcs=false -ldflags='-s -w' \
+    -o "$hostd/usr/lib/node-manager/hostd" .)
+  install -m 644 packaging/systemd/node-manager-host-stats.service packaging/systemd/node-manager-host-stats.timer \
+    "$hostd/usr/lib/systemd/system/"
+  for script in postinst prerm postrm; do
+    install -m 755 "packaging/hostd-$script" "$hostd/DEBIAN/$script"
+  done
+  cat >"$hostd/DEBIAN/control" <<CONTROL
+Package: node-manager-hostd
+Version: $version
+Section: utils
+Priority: optional
+Architecture: $arch
+Maintainer: Vijit Singh <VijitSingh97@users.noreply.github.com>
+Depends: node-manager (= $version)
+Homepage: https://github.com/VijitSingh97/node-manager
+Description: Host readings helper for Node Manager
+ A small static helper that a systemd timer runs as root every 10 seconds
+ to write the dashboard's host readings without spawning Docker commands.
+ Without it, Node Manager falls back to its shell collector.
+CONTROL
+  find "$hostd" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} +
+  dpkg-deb --root-owner-group --build "$hostd" "dist/node-manager-hostd_${version}_${arch}.deb"
+  rm -rf "$hostd"
+done

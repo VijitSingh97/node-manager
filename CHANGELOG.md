@@ -45,6 +45,15 @@ All notable changes to this project are documented here. Format follows
   on pseudo-random wallets and that it is faster by at least 50 times for a single
   address and 2 times for a 2,000-script wallet (synthetic, #367).
 
+### Changed
+
+- Host vitals now refresh every 10 seconds on Debian and Ubuntu installs. A
+  small Go helper, the new recommended `node-manager-hostd` package, replaces the
+  shell collector on a systemd timer and is much cheaper than the minute-by-minute
+  shell run. Existing installs add it once with
+  `sudo apt-get install node-manager-hostd`; without it the shell collector runs
+  as before. Homebrew installs are unchanged.
+
 ### Fixed
 
 - Turning Launch at boot off on an APT install no longer fails with "Launch

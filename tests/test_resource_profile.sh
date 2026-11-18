@@ -13,6 +13,7 @@ fake=$tmp/fake-docker
 log=$tmp/docker.log
 caps=$tmp/caps
 mkdir "$caps"
+export RESOURCE_HOSTD_BIN=$tmp/no-hostd
 
 cat >"$fake" <<'EOF'
 #!/bin/sh
@@ -590,6 +591,37 @@ run_profile
 jq -e '.cpus == 4 and ([has("cpu_temp_c", "board_temp_c", "fans_rpm", "fans_max_rpm", "uptime_s", "net_rx_bps", "net_tx_bps")] | any | not)' "$tmp/host-stats-payload.json" >/dev/null ||
   fail "missing sensors were not left out of the host stats payload"
 unset RESOURCE_PROC_ROOT RESOURCE_SYS_ROOT RESOURCE_THERMAL_GLOB FAKE_PROC_NEXT FAKE_HOST_STATS_OUT
+
+new_case hostd-owns-stats
+fake_hostd=$tmp/hostd
+printf '#!/bin/sh\n' >"$fake_hostd"
+chmod +x "$fake_hostd"
+cat >"$tmp/systemctl" <<'EOF'
+#!/bin/sh
+case "$1" in
+  is-active) [ "${FAKE_TIMER_ACTIVE:-1}" = 1 ] ;;
+  is-failed) [ "${FAKE_SERVICE_FAILED:-0}" = 1 ] ;;
+  *) exit 2 ;;
+esac
+EOF
+chmod +x "$tmp/systemctl"
+export RESOURCE_HOSTD_BIN=$fake_hostd RESOURCE_SYSTEMCTL_BIN=$tmp/systemctl FAKE_HOST_STATS_OUT=$tmp/hostd-owned.json
+writes_stats() {
+  rm -f "$FAKE_HOST_STATS_OUT"
+  run_profile
+  [ -s "$FAKE_HOST_STATS_OUT" ]
+}
+! writes_stats || fail "shell wrote host stats while hostd owned them"
+FAKE_TIMER_ACTIVE=0 writes_stats || fail "shell did not take over with the hostd timer inactive"
+FAKE_SERVICE_FAILED=1 writes_stats || fail "shell did not take over after a failed hostd run"
+RESOURCE_HOSTD_BIN=$tmp/no-hostd writes_stats || fail "shell did not take over without the hostd binary"
+chmod -x "$fake_hostd"
+writes_stats || fail "shell did not take over with a non-executable hostd binary"
+chmod +x "$fake_hostd"
+RESOURCE_SYSTEMCTL_BIN=$tmp/no-systemctl writes_stats || fail "shell did not write host stats without systemctl"
+! writes_stats || fail "shell stopped deferring to hostd after the fallback cases"
+export RESOURCE_HOSTD_BIN=$tmp/no-hostd
+unset RESOURCE_SYSTEMCTL_BIN FAKE_HOST_STATS_OUT
 
 new_case thermal
 cat >>"$case_root/state/.env" <<'ENVEOF'

@@ -15,7 +15,7 @@ lint() {
   echo "PASS: $tool"
 }
 
-lint shellcheck configure.sh stack build/*/*.sh packaging/postinst scripts/*.sh \
+lint shellcheck configure.sh stack build/*/*.sh packaging/postinst packaging/hostd-postinst packaging/hostd-prerm packaging/hostd-postrm scripts/*.sh \
   scripts/node-control scripts/node-manager scripts/node-port-control scripts/node-resource-profile tests/*.sh
 lint ruff check --no-cache .
 lint actionlint

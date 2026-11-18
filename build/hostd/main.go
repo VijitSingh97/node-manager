@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -52,39 +54,98 @@ func writeStats(path string, st *Stats) error {
 	return err
 }
 
-func run(cfg Config, socket, out string, wait func()) error {
-	s := &Sampler{
-		Cfg: cfg, Docker: NewDocker(socket), Now: time.Now,
-		Sizes: &SizeCache{MaxAge: 10 * time.Minute, Run: runDU},
-	}
-	first, err := s.Prime()
-	if err != nil {
-		return err
-	}
-	wait()
-	st, _, err := s.Sample(first)
-	if err != nil {
-		return err
-	}
-	return writeStats(out, st)
+type job struct {
+	Cfg       Config
+	Socket    string
+	StateFile string
+	Write     func(*Stats) error
+	Wait      func()
+	Now       func() time.Time
 }
 
-func main() {
-	once := flag.Bool("once", false, "sample twice about one second apart, write the file and exit")
-	out := flag.String("out", "", "path of host-stats.json")
-	socket := flag.String("socket", "", "Docker socket (default $HOSTD_DOCKER_SOCKET or /var/run/docker.sock)")
-	flag.Parse()
-	if !*once || *out == "" {
-		fmt.Fprintln(os.Stderr, "usage: hostd -once -out PATH [-socket PATH]")
-		os.Exit(2)
+func run(cfg Config, socket, out string, wait func()) error {
+	return job{Cfg: cfg, Socket: socket, Write: func(st *Stats) error { return writeStats(out, st) }, Wait: wait, Now: time.Now}.execute()
+}
+
+func (j job) execute() error {
+	s := &Sampler{
+		Cfg: j.Cfg, Docker: NewDocker(j.Socket), Now: j.Now,
+		Sizes: &SizeCache{MaxAge: 10 * time.Minute, Now: j.Now, Run: runDU, Lazy: j.StateFile != ""},
+	}
+	var prev *Snapshot
+	if j.StateFile != "" {
+		if saved := loadState(j.StateFile); saved != nil {
+			s.Sizes.Import(saved.DU)
+			up, have := readUptime(j.Cfg.ProcRoot)
+			if saved.usable(j.Now(), up, have) {
+				prev = &saved.Prev
+			}
+		}
+	}
+	if prev == nil {
+		first, err := s.Prime()
+		if err != nil {
+			return err
+		}
+		j.Wait()
+		prev = first
+	}
+	st, snap, err := s.Sample(prev)
+	if err != nil {
+		return err
+	}
+	if j.StateFile != "" {
+		next := &State{Version: stateVersion, SavedAt: j.Now().UnixNano(), Prev: *snap, DU: s.Sizes.Export()}
+		if err := saveState(j.StateFile, next); err != nil {
+			fmt.Fprintln(os.Stderr, "hostd: state:", err)
+		}
+	}
+	return j.Write(st)
+}
+
+func volumeWriter(cfg Config, socket string) func(*Stats) error {
+	return func(st *Stats) error {
+		mount, err := NewDocker(socket).VolumeMountpoint(cfg.Project + "_dashboard_state")
+		if err != nil {
+			return err
+		}
+		return writeStatsVolume(mount, st)
+	}
+}
+
+func mainRun(args []string, stderr io.Writer) int {
+	fs := flag.NewFlagSet("hostd", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	once := fs.Bool("once", false, "sample, write the file and exit")
+	out := fs.String("out", "", "path of host-stats.json")
+	volume := fs.Bool("volume", false, "write host-stats.json into the dashboard state volume")
+	stateFile := fs.String("state-file", "", "path of the carry-over state between runs")
+	socket := fs.String("socket", "", "Docker socket (default $HOSTD_DOCKER_SOCKET or /var/run/docker.sock)")
+	if fs.Parse(args) != nil {
+		return 2
+	}
+	if !*once || (*out == "") == !*volume {
+		fmt.Fprintln(stderr, "usage: hostd -once (-out PATH | -volume) [-state-file PATH] [-socket PATH]")
+		return 2
 	}
 	if *socket == "" {
 		if *socket = os.Getenv("HOSTD_DOCKER_SOCKET"); *socket == "" {
 			*socket = "/var/run/docker.sock"
 		}
 	}
-	if err := run(ConfigFromEnv(), *socket, *out, func() { time.Sleep(time.Second) }); err != nil {
-		fmt.Fprintln(os.Stderr, "hostd:", err)
-		os.Exit(1)
+	cfg := ConfigFromEnv()
+	write := func(st *Stats) error { return writeStats(*out, st) }
+	if *volume {
+		write = volumeWriter(cfg, *socket)
 	}
+	j := job{Cfg: cfg, Socket: *socket, StateFile: *stateFile, Write: write, Now: time.Now, Wait: func() { time.Sleep(time.Second) }}
+	if err := j.execute(); errors.Is(err, ErrNoDashboard) {
+		return 0
+	} else if err != nil {
+		fmt.Fprintln(stderr, "hostd:", err)
+		return 1
+	}
+	return 0
 }
+
+func main() { os.Exit(mainRun(os.Args[1:], os.Stderr)) }

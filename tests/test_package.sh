@@ -42,6 +42,9 @@ export PACKAGE_VERSION=1.31.1-0pr125.abcdef0
 SOURCE_DATE_EPOCH=1700000000 scripts/build-deb.sh >/dev/null
 deb="dist/node-manager_${PACKAGE_VERSION}_all.deb"
 cp "$deb" "$tmp/first.deb"
+for arch in amd64 arm64; do
+  cp "dist/node-manager-hostd_${PACKAGE_VERSION}_${arch}.deb" "$tmp/hostd-first-$arch.deb" 2>/dev/null || true
+done
 SOURCE_DATE_EPOCH=1700000000 scripts/build-deb.sh >/dev/null
 cmp -s "$tmp/first.deb" "$deb" || fail "package build is not reproducible"
 
@@ -114,6 +117,55 @@ fi
 if grep -Eq ' \./(etc|var)/' "$tmp/contents"; then
   fail "package owns mutable system configuration or state"
 fi
+[ "$(dpkg-deb -f "$deb" Recommends)" = node-manager-hostd ] || fail "main package does not recommend node-manager-hostd"
+if command -v go >/dev/null; then
+  for arch in amd64 arm64; do
+    hostd_deb="dist/node-manager-hostd_${PACKAGE_VERSION}_${arch}.deb"
+    [ -f "$hostd_deb" ] || fail "missing $hostd_deb"
+    cmp -s "$tmp/hostd-first-$arch.deb" "$hostd_deb" || fail "hostd $arch package build is not reproducible"
+    [ "$(dpkg-deb -f "$hostd_deb" Package)" = node-manager-hostd ] || fail "hostd $arch package has the wrong name"
+    [ "$(dpkg-deb -f "$hostd_deb" Architecture)" = "$arch" ] || fail "hostd package architecture is not $arch"
+    [ "$(dpkg-deb -f "$hostd_deb" Version)" = "$PACKAGE_VERSION" ] || fail "hostd $arch package version does not match"
+    [ "$(dpkg-deb -f "$hostd_deb" Depends)" = "node-manager (= $PACKAGE_VERSION)" ] || fail "hostd $arch package is not pinned to node-manager"
+    dpkg-deb -c "$hostd_deb" >"$tmp/hostd-contents"
+    for required in \
+      ./usr/lib/node-manager/hostd \
+      ./usr/lib/systemd/system/node-manager-host-stats.service \
+      ./usr/lib/systemd/system/node-manager-host-stats.timer; do
+      grep -q " $required$" "$tmp/hostd-contents" || fail "hostd $arch package is missing $required"
+    done
+    grep -Eq ' \./(etc|var)/' "$tmp/hostd-contents" && fail "hostd $arch package owns mutable system configuration or state"
+    hostd_root=$tmp/hostd-root-$arch
+    dpkg-deb -x "$hostd_deb" "$hostd_root"
+    dpkg-deb -e "$hostd_deb" "$hostd_root/DEBIAN"
+    [ -x "$hostd_root/usr/lib/node-manager/hostd" ] || fail "hostd $arch binary is not executable"
+    for script in postinst prerm postrm; do
+      [ -x "$hostd_root/DEBIAN/$script" ] || fail "hostd $arch $script is missing or not executable"
+      sh -n "$hostd_root/DEBIAN/$script" || fail "hostd $arch $script has a syntax error"
+    done
+    grep -q 'systemctl daemon-reload' "$hostd_root/DEBIAN/postinst" || fail "hostd postinst does not reload systemd"
+    grep -q '/var/lib/node-manager/.env' "$hostd_root/DEBIAN/postinst" || fail "hostd postinst does not wait for an initialized install"
+    grep -q 'systemctl enable --now node-manager-host-stats.timer' "$hostd_root/DEBIAN/postinst" || fail "hostd postinst does not start the timer"
+    grep -q 'systemctl disable --now node-manager-host-stats.timer' "$hostd_root/DEBIAN/prerm" || fail "hostd prerm does not stop the timer"
+    grep -q 'systemctl daemon-reload' "$hostd_root/DEBIAN/postrm" || fail "hostd postrm does not reload systemd"
+    if command -v file >/dev/null; then
+      case "$arch" in amd64) want='ELF 64-bit.*x86-64' ;; arm64) want='ELF 64-bit.*ARM aarch64' ;; esac
+      file -b "$hostd_root/usr/lib/node-manager/hostd" | grep -Eq "$want" || fail "hostd $arch binary is not a $arch ELF"
+    fi
+    cmp -s packaging/systemd/node-manager-host-stats.service "$hostd_root/usr/lib/systemd/system/node-manager-host-stats.service" || fail "hostd service unit differs from source"
+    cmp -s packaging/systemd/node-manager-host-stats.timer "$hostd_root/usr/lib/systemd/system/node-manager-host-stats.timer" || fail "hostd timer unit differs from source"
+  done
+else
+  echo "SKIP: test_package.sh hostd packages (Go not installed)"
+fi
+host_stats_unit=packaging/systemd/node-manager-host-stats.service
+for directive in Type=oneshot NoNewPrivileges=true ProtectSystem=strict RestrictAddressFamilies=AF_UNIX IPAddressDeny=any \
+  ConditionPathExists=/var/lib/node-manager/.env StateDirectory=node-manager/hostd 'ReadWritePaths=-/var/lib/docker/volumes' \
+  'ExecStart=/usr/lib/node-manager/hostd -once -volume -state-file /var/lib/node-manager/hostd/state.json'; do
+  grep -Fxq "$directive" "$host_stats_unit" || fail "host stats unit lacks $directive"
+done
+grep -q '^PrivateNetwork=' "$host_stats_unit" && fail "host stats unit blanks /proc/net/dev with PrivateNetwork"
+grep -Fxq 'OnUnitActiveSec=10s' packaging/systemd/node-manager-host-stats.timer || fail "host stats timer is not every 10 seconds"
 depends=$(dpkg-deb -f "$deb" Depends)
 printf '%s' "$depends" | grep -q 'docker-ce | docker.io' || fail "Docker Engine dependency alternatives are missing"
 printf '%s' "$depends" | grep -q 'curl' || fail "curl dependency is missing"
