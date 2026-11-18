@@ -472,7 +472,9 @@ client. Reset is unavailable when the node is inactive. Tari gRPC and Monero
 ZMQ do not display made-up credentials.
 
 For APT installs, `node-manager init`, `up`, and `apply` enable
-`node-manager-port-control.timer`. Source installs reuse the host
+`node-manager-port-control.timer`. On APT the helper timers poll for dashboard
+requests: node-control every 10 seconds and port-control every 30 seconds, so a
+save can take up to that long to start. Source installs reuse the host
 agent for authenticated trusted-LAN controls. On
 macOS source installs, setup starts a session helper with a private
 `host-service.log`; Homebrew registers the user service automatically. No host
