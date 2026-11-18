@@ -6,6 +6,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.38.0] - 2026-11-17
+
 ### Added
 
 - Instant Dogecoin balances: `dogecoin.utxo_index` (Settings → Balance index →
@@ -61,6 +63,14 @@ All notable changes to this project are documented here. Format follows
 
 ### Changed
 
+- The Debian and Ubuntu host helpers poll less often to cut idle CPU: node
+  control every 10 seconds (was 2) and LAN port control every 30 seconds (was
+  15). A node or credential change from the dashboard can now take up to about
+  10 seconds to start, and a LAN port change up to about 30 seconds. Port
+  control looks up the dashboard container once per run instead of for every
+  command, and the resource-profile helper reads the container list and `.env`
+  once per run instead of calling `docker compose ps` and `sed` repeatedly.
+  Homebrew's host loop already ran every 10 seconds and is unchanged.
 - The actuator endpoints now use the same login as the dashboard (user `admin`
   and the dashboard password, over HTTP Basic auth) instead of a generated
   `actuator` login. Settings no longer shows an actuator username and
@@ -183,14 +193,6 @@ All notable changes to this project are documented here. Format follows
 
 ### Changed
 
-- The Debian and Ubuntu host helpers poll less often to cut idle CPU: node
-  control every 10 seconds (was 2) and LAN port control every 30 seconds (was
-  15). A node or credential change from the dashboard can now take up to about
-  10 seconds to start, and a LAN port change up to about 30 seconds. Port
-  control looks up the dashboard container once per run instead of for every
-  command, and the resource-profile helper reads the container list and `.env`
-  once per run instead of calling `docker compose ps` and `sed` repeatedly.
-  Homebrew's host loop already ran every 10 seconds and is unchanged.
 - The two actuator endpoints now have separate switches in Settings → Actuator
   (**Serve /actuator/health** and **Serve /actuator/info**, both off by
   default), and both always need HTTP Basic auth with a generated actuator
@@ -1844,7 +1846,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.37.0...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.38.0...HEAD
+[1.38.0]: https://github.com/VijitSingh97/node-manager/compare/v1.37.0...v1.38.0
 [1.37.0]: https://github.com/VijitSingh97/node-manager/compare/v1.36.0...v1.37.0
 [1.36.0]: https://github.com/VijitSingh97/node-manager/compare/v1.35.1...v1.36.0
 [1.35.1]: https://github.com/VijitSingh97/node-manager/compare/v1.35.0...v1.35.1
