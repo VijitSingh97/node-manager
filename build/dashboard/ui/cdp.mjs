@@ -40,10 +40,14 @@ class Connection {
       }
       for (const listener of this.listeners.get(message.sessionId || "") || []) listener(message.method, message.params);
     });
+    socket.addEventListener("close", () => {
+      for (const { reject } of [...this.pending.values()]) reject(new Error("Chrome connection closed"));
+    });
   }
 
   send(method, params = {}, sessionId) {
     const id = ++this.nextID;
+    if (this.socket.readyState !== WebSocket.OPEN) return Promise.reject(new Error(`Chrome connection closed before ${method}`));
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error(`Chrome did not answer ${method}`)), 60000);
       this.pending.set(id, { resolve: (value) => { clearTimeout(timer); resolve(value); }, reject: (error) => { clearTimeout(timer); reject(error); } });
@@ -187,7 +191,7 @@ export class Page {
     for (;;) {
       await sleep(40);
       const current = await sample();
-      if (current.hit && previous.hit && current.x === previous.x && current.y === previous.y) {
+      if (current.hit && previous.hit && Math.abs(current.x - previous.x) < 1 && Math.abs(current.y - previous.y) < 1) {
         if (current.disabled) throw new Error(`${selector} is disabled`);
         return current;
       }
