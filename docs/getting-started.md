@@ -132,9 +132,9 @@ On amd64 and arm64 the package also recommends `node-manager-hostd`, and
 `sudo node-manager init` starts its 10-second timer (see
 [Host readings](operations.md#host-readings)). Other architectures, source
 installs, Homebrew installs, and APT run with `--no-install-recommends` use the
-shell collector. An upgrade may not install the helper: check with
-`dpkg -s node-manager-hostd` and, if it is missing, run
-`sudo apt install node-manager-hostd` once. Installing the package on an
+shell collector. An upgrade installs the helper too, because it is recommended;
+if `dpkg -s node-manager-hostd` says it is missing (for example after
+`--no-install-recommends`), run `sudo apt install node-manager-hostd`. Installing the package on an
 already-initialized stack starts the timer too. Check with
 `systemctl status node-manager-host-stats.timer`.
 

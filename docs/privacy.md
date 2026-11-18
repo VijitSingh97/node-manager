@@ -49,7 +49,8 @@ LAN HTTP is unencrypted: use a trusted LAN, or access the onion service with Tor
 Browser. For a VPS, set `dashboard.public_url` to the exact HTTPS origin, set a
 dashboard password, and bind to `127.0.0.1`. A host-managed Caddy instance can
 terminate HTTPS and reverse-proxy to the loopback dashboard port; preserve the
-`Host` header and configure the host firewall for only HTTPS or VPN access.
+`Host` header and configure the host firewall for only HTTPS or VPN access; see
+[Public VPS access with Caddy](notifications.md#public-vps-access-with-caddy).
 The host port is owned by the Tor container and forwarded to the dashboard's
 fixed internal address; the dashboard itself stays on the internal network.
 
