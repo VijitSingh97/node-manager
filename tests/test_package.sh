@@ -109,7 +109,7 @@ for required in \
   ./usr/share/doc/node-manager/docs/privacy.md; do
   grep -q " $required$" "$tmp/contents" || fail "package is missing $required"
 done
-if grep -Eq '/(tests|parity|experiments|images|__pycache__|\.pytest_cache)/|/build/dashboard/ui/|_test\.go$|\.test\.mjs$|\.proto$|package\.json$|/\.coverage$|\.pyc$|docs/releasing\.md$|\.(jpg|jpeg)$' "$tmp/contents"; then
+if grep -Eq '/(tests|parity|experiments|images|__pycache__|\.pytest_cache)/|/build/dashboard/ui/|/build/hostd/|_test\.go$|\.test\.mjs$|\.proto$|package\.json$|/\.coverage$|\.pyc$|docs/releasing\.md$|\.(jpg|jpeg)$' "$tmp/contents"; then
   fail "package contains development-only files"
 fi
 if grep -Eq ' \./(etc|var)/' "$tmp/contents"; then

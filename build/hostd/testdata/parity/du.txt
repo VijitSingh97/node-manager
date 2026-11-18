@@ -1,0 +1,4 @@
+@ROOT@/state/data/bitcoin 2048
+@ROOT@/xmr 5000
+@ROOT@/root 300
+@ROOT@/state 2548
