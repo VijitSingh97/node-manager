@@ -3,7 +3,7 @@ Description=Check Node Manager LAN port settings
 
 [Timer]
 OnBootSec=1min
-OnUnitActiveSec=15s
+OnUnitActiveSec=30s
 RandomizedDelaySec=2s
 Persistent=true
 Unit=node-manager-port-control.service

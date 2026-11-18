@@ -140,6 +140,14 @@ All notable changes to this project are documented here. Format follows
 
 ### Changed
 
+- The Debian and Ubuntu host helpers poll less often to cut idle CPU: node
+  control every 10 seconds (was 2) and LAN port control every 30 seconds (was
+  15). A node or credential change from the dashboard can now take up to about
+  10 seconds to start, and a LAN port change up to about 30 seconds. Port
+  control looks up the dashboard container once per run instead of for every
+  command, and the resource-profile helper reads the container list and `.env`
+  once per run instead of calling `docker compose ps` and `sed` repeatedly.
+  Homebrew's host loop already ran every 10 seconds and is unchanged.
 - The two actuator endpoints now have separate switches in Settings → Actuator
   (**Serve /actuator/health** and **Serve /actuator/info**, both off by
   default), and both always need HTTP Basic auth with a generated actuator
