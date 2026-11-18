@@ -291,7 +291,25 @@ func isDir(path string) bool {
 	return err == nil && info.IsDir()
 }
 
+func (s *Sampler) sizeDirs() []string {
+	var dirs []string
+	for _, service := range nodeServices {
+		dirs = append(dirs, s.Cfg.dataDir(service))
+	}
+	dirs = append(dirs, s.Cfg.StackRoot, s.Cfg.StateRoot)
+	kept := dirs[:0]
+	for _, dir := range dirs {
+		if isDir(dir) {
+			kept = append(kept, dir)
+		}
+	}
+	return kept
+}
+
 func (s *Sampler) addSizes(st *Stats, dockerRoot string) {
+	if s.Sizes.Lazy {
+		s.Sizes.RefreshOne(s.sizeDirs())
+	}
 	var dirs []nodeDir
 	var subKB uint64
 	for _, service := range nodeServices {

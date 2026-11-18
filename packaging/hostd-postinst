@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+[ "${1:-}" = configure ] || exit 0
+[ -d /run/systemd/system ] || exit 0
+systemctl daemon-reload >/dev/null 2>&1 || true
+if [ -f /var/lib/node-manager/.env ]; then
+  systemctl enable --now node-manager-host-stats.timer >/dev/null 2>&1 ||
+    echo "WARNING: could not start host readings; run: sudo systemctl enable --now node-manager-host-stats.timer" >&2
+fi
+exit 0

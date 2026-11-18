@@ -74,7 +74,7 @@ if verify_downloaded_key "$tmp/malformed.asc" "$APT_SIGNING_FINGERPRINT"; then
 fi
 echo "PASS: APT onboarding key checks"
 
-for tool in apt-ftparchive apt-get; do
+for tool in apt-ftparchive apt-get go; do
   command -v "$tool" >/dev/null || {
     echo "SKIP: test_apt.sh feed checks ($tool not installed)"
     exit 0
@@ -103,7 +103,7 @@ Signed-By: $state/feed/node-manager.asc
 EOF
 options=(-o "Dir::Etc::sourcelist=$state/sources.sources" -o Dir::Etc::sourceparts=- -o "Dir::State::lists=$state/lists")
 apt-get "${options[@]}" update >/dev/null
-(cd "$state/download" && apt-get "${options[@]}" download node-manager >/dev/null)
+(cd "$state/download" && apt-get "${options[@]}" download node-manager node-manager-hostd >/dev/null)
 
 printf 'tampered' >>"$state/feed/node-manager_${PACKAGE_VERSION}_all.deb"
 rm -f "$state/download"/*.deb

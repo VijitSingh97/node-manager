@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+case "${1:-}" in remove | purge) ;; *) exit 0 ;; esac
+[ -d /run/systemd/system ] && systemctl daemon-reload >/dev/null 2>&1 || true
+[ "$1" != purge ] || rm -rf /var/lib/node-manager/hostd
+exit 0

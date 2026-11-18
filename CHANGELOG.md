@@ -81,6 +81,12 @@ All notable changes to this project are documented here. Format follows
 - The `WWW-Authenticate` challenge is now sent only with actuator 401 and 429
   answers, and a leftover actuator credentials file that cannot be deleted is
   logged with a fixed message.
+- Host vitals now refresh every 10 seconds on Debian and Ubuntu installs. A
+  small Go helper, the new recommended `node-manager-hostd` package, replaces the
+  shell collector on a systemd timer and is much cheaper than the minute-by-minute
+  shell run. Existing installs add it once with
+  `sudo apt-get install node-manager-hostd`; without it the shell collector runs
+  as before. Homebrew installs are unchanged.
 
 ### Fixed
 

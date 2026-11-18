@@ -10,7 +10,8 @@ printf '%s\n' "$APT_SIGNING_FINGERPRINT" | grep -Eq '^[0-9A-Fa-f]{40}$' || {
 }
 mkdir -p public
 rm -f public/*.deb public/Packages public/Packages.gz public/Release public/Release.gpg public/InRelease public/node-manager.asc public/bitcoin-starter-stack.asc
-cp "dist/node-manager_${version}_all.deb" "dist/bitcoin-starter-stack_${version}_all.deb" public/
+cp "dist/node-manager_${version}_all.deb" "dist/bitcoin-starter-stack_${version}_all.deb" \
+  "dist/node-manager-hostd_${version}_amd64.deb" "dist/node-manager-hostd_${version}_arm64.deb" public/
 cd public
 gpg --batch --list-secret-keys "$APT_SIGNING_FINGERPRINT" >/dev/null
 gpg --batch --armor --export "$APT_SIGNING_FINGERPRINT" >node-manager.asc

@@ -164,13 +164,17 @@ jobs:
           fetch-depth: 0
       - name: Install packaging tools
         run: sudo apt-get update && sudo apt-get install -y apt-utils
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: build/dashboard/go.mod
+          cache: false
       - name: Validate and build package
         run: |
           test "$GITHUB_REF_NAME" = "v$(cat VERSION)"
           git fetch --no-tags origin main:refs/remotes/origin/main
           git merge-base --is-ancestor HEAD refs/remotes/origin/main
           scripts/resolve-runtime-images.sh >"$RUNNER_TEMP/runtime-images.json"
-          RUNTIME_IMAGE_DIGESTS_FILE="$RUNNER_TEMP/runtime-images.json" scripts/build-deb.sh
+          HOSTD_REQUIRED=1 RUNTIME_IMAGE_DIGESTS_FILE="$RUNNER_TEMP/runtime-images.json" scripts/build-deb.sh
           for deb in dist/*.deb; do dpkg-deb --info "$deb"; done
       - name: Build signed APT feed
         env:
@@ -201,6 +205,7 @@ jobs:
           cd "$state/download"
           sudo apt-get "${options[@]}" download node-manager
           sudo apt-get "${options[@]}" download bitcoin-starter-stack
+          sudo apt-get "${options[@]}" download node-manager-hostd
           for deb in ./*.deb; do dpkg-deb --info "$deb"; done
       - name: Upload package assets
         env:

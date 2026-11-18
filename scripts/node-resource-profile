@@ -5,6 +5,8 @@ stack_root=${BITCOIN_STACK_ROOT:-/usr/lib/node-manager}
 state_root=${BITCOIN_STACK_STATE_DIR:-/var/lib/node-manager}
 env_file=${BITCOIN_STACK_ENV_FILE:-$state_root/.env}
 docker_bin=${DOCKER_BIN:-docker}
+hostd_bin=${RESOURCE_HOSTD_BIN:-/usr/lib/node-manager/hostd}
+systemctl_bin=${RESOURCE_SYSTEMCTL_BIN:-systemctl}
 profile_state=$state_root/resource-profile
 stable_checks=${RESOURCE_STABLE_CHECKS:-3}
 memory_headroom_mb=${RESOURCE_MEMORY_HEADROOM_MB:-256}
@@ -504,6 +506,12 @@ EOF
   done)
 }
 
+hostd_owns_host_stats() {
+  [ -x "$hostd_bin" ] && command -v "$systemctl_bin" >/dev/null 2>&1 || return 1
+  "$systemctl_bin" is-active --quiet node-manager-host-stats.timer &&
+    ! "$systemctl_bin" is-failed --quiet node-manager-host-stats.service
+}
+
 write_host_stats() {
   dashboard=$(container_id dashboard)
   [ -n "$dashboard" ] || return 0
@@ -725,4 +733,4 @@ apply_profile dogecoin DOGECOIN_RESOURCE_PROFILE dogecoin_synced DOGECOIN_STEADY
 apply_profile bitcoincash BITCOINCASH_RESOURCE_PROFILE bitcoincash_synced BITCOINCASH_STEADY_CPUS BITCOINCASH_STEADY_MEM_LIMIT_MB
 apply_profile zcash ZCASH_RESOURCE_PROFILE zcash_synced ZCASH_STEADY_CPUS ZCASH_STEADY_MEM_LIMIT_MB
 check_failed_starts || true
-write_host_stats || true
+hostd_owns_host_stats || write_host_stats || true

@@ -415,7 +415,7 @@ func TestEnvFile(t *testing.T) {
 }
 
 func TestSizeCache(t *testing.T) {
-	now := time.Unix(0, 0)
+	now := time.Unix(1000, 0)
 	calls, fail := 0, false
 	c := &SizeCache{MaxAge: time.Minute, Now: func() time.Time { return now }, Run: func(string) (uint64, bool) {
 		calls++

@@ -41,9 +41,41 @@ shows recent probe output when diagnosing.
 
 With **Node manager usage** ticked in Settings, the usage panel at the top left
 lists the host's temperature, fan speed, uptime and network rate under the disk
-bars and CPU and memory pies. The resource-profile host helper collects them
-once a minute with the other host figures, so the dashboard container needs no
-extra mounts or privileges.
+bars and CPU and memory pies. On Debian and Ubuntu installs the small
+`node-manager-hostd` helper writes them every 10 seconds. New installs get it as
+a recommended package; an existing install upgraded with `--only-upgrade` or
+`apt-get upgrade` does not, so install it once with
+`sudo apt-get install node-manager-hostd`. Elsewhere, and whenever the helper
+is not running, the resource-profile shell helper collects them once a minute.
+Either way the dashboard container needs no extra mounts or privileges.
+
+Check the helper with:
+
+```sh
+systemctl status node-manager-host-stats.timer
+systemctl status node-manager-host-stats.service
+journalctl -u node-manager-host-stats.service
+```
+
+The timer should be `active (waiting)` and the service `inactive (dead)` between
+runs. The service logs only warnings and errors, so a healthy install adds
+nothing to the journal. If a run fails, the service shows `failed`, and the
+resource-profile helper writes the readings itself from its next run until the
+helper succeeds again, but only while `node-manager-resource-profile.timer` is
+enabled (it is when a node uses the compact resource profile); otherwise the
+readings stop until the helper is fixed. A stopped dashboard is not a failure:
+the helper exits quietly and resumes with it. Without the package (or on an architecture it is not
+built for) the shell collector runs as before.
+
+The helper writes into the dashboard's state volume, which it finds through
+Docker. If Docker's data root is not `/var/lib/docker`, allow that path with a
+drop-in, then run `sudo systemctl daemon-reload`:
+
+```ini
+# /etc/systemd/system/node-manager-host-stats.service.d/data-root.conf
+[Service]
+ReadWritePaths=/srv/docker/volumes
+```
 
 The CPU and memory pies split the host three ways. A node slice covers the
 node's container and its wallet container (Monero, Tari). **Node Manager
@@ -69,8 +101,9 @@ The health rows below the pies read:
 - **Network** — received and sent bytes per second, summed over the host's
   physical interfaces (those with a device in `/sys/class/net`, so loopback,
   Docker bridges, `veth` pairs and VPN tunnels such as `tailscale0` are left
-  out). The rate is measured across the helper's existing one-second CPU
-  sample, so it is a snapshot taken once a minute, not an average.
+  out). The rate is measured across the helper's CPU sample window: about 10
+  seconds with the Go helper, or one second once a minute with the shell
+  collector.
 
 Each reading the host cannot provide shows `not available`: on Homebrew for
 macOS (Docker runs in a VM, and the helper does not read the Mac's sensors),

@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"time"
 )
 
@@ -64,4 +65,15 @@ func (d *Docker) Containers(project string) ([]Container, error) {
 	var list []Container
 	err := d.get("/containers/json?all=1&filters="+url.QueryEscape(string(filters)), &list)
 	return list, err
+}
+
+func (d *Docker) VolumeMountpoint(name string) (string, error) {
+	var v struct{ Name, Mountpoint string }
+	if err := d.get("/volumes/"+url.PathEscape(name), &v); err != nil {
+		return "", err
+	}
+	if v.Name != name || !filepath.IsAbs(v.Mountpoint) {
+		return "", fmt.Errorf("docker volume %s: unusable answer", name)
+	}
+	return v.Mountpoint, nil
 }
