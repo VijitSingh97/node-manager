@@ -120,7 +120,7 @@ func TestParityWithShellWriter(t *testing.T) {
 	cfg := Config{
 		ProcRoot: filepath.Join(root, "proc"), SysRoot: filepath.Join(root, "sys"), CgroupRoot: filepath.Join(root, "cgroup"),
 		ThermalGlob: filepath.Join(root, "zones/*/temp"), StackRoot: filepath.Join(root, "root"), StateRoot: filepath.Join(root, "state"),
-		EnvFile: filepath.Join(root, "state/.env"), Project: "bitcoin-starter-stack-apt", ClockTicks: 100,
+		EnvFile: filepath.Join(root, "state/env"), Project: "bitcoin-starter-stack-apt", ClockTicks: 100,
 		Statfs: func(point string) (uint64, uint64, bool) {
 			f, ok := df[point]
 			if !ok {

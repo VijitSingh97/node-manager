@@ -60,7 +60,7 @@ sed -i.bak 's/^    \[ -b "\$dev" \] || continue$/    :/' "$tmp/node-resource-pro
 grep -q '^    :$' "$tmp/node-resource-profile"
 
 env FIXTURE="$root" OUT="$root/expected.json" PATH="$tmp/bin:$PATH" DOCKER_BIN="$tmp/docker" \
-  BITCOIN_STACK_ROOT="$root/root" BITCOIN_STACK_STATE_DIR="$root/state" \
+  BITCOIN_STACK_ROOT="$root/root" BITCOIN_STACK_STATE_DIR="$root/state" BITCOIN_STACK_ENV_FILE="$root/state/env" \
   RESOURCE_PROC_ROOT="$root/proc" RESOURCE_SYS_ROOT="$root/sys" RESOURCE_CGROUP_ROOT="$root/cgroup" \
   RESOURCE_THERMAL_GLOB="$root/zones/*/temp" RESOURCE_NOW_EPOCH=100000 \
   sh "$tmp/node-resource-profile"
