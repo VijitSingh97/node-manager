@@ -1826,7 +1826,7 @@ First tagged release.
   (v31.1)** — lncm stopped publishing in January 2025; the official images
   track every Core release, so Dependabot catches node upgrades.
 - Stack subnet moved to `172.29.0.0/24` (the old `172.28.0.0/24` collides
-  with Pithead's network on a shared Docker host).
+  with another project's network on a shared Docker host).
 - Credentials flow `config.json` → gitignored `.env` → container
   environment; no tracked file is ever modified.
 

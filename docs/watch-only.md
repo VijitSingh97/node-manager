@@ -250,7 +250,7 @@ recovery. Removing a row does not erase its archived private view key.
 The dashboard reaches the wallet through authenticated gRPC at internal port
 `18143`; the wallet reaches the base node's internal HTTP query service at port
 `9000`. Neither port is published to the host. The optional LAN port `18142` is
-the separate mining gRPC endpoint for Pithead and does not expose this wallet.
+the separate mining gRPC endpoint and does not expose this wallet.
 
 The repeatable native test verifies offline view-only creation on v6.1, a
 persisted upgrade to v6.2, authenticated gRPC reads, removal, storage isolation,
