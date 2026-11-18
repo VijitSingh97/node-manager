@@ -653,7 +653,7 @@ func (m *utxoManager) tick(ctx context.Context) {
 		return
 	}
 	if info.Pruned && int64(height)+1 < info.PruneHeight {
-		m.invalidate("index is behind the node's retained blocks")
+		m.invalidate("index is behind the node's retained blocks; seed it again")
 		return
 	}
 	if m.freeBytes() < utxoMinFreeBytes {

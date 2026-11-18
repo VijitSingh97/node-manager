@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"syscall"
 	"time"
@@ -42,6 +43,8 @@ var (
 	errSeedThermal     = errors.New("temperature rose above the start limit before the dump")
 	errSeedInterrupted = errors.New("dashboard restarted during the seed")
 	errSeedPipeGone    = errors.New("the seed pipe was replaced during the seed")
+	errSeedChainstate  = errors.New("the chainstate copy could not be read")
+	errSeedOffChain    = errors.New("the chainstate copy's best block is not on the node's chain")
 	errSeedUserCancel  = fmt.Errorf("%w by the user", context.Canceled)
 )
 
@@ -87,7 +90,7 @@ func (m *utxoManager) configureSeed(h utxoSeedHost) {
 }
 
 func seedErrorClass(err error) string {
-	for _, target := range []error{errSeedDump, errSeedLowDisk, errSeedMismatch, errSeedThermal, errSeedInterrupted, errSeedPipeGone, errUtxoBlockTooLarge} {
+	for _, target := range []error{errSeedDump, errSeedLowDisk, errSeedMismatch, errSeedThermal, errSeedInterrupted, errSeedPipeGone, errSeedChainstate, errSeedOffChain, errUtxoBlockTooLarge} {
 		if errors.Is(err, target) {
 			return target.Error()
 		}
@@ -267,10 +270,17 @@ func (m *utxoManager) seedRequested(ctx context.Context, id string) {
 	m.markSeedRequest(id, utxoSeedChecking, nil)
 	network, refusals := m.checkSeed(ctx)
 	seed := func(ctx context.Context) error { return m.seedFromDump(ctx, network) }
-	if m.chain.Replay {
+	switch {
+	case m.chain.Replay:
 		seed = m.seedFromReplay
-	} else if r := seedFIFOGuard(h.dataDir); r != nil {
-		refusals = append(refusals, *r)
+	case m.chain.Chainstate:
+		seed = m.seedFromChainstate
+		// The host helper copied the chainstate while the node was synced and has just restarted it, so its warm-up is no reason to refuse.
+		refusals = slices.DeleteFunc(refusals, func(r seedRefusal) bool { return r.Guard == "node" })
+	default:
+		if r := seedFIFOGuard(h.dataDir); r != nil {
+			refusals = append(refusals, *r)
+		}
 	}
 	if len(refusals) == 0 && h.lock != nil {
 		if h.lock.TryLock() {
@@ -279,8 +289,8 @@ func (m *utxoManager) seedRequested(ctx context.Context, id string) {
 			refusals = append(refusals, seedRefusal{"lock", "another balance index is seeding"})
 		}
 	}
-	// A replay runs for hours, so the watch keeps scanning through it.
-	if len(refusals) == 0 && !m.chain.Replay {
+	// A replay runs for hours and a chainstate seed reads a file, so the watch keeps scanning through either.
+	if len(refusals) == 0 && !m.chain.Replay && !m.chain.Chainstate {
 		if h.hold() {
 			defer h.release()
 		} else {
@@ -298,7 +308,7 @@ func (m *utxoManager) seedRequested(ctx context.Context, id string) {
 
 func (m *utxoManager) checkSeed(ctx context.Context) ([4]byte, []seedRefusal) {
 	in := m.guards(ctx)
-	in.Replay = m.chain.Replay
+	in.Replay, in.Chainstate = m.chain.Replay, m.chain.Chainstate
 	refusals := evaluateSeedGuards(in)
 	network, known := m.chain.Networks[in.Chain.Chain]
 	if in.ChainErr == nil && !known {
@@ -556,6 +566,71 @@ func (g *seedGate) checkpoint() error {
 		g.m.setSeedPhase(g.phase())
 	}
 	return nil
+}
+
+// utxoChainstateCopyName is the directory the host helper fills with the stopped node's chainstate, inside the node's data directory.
+const utxoChainstateCopyName = "utxo-seed-chainstate"
+
+func (m *utxoManager) seedFromChainstate(parent context.Context) (err error) {
+	ctx, cancel := context.WithCancelCause(parent)
+	defer cancel(nil)
+	go m.watchSeedCancel(ctx, cancel)
+	if c, err := m.temp(); thermalStartGuard(c, err) != nil {
+		return errSeedThermal
+	}
+	// A tampered copy can make Pebble panic; that fails this seed instead of crash-looping the dashboard.
+	defer func() {
+		if r := recover(); r != nil {
+			m.log.Printf("utxo index: reading the chainstate copy panicked: %v", r)
+			err = errSeedChainstate
+		}
+	}()
+	copied, err := openChainstateCopy(filepath.Join(m.host.dataDir, utxoChainstateCopyName))
+	if err != nil {
+		m.log.Printf("utxo index: %v", err)
+		return errSeedChainstate
+	}
+	defer copied.Close()
+	m.setSeedPhase(utxoPhaseImporting)
+	prog := &utxoIngestProgress{}
+	gate := &seedGate{m: m, ctx: ctx, prog: prog}
+	prog.Checkpoint = gate.checkpoint
+	_, err = ingestUtxoRecords(m.currentStore(), copied.parse, func(hash [32]byte) (uint32, error) { return m.chainstateBaseHeight(ctx, hash) }, prog)
+	if err != nil {
+		if cause := context.Cause(ctx); cause != nil {
+			return cause
+		}
+		if errors.Is(err, errChainstateFormat) {
+			m.log.Printf("utxo index: %v", err)
+			return errSeedChainstate
+		}
+		return err
+	}
+	return nil
+}
+
+// chainstateBaseHeight retries while the node, restarted right after the copy, is still loading its block index.
+func (m *utxoManager) chainstateBaseHeight(ctx context.Context, hash [32]byte) (uint32, error) {
+	var header struct {
+		Height        uint32 `json:"height"`
+		Confirmations int64  `json:"confirmations"`
+	}
+	for try := 0; ; try++ {
+		err := m.rpc.call(ctx, "getblockheader", []any{reverseHex(hash)}, &header)
+		switch {
+		case err == nil && header.Confirmations < 1:
+			return 0, errSeedOffChain
+		case err == nil:
+			return header.Height, nil
+		case try >= utxoReplayRetries:
+			return 0, err
+		}
+		select {
+		case <-ctx.Done():
+			return 0, context.Cause(ctx)
+		case <-time.After(utxoReplayRetryWait):
+		}
+	}
 }
 
 func (m *utxoManager) seedFromDump(parent context.Context, network [4]byte) error {

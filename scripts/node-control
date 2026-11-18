@@ -319,6 +319,7 @@ delete_volume_names() {
     bitcoin) printf '%s\n' utxo_index ;;
     litecoin) printf '%s\n' utxo_index_litecoin ;;
     bitcoincash) printf '%s\n' utxo_index_bitcoincash ;;
+    dogecoin) printf '%s\n' utxo_index_dogecoin ;;
     monero) printf '%s\n' monero_wallets ;;
     tari) printf '%s\n' tari_wallet tari_wallet_data ;;
   esac
@@ -471,10 +472,12 @@ publish_host_capability() {
   utxo_index=false
   utxo_index_litecoin=false
   utxo_index_bitcoincash=false
+  utxo_index_dogecoin=false
   if [ -f "$approved_config" ]; then
     utxo_index=$(jq -r '.bitcoin.utxo_index == true' "$approved_config" 2>/dev/null || printf false)
     utxo_index_litecoin=$(jq -r '.litecoin.utxo_index == true' "$approved_config" 2>/dev/null || printf false)
     utxo_index_bitcoincash=$(jq -r '.bitcoincash.utxo_index == true' "$approved_config" 2>/dev/null || printf false)
+    utxo_index_dogecoin=$(jq -r '.dogecoin.utxo_index == true' "$approved_config" 2>/dev/null || printf false)
     clearnet_over_tor=$(jq -r '.network.clearnet_over_tor != false' "$approved_config" 2>/dev/null || printf true)
     inbound_connections=$(jq -r '.network.inbound_connections != false' "$approved_config" 2>/dev/null || printf true)
   fi
@@ -496,12 +499,27 @@ publish_host_capability() {
   done
   jq -nc --argjson timestamp "$now" --arg platform "$host_platform" --arg boot_kind "$boot_kind" \
     --argjson boot_supported "$boot_supported" --argjson boot_enabled "$boot_enabled" --argjson config_pending "$pending" \
-    --argjson clearnet_over_tor "$clearnet_over_tor" --argjson inbound_connections "$inbound_connections" --argjson utxo_index "$utxo_index" --argjson utxo_index_litecoin "$utxo_index_litecoin" --argjson utxo_index_bitcoincash "$utxo_index_bitcoincash" \
+    --argjson clearnet_over_tor "$clearnet_over_tor" --argjson inbound_connections "$inbound_connections" --argjson utxo_index "$utxo_index" --argjson utxo_index_litecoin "$utxo_index_litecoin" --argjson utxo_index_bitcoincash "$utxo_index_bitcoincash" --argjson utxo_index_dogecoin "$utxo_index_dogecoin" \
     --arg config_revision "$revision" --arg config_path "$config_path" --argjson data_paths "$data_paths" --argjson unsupported_nodes "$unsupported_nodes" \
-    '{timestamp:$timestamp,install_supported:true,migrate_supported:true,delete_supported:true,utxo_seed_supported:true,boot_supported:$boot_supported,boot_enabled:$boot_enabled,clearnet_over_tor:$clearnet_over_tor,inbound_connections:$inbound_connections,utxo_index:$utxo_index,utxo_index_litecoin:$utxo_index_litecoin,utxo_index_bitcoincash:$utxo_index_bitcoincash,config_pending:$config_pending,config_revision:$config_revision,platform:$platform,boot_kind:$boot_kind,config_path:$config_path,data_paths:$data_paths} + if $unsupported_nodes == [] then {} else {unsupported_nodes:$unsupported_nodes} end' |
+    '{timestamp:$timestamp,install_supported:true,migrate_supported:true,delete_supported:true,utxo_seed_supported:true,boot_supported:$boot_supported,boot_enabled:$boot_enabled,clearnet_over_tor:$clearnet_over_tor,inbound_connections:$inbound_connections,utxo_index:$utxo_index,utxo_index_litecoin:$utxo_index_litecoin,utxo_index_bitcoincash:$utxo_index_bitcoincash,utxo_index_dogecoin:$utxo_index_dogecoin,config_pending:$config_pending,config_revision:$config_revision,platform:$platform,boot_kind:$boot_kind,config_path:$config_path,data_paths:$data_paths} + if $unsupported_nodes == [] then {} else {unsupported_nodes:$unsupported_nodes} end' |
     $docker_bin exec -i -u 1000 "$dashboard_id" sh -c 'umask 077; cat > /state/.node-control.capability.tmp; mv /state/.node-control.capability.tmp /state/node-control.capability' >/dev/null
 }
 publish_host_capability
+# A chainstate copy pins the node's old tables, so it goes once its seed has finished; the age check covers the moment before the dashboard takes the request.
+remove_finished_chainstate_copy() {
+  [ "$(env_get DOGECOIN_ENABLED)" = 1 ] || return 0
+  copy_dir=$(delete_configured_dir dogecoin)/utxo-seed-chainstate
+  [ -d "$copy_dir" ] && [ -n "$(find "$copy_dir" -maxdepth 0 -mmin +2 2>/dev/null)" ] || return 0
+  # Only a dashboard that answers, has no pending request and reports a finished seed lets the copy go.
+  dashboard_exec test ! -e /state/dogecoin-utxo-seed.request >/dev/null 2>&1 || return 0
+  # With no seed state at all the copy was left by an interrupted copy, so it goes too.
+  if dashboard_exec test -e /state/dogecoin-utxo-seed.json >/dev/null 2>&1; then
+    copy_seed=$(dashboard_exec cat /state/dogecoin-utxo-seed.json 2>/dev/null) || return 0
+    printf '%s' "$copy_seed" | jq -e '(.seed_state | type) == "string" and .seed_state != "seeding" and .seed_state != "checking"' >/dev/null 2>&1 || return 0
+  fi
+  rm -rf -- "$copy_dir"
+}
+remove_finished_chainstate_copy
 delete_marker=$state_root/node-control/delete-pending.json
 size=0
 if ! dashboard_exec test -f /state/node-control.processing >/dev/null 2>&1; then
@@ -626,14 +644,14 @@ elif printf '%s' "$request" | jq -e --argjson now "$now" '
 ' >/dev/null 2>&1; then
   host_request=true
 elif printf '%s' "$request" | jq -e --argjson now "$now" '
-  type=="object" and keys==["action","enabled","id","node","requested_at"] and .action=="utxo_index" and (.node=="litecoin" or .node=="bitcoincash") and
+  type=="object" and keys==["action","enabled","id","node","requested_at"] and .action=="utxo_index" and (.node=="litecoin" or .node=="bitcoincash" or .node=="dogecoin") and
   (.id|type=="string" and test("^[0-9a-f]{32}$")) and (.enabled|type=="boolean") and
   (.requested_at|type=="number" and floor==. and . >= $now-300 and . <= $now+30)
 ' >/dev/null 2>&1; then
   host_request=true
 elif printf '%s' "$request" | jq -e --argjson now "$now" '
   type=="object" and keys==["action","id","node","requested_at"] and .action=="utxo_seed" and
-  (.id|type=="string" and test("^[0-9a-f]{32}$")) and (.node=="bitcoin" or .node=="litecoin") and
+  (.id|type=="string" and test("^[0-9a-f]{32}$")) and (.node=="bitcoin" or .node=="litecoin" or .node=="dogecoin") and
   (.requested_at|type=="number" and floor==. and . >= $now-300 and . <= $now+30)
 ' >/dev/null 2>&1; then
   host_request=true
@@ -692,7 +710,7 @@ if [ "$host_request" = true ]; then
       .[$node].enabled=true | .[$node].active=true |
       .[$node].resource_profile //= "compact" |
       if $node=="bitcoin" and (.bitcoin.prune_mb // 10000) != 0 and (.bitcoin // {} | has("utxo_index") | not) then .bitcoin.utxo_index=true
-      elif $node=="litecoin" and (.litecoin // {} | has("utxo_index") | not) then .litecoin.utxo_index=true
+      elif ($node=="litecoin" or $node=="dogecoin") and (.[$node] // {} | has("utxo_index") | not) then .[$node].utxo_index=true
       elif $node=="bitcoincash" and (.bitcoincash // {} | has("utxo_index") or has("prune_mb") | not) then .bitcoincash.prune_mb=0 | .bitcoincash.utxo_index=true else . end |
       if $node=="zcash" and ((.zcash.address_index|type)!="boolean") then .zcash.address_index=true else . end |
       .[$node].steady_cpus //= 1 | .[$node].steady_mem_limit_mb //= $memory |
@@ -978,9 +996,24 @@ if [ "$host_request" = true ]; then
     fi
     seed_node_id=$(container_id "$host_node")
     [ -n "$seed_node_id" ] || host_finish failed "The node is not running." "$host_node" "" apply_failed
-    "$docker_bin" exec "$seed_node_id" sh -c 'rm -f /data/utxo-seed.dat /data/utxo-seed.dat.incomplete && mkfifo -m 600 /data/utxo-seed.dat.incomplete' >/dev/null 2>&1 ||
-      host_finish failed "The seed pipe could not be created." "$host_node" "" apply_failed
-    jq -nc --arg id "$host_id" --argjson at "$now" '{id:$id,requested_at:$at}' |
+    seed_at=$now
+    if [ "$host_node" = dogecoin ]; then
+      copy_status=0
+      "$stack_root/stack" utxo-chainstate-copy "$host_node" >/dev/null 2>&1 || copy_status=$?
+      case "$copy_status" in
+        0) ;;
+        1) host_finish rejected "The chainstate was not copied: the node did not answer, is still syncing, or there is no room for a copy. Nothing was changed." "$host_node" "" validation_failed ;;
+        2) host_finish failed "The node's chainstate could not be copied; the node was started again." "$host_node" "" apply_failed ;;
+        3) host_finish failed "The node's chainstate could not be copied, and the node did not start again." "$host_node" "" apply_failed ;;
+        *) host_finish failed "The chainstate copy was interrupted. Check that the node is running." "$host_node" "" apply_failed ;;
+      esac
+      # Stopping the node can take its five-minute grace period, so the request is stamped after the copy to still be fresh.
+      seed_at=$(date +%s)
+    else
+      "$docker_bin" exec "$seed_node_id" sh -c 'rm -f /data/utxo-seed.dat /data/utxo-seed.dat.incomplete && mkfifo -m 600 /data/utxo-seed.dat.incomplete' >/dev/null 2>&1 ||
+        host_finish failed "The seed pipe could not be created." "$host_node" "" apply_failed
+    fi
+    jq -nc --arg id "$host_id" --argjson at "$seed_at" '{id:$id,requested_at:$at}' |
       "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c "umask 077; cat > /state/.${seed_prefix}utxo-seed.request.tmp; mv /state/.${seed_prefix}utxo-seed.request.tmp /state/${seed_prefix}utxo-seed.request" >/dev/null ||
       host_finish failed "The seed request could not be written." "$host_node" "" apply_failed
     host_finish applied "Balance index seed started." "$host_node"
@@ -1008,6 +1041,10 @@ if [ "$host_request" = true ]; then
     if [ "$host_action" = utxo_index ] && [ "$host_enabled" = true ] && [ "$host_section" = litecoin ] &&
       [ "$(printf '%s' "$current" | jq -r '.litecoin.enabled == true')" != true ]; then
       host_finish rejected "$host_label requires Litecoin to be enabled." "$host_toggle_node" "$host_enabled" validation_failed
+    fi
+    if [ "$host_action" = utxo_index ] && [ "$host_enabled" = true ] && [ "$host_section" = dogecoin ] &&
+      [ "$(printf '%s' "$current" | jq -r '.dogecoin.enabled == true')" != true ]; then
+      host_finish rejected "$host_label requires Dogecoin to be enabled." "$host_toggle_node" "$host_enabled" validation_failed
     fi
     if [ "$host_action" = utxo_index ] && [ "$host_enabled" = true ] && [ "$host_section" = bitcoincash ] &&
       [ "$(printf '%s' "$current" | jq -r '.bitcoincash.enabled == true and .bitcoincash.prune_mb == 0')" != true ]; then

@@ -107,6 +107,36 @@ func TestInstallAndMigrateRestartOnlyTheirNode(t *testing.T) {
 	}
 }
 
+func TestChainstateCopyMarksOnlyItsNodeRestartingUntilItAnswersAfterTheStart(t *testing.T) {
+	a := restartTestApp(t)
+	mark := filepath.Join(a.cfg.stateDir, nodeDogecoin+"-chainstate-copy")
+	writeControlFile(t, mark+".processing", nil, time.Minute)
+	writeControlFile(t, filepath.Join(a.cfg.stateDir, nodeLitecoin+"-chainstate-copy.processing"), nil, time.Minute)
+	a.recordNodeHealth(nodeDogecoin, true)
+	if got := restartingSet(a); !equalIDs(got, nodeDogecoin) {
+		t.Fatalf("while the copy has the node down = %v", got)
+	}
+	if err := os.Remove(mark + ".processing"); err != nil {
+		t.Fatal(err)
+	}
+	writeControlFile(t, mark+".status", nil, time.Minute)
+	a.nodeHealth[nodeDogecoin] = nodeHealthSnapshot{Available: true, UpdatedAt: time.Now().Add(-2 * time.Minute)}
+	if got := restartingSet(a); !equalIDs(got, nodeDogecoin) {
+		t.Fatalf("after the start, before an answer = %v", got)
+	}
+	a.recordNodeHealth(nodeDogecoin, true)
+	if a.restartingNodes()[nodeDogecoin] {
+		t.Fatal("the node still counts as restarting after it answered")
+	}
+	if err := os.Remove(mark + ".status"); err != nil {
+		t.Fatal(err)
+	}
+	writeControlFile(t, mark+".processing", nil, nodeRestartWindow+time.Minute)
+	if a.restartingNodes()[nodeDogecoin] {
+		t.Fatal("a mark left by a killed copy held back alerts past the window")
+	}
+}
+
 func TestHostChangesThatLeaveNodesRunningDoNotMarkRestarting(t *testing.T) {
 	for _, action := range []string{"launch_at_boot", "utxo_index", "utxo_seed"} {
 		a := restartTestApp(t)

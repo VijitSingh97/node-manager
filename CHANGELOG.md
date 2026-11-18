@@ -8,6 +8,20 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
+- Instant Dogecoin balances: `dogecoin.utxo_index` (Settings → Balance index →
+  "Instant Dogecoin balances") keeps a Dogecoin balance index, on a pruned node
+  too, and the Dogecoin watch-only card reads its balances from it once it is at
+  the node's tip. Dogecoin Core 1.14.9 has no coin-set export, so a seed stops the
+  Dogecoin node while its chainstate is copied, starts it again, and
+  builds the index from the copy; the index then follows new blocks, merge-mined
+  ones included. A Dogecoin install from the dashboard turns the index on, and the
+  archival watch wallet is no longer needed for balances. If a pruned node drops
+  blocks the index still needs, Settings offers Seed now. The copy marks
+  Dogecoin as restarting while it is stopped, from Settings or the command line,
+  so it raises no node-down alert. Dogecoin is not in `utxo-index bench` or its CI
+  test, since Dogecoin Core 1.14.9 has none of the RPCs it uses; its index is
+  checked by a regtest test against the node's own `gettxout`. The seed time and
+  index size on mainnet are not measured yet.
 - Host vitals redesign: the Node Manager usage panel now shows Temperature,
   Fan, Uptime and Network as four tiles above the disk bars. Temperature has a
   dot that runs from blue to red up to the 88 °C throttle limit, the fan icon

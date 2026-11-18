@@ -15,6 +15,9 @@ type utxoChainParams struct {
 	ReverseIndex   bool
 	Replay         bool
 	LocalScripts   bool
+	CashTokens     bool
+	AuxPow         bool
+	Chainstate     bool
 }
 
 var (
@@ -40,11 +43,20 @@ var (
 		BlockVerbosity: 0,
 		ReverseIndex:   true,
 		Replay:         true,
+		CashTokens:     true,
+	}
+	// Dogecoin Core 1.14.9 has neither dumptxoutset nor descriptors; the index seeds from a copy of its chainstate, which a pruned node keeps whole.
+	utxoDogecoin = &utxoChainParams{
+		Networks:       map[string][4]byte{"main": {0xc0, 0xc0, 0xc0, 0xc0}, "regtest": utxoNetRegtest},
+		BlockVerbosity: 0,
+		ReverseIndex:   true,
+		AuxPow:         true,
+		Chainstate:     true,
 	}
 )
 
 // utxoChains lists the chains besides Bitcoin that can keep a balance index, by node id.
-var utxoChains = map[string]*utxoChainParams{nodeLitecoin: utxoLitecoin, nodeBitcoinCash: utxoBitcoinCash}
+var utxoChains = map[string]*utxoChainParams{nodeLitecoin: utxoLitecoin, nodeBitcoinCash: utxoBitcoinCash, nodeDogecoin: utxoDogecoin}
 
 func (c *utxoChainParams) dumpArgs(path string) []any {
 	if c.DumpLatest {

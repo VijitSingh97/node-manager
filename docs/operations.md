@@ -540,6 +540,35 @@ Recovery:
   (`utxo-seed.json` in the state volume) and logs carry phases, counts and
   error classes only, never addresses, descriptors or script hashes.
 
+## Seeding the Dogecoin balance index
+
+Dogecoin Core 1.14.9 has no coin-set export, so `dogecoin.utxo_index` seeds from a copy of the node's
+chainstate, which a pruned node keeps whole.
+
+- **Seed now** (Settings → Balance index) and the hourly automatic seed go through the host helper. It
+  checks that the node has finished syncing and that the disk beside its data can hold the chainstate
+  twice, stops the Dogecoin node, hardlinks the chainstate's tables into
+  `<data_dir>/utxo-seed-chainstate`, copies its other files, and starts the node again. The dashboard
+  then builds the index from the copy and follows new blocks.
+- From the command line, `./stack utxo-seed dogecoin` (`sudo node-manager utxo-seed dogecoin` on APT)
+  does the same and waits for the outcome. `./stack utxo-seed dogecoin cancel` stops the dashboard's
+  build.
+- **Alerts:** either way, the copy marks Dogecoin as restarting from just before the stop until its RPC
+  answers after the start, for at most 10 minutes, so the stop raises no node-down alert. If the node
+  does not start again, the mark is dropped and the alert follows.
+- The copy keeps the node's older tables on disk until it is removed. The host helper removes it once
+  the dashboard reports the seed finished, or when an interrupted copy left it with no seed at all; the
+  command line removes it when it ends. An interrupted or hung-up copy starts the node again. If the
+  owner stops the node while the index is being built, the seed leaves it stopped.
+- The seed reports which of three things happened when it does not start: it refused before the stop
+  (nothing changed), the copy failed and the node was started again, or the node did not start again
+  (start it with `./stack up`).
+- `./stack utxo-index remove dogecoin` deletes the index volume once `dogecoin.utxo_index` is off and
+  applied.
+- If a pruned node drops blocks the index still needs, the index turns invalid and **Seed now** seeds it
+  again.
+- Dogecoin is not in `utxo-index bench` or its CI test; see [the lookup bench](measurements/lookup-bench.md).
+
 ## Self-healing (a deliberate non-feature)
 
 Fresh installs use `on-failure:5` to retry a crashed container up to five times.
