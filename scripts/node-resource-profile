@@ -27,8 +27,15 @@ if ! flock -n 9; then
   exit 0
 fi
 
+env_content=$(cat "$env_file")
 env_get() {
-  sed -n "s/^$1=//p" "$env_file" | tail -n 1
+  env_value=
+  while IFS= read -r env_line; do
+    case "$env_line" in "$1="*) env_value=${env_line#"$1="} ;; esac
+  done <<EOF_ENV
+$env_content
+EOF_ENV
+  printf '%s\n' "$env_value"
 }
 
 project_name=${BITCOIN_STACK_PROJECT_NAME:-$(env_get COMPOSE_PROJECT_NAME)}
@@ -42,8 +49,9 @@ compose() {
     -f "$stack_root/docker-compose.yml" "$@"
 }
 
+container_rows=$("$docker_bin" ps --filter "label=com.docker.compose.project=$project_name" --format '{{.ID}} {{.Label "com.docker.compose.service"}}' 2>/dev/null || true)
 container_id() {
-  compose ps -q "$1" 2>/dev/null | head -n 1
+  printf '%s\n' "$container_rows" | awk -v service="$1" '$2 == service { print $1; exit }'
 }
 
 container_healthy() {

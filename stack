@@ -214,7 +214,7 @@ compose() {
     local compose_args=()
     for compose_file in "${compose_files[@]}"; do
       case "$compose_file" in
-        docker-compose.yml | docker-compose.tari-wallet.yml | docker-compose.rpc.yml | docker-compose.monero-rpc.yml | docker-compose.monero-zmq.yml | docker-compose.tari-grpc.yml | docker-compose.litecoin-rpc.yml | docker-compose.dogecoin-rpc.yml | docker-compose.bitcoincash-rpc.yml | docker-compose.zcash-rpc.yml | docker-compose.utxo-index.yml | docker-compose.litecoin-utxo-index.yml | docker-compose.bitcoincash-utxo-index.yml)
+        docker-compose.yml | docker-compose.tari-wallet.yml | docker-compose.rpc.yml | docker-compose.monero-rpc.yml | docker-compose.monero-zmq.yml | docker-compose.tari-grpc.yml | docker-compose.litecoin-rpc.yml | docker-compose.dogecoin-rpc.yml | docker-compose.bitcoincash-rpc.yml | docker-compose.zcash-rpc.yml | docker-compose.utxo-index.yml | docker-compose.litecoin-utxo-index.yml | docker-compose.bitcoincash-utxo-index.yml | docker-compose.dogecoin-utxo-index.yml)
           compose_args+=( -f "$stack_root/$compose_file" )
           ;;
         *)
@@ -276,7 +276,7 @@ guard_package_containers() {
 }
 utxo_select_chain() {
   utxo_chain=$1 utxo_arg='' utxo_prefix='' utxo_overlay=docker-compose.utxo-index.yml utxo_volume=utxo_index
-  utxo_cli=bitcoin-cli utxo_conf='' utxo_daemon=bitcoind utxo_name=Bitcoin utxo_replay=0
+  utxo_cli=bitcoin-cli utxo_conf='' utxo_daemon=bitcoind utxo_name=Bitcoin utxo_replay=0 utxo_chainstate=0
   # The family images write their RPC credentials to /tmp/<bin>.conf, not the data directory.
   if [ "$1" = litecoin ]; then
     utxo_arg="litecoin " utxo_prefix=litecoin- utxo_overlay=docker-compose.litecoin-utxo-index.yml utxo_volume=utxo_index_litecoin
@@ -284,9 +284,102 @@ utxo_select_chain() {
   elif [ "$1" = bitcoincash ]; then
     utxo_arg="bitcoincash " utxo_prefix=bitcoincash- utxo_overlay=docker-compose.bitcoincash-utxo-index.yml utxo_volume=utxo_index_bitcoincash
     utxo_conf=-conf=/tmp/bitcoin.conf utxo_name="Bitcoin Cash" utxo_replay=1
+  elif [ "$1" = dogecoin ]; then
+    utxo_arg="dogecoin " utxo_prefix=dogecoin- utxo_overlay=docker-compose.dogecoin-utxo-index.yml utxo_volume=utxo_index_dogecoin
+    utxo_cli=dogecoin-cli utxo_conf=-conf=/tmp/dogecoin.conf utxo_daemon=dogecoind utxo_name=Dogecoin utxo_chainstate=1
+  fi
+}
+
+# The node never rewrites a LevelDB table, so the copy hardlinks them as .sst for the dashboard's Pebble reader and copies the rest; the node stops only for the copy.
+utxo_chainstate_copy() {
+  local node=$1 src dst id file owner ok=1
+  utxo_select_chain "$node"
+  dst=$(utxo_chainstate_copy_dir "$node")
+  src=${dst%/*}/chainstate
+  # The node's container writes this directory, so a symlink here could point the copy anywhere.
+  [ -d "$src" ] && [ ! -L "$src" ] || {
+    echo "There is no chainstate directory at $src." >&2
+    return 1
+  }
+  [ "$(compose exec -T "$node" "$utxo_cli" -datadir=/data ${utxo_conf:+"$utxo_conf"} getblockchaininfo 2>/dev/null | jq -r '.initialblockdownload' 2>/dev/null)" = false ] || {
+    echo "$utxo_name RPC did not answer, or the node is still syncing; nothing was changed." >&2
+    return 1
+  }
+  # The hardlinked tables stay on disk after the node rewrites them, until the copy is removed, so the disk must hold the chainstate twice.
+  local need free
+  need=$(du -sk "$src" 2>/dev/null | awk '{print $1}')
+  free=$(df -Pk "${dst%/*}" 2>/dev/null | awk 'NR == 2 {print $4}')
+  [ -n "$need" ] && [ -n "$free" ] && [ "$free" -gt "$need" ] || {
+    echo "Not enough free space beside the $utxo_name data to keep a copy of its chainstate; nothing was changed." >&2
+    return 1
+  }
+  echo "Stopping $utxo_daemon to copy its chainstate..."
+  compose exec -T -u 1000 dashboard touch "/state/$node-chainstate-copy.processing" >/dev/null 2>&1 || true
+  # From here the node is down, so an interrupt, a hang-up or a failure starts it again and leaves no partial copy pinning its tables.
+  local saved status=0
+  saved=$(trap -p INT TERM HUP)
+  trap 'rm -rf -- "$dst"; utxo_copy_start "$node" || true; exit 130' INT TERM HUP
+  utxo_copy_stopped=1
+  if compose stop "$node" >/dev/null 2>&1; then
+    id=$(container_id "$node" 2>/dev/null || true)
+    # The node's container could swap the chainstate for a symlink until it stopped, so it is checked again now that it cannot.
+    if [ -n "$id" ] && [ "$(docker inspect --format '{{.State.Running}}' "$id" 2>/dev/null || true)" = false ] &&
+      [ -d "$src" ] && [ ! -L "$src" ] && rm -rf -- "$dst" && mkdir -m 700 "$dst"; then
+      for file in "$src"/*; do
+        if [ -L "$file" ] || [ ! -f "$file" ]; then
+          ok=0
+          continue
+        fi
+        case ${file##*/} in
+          LOCK | LOG | LOG.old) ;;
+          *.ldb) ln "$file" "$dst/$(basename "$file" .ldb).sst" || ok=0 ;;
+          *) cp -p "$file" "$dst/" || ok=0 ;;
+        esac
+      done
+      owner=$(stat -c %u:%g "$src" 2>/dev/null || stat -f %u:%g "$src" 2>/dev/null || true)
+      # The dashboard reads the copy as the node's user; if the owner cannot be set, the files' own modes still guard their contents.
+      if [ -z "$owner" ] || ! chown "$owner" "$dst" 2>/dev/null; then
+        chmod 755 "$dst"
+      fi
+    else
+      ok=0
+    fi
+  else
+    ok=0
+  fi
+  if utxo_copy_start "$node"; then
+    [ "$ok" = 1 ] || status=2
+  else
+    status=3
+  fi
+  [ "$status" = 0 ] || rm -rf -- "$dst"
+  trap - INT TERM HUP
+  [ -z "$saved" ] || eval "$saved"
+  return "$status"
+}
+
+# The node's data directory as configured, resolved against the state directory like Compose's relative paths.
+utxo_chainstate_copy_dir() {
+  local root
+  root=$(env_get "$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')_DATA_DIR")
+  root=${root:-./data/$1}
+  case "$root" in /*) ;; *) root=$(cd "$state_dir" && pwd -P)/${root#./} ;; esac
+  printf '%s/utxo-seed-chainstate\n' "$root"
+}
+
+# The marks hold back the node-down alert while the copy has the node down; a node that fails to start loses them.
+utxo_copy_start() {
+  local mark="/state/$1-chainstate-copy"
+  if compose start "$1" >/dev/null 2>&1; then
+    utxo_copy_stopped=0
+    compose exec -T -u 1000 dashboard sh -c "touch $mark.status; rm -f $mark.processing" >/dev/null 2>&1 || true
+  else
+    compose exec -T -u 1000 dashboard rm -f "$mark.processing" >/dev/null 2>&1 || true
+    return 1
   fi
 }
 utxo_select_chain bitcoin
+utxo_copy_stopped=0
 
 utxo_seed_overlay_enabled() {
   case ":$(env_get COMPOSE_FILE):" in
@@ -328,6 +421,14 @@ utxo_seed_unpark() {
 
 utxo_seed_finish_pipe() {
   [ "$utxo_replay" = 1 ] && return 0
+  if [ "$utxo_chainstate" = 1 ]; then
+    rm -rf -- "$(utxo_chainstate_copy_dir "$utxo_chain")"
+    # A node the owner stopped during the seed stays stopped; only one the copy left down is started.
+    if [ "$utxo_copy_stopped" = 1 ]; then
+      utxo_copy_start "$utxo_chain" || true
+    fi
+    return 0
+  fi
   utxo_seed_unpark
   utxo_seed_remove_pipe
 }
@@ -352,7 +453,7 @@ utxo_seed_cancel() {
 
 utxo_seed() {
   case "${1:-}" in
-    litecoin | bitcoincash)
+    litecoin | bitcoincash | dogecoin)
       utxo_select_chain "$1"
       shift
       ;;
@@ -365,7 +466,7 @@ utxo_seed() {
   if [ "${1:-}" = -y ] && [ $# = 1 ]; then
     assume_yes=1
   elif [ $# != 0 ]; then
-    echo "Usage: $stack_command utxo-seed [litecoin | bitcoincash] [-y | cancel]" >&2
+    echo "Usage: $stack_command utxo-seed [litecoin | bitcoincash | dogecoin] [-y | cancel]" >&2
     return 1
   fi
   command -v jq >/dev/null || {
@@ -390,6 +491,13 @@ Replaying the $utxo_name balance index from genesis
   - Needs an archival node ($utxo_chain.prune_mb 0); a pruned node is refused.
   - $utxo_name RPC keeps answering and node-down alerts are not held; heat pauses the replay.
   - A stop keeps the blocks already applied, and the next seed resumes from there.
+  - Only one balance index seeds at a time. Cancel with: $stack_command utxo-seed ${utxo_arg}cancel
+EOF
+  elif [ "$utxo_chainstate" = 1 ]; then
+    cat <<EOF
+Seeding the $utxo_name balance index from the node's chainstate
+  - Stops the $utxo_name node while its chainstate is copied, then starts it again; this works on a pruned node.
+  - The dashboard then builds the index from the copy; its time and size on mainnet are not measured yet.
   - Only one balance index seeds at a time. Cancel with: $stack_command utxo-seed ${utxo_arg}cancel
 EOF
   elif [ "$utxo_chain" = litecoin ]; then
@@ -428,11 +536,13 @@ EOF
     esac
   fi
   local methods
-  methods=$(utxo_seed_rpc_methods) || {
+  if [ "$utxo_chainstate" = 1 ]; then
+    :
+  elif ! methods=$(utxo_seed_rpc_methods); then
     echo "$utxo_name RPC did not answer; nothing was changed." >&2
     return 1
-  }
-  if [ "$utxo_replay" != 1 ] && printf '%s\n' "$methods" | grep -Eqx 'dumptxoutset|scantxoutset'; then
+  fi
+  if [ "$utxo_replay" != 1 ] && [ "$utxo_chainstate" != 1 ] && printf '%s\n' "$methods" | grep -Eqx 'dumptxoutset|scantxoutset'; then
     echo "A UTXO dump or scan is already running in $utxo_daemon; nothing was changed." >&2
     return 1
   fi
@@ -443,7 +553,19 @@ EOF
       ;;
   esac
   trap 'trap - INT TERM; compose exec -T -u 1000 dashboard rm -f "/state/${utxo_prefix}utxo-seed.request" >/dev/null 2>&1 || true; utxo_seed_finish_pipe; echo; exit 130' INT TERM
-  if [ "$utxo_replay" != 1 ]; then
+  if [ "$utxo_chainstate" = 1 ]; then
+    utxo_chainstate_copy "$utxo_chain" || {
+      local copy_status=$?
+      trap - INT TERM
+      utxo_seed_finish_pipe
+      case "$copy_status:$utxo_copy_stopped" in
+        1:*) echo "No seed was started; nothing was changed." >&2 ;;
+        *:0) echo "No seed was started: the $utxo_name chainstate could not be copied, and the node was started again." >&2 ;;
+        *) echo "No seed was started, and the $utxo_name node did not start again; start it with: $stack_command up" >&2 ;;
+      esac
+      return 1
+    }
+  elif [ "$utxo_replay" != 1 ]; then
     utxo_seed_remove_pipe
     compose exec -T "$utxo_chain" mkfifo -m 600 /data/utxo-seed.dat.incomplete || {
       trap - INT TERM
@@ -529,7 +651,7 @@ EOF
 
 utxo_index_remove() {
   case "${1:-}" in
-    litecoin | bitcoincash)
+    litecoin | bitcoincash | dogecoin)
       utxo_select_chain "$1"
       shift
       ;;
@@ -538,7 +660,7 @@ utxo_index_remove() {
   if [ "${1:-}" = -y ] && [ $# = 1 ]; then
     assume_yes=1
   elif [ $# != 0 ]; then
-    echo "Usage: $stack_command utxo-index remove [litecoin | bitcoincash] [-y]" >&2
+    echo "Usage: $stack_command utxo-index remove [litecoin | bitcoincash | dogecoin] [-y]" >&2
     return 1
   fi
   if utxo_seed_overlay_enabled; then
@@ -656,6 +778,10 @@ utxo_index_bench() {
     return 1
   fi
   utxo_select_chain "$chain"
+  [ "$chain" != dogecoin ] || {
+    echo "Dogecoin is not in utxo-index bench: Dogecoin Core 1.14.9 has no getdescriptorinfo, deriveaddresses or scantxoutset to read wallets and compare against. Its index is checked by a regtest test against the node's gettxout instead." >&2
+    return 1
+  }
   [ "$chain" = bitcoin ] || [ -n "$utxo_prefix" ] || {
     echo "$usage" >&2
     echo "--chain takes a chain with a balance index." >&2
@@ -1895,6 +2021,18 @@ case "$cmd" in
   backup) guard_package_containers && do_backup ;;
   restore) guard_package_containers && do_restore "$@" ;;
   utxo-seed) guard_package_containers && utxo_seed "$@" ;;
+  utxo-chainstate-copy)
+    [ "${1:-}" = dogecoin ] && [ $# = 1 ] || {
+      echo "Usage: $stack_command utxo-chainstate-copy dogecoin" >&2
+      exit 1
+    }
+    utxo_select_chain "$1"
+    utxo_seed_overlay_enabled || {
+      echo "The $utxo_name balance index is off; nothing was changed." >&2
+      exit 1
+    }
+    guard_package_containers && utxo_chainstate_copy "$1"
+    ;;
   utxo-index)
     case "${1:-}" in
       remove)
@@ -1906,7 +2044,7 @@ case "$cmd" in
         guard_package_containers && utxo_index_bench "$@"
         ;;
       *)
-        echo "Usage: $stack_command utxo-index remove [litecoin] [-y] | bench <wallets.json> [--chain bitcoin|litecoin] [--scan [-y]] [--repeat N]" >&2
+        echo "Usage: $stack_command utxo-index remove [litecoin | bitcoincash | dogecoin] [-y] | bench <wallets.json> [--chain bitcoin|litecoin] [--scan [-y]] [--repeat N]" >&2
         exit 1
         ;;
     esac

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -74,7 +75,7 @@ func TestParseCashBlockReadsTheRegtestGenesis(t *testing.T) {
 	header := "01000000" + strings.Repeat("00", 32) + "3ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a" + "dae5494d" + "ffff7f20" + "02000000"
 	coinbase := "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff4d04ffff001d0104455468652054696d65732030332f4a616e2f32303039204368616e63656c6c6f72206f6e206272696e6b206f66207365636f6e64206261696c6f757420666f722062616e6b73ffffffff0100f2052a01000000434104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac00000000"
 	raw := mustHex(header + "01" + coinbase)
-	blk, err := parseCashBlock(raw, 1)
+	blk, err := parseRawBlock(raw, 1, utxoBitcoinCash)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,16 +86,16 @@ func TestParseCashBlockReadsTheRegtestGenesis(t *testing.T) {
 	if len(blk.Spends) != 0 || len(blk.Creates) != 1 || blk.Creates[0].Txid != txid || blk.Creates[0].Amount != 50_0000_0000 || len(blk.Creates[0].Script) != 67 {
 		t.Fatalf("coinbase read as %+v", blk)
 	}
-	if genesis, _ := parseCashBlock(raw, 0); len(genesis.Creates) != 0 {
+	if genesis, _ := parseRawBlock(raw, 0, utxoBitcoinCash); len(genesis.Creates) != 0 {
 		t.Fatal("the genesis coinbase was indexed")
 	}
 	for _, bad := range [][]byte{raw[:len(raw)-1], append(append([]byte{}, raw...), 0)} {
-		if _, err := parseCashBlock(bad, 1); err == nil {
+		if _, err := parseRawBlock(bad, 1, utxoBitcoinCash); err == nil {
 			t.Fatalf("a malformed block of %d bytes parsed", len(bad))
 		}
 	}
 	own := append([]byte{}, raw...)
-	parsed, _ := parseCashBlock(own, 1)
+	parsed, _ := parseRawBlock(own, 1, utxoBitcoinCash)
 	clear(own)
 	if string(parsed.Creates[0].Script) != string(blk.Creates[0].Script) {
 		t.Fatal("a parsed script still points into the raw block")
@@ -152,8 +153,13 @@ func cashTestTx(ins []utxoOutpoint, outs []cashTestOut) []byte {
 }
 
 func cashTestBlock(prev [32]byte, txs ...[]byte) []byte {
-	block := append(binary.LittleEndian.AppendUint32(nil, 0x20000000), prev[:]...)
-	block = appendCompactSize(append(block, make([]byte, 44)...), uint64(len(txs)))
+	return rawTestBlock(0x20000000, prev, nil, txs...)
+}
+
+func rawTestBlock(version uint32, prev [32]byte, auxpow []byte, txs ...[]byte) []byte {
+	block := append(binary.LittleEndian.AppendUint32(nil, version), prev[:]...)
+	block = append(append(block, make([]byte, 44)...), auxpow...)
+	block = appendCompactSize(block, uint64(len(txs)))
 	for _, tx := range txs {
 		block = append(block, tx...)
 	}
@@ -172,7 +178,7 @@ func TestParseCashBlockReadsSpendsCreatesAndTokenOutputs(t *testing.T) {
 	second := cashTestTx([]utxoOutpoint{{Txid: firstID, Vout: 1}}, []cashTestOut{{500, p2pkh}, {1500, token}})
 	secondID := doubleSHA256(second)
 	raw := cashTestBlock(prev, coinbase, first, second)
-	blk, err := parseCashBlock(raw, 7)
+	blk, err := parseRawBlock(raw, 7, utxoBitcoinCash)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,14 +204,14 @@ func TestParseCashBlockReadsSpendsCreatesAndTokenOutputs(t *testing.T) {
 		}
 	}
 	for n := range len(raw) {
-		if _, err := parseCashBlock(raw[:n:n], 7); !errors.Is(err, errUtxoBadBlock) {
+		if _, err := parseRawBlock(raw[:n:n], 7, utxoBitcoinCash); !errors.Is(err, errUtxoBadBlock) {
 			t.Fatalf("a block cut to %d of %d bytes gave %v", n, len(raw), err)
 		}
 	}
 	inputs := cashTestTx([]utxoOutpoint{external}, nil)
 	huge := binary.LittleEndian.AppendUint64(append(inputs[:len(inputs)-5], 1), 1)
 	huge = append(binary.LittleEndian.AppendUint64(append(huge, 0xff), 1<<62), 0x51, 0, 0, 0, 0)
-	if _, err := parseCashBlock(cashTestBlock(prev, coinbase, huge), 7); !errors.Is(err, errUtxoBadBlock) {
+	if _, err := parseRawBlock(cashTestBlock(prev, coinbase, huge), 7, utxoBitcoinCash); !errors.Is(err, errUtxoBadBlock) {
 		t.Fatalf("a script length past the end of the block gave %v", err)
 	}
 }
@@ -218,11 +224,99 @@ func TestParseCashBlockRefusesABlockOverTheCoinOperationCap(t *testing.T) {
 	tiny := func(n int) []byte {
 		return cashTestTx([]utxoOutpoint{{Txid: [32]byte{byte(n)}}}, make([]cashTestOut, n))
 	}
-	if blk, err := parseCashBlock(cashTestBlock([32]byte{}, coinbase, tiny(4)), 9); err != nil || len(blk.Creates)+len(blk.Spends) != 6 {
+	if blk, err := parseRawBlock(cashTestBlock([32]byte{}, coinbase, tiny(4)), 9, utxoBitcoinCash); err != nil || len(blk.Creates)+len(blk.Spends) != 6 {
 		t.Fatalf("a block at the cap: %v", err)
 	}
-	_, err := parseCashBlock(cashTestBlock([32]byte{}, coinbase, tiny(4), tiny(2)), 9)
+	_, err := parseRawBlock(cashTestBlock([32]byte{}, coinbase, tiny(4), tiny(2)), 9, utxoBitcoinCash)
 	if !errors.Is(err, errUtxoBlockTooLarge) || !strings.Contains(err.Error(), "block 9 has 9 coin operations, more than the 6") || !strings.Contains(err.Error(), "#363") {
 		t.Fatalf("a block of empty-script outputs over the cap gave %v", err)
+	}
+}
+
+// A parent chain's coinbase in the witness serialization: marker and flag, one input, one output, one 32-byte witness item.
+func witnessTestTx() []byte {
+	tx := append(binary.LittleEndian.AppendUint32(nil, 1), 0, 1, 1)
+	tx = binary.LittleEndian.AppendUint32(append(tx, make([]byte, 32)...), 0xffffffff)
+	tx = binary.LittleEndian.AppendUint32(append(tx, 4, 1, 2, 3, 4), 0xffffffff)
+	tx = append(binary.LittleEndian.AppendUint64(append(tx, 1), 5000), 1, 0x51)
+	tx = append(append(tx, 1, 32), make([]byte, 32)...)
+	return binary.LittleEndian.AppendUint32(tx, 0)
+}
+
+func auxPowTestProof(parentCoinbase []byte) []byte {
+	proof := append(slices.Clone(parentCoinbase), bytes.Repeat([]byte{0xbb}, 32)...)
+	proof = append(append(proof, 2), bytes.Repeat([]byte{0xcc}, 64)...)
+	proof = append(binary.LittleEndian.AppendUint32(proof, 0), 1)
+	proof = binary.LittleEndian.AppendUint32(append(proof, bytes.Repeat([]byte{0xdd}, 32)...), 0)
+	return append(proof, bytes.Repeat([]byte{0xee}, 80)...)
+}
+
+func TestParseRawBlockReadsPlainAndMergeMinedDogecoinBlocks(t *testing.T) {
+	p2pkh := mustHex("76a914" + strings.Repeat("11", 20) + "88ac")
+	tokenLike := append(append([]byte{cashTokenPrefix}, bytes.Repeat([]byte{0x33}, 32)...), append([]byte{0x10, 7}, p2pkh...)...)
+	external := utxoOutpoint{Txid: [32]byte{0xaa}, Vout: 3}
+	coinbase := cashTestTx([]utxoOutpoint{{Vout: 0xffffffff}}, []cashTestOut{{10_000 * 100_000_000, p2pkh}})
+	spend := cashTestTx([]utxoOutpoint{external}, []cashTestOut{{1000, tokenLike}})
+	prev := [32]byte{0x44}
+	check := func(name string, raw []byte) {
+		t.Helper()
+		blk, err := parseRawBlock(raw, 400, utxoDogecoin)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if blk.Hash != doubleSHA256(raw[:80]) || blk.PrevHash != prev || len(blk.Spends) != 1 || blk.Spends[0].utxoOutpoint != external || len(blk.Creates) != 2 ||
+			blk.Creates[0].utxoOutpoint != (utxoOutpoint{doubleSHA256(coinbase), 0}) || blk.Creates[1].utxoOutpoint != (utxoOutpoint{doubleSHA256(spend), 0}) ||
+			!bytes.Equal(blk.Creates[1].Script, tokenLike) || blk.Creates[1].Amount != 1000 {
+			t.Fatalf("%s: read as %+v", name, blk)
+		}
+		for n := range len(raw) {
+			if _, err := parseRawBlock(raw[:n:n], 400, utxoDogecoin); !errors.Is(err, errUtxoBadBlock) {
+				t.Fatalf("%s cut to %d of %d bytes gave %v", name, n, len(raw), err)
+			}
+		}
+	}
+	check("plain block", rawTestBlock(0x00620004, prev, nil, coinbase, spend))
+	for name, parent := range map[string][]byte{"legacy parent coinbase": coinbase, "witness parent coinbase": witnessTestTx()} {
+		check("merge-mined block with a "+name, rawTestBlock(0x00620104, prev, auxPowTestProof(parent), coinbase, spend))
+	}
+	huge := auxPowTestProof(coinbase)
+	huge[len(coinbase)+32] = 0xfe
+	if _, err := parseRawBlock(rawTestBlock(0x00620104, prev, huge, coinbase), 400, utxoDogecoin); !errors.Is(err, errUtxoBadBlock) {
+		t.Fatalf("a merkle branch count past the end of the block gave %v", err)
+	}
+	if _, err := parseRawBlock(rawTestBlock(0x00620104, prev, auxPowTestProof(coinbase), coinbase, spend), 400, utxoBitcoinCash); err == nil {
+		t.Fatal("a chain without merge mining read past a proof")
+	}
+}
+
+func TestParseRawBlockGuardsTheMergeMinedProof(t *testing.T) {
+	p2pkh := mustHex("76a914" + strings.Repeat("11", 20) + "88ac")
+	coinbase := cashTestTx([]utxoOutpoint{{Vout: 0xffffffff}}, []cashTestOut{{1000, p2pkh}})
+	proof := func(parent []byte, branch []byte) []byte {
+		out := append(append(slices.Clone(parent), bytes.Repeat([]byte{0xbb}, 32)...), branch...)
+		out = append(binary.LittleEndian.AppendUint32(out, 0), 0)
+		return append(binary.LittleEndian.AppendUint32(out, 0), bytes.Repeat([]byte{0xee}, 80)...)
+	}
+	// 2^59 hashes of 32 bytes overflow to zero bytes, so without the count bound the rest of this block would read as valid.
+	huge := binary.LittleEndian.AppendUint64([]byte{0xff}, 1<<59)
+	if _, err := parseRawBlock(rawTestBlock(0x00620104, [32]byte{}, proof(coinbase, huge), coinbase), 5, utxoDogecoin); !errors.Is(err, errUtxoBadBlock) || !strings.Contains(err.Error(), "cannot fit") {
+		t.Fatalf("a merkle branch of 2^59 hashes gave %v", err)
+	}
+	// Dogecoin's deserializer reads a zero-input transaction with flags 0 as having no outputs either, and rejects any flag but the witness one.
+	empty := append(binary.LittleEndian.AppendUint32(nil, 1), 0, 0, 0, 0, 0, 0)
+	if blk, err := parseRawBlock(rawTestBlock(0x00620104, [32]byte{}, proof(empty, []byte{0}), coinbase), 5, utxoDogecoin); err != nil || len(blk.Creates) != 1 {
+		t.Fatalf("a parent coinbase with flags 0 gave %+v, %v", blk, err)
+	}
+	flagged := witnessTestTx()
+	if _, err := parseRawBlock(rawTestBlock(0x00620104, [32]byte{}, proof(flagged, []byte{0}), coinbase), 5, utxoDogecoin); err != nil {
+		t.Fatalf("a witness parent coinbase gave %v", err)
+	}
+	flagged[5] = 2
+	if _, err := parseRawBlock(rawTestBlock(0x00620104, [32]byte{}, proof(flagged, []byte{0}), coinbase), 5, utxoDogecoin); !errors.Is(err, errUtxoBadBlock) || !strings.Contains(err.Error(), "unknown transaction flags 2") {
+		t.Fatalf("a witness-shaped parent coinbase with flags 2 gave %v", err)
+	}
+	// Cut right after the bad coinbase, the block also runs out, which must not hide the first error.
+	if _, err := parseRawBlock(rawTestBlock(0x00620104, [32]byte{}, flagged), 5, utxoDogecoin); err == nil || !strings.Contains(err.Error(), "unknown transaction flags 2") {
+		t.Fatalf("a bad parent coinbase in a cut block gave %v", err)
 	}
 }

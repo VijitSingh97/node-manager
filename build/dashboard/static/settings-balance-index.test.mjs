@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { balanceIndexPayload, confirmedHostChanges, balanceIndexControl, UTXO_INDEX_OFF_PROMPT, UTXO_INDEX_LITECOIN_OFF_PROMPT, UTXO_INDEX_BITCOINCASH_OFF_PROMPT, hostControlModel, hostActionPayload, hostToggleChanges } from "./settings.js";
+import { balanceIndexPayload, confirmedHostChanges, balanceIndexControl, UTXO_INDEX_OFF_PROMPT, UTXO_INDEX_LITECOIN_OFF_PROMPT, UTXO_INDEX_BITCOINCASH_OFF_PROMPT, UTXO_INDEX_DOGECOIN_OFF_PROMPT, hostControlModel, hostActionPayload, hostToggleChanges } from "./settings.js";
 
 test("the balance index switch reads its state, builds a boolean payload and routes its status", () => {
   assert.equal(hostControlModel({}).utxo_index, false);
@@ -71,10 +71,23 @@ test("the Bitcoin Cash balance index switch stages its own payload, asks before 
   assert.equal(view.utxo_seed_now_bitcoincash, true);
   assert.deepEqual(hostActionPayload("utxo_index_bitcoincash", true), { action: "utxo_index", node: "bitcoincash", enabled: true });
   assert.deepEqual(hostToggleChanges(view, { utxo_index_bitcoincash: true }), [{ action: "utxo_index", node: "bitcoincash", enabled: true }]);
-  assert.equal(hostActionPayload("utxo_index_dogecoin", true), undefined);
+  assert.equal(hostActionPayload("utxo_index_zcash", true), undefined);
   const off = { action: "utxo_index", node: "bitcoincash", enabled: false };
   const asked = [];
   assert.deepEqual(confirmedHostChanges([off], (m) => { asked.push(m); return false; }), []);
   assert.deepEqual(asked, [UTXO_INDEX_BITCOINCASH_OFF_PROMPT]);
   assert.match(UTXO_INDEX_BITCOINCASH_OFF_PROMPT, /utxo-index remove bitcoincash/);
+});
+
+test("the Dogecoin balance index switch stages its own payload, asks before turning off and shows its seed button", () => {
+  const view = hostControlModel({ utxo_index_dogecoin: false, utxo_seed_now_dogecoin: true });
+  assert.equal(view.utxo_index_dogecoin, false);
+  assert.equal(view.utxo_seed_now_dogecoin, true);
+  assert.deepEqual(hostActionPayload("utxo_index_dogecoin", true), { action: "utxo_index", node: "dogecoin", enabled: true });
+  assert.deepEqual(hostToggleChanges(view, { utxo_index_dogecoin: true }), [{ action: "utxo_index", node: "dogecoin", enabled: true }]);
+  const off = { action: "utxo_index", node: "dogecoin", enabled: false };
+  const asked = [];
+  assert.deepEqual(confirmedHostChanges([off], (m) => { asked.push(m); return false; }), []);
+  assert.deepEqual(asked, [UTXO_INDEX_DOGECOIN_OFF_PROMPT]);
+  assert.match(UTXO_INDEX_DOGECOIN_OFF_PROMPT, /utxo-index remove dogecoin/);
 });

@@ -296,6 +296,7 @@
       </div>
     </section>
     <section class="card chain-wallet-card" data-family-watch="dogecoin"><h2>Watch-only wallets</h2><p class="node-state" data-family-watch-status>Loading wallet capabilities…</p><div data-family-watch-list></div></section>
+    <section id="utxo-index-dogecoin" class="card watch-card" hidden></section>
     <section class="card node-power-card" style="--node-accent:#b88746">
       <h2>Node controls</h2>
       <p id="dogecoin-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
@@ -440,8 +441,11 @@
         <legend>Actuator</legend>
         <label class="settings-check"><input id="settings-actuator-health" type="checkbox"> Serve /actuator/health</label>
         <label class="settings-check"><input id="settings-actuator-info" type="checkbox"> Serve /actuator/info</label>
-        <label>Username<span class="settings-copy"><input id="settings-actuator-username" type="text" readonly autocomplete="off"><button id="settings-actuator-username-copy" type="button">Copy</button></span></label>
-        <label>Password<span class="settings-copy"><input id="settings-actuator-password" type="text" readonly autocomplete="off"><button id="settings-actuator-password-copy" type="button">Copy</button></span></label>
+        <div class="settings-actuator-copy">
+          <button type="button" id="settings-actuator-copy-health" hidden>Copy curl for health</button>
+          <button type="button" id="settings-actuator-copy-info" hidden>Copy curl for info</button>
+        </div>
+        <p id="settings-actuator-copy-note" class="settings-note">Turn a switch on and press Save to copy a curl command for it.</p>
       </fieldset>
       <fieldset id="settings-config">
         <legend>Config</legend>
@@ -530,6 +534,16 @@
       <p class="settings-note">The node must be installed again from scratch and re-synced. Other nodes are not touched.</p>
       <label id="settings-delete-confirm-label">Type <b></b> to confirm<input id="settings-delete-confirm" type="text" autocomplete="off" spellcheck="false"></label>
       <div class="settings-actions"><button id="settings-delete-cancel" type="button">Cancel</button><button id="settings-delete-submit" type="submit" disabled>Delete on Save</button></div>
+    </form>
+  </dialog>
+  <dialog id="actuator-curl-dialog" class="settings-dialog" aria-labelledby="actuator-curl-title">
+    <form id="actuator-curl-form">
+      <div class="settings-heading"><h2 id="actuator-curl-title">Copy curl command</h2></div>
+      <p>The command includes your dashboard password, so it will stay in shell history. For scripts and monitors, prefer <code>curl --user admin</code> with the URL, which asks for the password.</p>
+      <label>Dashboard password<input id="actuator-curl-password" type="password" autocomplete="current-password" spellcheck="false"></label>
+      <label id="actuator-curl-fallback-label" hidden>Press Ctrl+C / Cmd+C to copy<textarea id="actuator-curl-fallback" readonly rows="3" spellcheck="false"></textarea></label>
+      <p id="actuator-curl-error" class="node-state" role="status" aria-live="polite"></p>
+      <div class="settings-actions"><button type="button" id="actuator-curl-cancel">Close</button><button type="submit" id="actuator-curl-submit">Copy</button></div>
     </form>
   </dialog>
   <dialog id="credential-reset-dialog" class="settings-dialog" aria-labelledby="credential-reset-title">

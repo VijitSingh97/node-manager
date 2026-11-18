@@ -116,6 +116,13 @@ func newFamilyWatchManager(a *app) *familyWatchManager {
 			store.maxWallets = maxIndexedWatchWallets
 		case nodeDogecoin:
 			store.maxSupply, store.backend, store.skipExample = dogecoinMaxSupply, dogecoinFamilyWatchBackend(), true
+			if node.UTXOIndex {
+				store.maxWallets = maxIndexedWatchWallets
+			}
+			if !a.cfg.dogecoinWatchWallet {
+				store.backend = dogecoinIndexFamilyWatchBackend()
+				break
+			}
 			store.imported, store.retryAt = make(map[string]bool), make(map[string]int64)
 			store.importedPath = filepath.Join(a.cfg.stateDir, "family_watch_dogecoin_imported.json")
 			store.loadImported()

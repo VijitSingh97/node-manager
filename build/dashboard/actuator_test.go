@@ -1,7 +1,7 @@
 package main
 
 import (
-	"encoding/base64"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -36,7 +36,7 @@ func enableActuator(t *testing.T, handler http.Handler) {
 }
 
 func actuatorGet(a *app, handler http.Handler, path string) *httptest.ResponseRecorder {
-	return actuatorGetAs(handler, path, a.actuator.Username, a.actuator.Password)
+	return actuatorGetAs(handler, path, "admin", "dashboard-secret")
 }
 
 func actuatorGetAs(handler http.Handler, path, user, password string) *httptest.ResponseRecorder {
@@ -82,7 +82,7 @@ func probeBitcoin(a *app, info map[string]any) {
 	a.recordNodeHealth(nodeBitcoin, true)
 }
 
-func TestActuatorEndpointsFollowTheirOwnToggleAndAlwaysNeedTheActuatorLogin(t *testing.T) {
+func TestActuatorEndpointsFollowTheirOwnToggleAndNeedTheDashboardLogin(t *testing.T) {
 	a, handler := testApp(t, &rpcFixture{}, "")
 	freshPrices(a)
 	probeBitcoin(a, map[string]any{"blocks": float64(870000), "initialblockdownload": false, "chain": "main"})
@@ -97,10 +97,9 @@ func TestActuatorEndpointsFollowTheirOwnToggleAndAlwaysNeedTheActuatorLogin(t *t
 			name := fmt.Sprintf("%s health=%t info=%t", path, combo[0], combo[1])
 			if !on {
 				for label, w := range map[string]*httptest.ResponseRecorder{
-					"actuator login": actuatorGet(a, handler, path),
-					"wrong login":    actuatorGetAs(handler, path, a.actuator.Username, "wrong"),
-					"anonymous":      anonymousRequest(t, handler, http.MethodGet, path),
-					"admin login":    request(t, handler, http.MethodGet, path, ""),
+					"dashboard login": actuatorGet(a, handler, path),
+					"wrong login":     actuatorGetAs(handler, path, "admin", "wrong"),
+					"anonymous":       anonymousRequest(t, handler, http.MethodGet, path),
 				} {
 					if w.Code != http.StatusNotFound {
 						t.Fatalf("%s disabled, %s = %d", name, label, w.Code)
@@ -109,13 +108,12 @@ func TestActuatorEndpointsFollowTheirOwnToggleAndAlwaysNeedTheActuatorLogin(t *t
 				continue
 			}
 			if w := actuatorGet(a, handler, path); w.Code != http.StatusOK {
-				t.Fatalf("%s with the actuator login = %d %s", name, w.Code, w.Body.String())
+				t.Fatalf("%s with the dashboard login = %d %s", name, w.Code, w.Body.String())
 			}
 			for label, w := range map[string]*httptest.ResponseRecorder{
 				"anonymous":      anonymousRequest(t, handler, http.MethodGet, path),
-				"wrong password": actuatorGetAs(handler, path, a.actuator.Username, "wrong"),
-				"wrong user":     actuatorGetAs(handler, path, "admin", a.actuator.Password),
-				"admin login":    request(t, handler, http.MethodGet, path, ""),
+				"wrong password": actuatorGetAs(handler, path, "admin", "wrong"),
+				"wrong user":     actuatorGetAs(handler, path, "actuator", "dashboard-secret"),
 			} {
 				if w.Code != http.StatusUnauthorized || !strings.HasPrefix(w.Header().Get("WWW-Authenticate"), "Basic ") {
 					t.Fatalf("%s enabled, %s = %d, challenge %q", name, label, w.Code, w.Header().Get("WWW-Authenticate"))
@@ -125,7 +123,7 @@ func TestActuatorEndpointsFollowTheirOwnToggleAndAlwaysNeedTheActuatorLogin(t *t
 	}
 }
 
-func TestActuatorSessionCookieDoesNotOpenTheEndpoints(t *testing.T) {
+func TestActuatorAcceptsADashboardSessionLikeOtherProtectedEndpoints(t *testing.T) {
 	a, handler := testApp(t, &rpcFixture{}, "")
 	enableActuator(t, handler)
 	token, err := a.sessions.issue(time.Now(), false)
@@ -136,8 +134,26 @@ func TestActuatorSessionCookieDoesNotOpenTheEndpoints(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "node-manager-session", Value: token})
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-	if w.Code != http.StatusUnauthorized {
+	if w.Code != http.StatusOK {
 		t.Fatalf("signed-in session reached info = %d", w.Code)
+	}
+}
+
+func TestActuatorIsRefusedWhenNoDashboardPasswordIsConfigured(t *testing.T) {
+	a, handler := testApp(t, &rpcFixture{}, "")
+	enableActuator(t, handler)
+	a.dashboardAuth.mu.Lock()
+	a.dashboardAuth.enabled = false
+	a.dashboardAuth.mu.Unlock()
+	for _, path := range []string{"/actuator/health", "/actuator/info", "/api/settings"} {
+		for label, w := range map[string]*httptest.ResponseRecorder{
+			"anonymous": anonymousRequest(t, handler, http.MethodGet, path),
+			"login":     actuatorGetAs(handler, path, "admin", "dashboard-secret"),
+		} {
+			if w.Code != http.StatusServiceUnavailable {
+				t.Fatalf("%s %s without a dashboard password = %d", path, label, w.Code)
+			}
+		}
 	}
 }
 
@@ -240,7 +256,7 @@ func TestActuatorResponsesLeakNoCredentialsPathsOrAddressesWhenNothingIsExposed(
 	probeBitcoin(a, map[string]any{"blocks": float64(870000), "initialblockdownload": false, "chain": "main", "bestblockhash": "00000000000000000001", "warnings": "x"})
 	a.noteNodeNetwork(nodeBitcoin, "/Satoshi:28.1.0/", 9)
 	rpcHost, _ := url.Parse(a.cfg.rpcURL)
-	secrets := []string{"rpc-password", "rpc-user", "dashboard-secret", a.actuator.Password, rpcHost.Host, a.cfg.dataDir, a.cfg.stateDir, ".onion", "bestblockhash", "xpub", "descriptor", "wallet"}
+	secrets := []string{"rpc-password", "rpc-user", "dashboard-secret", rpcHost.Host, a.cfg.dataDir, a.cfg.stateDir, ".onion", "bestblockhash", "xpub", "descriptor", "wallet"}
 	for _, path := range []string{"/actuator/health", "/actuator/info"} {
 		w := actuatorGet(a, handler, path)
 		for _, secret := range secrets {
@@ -257,26 +273,20 @@ func TestActuatorLoginPathsAreLiteral(t *testing.T) {
 	for _, path := range []string{"/actuator%2Fhealth", "/actuator/health/", "/actuator%2Finfo", "/actuator/info/"} {
 		for label, w := range map[string]*httptest.ResponseRecorder{
 			"anonymous":       anonymousRequest(t, handler, http.MethodGet, path),
-			"actuator login":  actuatorGet(a, handler, path),
-			"dashboard login": request(t, handler, http.MethodGet, path, ""),
+			"dashboard login": actuatorGet(a, handler, path),
 		} {
-			if label == "dashboard login" {
-				if w.Code == http.StatusOK {
-					t.Fatalf("%s served an actuator body to the dashboard login: %s", path, w.Body.String())
-				}
-				continue
-			}
-			if w.Code != http.StatusUnauthorized {
-				t.Fatalf("%s with %s skipped dashboard sign-in: %d %s", path, label, w.Code, w.Body.String())
+			if w.Code == http.StatusOK || (label == "anonymous" && w.Code != http.StatusUnauthorized) {
+				t.Fatalf("%s with %s = %d %s", path, label, w.Code, w.Body.String())
 			}
 		}
 	}
 	req := httptest.NewRequest(http.MethodPost, "/actuator/health", nil)
-	req.SetBasicAuth(a.actuator.Username, a.actuator.Password)
+	req.SetBasicAuth("admin", "dashboard-secret")
+	req.Header.Set("X-Requested-With", "fetch")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("POST with the actuator login = %d", w.Code)
+	if w.Code == http.StatusOK {
+		t.Fatalf("POST served the health body: %d", w.Code)
 	}
 	a.cfg.dashboardPublicURL = "https://nodes.example"
 	req = httptest.NewRequest(http.MethodGet, "http://attacker.example/actuator/health", nil)
@@ -287,7 +297,7 @@ func TestActuatorLoginPathsAreLiteral(t *testing.T) {
 	}
 }
 
-func TestActuatorFailuresAreThrottledPerProxyClientAndSeparateFromDashboardSignIn(t *testing.T) {
+func TestActuatorFailuresShareTheDashboardSignInLimitPerProxyClient(t *testing.T) {
 	a, handler := testApp(t, &rpcFixture{}, "dashboard-secret")
 	enableActuator(t, handler)
 	a.cfg.dashboardPublicURL = "https://nodes.example"
@@ -301,7 +311,7 @@ func TestActuatorFailuresAreThrottledPerProxyClientAndSeparateFromDashboardSignI
 		return w
 	}
 	for i := 0; i <= loginFailureLimit; i++ {
-		w := get("198.51.100.42", a.actuator.Username, "wrong")
+		w := get("198.51.100.42", "admin", "wrong")
 		want := http.StatusUnauthorized
 		if i == loginFailureLimit {
 			want = http.StatusTooManyRequests
@@ -313,20 +323,11 @@ func TestActuatorFailuresAreThrottledPerProxyClientAndSeparateFromDashboardSignI
 			t.Fatalf("attempt %d = %d, want %d", i, w.Code, want)
 		}
 	}
-	if w := get("198.51.100.42", a.actuator.Username, a.actuator.Password); w.Code != http.StatusTooManyRequests {
+	if w := get("198.51.100.42", "admin", "dashboard-secret"); w.Code != http.StatusTooManyRequests {
 		t.Fatalf("a throttled client got through with the right login: %d", w.Code)
 	}
-	if w := get("198.51.100.43", a.actuator.Username, a.actuator.Password); w.Code == http.StatusUnauthorized || w.Code == http.StatusTooManyRequests {
+	if w := get("198.51.100.43", "admin", "dashboard-secret"); w.Code == http.StatusUnauthorized || w.Code == http.StatusTooManyRequests {
 		t.Fatalf("another proxy client was locked out: %d", w.Code)
-	}
-	req := httptest.NewRequest(http.MethodGet, "https://nodes.example/api/fees", nil)
-	req.RemoteAddr = "172.29.0.25:1234"
-	req.Header.Set("X-Node-Manager-Client-IP", "198.51.100.42")
-	req.SetBasicAuth("admin", "dashboard-secret")
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("actuator failures locked the same client out of the dashboard: %d", w.Code)
 	}
 }
 
@@ -344,119 +345,35 @@ func TestActuatorStatusRules(t *testing.T) {
 	}
 }
 
-func TestActuatorCredentialsArePersistedPrivateAndStrong(t *testing.T) {
-	dir := t.TempDir()
-	first, err := loadOrCreateActuatorCredentials(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(first.Password)
-	if err != nil || len(raw) < 16 || first.Username != actuatorUsername {
-		t.Fatalf("credentials = %+v (%d random bytes, %v)", first, len(raw), err)
-	}
-	path := filepath.Join(dir, actuatorCredentialsFile)
-	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("credentials file = %v, %v", info, err)
-	}
-	again, err := loadOrCreateActuatorCredentials(dir)
-	if err != nil || again != first {
-		t.Fatalf("restart changed the credentials: %+v vs %+v (%v)", again, first, err)
-	}
-	other, err := loadOrCreateActuatorCredentials(t.TempDir())
-	if err != nil || other.Password == first.Password {
-		t.Fatalf("two installs share a password: %v", err)
-	}
-}
-
-func TestActuatorCredentialsAreRegeneratedWhenTheFileCannotBeTrusted(t *testing.T) {
-	good := actuatorCredentials{Username: actuatorUsername, Password: base64.RawURLEncoding.EncodeToString(make([]byte, 32))}
-	goodJSON, _ := json.Marshal(good)
-	for name, test := range map[string]struct {
-		content string
-		mode    os.FileMode
-	}{
-		"corrupt":        {"{not json", 0o600},
-		"empty":          {"", 0o600},
-		"short password": {`{"username":"actuator","password":"AAAA"}`, 0o600},
-		"wrong user":     {`{"username":"admin","password":"` + good.Password + `"}`, 0o600},
-		"unknown field":  {`{"username":"actuator","password":"` + good.Password + `","x":1}`, 0o600},
-		"trailing data":  {string(goodJSON) + `{}`, 0o600},
-		"world readable": {string(goodJSON), 0o644},
-		"group readable": {string(goodJSON), 0o640},
-	} {
-		dir := t.TempDir()
-		path := filepath.Join(dir, actuatorCredentialsFile)
-		if err := os.WriteFile(path, []byte(test.content), test.mode); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Chmod(path, test.mode); err != nil {
-			t.Fatal(err)
-		}
-		got, err := loadOrCreateActuatorCredentials(dir)
-		if err != nil || !got.valid() || got == good {
-			t.Fatalf("%s: credentials = %+v, %v", name, got, err)
-		}
-		if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
-			t.Fatalf("%s: regenerated file mode = %v", name, info.Mode())
-		}
-		if again, _ := loadOrCreateActuatorCredentials(dir); again != got {
-			t.Fatalf("%s: regenerated credentials were not kept", name)
-		}
-	}
-	good2, _ := loadOrCreateActuatorCredentials(t.TempDir())
-	if !good2.valid() || (actuatorCredentials{Username: actuatorUsername}).valid() {
-		t.Fatal("valid() accepts an empty password")
-	}
-}
-
-func TestActuatorCredentialsSurviveWhenTheStateDirectoryIsNotWritable(t *testing.T) {
-	blocker := filepath.Join(t.TempDir(), "file")
-	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	creds, err := loadOrCreateActuatorCredentials(filepath.Join(blocker, "state"))
-	if err == nil || !creds.valid() {
-		t.Fatalf("unwritable state = %+v, %v", creds, err)
-	}
-}
-
-func TestActuatorCredentialsAreStableAcrossDashboardRestartsAndShownOnlyInGlobalSettings(t *testing.T) {
+func TestStartupDeletesALeftoverActuatorCredentialsFileAndSettingsNeverShowOne(t *testing.T) {
 	a, handler := testApp(t, &rpcFixture{}, "")
-	get := func(path string) map[string]any {
-		return decodeActuator(t, request(t, handler, http.MethodGet, path, ""), http.StatusOK)
-	}
-	view := get("/api/settings")
-	if view["actuator_username"] != a.actuator.Username || view["actuator_password"] != a.actuator.Password || a.actuator.Password == "" {
-		t.Fatalf("settings do not show the actuator login: %v", view)
-	}
-	for _, scope := range []string{"/api/settings?scope=nodes", "/api/settings?scope=appearance"} {
-		body := request(t, handler, http.MethodGet, scope, "").Body.String()
-		if strings.Contains(body, a.actuator.Password) || strings.Contains(body, "actuator_username") || strings.Contains(body, "actuator_password") {
-			t.Fatalf("%s leaks the actuator login: %s", scope, body)
-		}
-	}
-	if w := anonymousRequest(t, handler, http.MethodGet, "/api/settings"); strings.Contains(w.Body.String(), a.actuator.Password) {
-		t.Fatalf("anonymous settings leak the actuator password")
-	}
-	rpc := a.rpc
-	restarted, err := newApp(a.cfg, rpc, filepath.Join(filepath.Dir(sourceFile(t)), "index.html"), filepath.Join(filepath.Dir(sourceFile(t)), "static"), log.New(io.Discard, "", 0))
-	if err != nil {
+	path := filepath.Join(a.cfg.stateDir, "actuator-credentials.json")
+	if err := os.WriteFile(path, []byte(`{"username":"actuator","password":"old-secret"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if restarted.actuator != a.actuator {
-		t.Fatal("a restart changed the actuator login")
+	root := filepath.Dir(sourceFile(t))
+	if _, err := newApp(a.cfg, a.rpc, filepath.Join(root, "index.html"), filepath.Join(root, "static"), log.New(io.Discard, "", 0)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("leftover credentials file remains: %v", err)
+	}
+	for _, scope := range []string{"/api/settings", "/api/settings?scope=nodes", "/api/settings?scope=global"} {
+		if body := request(t, handler, http.MethodGet, scope, "").Body.String(); strings.Contains(body, "actuator_username") || strings.Contains(body, "actuator_password") {
+			t.Fatalf("%s still has actuator credentials: %s", scope, body)
+		}
 	}
 }
 
-func TestActuatorLoginIsNeverWrittenToTheLog(t *testing.T) {
+func TestActuatorPasswordsAreNeverWrittenToTheLog(t *testing.T) {
 	var logs strings.Builder
 	a, handler := testApp(t, &rpcFixture{}, "")
 	a.log = log.New(&logs, "", 0)
 	enableActuator(t, handler)
 	actuatorGet(a, handler, "/actuator/info")
-	actuatorGetAs(handler, "/actuator/info", a.actuator.Username, "wrong")
-	if strings.Contains(logs.String(), a.actuator.Password) {
-		t.Fatalf("log contains the actuator password: %s", logs.String())
+	actuatorGetAs(handler, "/actuator/info", "admin", "wrong-secret")
+	if out := logs.String(); strings.Contains(out, "dashboard-secret") || strings.Contains(out, "wrong-secret") {
+		t.Fatalf("log contains a password: %s", out)
 	}
 }
 
@@ -629,14 +546,14 @@ func TestActuatorInfoMarksServicesNotExposedByDefault(t *testing.T) {
 	}
 }
 
-func TestOperationsDocsStateThatOneLoginOpensBothActuatorEndpoints(t *testing.T) {
+func TestOperationsDocsStateThatTheActuatorUsesTheDashboardLogin(t *testing.T) {
 	a, handler := testApp(t, &rpcFixture{}, "")
 	freshPrices(a)
 	probeBitcoin(a, map[string]any{"blocks": float64(870000), "initialblockdownload": false, "chain": "main"})
 	setActuator(t, handler, true, true)
 	for _, path := range []string{"/actuator/health", "/actuator/info"} {
 		if w := actuatorGet(a, handler, path); w.Code != http.StatusOK {
-			t.Fatalf("%s with the shared login = %d", path, w.Code)
+			t.Fatalf("%s with the dashboard login = %d", path, w.Code)
 		}
 	}
 	doc, err := os.ReadFile("../../docs/operations.md")
@@ -647,9 +564,146 @@ func TestOperationsDocsStateThatOneLoginOpensBothActuatorEndpoints(t *testing.T)
 	if strings.Contains(text, "monitors that do not need them") {
 		t.Fatal("docs still imply /actuator/health can be shared without exposing /actuator/info")
 	}
-	for _, want := range []string{"one actuator login for both endpoints", "leave **Serve /actuator/info** off"} {
+	for _, want := range []string{"same login as the dashboard", "curl --user admin", "leave **Serve /actuator/info** off"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("docs missing %q", want)
 		}
+	}
+}
+
+func actuatorCurlPost(handler http.Handler, body string, mutate func(*http.Request)) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "http://mini-1.local/api/settings/actuator-curl", strings.NewReader(body))
+	req.Host = "mini-1.local"
+	req.Header.Set("X-Requested-With", "fetch")
+	if mutate != nil {
+		mutate(req)
+	}
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	return w
+}
+
+func sessionAuth(session *http.Cookie) func(*http.Request) {
+	return func(r *http.Request) {
+		r.URL.Scheme, r.URL.Host, r.Host, r.TLS = "https", "nodes.example", "nodes.example", &tls.ConnectionState{}
+		r.Header.Set("Origin", "https://nodes.example")
+		r.AddCookie(session)
+	}
+}
+
+func basicAuth(req *http.Request) { req.SetBasicAuth("admin", "dashboard-secret") }
+
+func TestActuatorCurlChecksThePasswordUnderTheCredentialGate(t *testing.T) {
+	a, handler := testApp(t, &rpcFixture{}, "dashboard-secret")
+	var logs strings.Builder
+	a.log = log.New(&logs, "", 0)
+	setActuator(t, handler, true, false)
+	good := `{"endpoint":"health","password":"dashboard-secret"}`
+
+	w := actuatorCurlPost(handler, good, basicAuth)
+	if w.Code != http.StatusOK || w.Header().Get("Cache-Control") != "no-store" || strings.TrimSpace(w.Body.String()) != `{"username":"admin"}` || strings.Contains(w.Body.String(), "dashboard-secret") {
+		t.Fatalf("verified request = %d %q %q", w.Code, w.Header().Get("Cache-Control"), w.Body.String())
+	}
+	session := signIn(t, handler, "dashboard-secret")
+	if w := actuatorCurlPost(handler, good, sessionAuth(session)); w.Code != http.StatusOK {
+		t.Fatalf("recent session = %d %s", w.Code, w.Body.String())
+	}
+	key, _ := dashboardSessionKey(session.Value)
+	a.sessions.mu.Lock()
+	old := a.sessions.sessions[key]
+	old.issued = time.Now().Add(-dashboardSessionRecent - time.Minute)
+	a.sessions.sessions[key] = old
+	a.sessions.mu.Unlock()
+	if w := actuatorCurlPost(handler, good, sessionAuth(session)); w.Code != http.StatusUnauthorized {
+		t.Fatalf("stale session = %d", w.Code)
+	}
+	if w := actuatorCurlPost(handler, good, nil); w.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous = %d", w.Code)
+	}
+
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/api/settings/actuator-curl", nil)
+		basicAuth(req)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed && rec.Code != http.StatusNotFound {
+			t.Fatalf("%s = %d", method, rec.Code)
+		}
+	}
+	if w := actuatorCurlPost(handler, good, func(r *http.Request) { basicAuth(r); r.Header.Del("X-Requested-With") }); w.Code != http.StatusForbidden {
+		t.Fatalf("missing CSRF header = %d", w.Code)
+	}
+	if w := actuatorCurlPost(handler, good, func(r *http.Request) { basicAuth(r); r.Header.Set("Origin", "http://evil.example") }); w.Code != http.StatusForbidden {
+		t.Fatalf("cross-origin = %d", w.Code)
+	}
+	if w := actuatorCurlPost(handler, good, func(r *http.Request) { basicAuth(r); r.Header.Set("Sec-Fetch-Site", "cross-site") }); w.Code != http.StatusForbidden {
+		t.Fatalf("cross-site = %d", w.Code)
+	}
+
+	for name, body := range map[string]string{
+		"unknown endpoint": `{"endpoint":"metrics","password":"dashboard-secret"}`,
+		"empty password":   `{"endpoint":"health","password":""}`,
+		"extra field":      `{"endpoint":"health","password":"dashboard-secret","x":1}`,
+		"not json":         `nope`,
+	} {
+		if w := actuatorCurlPost(handler, body, basicAuth); w.Code != http.StatusBadRequest {
+			t.Fatalf("%s = %d", name, w.Code)
+		}
+	}
+	wrong := actuatorCurlPost(handler, `{"endpoint":"health","password":"wrong-secret-value"}`, basicAuth)
+	if wrong.Code != http.StatusForbidden || strings.Contains(wrong.Body.String(), "wrong-secret-value") {
+		t.Fatalf("wrong password = %d %s", wrong.Code, wrong.Body.String())
+	}
+	if w := actuatorCurlPost(handler, `{"endpoint":"info","password":"dashboard-secret"}`, basicAuth); w.Code != http.StatusConflict {
+		t.Fatalf("switched-off endpoint = %d", w.Code)
+	}
+	if strings.Contains(logs.String(), "dashboard-secret") || strings.Contains(logs.String(), "wrong-secret-value") {
+		t.Fatalf("password reached the log: %q", logs.String())
+	}
+}
+
+func TestActuatorCurlIsRefusedWithoutADashboardPassword(t *testing.T) {
+	a, handler := testApp(t, &rpcFixture{}, "dashboard-secret")
+	setActuator(t, handler, true, true)
+	a.dashboardAuth.mu.Lock()
+	a.dashboardAuth.enabled = false
+	a.dashboardAuth.mu.Unlock()
+	if w := actuatorCurlPost(handler, `{"endpoint":"health","password":"dashboard-secret"}`, basicAuth); w.Code != http.StatusForbidden && w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("read-only mode = %d", w.Code)
+	}
+}
+
+func TestWWWAuthenticateIsOnlyOnActuator401And429(t *testing.T) {
+	a, handler := testApp(t, &rpcFixture{}, "dashboard-secret")
+	setActuator(t, handler, true, true)
+	if w := actuatorGetAs(handler, "/actuator/health", "admin", "wrong"); w.Code != http.StatusUnauthorized || w.Header().Get("WWW-Authenticate") == "" {
+		t.Fatalf("actuator 401 = %d %q", w.Code, w.Header().Get("WWW-Authenticate"))
+	}
+	if w := actuatorGet(a, handler, "/actuator/health"); w.Header().Get("WWW-Authenticate") != "" {
+		t.Fatal("successful actuator response carries a challenge")
+	}
+	a.dashboardAuth.mu.Lock()
+	a.dashboardAuth.enabled = false
+	a.dashboardAuth.mu.Unlock()
+	if w := anonymousRequest(t, handler, http.MethodGet, "/actuator/health"); w.Code != http.StatusServiceUnavailable || w.Header().Get("WWW-Authenticate") != "" {
+		t.Fatalf("actuator 503 = %d %q", w.Code, w.Header().Get("WWW-Authenticate"))
+	}
+}
+
+func TestLeftoverActuatorFileDeleteFailureLogsAFixedMessage(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "actuator-credentials.json")
+	if err := os.MkdirAll(filepath.Join(path, "child"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var logs strings.Builder
+	removeLegacyActuatorCredentials(dir, log.New(&logs, "", 0))
+	if strings.TrimSpace(logs.String()) != "leftover actuator credentials file could not be deleted" {
+		t.Fatalf("log = %q", logs.String())
+	}
+	logs.Reset()
+	removeLegacyActuatorCredentials(t.TempDir(), log.New(&logs, "", 0))
+	if logs.Len() != 0 {
+		t.Fatalf("missing file logged %q", logs.String())
 	}
 }

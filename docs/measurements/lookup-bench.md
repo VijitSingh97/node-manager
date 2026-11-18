@@ -153,3 +153,5 @@ Every chain in `utxoChains` gets a bench host from `newChainUtxo` (`chainBenchHo
 - leave `LocalScripts` false unless the dashboard's own decoder (`addressScript`, Bitcoin only) reads the chain's addresses; false asks the node's `validateaddress` for each script;
 - check that its node answers those four RPCs as Bitcoin Core does; a node without them needs its own `validate`, `resolve` and `scan` in its bench host, and a nil `scan` makes `--scan` refuse with "no scan to compare against";
 - on the `stack` side, `--chain` accepts any chain `utxo_select_chain` knows; list the chain in the bench usage strings.
+
+Dogecoin is not in the bench or its CI test, and `--chain dogecoin` is refused: Dogecoin Core 1.14.9 has no `getdescriptorinfo`, `deriveaddresses` or `scantxoutset`, so there is nothing to read wallets with or compare against. Bitcoin Cash has no `Descriptors` list, so the CI test skips it too. The Dogecoin index is checked instead by `TestUtxoDogecoinChainstateSeedRegtestLive`, which compares every output on a regtest chain with the node's `gettxout`.

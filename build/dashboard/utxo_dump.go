@@ -51,6 +51,8 @@ func (r utxoRecord) TxidHex() string {
 type utxoReader struct {
 	r   *bufio.Reader
 	buf [32]byte
+	// oversizeUnspendable reads a script over the size limit as OP_RETURN, as a 1.14 chainstate does, instead of failing.
+	oversizeUnspendable bool
 }
 
 func (u *utxoReader) full(p []byte) error {
@@ -172,6 +174,12 @@ func (u *utxoReader) script() ([]byte, error) {
 		return append(append([]byte{65}, key...), 0xac), nil
 	}
 	size -= 6
+	if size > utxoMaxScriptSize && u.oversizeUnspendable && size <= 1<<30 {
+		if _, err := u.r.Discard(int(size)); err != nil {
+			return nil, io.ErrUnexpectedEOF
+		}
+		return []byte{0x6a}, nil
+	}
 	if size > utxoMaxScriptSize {
 		return nil, fmt.Errorf("script of %d bytes exceeds %d", size, utxoMaxScriptSize)
 	}

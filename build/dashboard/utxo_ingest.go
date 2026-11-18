@@ -217,6 +217,13 @@ func mergeUtxoRunsToSSTs(fs vfs.FS, tmp string, runs []utxoRun, prog *utxoIngest
 
 // baseHeight runs after the merge so the tip comes from the RPC result, not the dump alone.
 func ingestUtxoSnapshot(s *utxoStore, r io.Reader, chain *utxoChainParams, network [4]byte, baseHeight func(hash [32]byte) (uint32, error), prog *utxoIngestProgress) (utxoHeader, error) {
+	return ingestUtxoRecords(s, func(onHeader func(utxoHeader), fn func(utxoRecord) error) (utxoHeader, error) {
+		return chain.parseDump(r, network, onHeader, fn)
+	}, baseHeight, prog)
+}
+
+// ingestUtxoRecords builds the index from any coin source that reports its base block and coin count before the coins.
+func ingestUtxoRecords(s *utxoStore, parse func(onHeader func(utxoHeader), fn func(utxoRecord) error) (utxoHeader, error), baseHeight func(hash [32]byte) (uint32, error), prog *utxoIngestProgress) (utxoHeader, error) {
 	if prog == nil {
 		prog = &utxoIngestProgress{}
 	}
@@ -264,7 +271,7 @@ func ingestUtxoSnapshot(s *utxoStore, r io.Reader, chain *utxoChainParams, netwo
 	if s.reverse {
 		runRecords = max(1, runRecords/2)
 	}
-	hdr, err := chain.parseDump(r, network, func(h utxoHeader) {
+	hdr, err := parse(func(h utxoHeader) {
 		prog.Total.Store(h.CoinsCount)
 		buf = make([]utxoIngestRec, 0, min(h.CoinsCount, runRecords))
 		if s.reverse {

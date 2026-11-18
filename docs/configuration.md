@@ -263,6 +263,7 @@ shows the overridable settings with their defaults:
 | `tari.grpc_expose`, `grpc_bind_ip`, `grpc_port` | `false`, `""`, `18142` | Optional unauthenticated Tari mining gRPC for Pithead on a trusted private LAN or WireGuard link. It is separate from the internal authenticated view-only wallet service. |
 | `litecoin.prune_mb`, `dogecoin.prune_mb`, `bitcoincash.prune_mb` | `10000` | Recent block-file target in MiB. Chainstate and other state are additional. Dogecoin and Bitcoin Cash also accept `0` (archival, required by `dogecoin.watch_wallet` and `bitcoincash.utxo_index`); `0` is refused on a data directory that already holds a pruned chain. |
 | `litecoin.rpc_port`, `dogecoin.rpc_port`, `bitcoincash.rpc_port` | `9332`, `22555`, `8332` | Default host port for each opt-in authenticated private-LAN RPC proxy. Each also has `rpc_expose` and `rpc_bind_ip`. |
+| `dogecoin.utxo_index` | `false`; `true` for Dogecoin installed from the dashboard, unless the key is already set | Keeps a Dogecoin balance index, on a pruned node too. `true` adds the `docker-compose.dogecoin-utxo-index.yml` overlay: a `utxo_index_dogecoin` volume, `DOGECOIN_UTXO_INDEX_ENABLED` and `DOGECOIN_UTXO_INDEX_DIR` on the dashboard, and the same 1g memory and 0.5 CPU limits as the Litecoin index. Requires `dogecoin.enabled`. Dogecoin Core 1.14.9 has no coin-set export, so a seed stops the node, copies its chainstate to `<data_dir>/utxo-seed-chainstate` with the tables hardlinked, and starts it again; the dashboard builds the index from the copy and then follows new blocks. The copy is removed once the seed has finished. `./stack utxo-seed dogecoin` seeds it by hand, and `./stack utxo-index remove dogecoin` deletes the volume once the key is off and applied. See [watch-only](watch-only.md#dogecoin-balance-index). |
 | `dogecoin.watch_wallet` | `false` | Runs Dogecoin as an archival node (`prune_mb` must be `0`) with a watch-only wallet so public addresses can be watched. Needs a fresh `dogecoin.data_dir` and a full unpruned sync; refused on a database that ran pruned. See [watch-only](watch-only.md). |
 | `zcash.address_index` | `false`; `true` for a Zcash node installed from the dashboard | Runs Zakura with `checkpoint_sync = false` so transparent addresses can be watched. A missing key stays `false`, and an upgrade never changes it. Turning it on later needs a fresh `zcash.data_dir` and a full resync; refused on an existing checkpoint-pruned database. See [watch-only](watch-only.md). |
 | `zcash.rpc_expose`, `rpc_bind_ip`, `rpc_port` | `false`, `""`, `8232` | Optional authenticated read-only dashboard proxy. Native cookie-authenticated Zakura RPC stays internal and is never published. |
@@ -408,11 +409,12 @@ Block alerts are off by default.
 
 Settings → **Actuator** has two switches, **Serve /actuator/health** and **Serve
 /actuator/info** (both off by default, applied with **Save**), for uptime
-monitors and scripts. Both always need HTTP Basic auth with the actuator
-username and password shown next to the switches; see
-[Monitoring integrations](operations.md#monitoring-integrations). They are
-dashboard settings saved in the dashboard volume, not `config.json` keys, and
-the generated password lives in `actuator-credentials.json` in that volume.
+monitors and scripts. Both always need HTTP Basic auth with the same login as
+the dashboard (`admin` and the dashboard password); see
+[Monitoring integrations](operations.md#monitoring-integrations), which also
+describes the **Copy curl** buttons (the copied command contains the
+password). They are
+dashboard settings saved in the dashboard volume, not `config.json` keys.
 
 Under **Telegram → Alert preferences**, choose whether to notify when the monitor
 starts, a node goes offline or recovers, synchronization completes, disk space

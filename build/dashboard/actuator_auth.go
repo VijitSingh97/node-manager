@@ -1,50 +1,15 @@
 package main
 
 import (
-	"bytes"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"log"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
-	"time"
+	"strconv"
 )
-
-const (
-	actuatorUsername        = "actuator"
-	actuatorPasswordBytes   = 32
-	actuatorCredentialsFile = "actuator-credentials.json"
-)
-
-type actuatorCredentials struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-func (c actuatorCredentials) valid() bool {
-	raw, err := base64.RawURLEncoding.DecodeString(c.Password)
-	return c.Username == actuatorUsername && err == nil && len(raw) >= 16
-}
-
-func loadOrCreateActuatorCredentials(stateDir string) (actuatorCredentials, error) {
-	path := filepath.Join(stateDir, actuatorCredentialsFile)
-	if info, err := os.Lstat(path); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o077 == 0 && info.Size() <= 1024 {
-		if b, err := os.ReadFile(path); err == nil {
-			var saved actuatorCredentials
-			decoder := json.NewDecoder(bytes.NewReader(b))
-			decoder.DisallowUnknownFields()
-			if decoder.Decode(&saved) == nil && ensureJSONEnd(decoder) == nil && saved.valid() {
-				return saved, nil
-			}
-		}
-	}
-	raw := make([]byte, actuatorPasswordBytes)
-	_, _ = rand.Read(raw)
-	created := actuatorCredentials{Username: actuatorUsername, Password: base64.RawURLEncoding.EncodeToString(raw)}
-	b, _ := json.Marshal(created)
-	return created, writePrivateFileAtomic(path, append(b, '\n'))
-}
 
 func actuatorRequest(r *http.Request) bool {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -54,28 +19,69 @@ func actuatorRequest(r *http.Request) bool {
 	return path == "/actuator/health" || path == "/actuator/info"
 }
 
-func (a *app) actuatorEndpoint(enabled func(notificationSettings) bool, handle http.HandlerFunc) http.HandlerFunc {
+func (a *app) actuatorEnabled(r *http.Request) bool {
+	if a.monitor == nil {
+		return false
+	}
+	settings := a.monitor.notificationSettings()
+	if r.URL.EscapedPath() == "/actuator/health" {
+		return settings.ActuatorHealth
+	}
+	return settings.ActuatorInfo
+}
+
+func (a *app) actuatorEndpoint(handle http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if a.monitor == nil || !enabled(a.monitor.notificationSettings()) {
+		if !a.actuatorEnabled(r) {
 			http.NotFound(w, r)
 			return
 		}
-		now := time.Now()
-		remote, identified := a.loginClient(r)
-		if identified {
-			if allowed, retry := a.actuatorLimiter.allow(remote, now); !allowed {
-				writeAuthError(w, http.StatusTooManyRequests, retry)
-				return
-			}
-		}
-		if !validBasicAuth(r, a.actuator.Username, a.actuator.Password) {
-			if identified {
-				a.actuatorLimiter.failure(remote, now)
-			}
-			w.Header().Set("WWW-Authenticate", `Basic realm="node-manager actuator", charset="UTF-8"`)
-			writeAuthError(w, http.StatusUnauthorized, 0)
-			return
-		}
 		handle(w, r)
+	}
+}
+
+func removeLegacyActuatorCredentials(stateDir string, logger *log.Logger) {
+	if stateDir == "" {
+		return
+	}
+	if err := os.Remove(filepath.Join(stateDir, "actuator-credentials.json")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		logger.Print("leftover actuator credentials file could not be deleted")
+	}
+}
+
+func (a *app) apiActuatorCurl(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if !a.hasDashboardPassword() {
+		http.Error(w, "set a dashboard password to copy an actuator command", http.StatusForbidden)
+		return
+	}
+	if !a.requireRecentSignIn(w, r) || rejectCredentialCSRF(w, r) {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	var input struct {
+		Endpoint string `json:"endpoint"`
+		Password string `json:"password"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&input) != nil || ensureJSONEnd(decoder) != nil || input.Endpoint != "health" && input.Endpoint != "info" || input.Password == "" {
+		http.Error(w, "invalid actuator request", http.StatusBadRequest)
+		return
+	}
+	settings := a.monitor.notificationSettings()
+	if input.Endpoint == "health" && !settings.ActuatorHealth || input.Endpoint == "info" && !settings.ActuatorInfo {
+		http.Error(w, "this endpoint is switched off; save the setting first", http.StatusConflict)
+		return
+	}
+	_, status, retry := a.passwordAttempt(r, "admin", input.Password, false, false)
+	switch status {
+	case http.StatusOK:
+		writeJSON(w, map[string]string{"username": "admin"})
+	case http.StatusTooManyRequests:
+		w.Header().Set("Retry-After", strconv.Itoa(max(1, int(math.Ceil(retry.Seconds())))))
+		http.Error(w, "Too many attempts. Try again shortly.", status)
+	default:
+		http.Error(w, "dashboard password is incorrect", http.StatusForbidden)
 	}
 }

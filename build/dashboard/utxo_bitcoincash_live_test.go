@@ -226,7 +226,7 @@ func TestUtxoBitcoinCashRawReplayRegtestLive(t *testing.T) {
 			t.Fatal(err)
 		}
 		raw, _ := hex.DecodeString(n.str("getblock", hash, 0))
-		got, err := parseCashBlock(raw, uint32(h))
+		got, err := parseRawBlock(raw, uint32(h), utxoBitcoinCash)
 		if err != nil {
 			t.Fatalf("height %d: %v", h, err)
 		}

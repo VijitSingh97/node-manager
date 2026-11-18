@@ -387,7 +387,7 @@ func (f *utxoFollower) fetchRawBlock(ctx context.Context, height uint32, hash st
 	if err != nil {
 		return utxoBlock{}, err
 	}
-	blk, err := parseCashBlock(raw, height)
+	blk, err := parseRawBlock(raw, height, f.chain)
 	if err != nil {
 		return utxoBlock{}, err
 	}

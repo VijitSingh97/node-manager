@@ -8,6 +8,20 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
+- Instant Dogecoin balances: `dogecoin.utxo_index` (Settings → Balance index →
+  "Instant Dogecoin balances") keeps a Dogecoin balance index, on a pruned node
+  too, and the Dogecoin watch-only card reads its balances from it once it is at
+  the node's tip. Dogecoin Core 1.14.9 has no coin-set export, so a seed stops the
+  Dogecoin node while its chainstate is copied, starts it again, and
+  builds the index from the copy; the index then follows new blocks, merge-mined
+  ones included. A Dogecoin install from the dashboard turns the index on, and the
+  archival watch wallet is no longer needed for balances. If a pruned node drops
+  blocks the index still needs, Settings offers Seed now. The copy marks
+  Dogecoin as restarting while it is stopped, from Settings or the command line,
+  so it raises no node-down alert. Dogecoin is not in `utxo-index bench` or its CI
+  test, since Dogecoin Core 1.14.9 has none of the RPCs it uses; its index is
+  checked by a regtest test against the node's own `gettxout`. The seed time and
+  index size on mainnet are not measured yet.
 - Host vitals redesign: the Node Manager usage panel now shows Temperature,
   Fan, Uptime and Network as four tiles above the disk bars. Temperature has a
   dot that runs from blue to red up to the 88 °C throttle limit, the fan icon
@@ -47,6 +61,26 @@ All notable changes to this project are documented here. Format follows
 
 ### Changed
 
+- The actuator endpoints now use the same login as the dashboard (user `admin`
+  and the dashboard password, over HTTP Basic auth) instead of a generated
+  `actuator` login. Settings no longer shows an actuator username and
+  password, and a leftover `actuator-credentials.json` is deleted on start.
+  A wrong login still gets a 401 with a `WWW-Authenticate` challenge, a
+  switched-off endpoint a 404, and repeated wrong passwords share the dashboard
+  sign-in limit. A monitor given this login can also sign in to the dashboard.
+  Upgrade note: monitors that sent the generated login must be changed to the
+  dashboard login.
+- Settings → Actuator has **Copy curl for health** and **Copy curl for info**
+  buttons, shown while the matching switch is saved on. Each asks for the
+  dashboard password, has the server check it, then copies a complete curl
+  command for the endpoint with the admin login and that password filled in. On a plain
+  `http://` address, where the browser blocks clipboard access, it falls back
+  to a selected field with a **Copy again** button (pressed with the click, so
+  Safari allows it) or Ctrl+C / Cmd+C. The command holds the password and will
+  stay in shell history.
+- The `WWW-Authenticate` challenge is now sent only with actuator 401 and 429
+  answers, and a leftover actuator credentials file that cannot be deleted is
+  logged with a fixed message.
 - Host vitals now refresh every 10 seconds on Debian and Ubuntu installs. A
   small Go helper, the new recommended `node-manager-hostd` package, replaces the
   shell collector on a systemd timer and is much cheaper than the minute-by-minute
@@ -149,6 +183,14 @@ All notable changes to this project are documented here. Format follows
 
 ### Changed
 
+- The Debian and Ubuntu host helpers poll less often to cut idle CPU: node
+  control every 10 seconds (was 2) and LAN port control every 30 seconds (was
+  15). A node or credential change from the dashboard can now take up to about
+  10 seconds to start, and a LAN port change up to about 30 seconds. Port
+  control looks up the dashboard container once per run instead of for every
+  command, and the resource-profile helper reads the container list and `.env`
+  once per run instead of calling `docker compose ps` and `sed` repeatedly.
+  Homebrew's host loop already ran every 10 seconds and is unchanged.
 - The two actuator endpoints now have separate switches in Settings → Actuator
   (**Serve /actuator/health** and **Serve /actuator/info**, both off by
   default), and both always need HTTP Basic auth with a generated actuator

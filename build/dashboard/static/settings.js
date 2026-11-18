@@ -1,3 +1,4 @@
+import { actuatorCurlController } from "./actuator-curl.js";
 import { credentialSettingsController } from "./credentials.js";
 import { dashboardFetch as fetch } from "./session.js";
 import { requestSeed } from "./utxo-index.js";
@@ -61,16 +62,6 @@ export function notificationPayload(values) {
   return payload;
 }
 
-export async function copyField(input, clipboard = globalThis.navigator?.clipboard) {
-  try {
-    await clipboard.writeText(input.value);
-    return true;
-  } catch {
-    input.select();
-    return false;
-  }
-}
-
 export function configurationAccess(data) {
   return data?.can_configure === true;
 }
@@ -78,12 +69,13 @@ export function configurationAccess(data) {
 const networkActions = ["clearnet_over_tor", "inbound_connections"];
 const balanceActions = ["utxo_index", "utxo_seed"];
 export const UTXO_INDEX_LITECOIN_OFF_PROMPT = "Turn off instant Litecoin balances? Wallets go back to the slower scan. The index volume stays on disk until you run utxo-index remove litecoin.";
+export const UTXO_INDEX_DOGECOIN_OFF_PROMPT = "Turn off instant Dogecoin balances? Wallets go back to the archival watch wallet if it is on, otherwise they wait. The index volume stays on disk until you run utxo-index remove dogecoin.";
 export const UTXO_INDEX_BITCOINCASH_OFF_PROMPT = "Turn off instant Bitcoin Cash balances? Wallets go back to the slower scan. The index volume stays on disk until you run utxo-index remove bitcoincash.";
-const chainIndexOffPrompts = { litecoin: UTXO_INDEX_LITECOIN_OFF_PROMPT, bitcoincash: UTXO_INDEX_BITCOINCASH_OFF_PROMPT };
+const chainIndexOffPrompts = { litecoin: UTXO_INDEX_LITECOIN_OFF_PROMPT, bitcoincash: UTXO_INDEX_BITCOINCASH_OFF_PROMPT, dogecoin: UTXO_INDEX_DOGECOIN_OFF_PROMPT };
 const chainIndexNode = (action) => String(action || "").startsWith("utxo_index_") && chainIndexOffPrompts[action.slice(11)] ? action.slice(11) : "";
 const toggleKey = (change) => change?.action === "utxo_index" && chainIndexOffPrompts[change?.node] ? `utxo_index_${change.node}` : change?.action;
-const toggleFields = { launch_at_boot: "boot_enabled", clearnet_over_tor: "clearnet_over_tor", inbound_connections: "inbound_connections", utxo_index: "utxo_index", utxo_index_litecoin: "utxo_index_litecoin", utxo_index_bitcoincash: "utxo_index_bitcoincash" };
-export const hostToggleDefaults = { launch_at_boot: false, clearnet_over_tor: true, inbound_connections: true, utxo_index: false, utxo_index_litecoin: false, utxo_index_bitcoincash: false };
+const toggleFields = { launch_at_boot: "boot_enabled", clearnet_over_tor: "clearnet_over_tor", inbound_connections: "inbound_connections", utxo_index: "utxo_index", utxo_index_litecoin: "utxo_index_litecoin", utxo_index_bitcoincash: "utxo_index_bitcoincash", utxo_index_dogecoin: "utxo_index_dogecoin" };
+export const hostToggleDefaults = { launch_at_boot: false, clearnet_over_tor: true, inbound_connections: true, utxo_index: false, utxo_index_litecoin: false, utxo_index_bitcoincash: false, utxo_index_dogecoin: false };
 export const UTXO_INDEX_OFF_PROMPT = "Turn off instant Bitcoin balances? Wallets go back to the slower scan. The index volume stays on disk until you run utxo-index remove.";
 
 export function balanceIndexPayload(enabled, confirmFn) {
@@ -124,6 +116,7 @@ const deleteVolumes = {
   bitcoin: "the balance index volume (utxo_index)",
   litecoin: "the balance index volume (utxo_index_litecoin)",
   bitcoincash: "the balance index volume (utxo_index_bitcoincash)",
+  dogecoin: "the balance index volume (utxo_index_dogecoin)",
   monero: "the wallet volume (monero_wallets)",
   tari: "the wallet volumes (tari_wallet, tari_wallet_data)",
 };
@@ -197,6 +190,8 @@ export function hostControlModel(data = {}) {
     utxo_seed_now_litecoin: data.utxo_seed_now_litecoin === true,
     utxo_index_bitcoincash: data.utxo_index_bitcoincash === true,
     utxo_seed_now_bitcoincash: data.utxo_seed_now_bitcoincash === true,
+    utxo_index_dogecoin: data.utxo_index_dogecoin === true,
+    utxo_seed_now_dogecoin: data.utxo_seed_now_dogecoin === true,
     config_pending: !!revision,
     config_revision: revision,
     config_path: typeof data.config_path === "string" && data.config_path.startsWith("/") ? data.config_path : "",
@@ -457,8 +452,6 @@ if (typeof document !== "undefined") {
   const defaultCurrency = byId("default-currency");
   const actuatorHealth = byId("actuator-health");
   const actuatorInfo = byId("actuator-info");
-  const actuatorUsername = byId("actuator-username");
-  const actuatorPassword = byId("actuator-password");
   const save = byId("save");
   const reset = byId("reset");
   const hostNodes = byId("host-nodes");
@@ -478,10 +471,13 @@ if (typeof document !== "undefined") {
     <label class="settings-check"><input id="settings-utxo-index" type="checkbox" role="switch"> Instant Bitcoin balances</label>
     <label id="settings-utxo-index-litecoin-label" class="settings-check" hidden><input id="settings-utxo-index-litecoin" type="checkbox" role="switch"> Instant Litecoin balances</label>
     <label id="settings-utxo-index-bitcoincash-label" class="settings-check" hidden><input id="settings-utxo-index-bitcoincash" type="checkbox" role="switch"> Instant Bitcoin Cash balances (archival node)</label>
+    <label id="settings-utxo-index-dogecoin-label" class="settings-check" hidden><input id="settings-utxo-index-dogecoin" type="checkbox" role="switch"> Instant Dogecoin balances</label>
     <button id="settings-utxo-seed-now" type="button" hidden>Seed now</button>
     <button id="settings-utxo-seed-now-litecoin" type="button" hidden>Seed Litecoin now</button>
     <button id="settings-utxo-seed-now-bitcoincash" type="button" hidden>Replay Bitcoin Cash now</button>
+    <button id="settings-utxo-seed-now-dogecoin" type="button" hidden>Seed Dogecoin now</button>
     <p id="settings-utxo-index-bitcoincash-note" class="settings-note" hidden>Bitcoin Cash has no coin-set export, so its index replays every block from genesis once the node has synced: a long one-time job. It needs an archival node (<code>bitcoincash.prune_mb</code> 0); a pruned node is refused. Bitcoin Cash RPC keeps answering and node-down alerts are not held.</p>
+    <p id="settings-utxo-index-dogecoin-note" class="settings-note" hidden>Dogecoin Core 1.14 has no coin-set export, so seeding stops the Dogecoin node while its chainstate is copied, then builds the index from the copy; this works on a pruned node.</p>
     <p id="settings-utxo-index-status" class="settings-note" role="status" aria-live="polite"></p>
   </fieldset>`);
   const utxoIndex = byId("utxo-index");
@@ -495,6 +491,10 @@ if (typeof document !== "undefined") {
   const utxoIndexBitcoinCashLabel = byId("utxo-index-bitcoincash-label");
   const utxoIndexBitcoinCashNote = byId("utxo-index-bitcoincash-note");
   const utxoSeedNowBitcoinCash = byId("utxo-seed-now-bitcoincash");
+  const utxoIndexDogecoin = byId("utxo-index-dogecoin");
+  const utxoIndexDogecoinLabel = byId("utxo-index-dogecoin-label");
+  const utxoIndexDogecoinNote = byId("utxo-index-dogecoin-note");
+  const utxoSeedNowDogecoin = byId("utxo-seed-now-dogecoin");
   const clearnetOverTor = byId("clearnet-over-tor");
   const inboundConnections = byId("inbound-connections");
   const networkStatus = byId("network-status");
@@ -550,6 +550,7 @@ if (typeof document !== "undefined") {
   byId("port-impact")?.remove();
   const accountDialog = document.getElementById("account-dialog");
   const credentialSettings = credentialSettingsController(accountDialog, document);
+  const actuatorCurl = actuatorCurlController(document);
   let saved = {};
   let savedPorts = {};
   let allowed = false;
@@ -572,7 +573,7 @@ if (typeof document !== "undefined") {
   let hostQueue = [];
   let hostQueueAction = "";
   const saving = () => hostQueue.length > 0 || hostQueueAction !== "";
-  const hostToggles = { launch_at_boot: launchAtStart, clearnet_over_tor: clearnetOverTor, inbound_connections: inboundConnections, utxo_index: utxoIndex, utxo_index_litecoin: utxoIndexLitecoin, utxo_index_bitcoincash: utxoIndexBitcoinCash };
+  const hostToggles = { launch_at_boot: launchAtStart, clearnet_over_tor: clearnetOverTor, inbound_connections: inboundConnections, utxo_index: utxoIndex, utxo_index_litecoin: utxoIndexLitecoin, utxo_index_bitcoincash: utxoIndexBitcoinCash, utxo_index_dogecoin: utxoIndexDogecoin };
   const hostRequests = latestRequestGate();
   let installNode = "";
   try { portRequestID = localStorage.getItem("nodeStackPortRequest") || ""; } catch {}
@@ -732,11 +733,16 @@ if (typeof document !== "undefined") {
     utxoIndexBitcoinCashLabel.hidden = utxoIndexBitcoinCashNote.hidden = !hostView.available || !hostView.nodes.bitcoincash.installed;
     utxoIndexBitcoinCash.checked = shown("utxo_index_bitcoincash");
     utxoIndexBitcoinCash.disabled = balanceControl.disabled;
-    balanceSettings.hidden = balanceControl.hidden && utxoIndexLitecoinLabel.hidden && utxoIndexBitcoinCashLabel.hidden;
+    utxoIndexDogecoinLabel.hidden = utxoIndexDogecoinNote.hidden = !hostView.available || !hostView.nodes.dogecoin.installed;
+    utxoIndexDogecoin.checked = shown("utxo_index_dogecoin");
+    utxoIndexDogecoin.disabled = balanceControl.disabled;
+    balanceSettings.hidden = balanceControl.hidden && utxoIndexLitecoinLabel.hidden && utxoIndexBitcoinCashLabel.hidden && utxoIndexDogecoinLabel.hidden;
     utxoSeedNowLitecoin.hidden = !hostView.utxo_seed_now_litecoin;
     utxoSeedNowLitecoin.disabled = busy || saving();
     utxoSeedNowBitcoinCash.hidden = !hostView.utxo_seed_now_bitcoincash;
     utxoSeedNowBitcoinCash.disabled = busy || saving();
+    utxoSeedNowDogecoin.hidden = !hostView.utxo_seed_now_dogecoin;
+    utxoSeedNowDogecoin.disabled = busy || saving();
     configChange.hidden = !hostView.config_pending;
     const networkMessage = networkActions.includes(hostView.status.action);
     const balanceMessage = balanceActions.includes(hostView.status.action);
@@ -910,6 +916,13 @@ if (typeof document !== "undefined") {
     await loadHost();
   });
 
+  utxoSeedNowDogecoin.addEventListener("click", async () => {
+    if (saving()) return;
+    utxoSeedNowDogecoin.disabled = true;
+    balanceStatus.textContent = await requestSeed(undefined, "dogecoin");
+    await loadHost();
+  });
+
   async function loadHost() {
     await hostRequests.run(requestHost, renderHost, (error) => {
       hostStatus.textContent = error.message;
@@ -925,7 +938,7 @@ if (typeof document !== "undefined") {
     const status = hostStatusTarget(payload.action);
     status.textContent = "Applying…";
     for (const button of hostNodes.querySelectorAll("button")) button.disabled = true;
-    launchAtStart.disabled = applyConfig.disabled = clearnetOverTor.disabled = inboundConnections.disabled = utxoIndex.disabled = utxoIndexLitecoin.disabled = utxoIndexBitcoinCash.disabled = true;
+    launchAtStart.disabled = applyConfig.disabled = clearnetOverTor.disabled = inboundConnections.disabled = utxoIndex.disabled = utxoIndexLitecoin.disabled = utxoIndexBitcoinCash.disabled = utxoIndexDogecoin.disabled = true;
     if (toggleFields[toggleKey(payload)]) pendingToggle = { action: toggleKey(payload), enabled: payload.enabled };
     try {
       const statusView = await requestHost(payload);
@@ -982,10 +995,9 @@ if (typeof document !== "undefined") {
       input.disabled = !allowed;
     }
     renderPortControl(data.port_control);
+    actuatorCurl.render(saved, allowed);
     if (scope === "global") {
       applyAppearance(data);
-      actuatorUsername.value = data.actuator_username || "";
-      actuatorPassword.value = dialog.open ? data.actuator_password || "" : "";
       if (Object.hasOwn(data, "telegram_chat_id")) chat.value = data.telegram_chat_id || "";
       if (dialog.open) {
         if (Object.hasOwn(data, "telegram_bot_token")) token.value = data.telegram_bot_token || "";
@@ -1112,7 +1124,7 @@ if (typeof document !== "undefined") {
     installDialog.close();
     renderHostActions();
   });
-  dialog.addEventListener("close", () => { clearSecrets(); actuatorPassword.value = ""; delete saved.actuator_password; delete saved.telegram_bot_token; delete saved.telegram_chat_id; delete saved.healthchecks_url; });
+  dialog.addEventListener("close", () => { actuatorCurl.closeDialog(); clearSecrets(); delete saved.telegram_bot_token; delete saved.telegram_chat_id; delete saved.healthchecks_url; });
   window.addEventListener("node-selected", (event) => {
     credentialSettings.closeNode();
     if (event.detail?.node) {
@@ -1120,10 +1132,6 @@ if (typeof document !== "undefined") {
       load("nodes");
     }
   });
-  for (const field of ["username", "password"]) {
-    const input = byId(`actuator-${field}`);
-    byId(`actuator-${field}-copy`).addEventListener("click", () => copyField(input));
-  }
   telegramEnabled.addEventListener("change", updateInputs);
   healthchecksEnabled.addEventListener("change", updateInputs);
   for (const [action, input] of Object.entries(hostToggles)) input.addEventListener("change", () => { hostDraft[action] = input.checked; });
@@ -1191,9 +1199,11 @@ if (typeof document !== "undefined") {
         delete hostDraft.utxo_index;
         delete hostDraft.utxo_index_litecoin;
         delete hostDraft.utxo_index_bitcoincash;
+        delete hostDraft.utxo_index_dogecoin;
         utxoIndex.checked = hostView.utxo_index;
         utxoIndexLitecoin.checked = hostView.utxo_index_litecoin;
         utxoIndexBitcoinCash.checked = hostView.utxo_index_bitcoincash;
+        utxoIndexDogecoin.checked = hostView.utxo_index_dogecoin;
       }
       hostChanges = confirmed;
     }

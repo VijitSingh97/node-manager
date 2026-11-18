@@ -115,8 +115,6 @@ type app struct {
 	dashboardAuth    *dashboardAuth
 	sessions         *dashboardSessions
 	loginLimiter     *loginLimiter
-	actuatorLimiter  *loginLimiter
-	actuator         actuatorCredentials
 	passwordWork     *passwordWorkLimiter
 	passwordAttempts chan struct{}
 	controlMu        sync.Mutex
@@ -142,7 +140,6 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 	a := &app{cfg: cfg, rpc: rpc, template: t, static: http.StripPrefix("/static/", http.FileServer(http.Dir(staticPath))), log: logger, additionalFees: make(map[string][]float64), nodeHealth: make(map[string]nodeHealthSnapshot)}
 	a.sessions = newDashboardSessions()
 	a.loginLimiter = newLoginLimiter()
-	a.actuatorLimiter = newLoginLimiter()
 	a.passwordWork = newPasswordWorkLimiter()
 	a.passwordAttempts = make(chan struct{}, 2)
 	a.dashboardAuth, err = newDashboardAuth(cfg.stateDir, cfg.dashboardPassword)
@@ -155,9 +152,7 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 	if cfg.stateDir != "" {
 		a.sessions.persist(filepath.Join(cfg.stateDir, "sessions.json"), a.dashboardAuth.sessionBinding(), time.Now())
 	}
-	if a.actuator, err = loadOrCreateActuatorCredentials(cfg.stateDir); err != nil {
-		a.log.Print("actuator credentials could not be saved; they change on every restart until the state directory is writable")
-	}
+	removeLegacyActuatorCredentials(cfg.stateDir, a.log)
 	a.watch = NewWatchStore(cfg.stateDir)
 	if a.watch.ScanErr() != nil {
 		a.log.Print("watch balance cache unavailable; pruned balance scans disabled until the cache is repaired and the dashboard restarts")

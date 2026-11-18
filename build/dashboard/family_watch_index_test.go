@@ -121,3 +121,23 @@ func TestLitecoinAndBitcoinCashWatchesHoldFiftyWallets(t *testing.T) {
 		t.Fatal("a 50-wallet roster loads only under the 50 cap")
 	}
 }
+
+func TestDogecoinIndexOnlyWatchWaitsForAnIndexOneBlockBehind(t *testing.T) {
+	now := time.Unix(2_000_000_000, 0)
+	_, store, fixture := newFamilyScanTest(t, now, familyWatchEntry{ID: "wallet-a", Address: "address-a"})
+	store.backend = dogecoinIndexFamilyWatchBackend()
+	index := utxoMgrNew(t, t.TempDir(), nil, newFakeUtxoNode(utxoMgrChain(2, "b")), io.Discard)
+	store.index = index
+	index.set(utxoStateReady, "")
+	index.setTip(100)
+	if _, ok := store.backend.ready(t.Context(), store, now.Unix()); !ok {
+		t.Fatal("an index at the node's tip was not ready to serve")
+	}
+	fixture.update(func(f *familyScanRPCFixture) {
+		f.chainHeight, f.chainHash = 101, familyScanHash101
+		f.canonicalHashes[101] = familyScanHash101
+	})
+	if _, ok := store.backend.ready(t.Context(), store, now.Unix()); ok {
+		t.Fatal("an index one block behind the node let the wallets scan and fail")
+	}
+}

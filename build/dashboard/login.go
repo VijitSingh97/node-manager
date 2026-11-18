@@ -145,7 +145,7 @@ func (a *app) auth(next http.Handler) http.Handler {
 			http.Error(w, "same-origin request required", http.StatusForbidden)
 			return
 		}
-		if actuatorRequest(r) || r.URL.Path == "/login" || r.URL.Path == "/logout" || strings.HasPrefix(r.URL.Path, "/static/") {
+		if (actuatorRequest(r) && !a.actuatorEnabled(r)) || r.URL.Path == "/login" || r.URL.Path == "/logout" || strings.HasPrefix(r.URL.Path, "/static/") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -165,18 +165,21 @@ func (a *app) auth(next http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
-			writeAuthError(w, status, retry)
+			writeAuthError(w, r, status, retry)
 			return
 		}
 		if (r.Method == http.MethodGet || r.Method == http.MethodHead) && r.URL.Path == "/" {
 			http.Redirect(w, r, "/login", http.StatusFound)
 			return
 		}
-		writeAuthError(w, http.StatusUnauthorized, 0)
+		writeAuthError(w, r, http.StatusUnauthorized, 0)
 	})
 }
 
-func writeAuthError(w http.ResponseWriter, status int, retry time.Duration) {
+func writeAuthError(w http.ResponseWriter, r *http.Request, status int, retry time.Duration) {
+	if actuatorRequest(r) && (status == http.StatusUnauthorized || status == http.StatusTooManyRequests) {
+		w.Header().Set("WWW-Authenticate", `Basic realm="node-manager", charset="UTF-8"`)
+	}
 	if status == http.StatusTooManyRequests {
 		w.Header().Set("Retry-After", strconv.Itoa(max(1, int(math.Ceil(retry.Seconds())))))
 		http.Error(w, "Too many sign-in attempts. Try again shortly.", status)

@@ -122,7 +122,13 @@ case "$1" in
     ;;
   ps)
     case "$*" in
-      *'{{.ID}}'*) printf '%s\n' "${FAKE_PS_ID_ROWS:-}" ;;
+      *' -a '*'{{.ID}}'*) printf '%s\n' "${FAKE_PS_ID_ROWS:-}" ;;
+      *'{{.ID}} {{.Label'*)
+        [ "${FAKE_BITCOIN_RUNNING:-1}" != 1 ] || printf '%s bitcoin\n' "${FAKE_BITCOIN_ID:-btc-id}"
+        [ "${FAKE_MONERO_RUNNING:-1}" != 1 ] || printf '%s monero\n' "${FAKE_MONERO_ID:-xmr-id}"
+        printf '%s litecoin\n%s dogecoin\n%s bitcoincash\ntari-id tari\nzcash-id zcash\n' "${FAKE_LITECOIN_ID:-ltc-id}" "${FAKE_DOGECOIN_ID:-doge-id}" "${FAKE_BITCOINCASH_ID:-bch-id}"
+        [ "${FAKE_DASHBOARD_DOWN:-0}" = 1 ] || printf 'dashboard-id dashboard\n'
+        ;;
       *) printf 'monero running\nmonero-wallet running\nbitcoin exited\ntari restarting\nlitecoin created\ndashboard running\n' ;;
     esac
     ;;
@@ -426,6 +432,11 @@ grep -q '^ProtectSystem=strict$' packaging/systemd/node-manager-resource-profile
 grep -q '^ProtectHome=read-only$' packaging/systemd/node-manager-resource-profile.service || fail "service cannot read node data dirs under /home"
 grep -q '^RestrictAddressFamilies=AF_UNIX$' packaging/systemd/node-manager-resource-profile.service || fail "systemd service can use public network sockets"
 grep -q '^Persistent=true$' packaging/systemd/node-manager-resource-profile.timer || fail "systemd timer does not catch up after reboot"
+
+new_case one-container-listing-per-run
+scripts/node-resource-profile || fail "resource profile run failed"
+[ "$(grep -c '^compose .* ps ' "$log")" = 0 ] || fail "container ids were resolved with compose ps: $(cat "$log")"
+[ "$(grep -c '^ps --filter label=com.docker.compose.project=[^ ]* --format {{.ID}} {{.Label' "$log")" = 1 ] || fail "a run listed containers more than once: $(cat "$log")"
 
 new_case host-stats
 mkdir -p "$case_root/state/data/bitcoin" "$case_root/state/data/tari"
