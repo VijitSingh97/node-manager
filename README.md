@@ -107,9 +107,10 @@ sudo apt upgrade
 ```
 
 The package downloads new images and restarts the running services itself, so
-no `pull` or `apply` is needed. Upgrading from 1.37.0 or earlier on amd64 or
-arm64, also run `sudo apt install node-manager-hostd` once for 10-second host
-readings ([details](docs/operations.md#host-readings)).
+no `pull` or `apply` is needed. On amd64 and arm64 an upgrade from 1.37.0 or
+earlier also installs the recommended `node-manager-hostd` helper for 10-second
+host readings. If `dpkg -s node-manager-hostd` says it is missing, run
+`sudo apt install node-manager-hostd` ([details](docs/operations.md#host-readings)).
 
 macOS / Homebrew:
 

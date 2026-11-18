@@ -42,10 +42,9 @@ shows recent probe output when diagnosing.
 With **Node manager usage** ticked in Settings, the usage panel at the top left
 shows the host's temperature, fan speed, uptime and network rate as four tiles
 above the disk bars. On APT installs (amd64 and arm64) the small
-`node-manager-hostd` helper writes them every 10 seconds. New installs get it as
-a recommended package. On an older install, check with
-`dpkg -s node-manager-hostd`; if it is missing, install it once with
-`sudo apt install node-manager-hostd`. Elsewhere, and whenever the helper
+`node-manager-hostd` helper writes them every 10 seconds. New installs and
+upgrades get it as a recommended package. If `dpkg -s node-manager-hostd` says
+it is missing, install it with `sudo apt install node-manager-hostd`. Elsewhere, and whenever the helper
 is not running, the resource-profile shell helper collects them once a minute.
 Either way the dashboard container needs no extra mounts or privileges.
 
@@ -185,9 +184,9 @@ sudo apt upgrade
 APT upgrades automatically download the new release images and recreate the
 services that were running. Changed services may restart. A stopped deployment
 stays stopped, and configuration edits still awaiting approval are not applied.
-A release that adds a recommended package may not install it on upgrade. Check
-the host helper with `dpkg -s node-manager-hostd`; if it is missing, run
-`sudo apt install node-manager-hostd` once (see [Host readings](#host-readings)).
+Upgrades also install newly recommended packages such as `node-manager-hostd`.
+If it is missing (for example after `--no-install-recommends`), run
+`sudo apt install node-manager-hostd` (see [Host readings](#host-readings)).
 If Docker or the registry is unavailable, APT keeps the package installed and
 reports activation as pending. After correcting the problem, retry with
 `sudo node-manager package-upgrade`. Inspect `sudo node-manager status` and
