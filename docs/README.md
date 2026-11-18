@@ -4,7 +4,7 @@
 |---|---|
 | [Getting Started](getting-started.md) | Prerequisites, install, first start, and what to expect during the initial sync. |
 | [Homebrew](homebrew.md) | macOS and Linux install, user-owned data paths, and background service. |
-| [Supported nodes](nodes.md) | All seven chains, disk and resource budgets, LAN endpoints, and Pithead remote-node access. |
+| [Supported nodes](nodes.md) | All seven chains, disk and resource budgets, LAN endpoints, and remote mining access. |
 | [Hardware Requirements](hardware.md) | CPU, RAM, and disk sizing — with real numbers from a reference deployment. |
 | [Configuration](configuration.md) | Every `config.json` key, applying changes, and reusing an existing node's data. |
 | [Watch-only](watch-only.md) | Read-only Bitcoin, Monero, Litecoin, and Bitcoin Cash views, plus the limits of the other chains. |
