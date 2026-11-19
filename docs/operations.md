@@ -412,34 +412,54 @@ litecoin`. Its seed time and size on mainnet are not measured yet. Only one
 balance index seeds at a time; a second request is refused with the `lock`
 guard until the first finishes.
 
-The Bitcoin Cash balance index (`bitcoincash.utxo_index`, archival nodes only) has
-no dump to seed from. It replays every block from genesis through the dashboard,
-which starts it on its own once the node has synced, or from **Replay Bitcoin Cash
-now** or `./stack utxo-seed bitcoincash`; no seed pipe is made. A cancel, failure or
+The Bitcoin Cash balance index (`bitcoincash.utxo_index`) works on a pruned node.
+Bitcoin Cash Node has no coin-set export, so a seed stops the Bitcoin Cash node
+while its chainstate is copied, starts it again, and builds the index from the
+copy; the index then follows new blocks. The copy hardlinks the node's tables, so
+it needs free space for three times the chainstate and marks Bitcoin Cash as
+restarting while the node is down, so it raises no node-down alert. The dashboard
+asks for this itself on APT and Homebrew installs, and `./stack utxo-seed
+bitcoincash` does it from a source checkout. The seed reads the copy only after a
+clean stop; a copy taken while the node was flushing is refused. Seed time and
+index size on mainnet are not measured yet.
+
+An archival Bitcoin Cash node with no host helper can instead replay every block
+from genesis through the dashboard: `./stack utxo-seed bitcoincash --replay`, or
+automatically once the node has synced. No seed pipe is made. A cancel, failure or
 restart keeps the blocks already applied, and the next run resumes from there. A
 node restart, an RPC timeout or a reorg near the tip is retried within the replay;
 progress resets the count, so it waits for the hourly check only after about five
-minutes of failures in a row, and storage errors stop it at once. After a cancel,
-automatic replays stop until you start one with **Replay Bitcoin Cash now** or
-`utxo-seed bitcoincash`. It
-takes the shared seed lock and the heat pause, but holds neither node alerts nor
-the watch scan. Regtest rates are in
-[the replay measurement](measurements/utxo-replay.md); a mainnet replay has not
-been timed.
+minutes of failures in a row, and storage errors stop it at once. It takes the
+shared seed lock and the heat pause, but holds neither node alerts nor the watch
+scan. Regtest rates are in [the replay measurement](measurements/utxo-replay.md);
+a mainnet replay has not been timed. A pruned node refuses a replay.
 
-With `bitcoin.utxo_index` enabled the index starts empty. On APT and Homebrew
-installs it seeds itself: while the index has no seed (or its last seed failed),
-the dashboard checks the seed guards once an hour, and when they pass it asks the
-host helper (`node-control`) to create the seed pipe and request, the same
-preparation `utxo-seed` does. A refused check stays in the index status with its
-reason. A seed that starts and then fails, or is cut short by a dashboard
-restart, is retried after 6 hours, then 24 hours, and not again after a third
-failure until you start one; a guard refusal costs nothing and is re-checked
-hourly. Cancelling a seed (`utxo-seed cancel`) stops automatic seeding until you
-start one with **Seed now** or `utxo-seed`. The automatic seed holds node-down alerts
-like a manual one. **Seed now** on the index card or in Settings starts a seed
-through the same host helper. A source checkout has no host helper, so seed it by
-hand. To seed it from the host, with the stack running and the node synced:
+With a balance index enabled the index starts empty, and on APT and Homebrew
+installs it seeds itself as soon as the node has synced; there is no Seed button.
+While an index has no seed (or went invalid), the dashboard checks the seed guards
+and, when they pass, asks the host helper (`node-control`) to prepare the seed, the
+same preparation `utxo-seed` does. The node card shows a bar for the index: waiting
+for the node to sync, building with a percentage, catching up, or ready.
+
+- A seed never starts while the node is still syncing, within 10 minutes of the
+  node starting, or beside another index's seed or chainstate copy. These waits are
+  re-checked every 30 seconds, cost nothing and are not failures. The host helper
+  makes the last two checks itself and refuses before it stops any node.
+- A seed that starts and then fails, is cut short by a dashboard restart, or whose
+  host preparation fails (for example a chainstate copy that could not be taken)
+  is retried after 6 hours, then 24 hours, and not again after a third failure; the
+  bar then reads "seeding failed" with the reason. Turning the index off and on in
+  Settings clears that count. An index that turns invalid is reseeded the same way,
+  but not within a day of a successful seed, so it cannot stop a node again and
+  again. Cancelling a seed (`utxo-seed cancel`) stops automatic seeding until you
+  start one with `utxo-seed`.
+- Settings changes made while a Dogecoin or Bitcoin Cash chainstate copy runs wait
+  for it (the node's stop can take up to five minutes) and then go through.
+- Turning an index on from Settings or the install dialog is all it takes: the
+  next check seeds it.
+- The automatic seed holds node-down alerts like a manual one. A source checkout
+  has no host helper, so the index card shows the command and you seed it by hand.
+  To seed it from the host, with the stack running and the node synced:
 
 ```
 ./stack utxo-seed        # asks for y; -y skips the question
@@ -590,7 +610,7 @@ Recovery:
 Dogecoin Core 1.14.9 has no coin-set export, so `dogecoin.utxo_index` seeds from a copy of the node's
 chainstate, which a pruned node keeps whole.
 
-- **Seed now** (Settings → Balance index) and the hourly automatic seed go through the host helper. It
+- The automatic seed goes through the host helper. It
   checks that the node has finished syncing and that the disk beside its data can hold the chainstate
   twice, stops the Dogecoin node, hardlinks the chainstate's tables into
   `<data_dir>/utxo-seed-chainstate`, copies its other files, and starts the node again. The dashboard
@@ -610,8 +630,8 @@ chainstate, which a pruned node keeps whole.
   (start it with `./stack up`).
 - `./stack utxo-index remove dogecoin` deletes the index volume once `dogecoin.utxo_index` is off and
   applied.
-- If a pruned node drops blocks the index still needs, the index turns invalid and **Seed now** seeds it
-  again.
+- If a pruned node drops blocks the index still needs, the index turns invalid and is seeded again
+  automatically (not within a day of a successful seed).
 - Dogecoin is not in `utxo-index bench` or its CI test; see [the lookup bench](measurements/lookup-bench.md).
 
 ## Self-healing (a deliberate non-feature)

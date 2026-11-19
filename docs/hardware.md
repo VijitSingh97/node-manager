@@ -99,6 +99,34 @@ and unknown; do not convert its 10,000-block pruning horizon into a byte estimat
 The dashboard shows chain size vs. disk capacity so you can watch the
 headroom shrink.
 
+## Balance indexes
+
+The balance index is on by default for Bitcoin, Litecoin, Dogecoin and Bitcoin Cash
+installed from the dashboard (untick it in the install dialog to opt out). Each index
+has its own dashboard volume, and the dashboard runs with 0.5 CPU however many indexes
+are on. Existing installs keep their setting: nothing is turned on, seeded or restarted
+on upgrade.
+
+| Index | Disk | Dashboard memory limit | While seeding |
+|---|---|---|---|
+| Bitcoin | about 7.5 GiB, up to about 17 GiB during the seed | 1 GiB | one `dumptxoutset` seed; 27 GB free |
+| Litecoin | not measured | 1 GiB | one `dumptxoutset` seed; 27 GB free |
+| Dogecoin | not measured | 1 GiB | node stopped briefly; free space for 3 times its chainstate |
+| Bitcoin Cash | not measured | 2 GiB with `GOMEMLIMIT` 1600 MiB | node stopped briefly; free space for 3 times its chainstate |
+
+- The dashboard memory limit is the largest of the enabled indexes, so Bitcoin Cash
+  raises it to 2 GiB for every index. Seeds run one at a time, so the peak is one seed
+  plus the followers of the other indexes. The followers are light, but dashboard
+  memory with all four indexes ready and one seeding has not been measured; measure it
+  on a host before relying on it.
+- By cap arithmetic, four chains with their indexes on an 8 GB host are
+  over-committed: Litecoin, Dogecoin and Bitcoin Cash each have a 4 GiB steady cap,
+  Bitcoin 2 GiB, and the dashboard up to 2 GiB. Keep the chains you do not need
+  deactivated, or leave their indexes off.
+- A Dogecoin or Bitcoin Cash seed hardlinks the node's chainstate tables into
+  `<data_dir>/utxo-seed-chainstate`; the copy is small, but the seed needs free space
+  for three times the chainstate and the copy is removed once the seed finishes.
+
 ## RAM
 
 Fresh installs use a conservative **128 MiB** Bitcoin Core UTXO cache, controlled

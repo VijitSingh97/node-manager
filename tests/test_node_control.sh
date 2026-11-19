@@ -96,6 +96,7 @@ fi
 if [ "$1" = inspect ]; then
   case "$3" in
     '{{.Id}}') [ "${FAKE_DASHBOARD_MISSING:-0}" = 1 ] || printf 'dashboard-id\n' ;;
+    *StartedAt*) printf '%s\n' "${FAKE_NODE_STARTED_AT:-}" ;;
     *RestartPolicy*) printf '%s/docker-compose.yml|on-failure|3\n' "$BITCOIN_STACK_ROOT" ;;
     *project.config_files*) printf '%s/docker-compose.yml\n' "$BITCOIN_STACK_ROOT" ;;
   esac
@@ -162,7 +163,7 @@ export FAKE_DASHBOARD_MISSING=0
 export FAKE_DOCKER_LOG=$tmp/stack.log FAKE_VOLUMES=$tmp/volumes FAKE_CONTAINERS='' FAKE_VOLUME_IN_USE=0 FAKE_VOLUME_RM_FAIL=0
 export NODE_CONTROL_ARCH=x86_64 NODE_CONTROL_CPU_FLAGS="fpu sse4_2 avx2 bmi1 bmi2 adx"
 
-request() { printf '%s\n' "$1" >"$dashboard_state/node-control.request"; }
+request() { rm -f "$dashboard_state"/*utxo-seed.request; printf '%s\n' "$1" >"$dashboard_state/node-control.request"; }
 status() { jq -r "$1" "$dashboard_state/node-control.status"; }
 
 request '{"id":"11111111111111111111111111111111","node":"tari","active":false,"confirmation":"deactivate","requested_at":1000}'
@@ -411,6 +412,7 @@ FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root
 [ "$(status .state):$(status .node)" = applied:bitcoin ] || { cat "$dashboard_state/node-control.status"; fail "bitcoin seed was not prepared"; }
 [ -p "$FAKE_NODE_DATA/bitcoin/utxo-seed.dat.incomplete" ] && [ ! -e "$FAKE_NODE_DATA/bitcoin/utxo-seed.dat" ] || fail "the seed pipe was not made fresh"
 jq -e 'keys==["id","requested_at"] and .requested_at==1000 and .id=="f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3"' "$dashboard_state/utxo-seed.request" >/dev/null || fail "the bitcoin seed request did not carry the host request id"
+rm -f "$dashboard_state/utxo-seed.request"
 jq '.litecoin.utxo_index=false' "$config/config.json" >"$tmp/config.next" && mv "$tmp/config.next" "$config/config.json"
 jq -S . "$config/config.json" >"$state/.approved-config.json"
 request '{"action":"utxo_seed","id":"f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4","node":"litecoin","requested_at":1000}'
@@ -449,6 +451,7 @@ FAKE_CLOCK=$tmp/clock PATH="$tmp/clockbin:$PATH" FAKE_NODE_RUNNING=1 BITCOIN_STA
 grep -qx 'utxo-chainstate-copy dogecoin' "$tmp/stack.log" || fail "the Dogecoin seed did not copy the chainstate"
 jq -e '.id=="fbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfb"' "$dashboard_state/dogecoin-utxo-seed.request" >/dev/null || fail "the Dogecoin seed request was not written under its prefix"
 jq -e '.requested_at==1300' "$dashboard_state/dogecoin-utxo-seed.request" >/dev/null || fail "the Dogecoin seed request was stamped before the copy, so a slow stop leaves it stale"
+jq -e '.mode=="chainstate"' "$dashboard_state/dogecoin-utxo-seed.request" >/dev/null || fail "the Dogecoin seed request did not name its chainstate mode"
 [ ! -e "$FAKE_NODE_DATA/dogecoin/utxo-seed.dat.incomplete" ] || fail "a seed pipe was made for a chainstate seed"
 rm -f "$dashboard_state/dogecoin-utxo-seed.request"
 request '{"action":"utxo_seed","id":"fcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfc","node":"dogecoin","requested_at":1000}'
@@ -467,6 +470,58 @@ request '{"action":"utxo_seed","id":"c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8","node":"d
 FAKE_COPY_STATUS=1 FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 [ "$(status .state):$(status .error_code)" = rejected:validation_failed ] && [ ! -e "$dashboard_state/dogecoin-utxo-seed.request" ] || { cat "$dashboard_state/node-control.status"; fail "a refused chainstate copy was not reported as refused"; }
 status .message | grep -q 'Nothing was changed' || fail "a refused chainstate copy did not say nothing was changed"
+
+# Bitcoin Cash seeds the same way, so a pruned node can have its index.
+jq '.bitcoincash={"enabled":true,"utxo_index":true}' "$config/config.json" >"$tmp/config.next" && mv "$tmp/config.next" "$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+"$root/scripts/node-control"
+: >"$tmp/stack.log"
+echo 1000 >"$tmp/clock"
+request '{"action":"utxo_seed","id":"b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5","node":"bitcoincash","requested_at":1000}'
+FAKE_CLOCK=$tmp/clock PATH="$tmp/clockbin:$PATH" FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state):$(status .node)" = applied:bitcoincash ] || { cat "$dashboard_state/node-control.status"; fail "the Bitcoin Cash seed was not prepared"; }
+grep -qx 'utxo-chainstate-copy bitcoincash' "$tmp/stack.log" || fail "the Bitcoin Cash seed did not copy the chainstate"
+jq -e '.id=="b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5" and .mode=="chainstate" and .requested_at==1300' "$dashboard_state/bitcoincash-utxo-seed.request" >/dev/null || fail "the Bitcoin Cash seed request was not written with its prefix, mode and post-copy stamp"
+[ ! -e "$FAKE_NODE_DATA/bitcoincash/utxo-seed.dat.incomplete" ] || fail "a seed pipe was made for a Bitcoin Cash chainstate seed"
+rm -f "$dashboard_state/bitcoincash-utxo-seed.request"
+request '{"action":"utxo_seed","id":"b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6","node":"bitcoincash","requested_at":1000}'
+FAKE_COPY_STATUS=3 FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state):$(status .error_code)" = failed:apply_failed ] && [ ! -e "$dashboard_state/bitcoincash-utxo-seed.request" ] || { cat "$dashboard_state/node-control.status"; fail "a Bitcoin Cash copy whose node did not start again still requested a seed"; }
+jq 'del(.bitcoincash)' "$config/config.json" >"$tmp/config.next" && mv "$tmp/config.next" "$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+
+# A seed never starts beside another one or just after the node started, and neither case stops the node.
+cp "$config/config.json" "$tmp/config.busy"
+jq '.dogecoin={"enabled":true,"utxo_index":true} | del(.litecoin)' "$config/config.json" >"$tmp/config.next" && mv "$tmp/config.next" "$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+"$root/scripts/node-control"
+: >"$tmp/stack.log"
+printf '{"seed_state":"seeding"}\n' >"$dashboard_state/litecoin-utxo-seed.json"
+request '{"action":"utxo_seed","id":"d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1","node":"dogecoin","requested_at":1000}'
+FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state):$(status .error_code)" = rejected:busy ] || { cat "$dashboard_state/node-control.status"; fail "a seed started while another index was seeding"; }
+! grep -q 'utxo-chainstate-copy' "$tmp/stack.log" || fail "the node was stopped for a seed that was refused as busy"
+rm -f "$dashboard_state/litecoin-utxo-seed.json"
+request '{"action":"utxo_seed","id":"d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2","node":"dogecoin","requested_at":1000}'
+printf '{}\n' >"$dashboard_state/utxo-seed.request"
+FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .error_code)" = busy ] || fail "a seed started while another seed request was waiting for the dashboard"
+rm -f "$dashboard_state/utxo-seed.request"
+request '{"action":"utxo_seed","id":"d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3","node":"dogecoin","requested_at":1000}'
+FAKE_NODE_STARTED_AT=1970-01-01T00:16:00.123456789Z FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state):$(status .error_code)" = rejected:recently_started ] || { cat "$dashboard_state/node-control.status"; fail "a seed started just after the node started"; }
+! grep -q 'utxo-chainstate-copy' "$tmp/stack.log" || fail "the node was stopped for a seed that was refused as too soon"
+request '{"action":"utxo_seed","id":"d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4","node":"dogecoin","requested_at":1000}'
+FAKE_NODE_STARTED_AT=1970-01-01T00:00:01.000000000Z FAKE_NODE_RUNNING=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state)" = applied ] || { cat "$dashboard_state/node-control.status"; fail "a node that started long ago was refused"; }
+rm -f "$dashboard_state/dogecoin-utxo-seed.request"
+request '{"action":"utxo_index","node":"litecoin","enabled":true,"id":"d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state):$(status .error_code)" = rejected:validation_failed ] || fail "an index for a node that is not enabled was accepted"
+[ "$(status .detail)" = "Balance index setting requires Litecoin to be enabled." ] || fail "the refusal reason was lost: $(status '.detail // ""')"
+jq -e '.install_index_supported == true and .utxo_index_blocked.litecoin == "The balance index requires Litecoin to be enabled." and (.utxo_index_blocked | has("dogecoin") | not)' "$dashboard_state/node-control.capability" >/dev/null || fail "the capability did not publish the refused index options"
+cp "$tmp/config.busy" "$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
 
 # A finished seed's copy is removed, but not while the dashboard may still be reading it.
 doge_copy=$tmp/doge-data/utxo-seed-chainstate
@@ -496,6 +551,19 @@ mv "$tmp/doge-seed.json" "$dashboard_state/dogecoin-utxo-seed.json"
 [ ! -e "$doge_copy" ] || fail "the chainstate copy of a finished seed was kept"
 cp "$tmp/env.keep" "$state/.env"
 rm -f "$dashboard_state/dogecoin-utxo-seed.json"
+
+bch_copy=$tmp/bch-data/utxo-seed-chainstate
+mkdir -p "$bch_copy"
+touch -t 202001010000 "$bch_copy"
+printf 'BITCOINCASH_ENABLED=1\nBITCOINCASH_DATA_DIR=%s\n' "$tmp/bch-data" >>"$state/.env"
+printf '{"seed_state":"seeding"}\n' >"$dashboard_state/bitcoincash-utxo-seed.json"
+"$root/scripts/node-control"
+[ -d "$bch_copy" ] || fail "the Bitcoin Cash chainstate copy was removed while its seed was running"
+printf '{"seed_state":"ok"}\n' >"$dashboard_state/bitcoincash-utxo-seed.json"
+"$root/scripts/node-control"
+[ ! -e "$bch_copy" ] || fail "the Bitcoin Cash chainstate copy of a finished seed was kept"
+cp "$tmp/env.keep" "$state/.env"
+rm -f "$dashboard_state/bitcoincash-utxo-seed.json"
 
 jq '.dogecoin.enabled=false | .dogecoin.utxo_index=false' "$config/config.json" >"$tmp/config.next" && mv "$tmp/config.next" "$config/config.json"
 jq -S . "$config/config.json" >"$state/.approved-config.json"
@@ -547,7 +615,7 @@ approved_before=$(shasum -a 256 "$state/.approved-config.json" "$state/.approved
 rm -f "$FAKE_STACK_FAIL_MARKER"
 request '{"action":"install","id":"78787878787878787878787878787878","node":"dogecoin","requested_at":1000}'
 FAKE_STACK_STDERR="$(printf 'Pulling dogecoin\n\033[31mError response from daemon: manifest unknown\033[0m\n')" FAKE_STACK_FAIL_ONCE=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
-[ "$(jq -r .dogecoin.enabled "$config/config.json")" = false ] || fail "failed install left Dogecoin configured"
+[ "$(jq -r .dogecoin.enabled "$config/config.json")" = false ] || { cat "$config/config.json" "$dashboard_state/node-control.status"; fail "failed install left Dogecoin configured"; }
 [ "$(status .error_code)" = apply_failed ] || fail "failed install lacked typed status"
 [ "$(status .detail)" = 'Error response from daemon: manifest unknown' ] || fail "failed install did not report its last error: $(status .detail)"
 grep -q 'Host: Dogecoin install failed: Error response from daemon: manifest unknown$' "$dashboard_state/events.log" || fail "failed install was not logged as a host event"
@@ -648,6 +716,28 @@ cp "$state/.env" "$state/.approved.env"
 request '{"action":"install","id":"a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2","node":"zcash","requested_at":1000}'
 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 jq -e '.zcash.enabled == true and .zcash.address_index == null' "$config/config.json" >/dev/null || fail "zcash reinstall over a used data dir did not fall back to index off"
+
+index_install() {
+  mkdir -p "$tmp/index-data"
+  jq -n '{bitcoin:{enabled:false},litecoin:{enabled:false},dogecoin:{enabled:false},bitcoincash:{enabled:false},monero:{enabled:false}}' >"$config/config.json"
+  jq -S . "$config/config.json" >"$state/.approved-config.json"
+  cp "$state/.env" "$state/.approved.env"
+  request "$(jq -nc --arg id "$1" --arg node "$2" --arg dir "$(cd "$tmp" && pwd -P)/index-data/$2" --argjson index "$3" '{action:"install",data_dir:$dir,id:$id,interfaces:[],node:$node,requested_at:1000} + if $index == null then {} else {utxo_index:$index} end')"
+  BITCOIN_STACK_PACKAGE_MANAGED=brew NODE_CONTROL_OS=Darwin "$root/scripts/node-control"
+}
+index_install c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1 dogecoin false
+[ "$(status .state)" = applied ] && [ "$(jq -r .dogecoin.utxo_index "$config/config.json")" = false ] || { cat "$dashboard_state/node-control.status"; fail "an install that unticked the balance index still turned it on"; }
+index_install c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2 bitcoincash true
+[ "$(jq -r '[.bitcoincash.utxo_index, (.bitcoincash.prune_mb // "default")] | join(" ")' "$config/config.json")" = "true default" ] || fail "a Bitcoin Cash install with the index did not stay pruned with the index on"
+index_install c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3 litecoin null
+[ "$(jq -r .litecoin.utxo_index "$config/config.json")" = true ] || fail "an install without the option lost the default index"
+index_install c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4 bitcoin true
+[ "$(jq -r .bitcoin.utxo_index "$config/config.json")" = true ] || fail "a Bitcoin install with the index did not turn it on"
+index_install c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5 monero true
+[ "$(status .error_code)" = invalid_request ] || fail "an index option for a chain without an index was accepted"
+request '{"action":"install","data_dir":"/x/y","id":"c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6","interfaces":[],"node":"dogecoin","requested_at":1000,"utxo_index":"yes"}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .error_code)" = invalid_request ] || fail "a non-boolean index option was accepted"
 
 jq -n '{bitcoin:{enabled:false},monero:{enabled:false,node_password:"moneropassword1234567890123456"}}' >"$config/config.json"
 jq -S . "$config/config.json" >"$state/.approved-config.json"
@@ -769,25 +859,35 @@ bch_install() {
 }
 bch_fresh=$resolved_tmp/bch-fresh
 bch_install "{\"enabled\":false,\"data_dir\":\"$bch_fresh\"}" 8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b
-[ "$(jq -c '[.bitcoincash.prune_mb, .bitcoincash.utxo_index]' "$config/config.json")" = '[0,true]' ] || fail "a fresh Bitcoin Cash install did not go archival with its balance index on"
+[ "$(jq -c '[.bitcoincash.prune_mb, .bitcoincash.utxo_index]' "$config/config.json")" = '[null,true]' ] || fail "a fresh Bitcoin Cash install did not default to a pruned node with its balance index on"
 bch_pruned=$resolved_tmp/bch-pruned
 mkdir -p "$bch_pruned/blocks/index"
 bch_install "{\"enabled\":false,\"data_dir\":\"$bch_pruned\"}" 8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c
-[ "$(jq -c '.bitcoincash | [has("prune_mb"), has("utxo_index")]' "$config/config.json")" = '[false,false]' ] || fail "a Bitcoin Cash install over a pruned chain kept the archival defaults"
+[ "$(jq -c '.bitcoincash | [has("prune_mb"), has("utxo_index")]' "$config/config.json")" = '[false,true]' ] || fail "a Bitcoin Cash install over a pruned chain was not pruned with its index on"
 bch_install "{\"enabled\":false,\"prune_mb\":10000,\"data_dir\":\"$bch_fresh\"}" 8d8d8d8d8d8d8d8d8d8d8d8d8d8d8d8d
-[ "$(jq -c '[.bitcoincash.prune_mb, .bitcoincash.utxo_index]' "$config/config.json")" = '[10000,null]' ] || fail "a Bitcoin Cash install overrode an explicit prune_mb"
-jq -e '.utxo_index_bitcoincash == false' "$dashboard_state/node-control.capability" >/dev/null || fail "Bitcoin Cash index capability was not published off"
+[ "$(jq -c '[.bitcoincash.prune_mb, .bitcoincash.utxo_index]' "$config/config.json")" = '[10000,true]' ] || fail "a Bitcoin Cash install overrode an explicit prune_mb"
+jq -e '.utxo_index_bitcoincash == true' "$dashboard_state/node-control.capability" >/dev/null || fail "Bitcoin Cash index capability was not published on after a pruned install"
+jq '.bitcoincash.utxo_index=false' "$config/config.json" >"$tmp/config.next" && mv "$tmp/config.next" "$config/config.json"
 jq -S . "$config/config.json" >"$state/.approved-config.json"
+"$root/scripts/node-control"
+jq -e '.utxo_index_bitcoincash == false' "$dashboard_state/node-control.capability" >/dev/null || fail "Bitcoin Cash index capability was not published off"
 request '{"action":"utxo_index","enabled":true,"id":"8e8e8e8e8e8e8e8e8e8e8e8e8e8e8e8e","node":"bitcoincash","requested_at":1000}'
 "$root/scripts/node-control"
-[ "$(status .state):$(status .error_code)" = rejected:validation_failed ] || fail "the Bitcoin Cash index was turned on for a pruned node: $(status .message)"
-status .message | grep -q 'archival node' || fail "the pruned refusal did not name the archival requirement: $(status .message)"
+[ "$(status .state)" = applied ] || fail "the Bitcoin Cash index was refused for a pruned node: $(status .message)"
+[ "$(jq -r .bitcoincash.utxo_index "$config/config.json")" = true ] || fail "the Bitcoin Cash index was not turned on for a pruned node"
+jq -e '.utxo_index_bitcoincash' "$dashboard_state/node-control.capability" >/dev/null || fail "Bitcoin Cash index capability was stale after turning it on"
 jq '.bitcoincash.prune_mb=0' "$config/config.json" >"$tmp/config.next" && mv "$tmp/config.next" "$config/config.json"
 jq -S . "$config/config.json" >"$state/.approved-config.json"
-request '{"action":"utxo_index","enabled":true,"id":"8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f","node":"bitcoincash","requested_at":1000}'
+request '{"action":"utxo_index","enabled":false,"id":"8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f","node":"bitcoincash","requested_at":1000}'
 "$root/scripts/node-control"
-[ "$(status .state)" = applied ] && [ "$(jq -r .bitcoincash.utxo_index "$config/config.json")" = true ] || fail "the Bitcoin Cash index was not turned on for an archival node: $(status .message)"
-jq -e '.utxo_index_bitcoincash' "$dashboard_state/node-control.capability" >/dev/null || fail "Bitcoin Cash index capability was stale after turning it on"
+request '{"action":"utxo_index","enabled":true,"id":"9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a","node":"bitcoincash","requested_at":1000}'
+"$root/scripts/node-control"
+[ "$(status .state)" = applied ] && [ "$(jq -r .bitcoincash.utxo_index "$config/config.json")" = true ] || fail "the Bitcoin Cash index was not turned on again for an archival node: $(status .message)"
+jq '.bitcoincash.enabled=false | .bitcoincash.utxo_index=false' "$config/config.json" >"$tmp/config.next" && mv "$tmp/config.next" "$config/config.json"
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+request '{"action":"utxo_index","enabled":true,"id":"9b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9b","node":"bitcoincash","requested_at":1000}'
+"$root/scripts/node-control"
+[ "$(status .state):$(status .error_code)" = rejected:validation_failed ] || fail "the Bitcoin Cash index was turned on for a node that is not enabled: $(status .message)"
 # --- delete ---
 export BITCOIN_STACK_PROJECT_NAME=ds
 run_nc() { BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"; }

@@ -673,6 +673,14 @@ body:not([data-computer-stats="1"]) .host-stats { display: none; }
   transition: width 1s;
 }
 
+.index-bar .row { margin: 0; }
+.index-bar .progress-bg { margin: 6px 0 15px; }
+.index-bar-ok .progress-fill { background: #2e9e5b; }
+.index-bar-warn .progress-fill { background: #d98a00; }
+.index-bar-indeterminate .progress-fill { width: 40% !important; animation: index-bar-slide 1.6s ease-in-out infinite alternate; }
+@keyframes index-bar-slide { from { margin-left: 0; } to { margin-left: 60%; } }
+@media (prefers-reduced-motion: reduce) { .index-bar-indeterminate .progress-fill { animation: none; margin-left: 30%; } }
+
 hr {
   border: 0;
   border-top: 1px solid var(--border);

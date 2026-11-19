@@ -505,7 +505,10 @@ func TestHostControlStatusShowsTheLastErrorOfAFailedInstall(t *testing.T) {
 	if view.Status.Message != "The host could not apply that change." {
 		t.Fatalf("message = %q", view.Status.Message)
 	}
-	if view = write("rejected", "should not show"); view.Status.Detail != "" {
-		t.Fatalf("rejected status kept a detail: %q", view.Status.Detail)
+	if view = write("rejected", "Bitcoin Cash balance index requires Bitcoin Cash to be enabled.\x1b[0m\n"+strings.Repeat("y", 300)); !strings.HasPrefix(view.Status.Detail, "Bitcoin Cash balance index requires Bitcoin Cash to be enabled.[0m") || len([]rune(view.Status.Detail)) != 240 || strings.ContainsAny(view.Status.Detail, "\x1b\n") {
+		t.Fatalf("rejected detail = %q", view.Status.Detail)
+	}
+	if view.Status.Message != "The host could not apply that change." {
+		t.Fatalf("rejected message = %q", view.Status.Message)
 	}
 }

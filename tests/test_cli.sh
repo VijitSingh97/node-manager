@@ -533,18 +533,18 @@ case "$args" in
   *' ps -aq '*'service=bitcoin'* | *' ps -aq '*'service=litecoin'* | *' ps -aq '*'service=bitcoincash'* | *' ps -aq '*'service=dogecoin'*) [ "${FAKE_BITCOIN_DOWN:-0}" = 1 ] || echo node-id ;;
   *' ps -aq '*'service=dashboard'*) echo dashboard-id ;;
   *' inspect --format {{.State.Running}} '*) if [ -f "$FAKE_UTXO/stopped" ]; then echo false; else echo true; fi ;;
-  *' compose '*' stop dogecoin '*)
+  *' compose '*' stop dogecoin '* | *' compose '*' stop bitcoincash '*)
     : >"$FAKE_UTXO/stopped"
     if [ "${FAKE_DOGE_SWAP:-0}" = 1 ]; then
       mv "$FAKE_DOGE_DATA/chainstate" "$FAKE_DOGE_DATA/chainstate.real"
       ln -s "$FAKE_DOGE_DATA/chainstate.real" "$FAKE_DOGE_DATA/chainstate"
     fi
     ;;
-  *' compose '*' start dogecoin '*)
+  *' compose '*' start dogecoin '* | *' compose '*' start bitcoincash '*)
     [ "${FAKE_DOGE_START_FAIL:-0}" != 1 ] || exit 1
     rm -f "$FAKE_UTXO/stopped"
     ;;
-  *' exec -T dogecoin dogecoin-cli -datadir=/data -conf=/tmp/dogecoin.conf getblockchaininfo '*)
+  *' exec -T dogecoin dogecoin-cli -datadir=/data -conf=/tmp/dogecoin.conf getblockchaininfo '* | *' exec -T bitcoincash bitcoin-cli -datadir=/data -conf=/tmp/bitcoin.conf getblockchaininfo '*)
     [ "${FAKE_RPC_FAIL:-0}" != 1 ] || exit 1
     echo "{\"initialblockdownload\":${FAKE_DOGE_IBD:-false}}"
     ;;
@@ -1012,29 +1012,63 @@ saved=$(sed -n 's/^Saved \(.*\) (mode 600)\.$/\1/p' "$tmp/lbench.out")
 case "$saved" in "$ltc_dir"/litecoin-utxo-bench-*.json) ;; *) fail "utxo-index bench --chain litecoin saved $saved" ;; esac
 
 bch_dir=$tmp/bch-utxo
-mkdir -p "$bch_dir"
+bch_data=$tmp/bch-data
+mkdir -p "$bch_dir" "$bch_data/chainstate"
+for file in 000005.ldb 000006.log CURRENT MANIFEST-000004 LOCK LOG; do printf '%s' "$file" >"$bch_data/chainstate/$file"; done
 cp stack configure.sh "$bch_dir/"
 printf '1.2.3\n' >"$bch_dir/VERSION"
-echo '{"bitcoin": {"enabled": true}, "bitcoincash": {"enabled": true, "prune_mb": 0, "utxo_index": true}, "dashboard": {"password": "utxoseedtest12"}}' >"$bch_dir/config.json"
+printf '{"bitcoin": {"enabled": true}, "bitcoincash": {"enabled": true, "utxo_index": true, "data_dir": "%s"}, "dashboard": {"password": "utxoseedtest12"}}\n' "$bch_data" >"$bch_dir/config.json"
 (cd "$bch_dir" && HOME="$tmp" PATH="$stub:$PATH" ./stack init >/dev/null 2>&1) || fail "bitcoin cash utxo test setup init failed"
 grep -q '^COMPOSE_FILE=.*docker-compose.bitcoincash-utxo-index.yml' "$bch_dir/.env" || fail "bitcoincash.utxo_index did not render its overlay"
-bseed() { (cd "$bch_dir" && HOME="$tmp" BITCOIN_STACK_UTXO_SEED_POLL_SECONDS=1 BITCOIN_STACK_UTXO_SEED_ACK_SECONDS=2 PATH="$utxo_stub:$stub:$PATH" ./stack "$@"); }
+grep -qx 'BITCOINCASH_PRUNE=10000' "$bch_dir/.env" || fail "the Bitcoin Cash test node was not pruned"
+bseed() { (cd "$bch_dir" && HOME="$tmp" FAKE_DOGE_DATA="$bch_data" BITCOIN_STACK_UTXO_SEED_POLL_SECONDS=1 BITCOIN_STACK_UTXO_SEED_ACK_SECONDS=2 PATH="$utxo_stub:$stub:$PATH" ./stack "$@"); }
 reset_useed
 bseed utxo-seed bitcoincash -y </dev/null >"$tmp/bseed.out" 2>&1 || {
   cat "$tmp/bseed.out"
   fail "utxo-seed bitcoincash failed on the happy path"
 }
-grep -q 'Replaying the Bitcoin Cash balance index from genesis' "$tmp/bseed.out" || fail "utxo-seed bitcoincash did not print the replay warning"
-grep -q 'Needs an archival node (bitcoincash.prune_mb 0)' "$tmp/bseed.out" || fail "utxo-seed bitcoincash did not state the archival requirement"
+grep -q "from the node's chainstate" "$tmp/bseed.out" || fail "utxo-seed bitcoincash did not say it seeds from the chainstate"
+grep -q 'works on a pruned node' "$tmp/bseed.out" || fail "utxo-seed bitcoincash did not say it works on a pruned node"
 grep -q 'Seed finished' "$tmp/bseed.out" || fail "utxo-seed bitcoincash did not report success"
-grep -q ' exec -T bitcoincash bitcoin-cli -datadir=/data -conf=/tmp/bitcoin.conf getrpcinfo' "$FAKE_LOG" || fail "utxo-seed bitcoincash did not check the node's RPC with its config"
-grep -q 'mkfifo\|utxo-seed.dat' "$FAKE_LOG" && fail "utxo-seed bitcoincash made or removed a seed pipe for a replay"
-grep -q 'cat > /state/.bitcoincash-utxo-seed.request.tmp' "$FAKE_LOG" || fail "utxo-seed bitcoincash did not write its prefixed request"
+grep -q ' exec -T bitcoincash bitcoin-cli -datadir=/data -conf=/tmp/bitcoin.conf getblockchaininfo' "$FAKE_LOG" || fail "utxo-seed bitcoincash did not check the node first with its config"
+grep -q 'getrpcinfo' "$FAKE_LOG" && fail "utxo-seed bitcoincash asked for getrpcinfo before copying its chainstate"
+stop_line=$(grep -n ' stop bitcoincash$' "$FAKE_LOG" | head -n 1 | cut -d: -f1 || true)
+start_line=$(grep -n ' start bitcoincash$' "$FAKE_LOG" | head -n 1 | cut -d: -f1 || true)
+request_line=$(grep -n 'bitcoincash-utxo-seed.request.tmp' "$FAKE_LOG" | head -n 1 | cut -d: -f1 || true)
+[ -n "$stop_line" ] && [ -n "$start_line" ] && [ -n "$request_line" ] && [ "$stop_line" -lt "$start_line" ] && [ "$start_line" -lt "$request_line" ] ||
+  fail "utxo-seed bitcoincash did not stop the node, copy, start it again and then request the seed"
+jq -e '.mode=="chainstate"' "$FAKE_UTXO/request.json" >/dev/null || fail "utxo-seed bitcoincash did not name the chainstate mode in its request"
+[ "$(awk '$2 == "000005.ldb" {print $1}' "$FAKE_UTXO/copy.ls")" = "$(awk '$2 == "000005.sst" {print $1}' "$FAKE_UTXO/copy.ls")" ] || fail "the Bitcoin Cash LevelDB table was not hardlinked into the copy as .sst"
+[ ! -e "$bch_data/utxo-seed-chainstate" ] || fail "the Bitcoin Cash chainstate copy was left behind after the seed"
+grep -q 'mkfifo\|utxo-seed.dat' "$FAKE_LOG" && fail "utxo-seed bitcoincash made or removed a seed pipe for a chainstate seed"
 reset_useed
-FAKE_SEED_SCENARIO=failed bseed utxo-seed bitcoincash -y </dev/null >"$tmp/bseed.out" 2>&1 && fail "a failed replay reported success"
+bseed utxo-seed bitcoincash --replay -y </dev/null >"$tmp/bseed.out" 2>&1 || {
+  cat "$tmp/bseed.out"
+  fail "utxo-seed bitcoincash --replay failed on the happy path"
+}
+grep -q 'Replaying the Bitcoin Cash balance index from genesis' "$tmp/bseed.out" || fail "utxo-seed bitcoincash --replay did not print the replay warning"
+grep -q 'Needs an archival node (bitcoincash.prune_mb 0)' "$tmp/bseed.out" || fail "utxo-seed bitcoincash --replay did not state the archival requirement"
+grep -q 'Seed finished' "$tmp/bseed.out" || fail "utxo-seed bitcoincash --replay did not report success"
+grep -q ' exec -T bitcoincash bitcoin-cli -datadir=/data -conf=/tmp/bitcoin.conf getrpcinfo' "$FAKE_LOG" || fail "utxo-seed bitcoincash --replay did not check the node's RPC with its config"
+grep -q ' stop bitcoincash$' "$FAKE_LOG" && fail "utxo-seed bitcoincash --replay stopped the node"
+grep -q 'mkfifo\|utxo-seed.dat' "$FAKE_LOG" && fail "utxo-seed bitcoincash --replay made or removed a seed pipe for a replay"
+jq -e '.mode=="replay"' "$FAKE_UTXO/request.json" >/dev/null || fail "utxo-seed bitcoincash --replay did not name the replay mode in its request"
+reset_useed
+FAKE_SEED_SCENARIO=failed bseed utxo-seed bitcoincash --replay -y </dev/null >"$tmp/bseed.out" 2>&1 && fail "a failed replay reported success"
 grep -q 'keeps the blocks it applied' "$tmp/bseed.out" || fail "a failed replay did not say it keeps its blocks"
+reset_useed
+FAKE_SEED_SCENARIO=failed bseed utxo-seed bitcoincash -y </dev/null >"$tmp/bseed.out" 2>&1 && fail "a failed chainstate seed reported success"
+grep -q 'The partial index was discarded' "$tmp/bseed.out" || fail "a failed chainstate seed did not say it discards its partial index"
+bseed utxo-seed dogecoin --replay -y </dev/null >"$tmp/bseed.out" 2>&1 && fail "utxo-seed accepted --replay for a chain that cannot replay"
+grep -q 'Usage' "$tmp/bseed.out" || fail "utxo-seed --replay for a chain that cannot replay did not print its usage"
+bseed utxo-seed bitcoincash --bogus </dev/null >"$tmp/bseed.out" 2>&1 && fail "utxo-seed accepted an unknown option"
+grep -q 'Usage' "$tmp/bseed.out" || fail "utxo-seed did not print its usage for an unknown option"
 bseed utxo-seed bitcoincash cancel >"$tmp/bcancel.out" 2>&1 || fail "utxo-seed bitcoincash cancel failed"
-grep -q 'keeps the blocks it has applied' "$tmp/bcancel.out" || fail "the replay cancel did not say it keeps its blocks"
+grep -q 'a replay keeps the blocks it has applied' "$tmp/bcancel.out" || fail "the Bitcoin Cash cancel did not say a replay keeps its blocks"
+bseed_status=0
+bseed utxo-chainstate-copy bitcoincash </dev/null >"$tmp/bseed.out" 2>&1 || bseed_status=$?
+[ "$bseed_status" = 0 ] || { cat "$tmp/bseed.out"; fail "the host helper's copy of the Bitcoin Cash chainstate exited $bseed_status"; }
+rm -rf "$bch_data/utxo-seed-chainstate"
 bseed utxo-index remove bitcoincash -y >"$tmp/bremove.out" 2>&1 && fail "utxo-index remove bitcoincash ran while the index was on"
 grep -q 'bitcoincash.utxo_index is still on' "$tmp/bremove.out" || fail "utxo-index remove bitcoincash did not name its setting"
 
