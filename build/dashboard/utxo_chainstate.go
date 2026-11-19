@@ -224,11 +224,8 @@ func (u *utxoReader) outputCoin(txid [32]byte, vout uint32, fn func(utxoRecord) 
 		return errors.New("trailing bytes after the script")
 	}
 	if len(rec.ScriptPubKey) > 0 && rec.ScriptPubKey[0] == cashTokenPrefix {
-		script := unwrapCashTokenScript(rec.ScriptPubKey)
-		if len(script) == len(rec.ScriptPubKey) || len(script) == 0 {
-			return errors.New("unreadable token prefix")
-		}
-		rec.ScriptPubKey = script
+		// Like the block follower, a prefix that is not valid token data stays part of the script, as for outputs made before tokens existed.
+		rec.ScriptPubKey = unwrapCashTokenScript(rec.ScriptPubKey)
 	}
 	return fn(rec)
 }

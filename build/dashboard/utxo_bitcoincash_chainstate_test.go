@@ -235,22 +235,33 @@ func TestBitcoinCashChainstateDecodesRows(t *testing.T) {
 
 func TestBitcoinCashChainstateRefusesCorruptRows(t *testing.T) {
 	p2pkh := append(append([]byte{0x76, 0xa9, 20}, bytes.Repeat([]byte{0x33}, 20)...), 0x88, 0xac)
-	category := bytes.Repeat([]byte{0x99}, 32)
 	good := bchRow(10, 5, p2pkh)
 	for name, row := range map[string][]byte{
-		"empty row":                    {},
-		"height only":                  {10},
-		"no script":                    {10, 5},
-		"short script":                 good[:len(good)-1],
-		"trailing byte":                append(append([]byte{}, good...), 0),
-		"height above 32 bits":         bchRow(1<<40, 5, p2pkh),
-		"token prefix without a field": bchRow(10, 5, []byte{cashTokenPrefix, 1, 2}),
-		"reserved token bit":           bchRow(10, 5, bchTokenScript(category, 0x80|0x10, []byte{5}, p2pkh)),
-		"token with no script":         bchRow(10, 5, bchTokenScript(category, 0x10, []byte{5})),
-		"token amount of zero":         bchRow(10, 5, bchTokenScript(category, 0x10, []byte{0}, p2pkh)),
+		"empty row":            {},
+		"height only":          {10},
+		"no script":            {10, 5},
+		"short script":         good[:len(good)-1],
+		"trailing byte":        append(append([]byte{}, good...), 0),
+		"height above 32 bits": bchRow(1<<40, 5, p2pkh),
 	} {
 		if _, _, err := parseBCH(t, map[string][]byte{bchKey(0): row}); err == nil {
 			t.Errorf("%s: a corrupt row parsed", name)
+		}
+	}
+}
+
+func TestBitcoinCashChainstateKeepsScriptsWithoutValidTokenData(t *testing.T) {
+	p2pkh := append(append([]byte{0x76, 0xa9, 20}, bytes.Repeat([]byte{0x33}, 20)...), 0x88, 0xac)
+	category := bytes.Repeat([]byte{0x99}, 32)
+	for name, tc := range map[string]struct{ script, want []byte }{
+		"prefix without a field": {[]byte{cashTokenPrefix, 1, 2}, []byte{cashTokenPrefix, 1, 2}},
+		"reserved token bit":     {bchTokenScript(category, 0x80|0x10, []byte{5}, p2pkh), bchTokenScript(category, 0x80|0x10, []byte{5}, p2pkh)},
+		"token amount of zero":   {bchTokenScript(category, 0x10, []byte{0}, p2pkh), bchTokenScript(category, 0x10, []byte{0}, p2pkh)},
+		"token with no script":   {bchTokenScript(category, 0x10, []byte{5}), []byte{}},
+	} {
+		coins, _, err := parseBCH(t, map[string][]byte{bchKey(0): bchRow(10, 5, tc.script)})
+		if err != nil || len(coins) != 1 || !bytes.Equal(coins[0].ScriptPubKey, tc.want) {
+			t.Errorf("%s: %v %+v", name, err, coins)
 		}
 	}
 }
