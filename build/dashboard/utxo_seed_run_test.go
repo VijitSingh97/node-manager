@@ -410,6 +410,34 @@ func TestSeedFIFOReaderEOFAndKeeper(t *testing.T) {
 	}
 }
 
+func TestSeedFIFOStaysIntactWhenCoreRenamesTheFinishedDump(t *testing.T) {
+	dir := seedTestFIFODir(t)
+	f, err := openSeedFIFO(dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	inc, done := filepath.Join(dir, seedIncompleteName), filepath.Join(dir, seedDumpName)
+	if !f.intact() {
+		t.Fatal("a fresh pipe is not intact")
+	}
+	if err := os.Rename(inc, done); err != nil {
+		t.Fatal(err)
+	}
+	if !f.intact() {
+		t.Fatal("the pipe under its final dump name was treated as replaced")
+	}
+	if err := os.Remove(done); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(inc, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if f.intact() {
+		t.Fatal("a regular file in place of the pipe was accepted")
+	}
+}
+
 func TestSeedFIFOReaderClosesEarly(t *testing.T) {
 	dir := seedTestFIFODir(t)
 	f, err := openSeedFIFO(dir, nil)
