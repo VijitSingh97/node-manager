@@ -118,7 +118,7 @@
         <h2>Bitcoin Node Status<span class="badge">{{if .Pruned}}Pruned{{else}}Full{{end}}</span></h2>
         <div class="row"><span class="label">Version:</span> <span>{{.CoreVersion}}</span></div>
         <div class="row"><span class="label">Uptime:</span> <span>{{.Uptime}}</span></div>
-        <div class="row"><span class="label">Connections:</span> <span>{{.Inbound}} in · {{.Outbound}} out</span></div>
+        <div class="row"><span class="label">Connections:</span> <span>{{if .PeersUnknown}}—{{else}}{{.Inbound}} in · {{.Outbound}} out{{end}}</span></div>
         <hr>
         <div class="row"><span class="label">Blocks:</span> <span>{{.Blocks}} / {{.Headers}}</span></div>
         <div class="progress-bg"><div class="progress-fill" style="width: {{printf "%.4f" .Progress}}%"></div></div>
@@ -138,7 +138,6 @@
           </div>
         </section>
         <hr>
-        <div class="row"><span class="label">Open ports:</span> <span></span></div>
         <div class="row"><span class="label">RPC:</span> <span>{{if .BitcoinRPCEndpoint}}{{.BitcoinRPCEndpoint}} · LAN{{else}}Disabled{{end}}</span></div>
         <p class="node-state">Configured LAN access. Use your Bitcoin RPC login.</p>
         <div class="footer"><span>Updated: {{.LastUpdate}}</span><span>{{.Version}}</span><span>Auto-refresh: 30s</span></div>
@@ -185,7 +184,6 @@
           </div>
         </section>
         <hr>
-        <div class="row"><span class="label">Open ports:</span> <span></span></div>
         <div class="row"><span class="label">RPC:</span> <span id="monero-rpc-exposure">Disabled</span></div>
         <div class="row"><span class="label">ZMQ:</span> <span id="monero-zmq-exposure">Disabled</span></div>
         <p class="node-state">Configured LAN access. RPC is restricted and requires your Monero login. ZMQ is for a trusted LAN.</p>

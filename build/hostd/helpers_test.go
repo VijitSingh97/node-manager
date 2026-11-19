@@ -73,6 +73,10 @@ func staticDocker(t *testing.T, info DockerInfo, containers []Container) string 
 		case "/containers/json":
 			json.NewEncoder(w).Encode(containers)
 		default:
+			if strings.HasPrefix(r.URL.Path, "/containers/") && strings.HasSuffix(r.URL.Path, "/json") {
+				w.Write([]byte(`{"State":{"StartedAt":"2026-01-01T00:00:00.5Z"}}`))
+				return
+			}
 			http.NotFound(w, r)
 		}
 	}))

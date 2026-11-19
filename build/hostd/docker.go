@@ -60,6 +60,20 @@ func (d *Docker) Info() (DockerInfo, error) {
 	return info, err
 }
 
+func (d *Docker) StartedAt(id string) (int64, error) {
+	var v struct {
+		State struct{ StartedAt string }
+	}
+	if err := d.get("/containers/"+url.PathEscape(id)+"/json", &v); err != nil {
+		return 0, err
+	}
+	started, err := time.Parse(time.RFC3339Nano, v.State.StartedAt)
+	if err != nil || started.Unix() <= 0 {
+		return 0, fmt.Errorf("docker container %s: unusable start time", id)
+	}
+	return started.Unix(), nil
+}
+
 func (d *Docker) Containers(project string) ([]Container, error) {
 	filters, _ := json.Marshal(map[string][]string{"label": {"com.docker.compose.project=" + project}})
 	var list []Container

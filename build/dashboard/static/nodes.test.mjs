@@ -162,3 +162,13 @@ test("generic node view has no end-of-support warning", () => {
   const view = genericNodeView({ enabled: true, available: true, height: 100, sync_percent: 100, end_of_support_warning: true }, "Zcash");
   assert.equal("warning" in view, false);
 });
+
+test("generic node cards show host-derived size and uptime and a dash when neither exists", () => {
+  const base = { enabled: true, available: true, height: 5, target_height: 5, sync_percent: 100 };
+  const filled = genericNodeView({ ...base, database_size_bytes: 3 * 1024 ** 3, database_size_available: true, uptime_seconds: 7260, uptime_available: true }, "Tari");
+  assert.equal(filled.size, "3.00 GiB");
+  assert.equal(filled.uptime, "2h 1m");
+  const empty = genericNodeView(base, "Tari");
+  assert.equal(empty.size, "—");
+  assert.equal(empty.uptime, "—");
+});
