@@ -117,7 +117,7 @@ func TestChainstateCopyReadsADogecoinRegtestChainstate(t *testing.T) {
 		t.Fatalf("best block %x, obfuscation key %x", c.Best, c.xor)
 	}
 	rows := 0
-	if err := c.rows(func([32]byte, []byte) error { rows++; return nil }); err != nil || rows != 205 {
+	if err := c.rows(func([32]byte, uint32, []byte) error { rows++; return nil }); err != nil || rows != 205 {
 		t.Fatalf("%d coins rows, %v", rows, err)
 	}
 	var coins, total uint64

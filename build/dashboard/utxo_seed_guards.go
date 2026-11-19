@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -35,6 +36,7 @@ type seedGuardInput struct {
 	Chainstate bool
 	// ChainstateBytes is the node's live chainstate on disk, which a chainstate seed's sort runs and tables scale with.
 	ChainstateBytes uint64
+	ChainstateErr   error
 	State           string
 	TempC           float64
 	TempErr         error
@@ -77,7 +79,7 @@ func evaluateSeedGuards(in seedGuardInput) []seedRefusal {
 		stateGuard(in.State, in.Replay),
 		thermalStartGuard(in.TempC, in.TempErr),
 		cpuGuard(in.CPUs, in.CPUErr),
-		freeSpaceGuard(in.FreeBytes, need, in.FreeErr),
+		freeSpaceGuard(in.FreeBytes, need, cmp.Or(in.FreeErr, chainstateErr(in))),
 		nodeGuard(in.Chain, in.TipTime, in.Now, in.ChainErr),
 	}
 	switch {
@@ -92,6 +94,13 @@ func evaluateSeedGuards(in seedGuardInput) []seedRefusal {
 		}
 	}
 	return out
+}
+
+func chainstateErr(in seedGuardInput) error {
+	if in.Chainstate {
+		return in.ChainstateErr
+	}
+	return nil
 }
 
 func stateGuard(state string, replay bool) *seedRefusal {
@@ -280,7 +289,10 @@ func (m *utxoManager) gatherSeedGuards(ctx context.Context) seedGuardInput {
 	if m.chain.Chainstate && m.host != nil {
 		// Without the chainstate's size the space a seed needs is unknown, so it counts as unreadable free space.
 		if bytes, err := dirBytes(filepath.Join(m.host.dataDir, "chainstate")); err != nil {
-			in.FreeErr = err
+			in.ChainstateErr = err
+			if !m.chain.Replay {
+				in.FreeErr = err
+			}
 		} else {
 			in.ChainstateBytes = bytes
 		}

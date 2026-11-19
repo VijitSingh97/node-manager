@@ -192,7 +192,7 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 			dumpRPC := *rpc
 			dumpRPC.client, dumpRPC.maxBody = newInternalHTTPClient(0), 1<<20
 			a.utxo.configureSeed(utxoSeedHost{stateDir: cfg.stateDir, dataDir: cfg.dataDir, dump: &dumpRPC, hold: a.scanner.hold, release: a.scanner.release, lock: &a.utxoSeedLock,
-				autoSeed: func() (string, string) { return a.queueSeedHostAction(nodeBitcoin) }})
+				autoSeed: func() (string, string) { return a.queueSeedHostAction(nodeBitcoin) }, autoResult: a.seedHostResult, otherSeedActive: a.anySeedActive})
 			a.utxo.configureBench(a.benchHost())
 		}
 	}

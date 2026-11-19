@@ -6,6 +6,78 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- Bitcoin Cash's balance index (`bitcoincash.utxo_index`) works on a pruned node.
+  Bitcoin Cash Node 29.2.0 has no coin-set export, so a seed now works like
+  Dogecoin's: the node stops briefly while its chainstate is copied, then the
+  dashboard builds the index from the copy and follows raw blocks from there. The
+  reader was checked against a real Bitcoin Cash Node regtest chainstate (every
+  script type, CashTokens outputs unwrapped to their script, coinbase, spent and
+  unspendable outputs, multi-byte output indexes); the fixture is rebuilt by
+  `tools/regenerate-bitcoincash-chainstate-fixture.py`. The copy marks Bitcoin
+  Cash as restarting, so it raises no node-down alert, and it is refused if the
+  node was flushing when it was taken. Seed time and index size on mainnet are not
+  measured yet.
+- `./stack utxo-seed bitcoincash --replay` replays every block of an archival
+  node, the previous behaviour, which is still what an install with no host
+  helper uses automatically.
+- The install dialog offers "Instant balances (balance index)" next to the data
+  folder for Bitcoin, Litecoin, Dogecoin and Bitcoin Cash, ticked by default. The
+  install request carries an optional `utxo_index` boolean; the host helper accepts
+  both request shapes, and the dashboard sends the option only when the helper
+  reports `install_index_supported`.
+- Every node card shows a progress bar for its balance index (waiting for the node
+  to sync, building with a percentage, catching up, ready, seeding failed), hidden
+  when the index is off. `/api/utxo-index` gains `node_synced`, `waiting_for`,
+  `needs_host` and `seed_stopped`.
+- Settings shows the host's real rejection message (for example which node an index
+  option needs) instead of only "The requested host change did not pass
+  validation", and the host helper reports it as the status `detail`.
+- The host helper refuses a seed with `busy` while another index is seeding or a
+  chainstate copy is in progress, and with `recently_started` within 10 minutes of
+  the node starting; neither stops the node, and neither counts as a failed seed.
+
+### Changed
+
+- The Seed now buttons and the explanatory paragraphs under Settings → Balance index
+  are gone. An index seeds itself as soon as it is on and the node has synced, on
+  every chain, without asking: never while the node syncs, within 10 minutes of its
+  start, or beside another seed; those waits re-check every 30 seconds. A seed whose
+  host preparation fails (a chainstate copy exit 2 or 3) now counts towards the
+  three-failure stop, so a Dogecoin or Bitcoin Cash node is not stopped every hour
+  indefinitely, and an index that turns invalid is reseeded (not within a day of a
+  good seed). After the third failure the bar reads "seeding failed" with the
+  reason, and turning the index off and on clears the count.
+- A failed or rejected host change in Settings no longer drops the changes queued
+  after it. Changes are matched to the host's result by action, node and request id,
+  independent changes still go out (only later changes to the same node are skipped),
+  and the final line names each failure with its real message and what was skipped.
+- Settings greys out a balance index switch the host would refuse and shows the
+  host's reason as its tooltip (`install_index_supported` and `utxo_index_blocked`
+  in the capability file; the dashboard also refuses such a request itself).
+- `node-control` accepts the install request with or without `utxo_index`, so a new
+  dashboard and an old helper (or the reverse) still install: the dashboard omits the
+  option when the helper does not report support for it.
+- Upgrade: existing installs keep their current index setting. Nothing is turned on,
+  seeded or restarted by the upgrade, an index that is off stays off (turn it on in
+  Settings and it seeds itself), and a seed that already failed three times keeps
+  its stop until you turn the index off and on. A host that never set an index key
+  still defaults to off; the default-on applies to nodes installed through the
+  dialog, which writes the key you choose.
+- Dashboard memory is unchanged: 1g for any mix of Bitcoin, Litecoin and Dogecoin
+  indexes and 2g with `GOMEMLIMIT` 1600MiB once Bitcoin Cash is on. Memory with all
+  four indexes and one seeding has not been measured; see `docs/hardware.md`.
+
+- A Bitcoin Cash install from the dashboard is now pruned by default (10,000 MiB
+  of block files) with its balance index on, instead of archival. The install
+  disk estimate reads "Not measured" until a pruned sync is measured.
+  `configure.sh` and the host helper no longer refuse the index on a pruned
+  Bitcoin Cash node. Existing installs keep their settings; nothing seeds or
+  restarts on upgrade.
+- A seed request may name its `mode` (`chainstate` or `replay`); a request with
+  no mode behaves as before.
+
 ### Fixed
 
 - Node cards no longer show a dash for Node Data Size and Uptime when the node

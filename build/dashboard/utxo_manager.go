@@ -67,6 +67,7 @@ type utxoSeedState struct {
 
 	AutoRequestID string `json:"auto_request_id,omitempty"`
 	AutoFailures  int    `json:"auto_failures,omitempty"`
+	Mode          string `json:"mode,omitempty"`
 }
 
 type utxoSeedJob struct {
@@ -105,18 +106,22 @@ type utxoManager struct {
 	guards     func(context.Context) seedGuardInput
 	checkEvery time.Duration
 
-	mu           sync.Mutex
-	state        string
-	reason       string
-	nodeTip      int64
-	indexTip     *uint32
-	seeding      bool
-	autoSeedAt   time.Time
-	seedProgress *float64
-	seedLogged   int
-	phase        string
-	refusals     []seedRefusal
-	seed         utxoSeedState
+	mu            sync.Mutex
+	state         string
+	reason        string
+	nodeTip       int64
+	indexTip      *uint32
+	seeding       bool
+	autoSeedAt    time.Time
+	waiting       string
+	checked       bool
+	hostPendingID string
+	hostPendingAt time.Time
+	seedProgress  *float64
+	seedLogged    int
+	phase         string
+	refusals      []seedRefusal
+	seed          utxoSeedState
 }
 
 type utxoIndexStatus struct {
@@ -134,7 +139,10 @@ type utxoIndexStatus struct {
 	LastSeed              *utxoSeedResult `json:"last_seed"`
 	AlertsSuppressedUntil *time.Time      `json:"alerts_suppressed_until"`
 	NodePruned            *bool           `json:"node_pruned"`
-	SeedNow               bool            `json:"seed_now"`
+	NeedsHost             bool            `json:"needs_host"`
+	NodeSynced            bool            `json:"node_synced"`
+	WaitingFor            string          `json:"waiting_for"`
+	SeedStopped           string          `json:"seed_stopped,omitempty"`
 }
 
 func newUtxoManager(dir string, fs vfs.FS, rpc utxoRPC, logger *log.Logger, chain *utxoChainParams) *utxoManager {
@@ -256,6 +264,18 @@ func (m *utxoManager) Status() utxoIndexStatus {
 		until := m.alertsEndLocked()
 		st.AlertsSuppressedUntil = &until
 	}
+	waiting := m.waiting
+	if m.state != utxoStateNotSeeded && m.state != utxoStateInvalid {
+		waiting = ""
+	}
+	st.WaitingFor = waiting
+	st.NodeSynced = waiting != waitNodeSync && (m.state != utxoStateNotSeeded || m.checked)
+	if m.seed.AutoFailures >= utxoAutoSeedTries && m.state != utxoStateReady {
+		st.SeedStopped = "failed"
+		if m.seed.Last != nil && m.seed.Last.Outcome == "cancelled" {
+			st.SeedStopped = "cancelled"
+		}
+	}
 	if m.nodeTip > 0 {
 		tip := m.nodeTip
 		st.NodeTip = &tip
@@ -371,7 +391,7 @@ func (m *utxoManager) startSeed() error {
 	m.mu.Lock()
 	state, busy := m.state, m.seeding
 	m.mu.Unlock()
-	if busy || !seedableState(state, m.chain.Replay) {
+	if busy || !seedableState(state, m.replays()) {
 		return errUtxoSeedState
 	}
 	if state == utxoStateInvalid {
@@ -381,7 +401,7 @@ func (m *utxoManager) startSeed() error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.state == utxoStateInvalid || !seedableState(m.state, m.chain.Replay) {
+	if m.state == utxoStateInvalid || !seedableState(m.state, m.replayingLocked()) {
 		return errUtxoSeedState
 	}
 	zero := 0.0
@@ -396,6 +416,7 @@ func (m *utxoManager) startSeed() error {
 
 func (m *utxoManager) finishSeed(err error) {
 	m.mu.Lock()
+	replay := m.replayingLocked()
 	outcome := "ok"
 	switch {
 	case errors.Is(err, context.Canceled):
@@ -415,7 +436,7 @@ func (m *utxoManager) finishSeed(err error) {
 	case errors.Is(err, errSeedUserCancel):
 		// The user stopped it, so no automatic seed starts until they ask for one.
 		m.seed.AutoFailures = utxoAutoSeedTries
-	case !m.chain.Replay || err == nil:
+	case !replay || err == nil:
 		// A stopped replay keeps its blocks and an integrity error makes it invalid, so a replay never backs off.
 		m.countAutoSeedLocked(err == nil)
 	}
@@ -426,7 +447,7 @@ func (m *utxoManager) finishSeed(err error) {
 		m.mu.Unlock()
 		return
 	}
-	if m.chain.Replay {
+	if replay {
 		if errors.Is(err, errUtxoBlockTooLarge) {
 			m.stopAtBlockLocked(err)
 		} else if m.state == utxoStateSeeding {
@@ -464,7 +485,7 @@ func (m *utxoManager) replayFraction() float64 {
 }
 
 func (m *utxoManager) replayBehindLocked() bool {
-	return m.chain.Replay && m.state == utxoStateCatching && m.indexTip != nil && m.nodeTip-int64(*m.indexTip) > utxoReplayGap
+	return m.replayingLocked() && m.state == utxoStateCatching && m.indexTip != nil && m.nodeTip-int64(*m.indexTip) > utxoReplayGap
 }
 
 func (m *utxoManager) setSeedPhase(phase string) {
@@ -536,17 +557,18 @@ func (m *utxoManager) setSeedStatePath(path string) {
 		return
 	}
 	interrupted := m.seed.SeedState == utxoSeedRunning
+	replay := m.replayingLocked()
 	now := m.now()
 	m.seed.SeedState, m.seed.Phase, m.seed.Progress = utxoOutcomeFailed, "", nil
 	if interrupted {
 		m.seed.Last = &utxoSeedResult{Outcome: utxoOutcomeFailed, Reason: errSeedInterrupted.Error(), FinishedAt: now, DurationSeconds: now.Sub(m.seed.StartedAt).Seconds()}
-		if !m.chain.Replay {
+		if !replay {
 			m.countAutoSeedLocked(false)
 			_ = m.wipeLocked()
 		}
 	}
 	m.persistSeedLocked()
-	if m.chain.Replay {
+	if replay {
 		m.log.Print("utxo index: a replay was interrupted by a restart and resumes from its last block")
 		return
 	}
@@ -648,7 +670,7 @@ func (m *utxoManager) tick(ctx context.Context) {
 		return
 	}
 	m.setTip(height)
-	if m.chain.Replay && m.host != nil && info.Blocks-int64(height) > utxoReplayGap {
+	if m.replays() && m.host != nil && info.Blocks-int64(height) > utxoReplayGap {
 		m.set(utxoStateCatching, "")
 		return
 	}
@@ -817,7 +839,7 @@ func (a *app) newChainUtxo(node nodeConfig, chain *utxoChainParams, logger *log.
 			hold, release = store.scanMu.TryLock, store.scanMu.Unlock
 		}
 		m.configureSeed(utxoSeedHost{prefix: node.ID + "-", stateDir: a.cfg.stateDir, dataDir: node.DataDir, dump: &dump, hold: hold, release: release, lock: &a.utxoSeedLock,
-			autoSeed: func() (string, string) { return a.queueSeedHostAction(node.ID) }})
+			autoSeed: func() (string, string) { return a.queueSeedHostAction(node.ID) }, helper: a.seedHelperAvailable, autoResult: a.seedHostResult, otherSeedActive: a.anySeedActive})
 		m.configureBench(a.chainBenchHost(node.ID, rpc, chain, hold, release))
 	}
 	return m
@@ -830,7 +852,7 @@ func (a *app) apiUtxoIndex(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		st := a.chainUtxo[chain].Status()
-		st.SeedNow = a.seedNow(chain)
+		st.NeedsHost = a.needsHost(a.chainUtxo[chain], st)
 		writeJSON(w, st)
 		return
 	}
@@ -843,6 +865,6 @@ func (a *app) apiUtxoIndex(w http.ResponseWriter, r *http.Request) {
 			st.NodePruned = &chain.Pruned
 		}
 	}
-	st.SeedNow = a.seedNow(nodeBitcoin)
+	st.NeedsHost = a.needsHost(a.utxo, st)
 	writeJSON(w, st)
 }

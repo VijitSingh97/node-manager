@@ -283,7 +283,7 @@ utxo_select_chain() {
     utxo_cli=litecoin-cli utxo_conf=-conf=/tmp/litecoin.conf utxo_daemon=litecoind utxo_name=Litecoin
   elif [ "$1" = bitcoincash ]; then
     utxo_arg="bitcoincash " utxo_prefix=bitcoincash- utxo_overlay=docker-compose.bitcoincash-utxo-index.yml utxo_volume=utxo_index_bitcoincash
-    utxo_conf=-conf=/tmp/bitcoin.conf utxo_name="Bitcoin Cash" utxo_replay=1
+    utxo_conf=-conf=/tmp/bitcoin.conf utxo_name="Bitcoin Cash" utxo_chainstate=1
   elif [ "$1" = dogecoin ]; then
     utxo_arg="dogecoin " utxo_prefix=dogecoin- utxo_overlay=docker-compose.dogecoin-utxo-index.yml utxo_volume=utxo_index_dogecoin
     utxo_cli=dogecoin-cli utxo_conf=-conf=/tmp/dogecoin.conf utxo_daemon=dogecoind utxo_name=Dogecoin utxo_chainstate=1
@@ -444,7 +444,9 @@ utxo_seed_cancel() {
     return 1
   fi
   utxo_seed_request_cancel || return 1
-  if [ "$utxo_replay" = 1 ]; then
+  if [ "$utxo_chain" = bitcoincash ]; then
+    echo "Cancel requested. The dashboard stops the seed within a few seconds; a replay keeps the blocks it has applied."
+  elif [ "$utxo_replay" = 1 ]; then
     echo "Cancel requested. The dashboard stops the replay within a few seconds and keeps the blocks it has applied."
   else
     echo "Cancel requested. The dashboard stops the seed within a few seconds and discards the partial index."
@@ -462,13 +464,19 @@ utxo_seed() {
     utxo_seed_cancel
     return
   fi
-  local assume_yes=0
-  if [ "${1:-}" = -y ] && [ $# = 1 ]; then
-    assume_yes=1
-  elif [ $# != 0 ]; then
-    echo "Usage: $stack_command utxo-seed [litecoin | bitcoincash | dogecoin] [-y | cancel]" >&2
+  local assume_yes=0 replay_flag=0 bad_arg=0 arg
+  for arg in "$@"; do
+    case "$arg" in
+      -y) assume_yes=1 ;;
+      --replay) replay_flag=1 ;;
+      *) bad_arg=1 ;;
+    esac
+  done
+  if [ "$bad_arg" = 1 ] || { [ "$replay_flag" = 1 ] && [ "$utxo_chain" != bitcoincash ]; }; then
+    echo "Usage: $stack_command utxo-seed [litecoin | bitcoincash | dogecoin] [-y | cancel] (bitcoincash also takes --replay)" >&2
     return 1
   fi
+  [ "$replay_flag" != 1 ] || utxo_replay=1 utxo_chainstate=0
   command -v jq >/dev/null || {
     echo "jq is required; install it with your host package manager." >&2
     return 1
@@ -575,7 +583,10 @@ EOF
   fi
   local id
   id=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
-  if ! jq -nc --arg id "$id" --argjson at "$(date +%s)" '{id:$id,requested_at:$at}' |
+  local seed_mode=
+  [ "$utxo_chainstate" != 1 ] || seed_mode=chainstate
+  [ "$utxo_replay" != 1 ] || seed_mode=replay
+  if ! jq -nc --arg id "$id" --argjson at "$(date +%s)" --arg mode "$seed_mode" '{id:$id,requested_at:$at} + if $mode == "" then {} else {mode:$mode} end' |
     compose exec -T -u 1000 dashboard sh -c \
       "umask 077; cat > /state/.${utxo_prefix}utxo-seed.request.tmp; mv /state/.${utxo_prefix}utxo-seed.request.tmp /state/${utxo_prefix}utxo-seed.request" >/dev/null; then
     utxo_seed_finish_pipe
@@ -933,8 +944,8 @@ Usage: $stack_command <command> [args]
   doctor                     Read-only health report (deps, disk, sync, tor)
   backup                     Save config, credentials, and onion keys to backups/
   restore [-y] <archive>     Restore a backup archive (prompts before overwrite)
-  utxo-seed [litecoin] [-y | cancel]
-                             Seed or cancel the Bitcoin (or Litecoin) balance index (needs <chain>.utxo_index)
+  utxo-seed [litecoin | bitcoincash | dogecoin] [-y | cancel]
+                             Seed or cancel a balance index (needs <chain>.utxo_index); bitcoincash --replay replays every block of an archival node
   utxo-index remove [litecoin] [-y]
                              Delete the balance index volume (needs <chain>.utxo_index off and applied)
   utxo-index bench <file> [--chain bitcoin|litecoin] [--scan [-y]] [--repeat N]
@@ -2022,8 +2033,8 @@ case "$cmd" in
   restore) guard_package_containers && do_restore "$@" ;;
   utxo-seed) guard_package_containers && utxo_seed "$@" ;;
   utxo-chainstate-copy)
-    [ "${1:-}" = dogecoin ] && [ $# = 1 ] || {
-      echo "Usage: $stack_command utxo-chainstate-copy dogecoin" >&2
+    { [ "${1:-}" = dogecoin ] || [ "${1:-}" = bitcoincash ]; } && [ $# = 1 ] || {
+      echo "Usage: $stack_command utxo-chainstate-copy dogecoin | bitcoincash" >&2
       exit 1
     }
     utxo_select_chain "$1"

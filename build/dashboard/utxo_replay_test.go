@@ -609,7 +609,7 @@ func TestReplaySeedNowResumesAReplayTheUserCancelled(t *testing.T) {
 	}
 
 	var view hostControlView
-	if got := hostControlHTTP(a, http.MethodGet, "", false, "192.168.1.20:4321"); json.Unmarshal(got.Body.Bytes(), &view) != nil || !view.UtxoSeedNowLTC {
+	if got := hostControlHTTP(a, http.MethodGet, "", false, "192.168.1.20:4321"); json.Unmarshal(got.Body.Bytes(), &view) != nil || !a.seedNow(nodeLitecoin) {
 		t.Fatalf("a not-seeded replay chain is not offered Seed now without a host helper: %s", got.Body.String())
 	}
 	m.tick(ctx)

@@ -55,7 +55,7 @@ func TestBitcoinCashSeedNowRequestsAReplayWithoutTheHostHelper(t *testing.T) {
 	}
 
 	var view hostControlView
-	if got := hostControlHTTP(a, http.MethodGet, "", false, "192.168.1.20:4321"); json.Unmarshal(got.Body.Bytes(), &view) != nil || !view.UtxoSeedNowBCH || view.UtxoSeedNow {
+	if got := hostControlHTTP(a, http.MethodGet, "", false, "192.168.1.20:4321"); json.Unmarshal(got.Body.Bytes(), &view) != nil || !a.seedNow(nodeBitcoinCash) || a.seedNow(nodeBitcoin) {
 		t.Fatalf("host view without a host helper %s", got.Body.String())
 	}
 	if got := post(); got != http.StatusAccepted {
@@ -83,7 +83,7 @@ func TestBitcoinCashSeedNowRequestsAReplayWithoutTheHostHelper(t *testing.T) {
 	utxoMgrCheck(t, m.store, newFakeUtxoNode(utxoMgrChain(4, "c")).fakeUtxoChain, "c", 3)
 }
 
-func TestHostControlOffersTheBitcoinCashIndexWithItsArchivalSize(t *testing.T) {
+func TestHostControlOffersTheBitcoinCashIndexWithItsPrunedSize(t *testing.T) {
 	a, _ := testApp(t, &rpcFixture{}, "")
 	b, _ := json.Marshal(hostControlCapability{Timestamp: time.Now().Unix(), Platform: "linux", BootKind: "boot", UtxoIndexBCH: true})
 	if err := os.WriteFile(a.nodeControlPath("capability"), b, 0o600); err != nil {
@@ -94,7 +94,7 @@ func TestHostControlOffersTheBitcoinCashIndexWithItsArchivalSize(t *testing.T) {
 		t.Fatalf("host view %+v", view)
 	}
 	for _, node := range view.Nodes {
-		if node.ID == nodeBitcoinCash && (node.DiskEstimate != "231 GiB or more" || !strings.Contains(node.DiskNote, "archival")) {
+		if node.ID == nodeBitcoinCash && (node.DiskEstimate != "Not measured" || !strings.Contains(node.DiskNote, "pruned")) {
 			t.Fatalf("Bitcoin Cash install estimate %q %q", node.DiskEstimate, node.DiskNote)
 		}
 	}

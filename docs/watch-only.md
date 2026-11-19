@@ -100,9 +100,13 @@ a later scan fails, a prior confirmed amount remains visible as **Stale** or
 snapshot charts and watch lists survive dashboard restarts.
 
 The Bitcoin Cash balance index (Settings → Balance index → "Instant Bitcoin Cash
-balances", or `bitcoincash.utxo_index`) needs an archival node
-(`bitcoincash.prune_mb: 0`). Bitcoin Cash Node has no coin-set export, so once the
-node has synced the index replays every block from genesis. It reads raw blocks
+balances", or `bitcoincash.utxo_index`) works on a pruned node. Bitcoin Cash Node
+has no coin-set export, so the index seeds from a copy of the node's chainstate
+taken during a short node stop, and then follows raw blocks; the chainstate rows
+(`C` + txid + output index, one coin each, CashTokens data unwrapped to the real
+script) were checked against a Bitcoin Cash Node 29.2.0 regtest chainstate. An
+archival node with no host helper can instead replay every block from genesis,
+which reads raw blocks
 (`getblock` verbosity 0), which costs the node far less memory than verbose JSON on
 Bitcoin Cash's 32 MB stress-test blocks (measured on regtest: about 1.1 to 1.2 GiB
 at peak while replaying four 31 MB blocks, against about 2.9 GiB serving one of them
@@ -112,7 +116,7 @@ key, as the Litecoin index does. That is a long one-time job: the regtest rates 
 been timed. When the index is at the node's tip, Bitcoin Cash balances come from it
 and update within a minute of each block; until then the scan answers. Outputs
 that carry CashTokens count their BCH like any other output; token amounts are
-not shown. A pruned Bitcoin Cash node keeps the hourly scan.
+not shown. Without the index a pruned Bitcoin Cash node keeps the hourly scan.
 
 With the Bitcoin Cash index on, the dashboard's memory limit is 2 GiB, with
 `GOMEMLIMIT=1600MiB`, instead of the 1 GiB the Bitcoin and Litecoin indexes set.
@@ -310,7 +314,7 @@ has finished; until then it keeps the node's older tables on disk.
 When the index is ready, Dogecoin balances come from it and update within a minute
 of each block, and the archival watch wallet below is not needed. Without the watch
 wallet, balances wait until the index is ready. If a pruned node drops blocks the
-index still needs, the index is marked invalid and **Seed now** seeds it again.
+index still needs, the index is marked invalid and is seeded again automatically.
 The seed time and index size on mainnet are not measured yet.
 
 ## Dogecoin archival watch wallet (opt-in)
@@ -519,8 +523,9 @@ measured seed budget, a "Needs a new seed" card, upgrades and removal.
   refuses to turn it off while a seed runs; cancel it first). A badge
   in the heading of the watch-only wallets card shows the index state (ready,
   catching up, seeding, needs a seed, degraded or off) and links to the index
-  card. After turning it on, the index seeds itself once the node has synced;
-  **Seed now**, here and on the index card, starts a seed straight away.
+  card. After turning it on, the index seeds itself once the node has synced, and the node
+  card shows a progress bar for it; there is no Seed button. The install dialog offers the
+  same option, ticked, next to the data folder.
 - **Turning it off.** Switch it off in Settings, or set `bitcoin.utxo_index` to
   false and run `./stack apply`.
   The scan serves again and the volume is kept; `./stack utxo-index remove`
