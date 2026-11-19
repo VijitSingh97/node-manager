@@ -435,11 +435,11 @@ test("host switches stay staged until Save and then apply one at a time in a fix
     { action: "utxo_index", enabled: true },
   ]);
   const pending = { status: { action: "inbound_connections", state: "pending" } };
-  assert.equal(hostQueueSettled(pending, "inbound_connections"), "");
-  assert.equal(hostQueueSettled({ status: { action: "inbound_connections", state: "applied" } }, "inbound_connections"), "applied");
-  assert.equal(hostQueueSettled({ status: { action: "inbound_connections", state: "rejected" } }, "inbound_connections"), "failed");
-  assert.equal(hostQueueSettled({ status: { action: "launch_at_boot", state: "failed" } }, "inbound_connections"), "applied");
-  assert.equal(hostQueueSettled({ status: { action: "inbound_connections", state: "failed" } }, ""), "");
+  assert.equal(hostQueueSettled(pending, { action: "inbound_connections" }), "");
+  assert.equal(hostQueueSettled({ status: { action: "inbound_connections", state: "applied" } }, { action: "inbound_connections" }), "applied");
+  assert.equal(hostQueueSettled({ status: { action: "inbound_connections", state: "rejected" } }, { action: "inbound_connections" }), "failed");
+  assert.equal(hostQueueSettled({ status: { action: "launch_at_boot", state: "failed" } }, { action: "inbound_connections" }), "applied");
+  assert.equal(hostQueueSettled({ status: { action: "inbound_connections", state: "failed" } }, null), "");
   const source = await readFile(new URL("./settings.js", import.meta.url), "utf8");
   assert.doesNotMatch(source, /addEventListener\("change", \(\) => submitHost/);
   assert.match(source, /for \(const \[action, input\] of Object\.entries\(hostToggles\)\) input\.addEventListener\("change", \(\) => \{ hostDraft\[action\] = input\.checked; \}\);/);

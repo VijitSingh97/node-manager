@@ -653,10 +653,6 @@ if [ "$dogecoin_utxo_index" = "1" ] && [ "$dogecoin_enabled" != "1" ]; then
   echo "dogecoin.utxo_index requires dogecoin.enabled."
   exit 1
 fi
-if [ "$bitcoincash_utxo_index" = "1" ] && [ "$bitcoincash_prune" != "0" ]; then
-  echo "bitcoincash.utxo_index needs an archival node: set bitcoincash.prune_mb to 0 (the index replays every block from genesis)."
-  exit 1
-fi
 
 compose_file=docker-compose.yml
 [ "$tari_enabled" = "1" ] && compose_file=$compose_file:docker-compose.tari-wallet.yml
@@ -683,7 +679,7 @@ fi
 # Compose keeps the last file's mem_limit, so the Bitcoin Cash overlay's 2g must come after the 1g overlays.
 if [ "$bitcoincash_utxo_index" = "1" ]; then
   compose_file=$compose_file:docker-compose.bitcoincash-utxo-index.yml
-  echo "bitcoincash.utxo_index is on: ./stack apply recreates the dashboard with a utxo_index_bitcoincash volume, a 2g memory limit with GOMEMLIMIT 1600MiB, and 0.5 CPU. The Bitcoin Cash node is not restarted. Once it has synced, the index replays every block from genesis, a one-time job whose mainnet duration is not measured yet."
+  echo "bitcoincash.utxo_index is on: ./stack apply recreates the dashboard with a utxo_index_bitcoincash volume, a 2g memory limit with GOMEMLIMIT 1600MiB, and 0.5 CPU. To seed it, the Bitcoin Cash node stops while its chainstate is copied, which works on a pruned node too; without the host helper, an archival node replays every block from genesis instead. Its seed time and size on mainnet are not measured yet."
 fi
 compose_profiles=
 append_profile() { [ -z "$compose_profiles" ] || compose_profiles=$compose_profiles,; compose_profiles=${compose_profiles}$1; }

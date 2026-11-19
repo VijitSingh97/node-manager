@@ -473,7 +473,12 @@ publish_host_capability() {
   utxo_index_litecoin=false
   utxo_index_bitcoincash=false
   utxo_index_dogecoin=false
+  utxo_blocked='{}'
   if [ -f "$approved_config" ]; then
+    utxo_blocked=$(jq -c '
+      def off($n): if $n=="bitcoin" then .bitcoin.enabled == false else .[$n].enabled != true end;
+      . as $cfg | {bitcoin:"Bitcoin",litecoin:"Litecoin",dogecoin:"Dogecoin",bitcoincash:"Bitcoin Cash"} | to_entries |
+      map(select(. as $e | $cfg | off($e.key)) | {key:.key, value:("The balance index requires " + .value + " to be enabled.")}) | from_entries' "$approved_config" 2>/dev/null || printf '{}')
     utxo_index=$(jq -r '.bitcoin.utxo_index == true' "$approved_config" 2>/dev/null || printf false)
     utxo_index_litecoin=$(jq -r '.litecoin.utxo_index == true' "$approved_config" 2>/dev/null || printf false)
     utxo_index_bitcoincash=$(jq -r '.bitcoincash.utxo_index == true' "$approved_config" 2>/dev/null || printf false)
@@ -500,26 +505,28 @@ publish_host_capability() {
   jq -nc --argjson timestamp "$now" --arg platform "$host_platform" --arg boot_kind "$boot_kind" \
     --argjson boot_supported "$boot_supported" --argjson boot_enabled "$boot_enabled" --argjson config_pending "$pending" \
     --argjson clearnet_over_tor "$clearnet_over_tor" --argjson inbound_connections "$inbound_connections" --argjson utxo_index "$utxo_index" --argjson utxo_index_litecoin "$utxo_index_litecoin" --argjson utxo_index_bitcoincash "$utxo_index_bitcoincash" --argjson utxo_index_dogecoin "$utxo_index_dogecoin" \
-    --arg config_revision "$revision" --arg config_path "$config_path" --argjson data_paths "$data_paths" --argjson unsupported_nodes "$unsupported_nodes" \
-    '{timestamp:$timestamp,install_supported:true,migrate_supported:true,delete_supported:true,utxo_seed_supported:true,boot_supported:$boot_supported,boot_enabled:$boot_enabled,clearnet_over_tor:$clearnet_over_tor,inbound_connections:$inbound_connections,utxo_index:$utxo_index,utxo_index_litecoin:$utxo_index_litecoin,utxo_index_bitcoincash:$utxo_index_bitcoincash,utxo_index_dogecoin:$utxo_index_dogecoin,config_pending:$config_pending,config_revision:$config_revision,platform:$platform,boot_kind:$boot_kind,config_path:$config_path,data_paths:$data_paths} + if $unsupported_nodes == [] then {} else {unsupported_nodes:$unsupported_nodes} end' |
+    --arg config_revision "$revision" --arg config_path "$config_path" --argjson data_paths "$data_paths" --argjson unsupported_nodes "$unsupported_nodes" --argjson utxo_blocked "$utxo_blocked" \
+    '{timestamp:$timestamp,install_supported:true,install_index_supported:true,migrate_supported:true,delete_supported:true,utxo_seed_supported:true,boot_supported:$boot_supported,boot_enabled:$boot_enabled,clearnet_over_tor:$clearnet_over_tor,inbound_connections:$inbound_connections,utxo_index:$utxo_index,utxo_index_litecoin:$utxo_index_litecoin,utxo_index_bitcoincash:$utxo_index_bitcoincash,utxo_index_dogecoin:$utxo_index_dogecoin,config_pending:$config_pending,config_revision:$config_revision,platform:$platform,boot_kind:$boot_kind,config_path:$config_path,data_paths:$data_paths} + if $unsupported_nodes == [] then {} else {unsupported_nodes:$unsupported_nodes} end + if $utxo_blocked == {} then {} else {utxo_index_blocked:$utxo_blocked} end' |
     $docker_bin exec -i -u 1000 "$dashboard_id" sh -c 'umask 077; cat > /state/.node-control.capability.tmp; mv /state/.node-control.capability.tmp /state/node-control.capability' >/dev/null
 }
 publish_host_capability
 # A chainstate copy pins the node's old tables, so it goes once its seed has finished; the age check covers the moment before the dashboard takes the request.
 remove_finished_chainstate_copy() {
-  [ "$(env_get DOGECOIN_ENABLED)" = 1 ] || return 0
-  copy_dir=$(delete_configured_dir dogecoin)/utxo-seed-chainstate
+  copy_node=$1
+  [ "$(env_get "$(printf '%s' "$copy_node" | tr '[:lower:]' '[:upper:]')_ENABLED")" = 1 ] || return 0
+  copy_dir=$(delete_configured_dir "$copy_node")/utxo-seed-chainstate
   [ -d "$copy_dir" ] && [ -n "$(find "$copy_dir" -maxdepth 0 -mmin +2 2>/dev/null)" ] || return 0
   # Only a dashboard that answers, has no pending request and reports a finished seed lets the copy go.
-  dashboard_exec test ! -e /state/dogecoin-utxo-seed.request >/dev/null 2>&1 || return 0
+  dashboard_exec test ! -e "/state/$copy_node-utxo-seed.request" >/dev/null 2>&1 || return 0
   # With no seed state at all the copy was left by an interrupted copy, so it goes too.
-  if dashboard_exec test -e /state/dogecoin-utxo-seed.json >/dev/null 2>&1; then
-    copy_seed=$(dashboard_exec cat /state/dogecoin-utxo-seed.json 2>/dev/null) || return 0
+  if dashboard_exec test -e "/state/$copy_node-utxo-seed.json" >/dev/null 2>&1; then
+    copy_seed=$(dashboard_exec cat "/state/$copy_node-utxo-seed.json" 2>/dev/null) || return 0
     printf '%s' "$copy_seed" | jq -e '(.seed_state | type) == "string" and .seed_state != "seeding" and .seed_state != "checking"' >/dev/null 2>&1 || return 0
   fi
   rm -rf -- "$copy_dir"
 }
-remove_finished_chainstate_copy
+remove_finished_chainstate_copy dogecoin
+remove_finished_chainstate_copy bitcoincash
 delete_marker=$state_root/node-control/delete-pending.json
 size=0
 if ! dashboard_exec test -f /state/node-control.processing >/dev/null 2>&1; then
@@ -559,11 +566,19 @@ host_finish() {
       fi ;;
   esac
   publish_host_capability
-  write_host_status "$host_id" "$host_action" "$1" "$2" "${3:-}" "${4:-}" "${5:-}" "${6:-}" "${7:-}"
+  host_detail=$(printf '%s\n' "${7:-}" | head -n 1 | tr -d '\000-\037' | cut -c1-240)
+  write_host_status "$host_id" "$host_action" "$1" "$2" "${3:-}" "${4:-}" "${5:-}" "${6:-}" "$host_detail"
   host_remember_seen
   clear_request
   [ -z "${host_cleanup_transaction:-}" ] || rm -rf "$host_cleanup_transaction"
   exit 0
+}
+validate_config_dir() {
+  validate_error=
+  validate_output=$(BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$1" \
+    BITCOIN_STACK_VALIDATE_ONLY=1 BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/configure.sh" 2>&1) && return 0
+  validate_error=$(printf '%s\n' "$validate_output" | grep -v '^[[:space:]]*$' | tail -n 1)
+  return 1
 }
 if [ -f "$delete_marker" ]; then
   mkdir -p "$config_root"
@@ -602,7 +617,8 @@ if printf '%s' "$request" | jq -e --argjson now "$now" '
   . as $request |
   type=="object" and
   (keys==["action","id","node","requested_at"] or
-   (keys==["action","data_dir","id","interfaces","node","requested_at"] and
+   ((keys-["utxo_index"])==["action","data_dir","id","interfaces","node","requested_at"] and
+    ((has("utxo_index")|not) or ((.utxo_index|type=="boolean") and (.node=="bitcoin" or .node=="litecoin" or .node=="dogecoin" or .node=="bitcoincash"))) and
     (.data_dir|type=="string" and length>1 and length<=1024 and startswith("/") and
       (explode|all(. != 0 and . != 10 and . != 13)) and
       (contains("//")|not) and (split("/")|all(. != "." and . != ".."))) and
@@ -651,7 +667,7 @@ elif printf '%s' "$request" | jq -e --argjson now "$now" '
   host_request=true
 elif printf '%s' "$request" | jq -e --argjson now "$now" '
   type=="object" and keys==["action","id","node","requested_at"] and .action=="utxo_seed" and
-  (.id|type=="string" and test("^[0-9a-f]{32}$")) and (.node=="bitcoin" or .node=="litecoin" or .node=="dogecoin") and
+  (.id|type=="string" and test("^[0-9a-f]{32}$")) and (.node=="bitcoin" or .node=="litecoin" or .node=="dogecoin" or .node=="bitcoincash") and
   (.requested_at|type=="number" and floor==. and . >= $now-300 and . <= $now+30)
 ' >/dev/null 2>&1; then
   host_request=true
@@ -696,6 +712,7 @@ if [ "$host_request" = true ]; then
     host_node=$(printf '%s' "$request" | jq -r .node)
     host_data_dir=$(printf '%s' "$request" | jq -r '.data_dir // ""')
     host_interfaces=$(printf '%s' "$request" | jq -c '.interfaces // []')
+    host_utxo_index=$(printf '%s' "$request" | jq -r 'if has("utxo_index") then (.utxo_index|tostring) else "" end')
     host_bind_ip=$(env_get DASHBOARD_BIND_IP)
     current='{}'
     [ -f "$config_file" ] && current=$(cat "$config_file")
@@ -706,12 +723,12 @@ if [ "$host_request" = true ]; then
     memory=4096
     [ "$host_node" != bitcoin ] && [ "$host_node" != monero ] || memory=2048
     candidate=$(mktemp "$config_root/.config.install.XXXXXX")
-    printf '%s' "$current" | jq --arg node "$host_node" --arg data_dir "$host_data_dir" --arg bind_ip "$host_bind_ip" --argjson interfaces "$host_interfaces" --argjson memory "$memory" '
+    printf '%s' "$current" | jq --arg node "$host_node" --arg data_dir "$host_data_dir" --arg bind_ip "$host_bind_ip" --arg utxo_index "$host_utxo_index" --argjson interfaces "$host_interfaces" --argjson memory "$memory" '
       .[$node].enabled=true | .[$node].active=true |
       .[$node].resource_profile //= "compact" |
-      if $node=="bitcoin" and (.bitcoin.prune_mb // 10000) != 0 and (.bitcoin // {} | has("utxo_index") | not) then .bitcoin.utxo_index=true
-      elif ($node=="litecoin" or $node=="dogecoin") and (.[$node] // {} | has("utxo_index") | not) then .[$node].utxo_index=true
-      elif $node=="bitcoincash" and (.bitcoincash // {} | has("utxo_index") or has("prune_mb") | not) then .bitcoincash.prune_mb=0 | .bitcoincash.utxo_index=true else . end |
+      if $utxo_index != "" then .[$node].utxo_index=($utxo_index=="true")
+      elif $node=="bitcoin" and (.bitcoin.prune_mb // 10000) != 0 and (.bitcoin // {} | has("utxo_index") | not) then .bitcoin.utxo_index=true
+      elif ($node=="litecoin" or $node=="dogecoin" or $node=="bitcoincash") and (.[$node] // {} | has("utxo_index") | not) then .[$node].utxo_index=true else . end |
       if $node=="zcash" and ((.zcash.address_index|type)!="boolean") then .zcash.address_index=true else . end |
       .[$node].steady_cpus //= 1 | .[$node].steady_mem_limit_mb //= $memory |
       if $data_dir!="" then .[$node].data_dir=$data_dir else . end |
@@ -730,21 +747,16 @@ if [ "$host_request" = true ]; then
         end)' >"$candidate"
     validate=$(mktemp -d "$state_root/node-control/.validate.XXXXXX")
     cp "$candidate" "$validate/config.json"
-    validate_candidate() {
-      BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$validate" \
-        BITCOIN_STACK_VALIDATE_ONLY=1 BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/configure.sh" >/dev/null 2>&1
-    }
-    # Defaults the user never set fall back when they do not validate, for example archival on a data directory that holds a pruned chain.
+    validate_candidate() { validate_config_dir "$validate"; }
+    # Defaults the user never set fall back when they do not validate.
     install_fallback=
     if [ "$host_node" = zcash ] && [ "$(printf '%s' "$current" | jq -r '(.zcash.address_index|type)')" != boolean ]; then
       install_fallback='del(.zcash.address_index)'
-    elif [ "$host_node" = bitcoincash ] && [ "$(printf '%s' "$current" | jq -r '.bitcoincash // {} | has("utxo_index") or has("prune_mb")')" = false ]; then
-      install_fallback='del(.bitcoincash.prune_mb, .bitcoincash.utxo_index)'
     fi
     if ! validate_candidate && ! { [ -n "$install_fallback" ] &&
       jq "$install_fallback" "$candidate" >"$validate/config.json" && cp "$validate/config.json" "$candidate" && validate_candidate; }; then
       rm -rf "$candidate" "$validate"
-      host_finish rejected "Node defaults are invalid." "$host_node" "" validation_failed
+      host_finish rejected "Node defaults are invalid." "$host_node" "" validation_failed "" "$validate_error"
     fi
     rm -rf "$validate"
     host_port_changes=$(printf '%s' "$host_interfaces" | jq -c --arg bind_ip "$host_bind_ip" '[.[]|select(.enabled)|{port:.id,enabled:true,bind_ip:$bind_ip,host_port:.host_port}]')
@@ -996,8 +1008,19 @@ if [ "$host_request" = true ]; then
     fi
     seed_node_id=$(container_id "$host_node")
     [ -n "$seed_node_id" ] || host_finish failed "The node is not running." "$host_node" "" apply_failed
+    seed_all=$(dashboard_exec sh -c 'cat /state/utxo-seed.json /state/*-utxo-seed.json 2>/dev/null' || true)
+    # shellcheck disable=SC2016
+    if printf '%s' "$seed_all" | jq -es 'any(.[]; .seed_state == "seeding" or .seed_state == "checking")' 2>/dev/null | grep -qx true ||
+      dashboard_exec sh -c 'for f in /state/*utxo-seed.request /state/*-chainstate-copy.processing; do [ -e "$f" ] && exit 0; done; exit 1' >/dev/null 2>&1; then
+      host_finish rejected "Another balance index is seeding." "$host_node" "" busy
+    fi
+    seed_started=$("$docker_bin" inspect --format '{{.State.StartedAt}}' "$seed_node_id" 2>/dev/null || true)
+    seed_age=$(jq -rn --arg s "$seed_started" --argjson now "$now" 'try (($s | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) as $t | $now - $t) catch ""' 2>/dev/null || true)
+    case "$seed_age" in '' | *[!0-9]*) ;; *) [ "$seed_age" -ge 600 ] || host_finish rejected "The node started less than 10 minutes ago." "$host_node" "" recently_started ;; esac
     seed_at=$now
-    if [ "$host_node" = dogecoin ]; then
+    seed_mode=
+    if [ "$host_node" = dogecoin ] || [ "$host_node" = bitcoincash ]; then
+      seed_mode=chainstate
       copy_status=0
       "$stack_root/stack" utxo-chainstate-copy "$host_node" >/dev/null 2>&1 || copy_status=$?
       case "$copy_status" in
@@ -1013,7 +1036,7 @@ if [ "$host_request" = true ]; then
       "$docker_bin" exec "$seed_node_id" sh -c 'rm -f /data/utxo-seed.dat /data/utxo-seed.dat.incomplete && mkfifo -m 600 /data/utxo-seed.dat.incomplete' >/dev/null 2>&1 ||
         host_finish failed "The seed pipe could not be created." "$host_node" "" apply_failed
     fi
-    jq -nc --arg id "$host_id" --argjson at "$seed_at" '{id:$id,requested_at:$at}' |
+    jq -nc --arg id "$host_id" --argjson at "$seed_at" --arg mode "$seed_mode" '{id:$id,requested_at:$at} + if $mode == "" then {} else {mode:$mode} end' |
       "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c "umask 077; cat > /state/.${seed_prefix}utxo-seed.request.tmp; mv /state/.${seed_prefix}utxo-seed.request.tmp /state/${seed_prefix}utxo-seed.request" >/dev/null ||
       host_finish failed "The seed request could not be written." "$host_node" "" apply_failed
     host_finish applied "Balance index seed started." "$host_node"
@@ -1036,19 +1059,19 @@ if [ "$host_request" = true ]; then
       host_finish rejected "$host_label is invalid." "$host_toggle_node" "$host_enabled" validation_failed
     if [ "$host_action" = utxo_index ] && [ "$host_enabled" = true ] && [ "$host_section" = bitcoin ] &&
       [ "$(printf '%s' "$current" | jq -r '.bitcoin.enabled == false')" = true ]; then
-      host_finish rejected "$host_label requires Bitcoin to be enabled." "" "$host_enabled" validation_failed
+      host_finish rejected "$host_label requires Bitcoin to be enabled." "" "$host_enabled" validation_failed "" "$host_label requires Bitcoin to be enabled."
     fi
     if [ "$host_action" = utxo_index ] && [ "$host_enabled" = true ] && [ "$host_section" = litecoin ] &&
       [ "$(printf '%s' "$current" | jq -r '.litecoin.enabled == true')" != true ]; then
-      host_finish rejected "$host_label requires Litecoin to be enabled." "$host_toggle_node" "$host_enabled" validation_failed
+      host_finish rejected "$host_label requires Litecoin to be enabled." "$host_toggle_node" "$host_enabled" validation_failed "" "$host_label requires Litecoin to be enabled."
     fi
     if [ "$host_action" = utxo_index ] && [ "$host_enabled" = true ] && [ "$host_section" = dogecoin ] &&
       [ "$(printf '%s' "$current" | jq -r '.dogecoin.enabled == true')" != true ]; then
-      host_finish rejected "$host_label requires Dogecoin to be enabled." "$host_toggle_node" "$host_enabled" validation_failed
+      host_finish rejected "$host_label requires Dogecoin to be enabled." "$host_toggle_node" "$host_enabled" validation_failed "" "$host_label requires Dogecoin to be enabled."
     fi
     if [ "$host_action" = utxo_index ] && [ "$host_enabled" = true ] && [ "$host_section" = bitcoincash ] &&
-      [ "$(printf '%s' "$current" | jq -r '.bitcoincash.enabled == true and .bitcoincash.prune_mb == 0')" != true ]; then
-      host_finish rejected "$host_label requires Bitcoin Cash to be enabled as an archival node (bitcoincash.prune_mb 0)." "$host_toggle_node" "$host_enabled" validation_failed
+      [ "$(printf '%s' "$current" | jq -r '.bitcoincash.enabled == true')" != true ]; then
+      host_finish rejected "$host_label requires Bitcoin Cash to be enabled." "$host_toggle_node" "$host_enabled" validation_failed "" "$host_label requires Bitcoin Cash to be enabled."
     fi
     [ "$(printf '%s' "$current" | jq -r --arg section "$host_section" --arg key "$host_action" "$host_read")" != "$host_enabled" ] ||
       host_finish applied "$host_label is already in that state." "$host_toggle_node" "$host_enabled"
@@ -1061,12 +1084,13 @@ if [ "$host_request" = true ]; then
       { rm -f "$candidate"; host_finish rejected "$host_label is invalid." "$host_toggle_node" "$host_enabled" validation_failed; }
     validate=$(mktemp -d "$state_root/node-control/.validate.XXXXXX")
     cp "$candidate" "$validate/config.json"
-    if ! BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$validate" \
-      BITCOIN_STACK_VALIDATE_ONLY=1 BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/configure.sh" >/dev/null 2>&1; then
+    if ! validate_config_dir "$validate"; then
       rm -rf "$candidate" "$validate"
-      host_finish rejected "$host_label is invalid." "$host_toggle_node" "$host_enabled" validation_failed
+      host_finish rejected "$host_label is invalid." "$host_toggle_node" "$host_enabled" validation_failed "" "$validate_error"
     fi
     rm -rf "$validate"
+    [ "$host_action" != utxo_index ] || [ "$host_enabled" != true ] ||
+      dashboard_exec rm -f "/state/${host_toggle_node:+$host_toggle_node-}utxo-seed.json" >/dev/null 2>&1 || true
     backup=$(mktemp "$state_root/node-control/.config.backup.XXXXXX")
     printf '%s' "$current" >"$backup"
     chmod 600 "$candidate" "$backup"

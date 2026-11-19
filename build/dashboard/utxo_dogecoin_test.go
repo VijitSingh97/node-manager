@@ -225,7 +225,7 @@ func TestChainstateSeedNeedsThreeTimesTheChainstateFree(t *testing.T) {
 }
 
 func TestHostControlAcceptsADogecoinSeedButNotZcash(t *testing.T) {
-	if !validHostControlShape("utxo_seed", nodeDogecoin, nil, "", nil, "") || validHostControlShape("utxo_seed", nodeZcash, nil, "", nil, "") {
+	if !validHostControlShape("utxo_seed", nodeDogecoin, nil, "", nil, "", nil) || validHostControlShape("utxo_seed", nodeZcash, nil, "", nil, "", nil) {
 		t.Fatal("the pending seed shape is wrong for Dogecoin or Zcash")
 	}
 }

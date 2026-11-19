@@ -2,22 +2,18 @@ import { dashboardFetch as fetch } from "./session.js";
 import { el } from "./wallet-ui.js";
 
 const POLL_MS = 15000;
-export const SEED_COMMAND = "./stack utxo-seed";
-export const SEED_WARNING = "Seeding takes about 20 minutes, longer if heat pauses it. Bitcoin RPC stops answering for about 5 minutes, then answers slowly until the seed ends. The index takes about 7.5 GiB afterwards and up to about 17 GiB while it runs; 27 GB must be free. Node-down alerts are held for up to 15 minutes. Pause other heavy chains first.";
-
-export const LITECOIN_SEED_COMMAND = "./stack utxo-seed litecoin";
-export const LITECOIN_SEED_WARNING = "Litecoin RPC stops answering while litecoind writes the coin set, then answers slowly until the seed ends. Its time and size on mainnet are not measured yet; 27 GB must be free. Litecoin node-down alerts are held for up to 15 minutes, and only one balance index seeds at a time.";
-
-export const BITCOINCASH_SEED_COMMAND = "./stack utxo-seed bitcoincash";
-export const BITCOINCASH_SEED_WARNING = "Bitcoin Cash has no coin-set export, so the index replays every block from genesis on an archival node: a long one-time job whose mainnet duration is not measured yet. Bitcoin Cash RPC keeps answering, node-down alerts are not held, heat pauses it, and a stop keeps the blocks already applied. Only one balance index seeds at a time.";
-export const DOGECOIN_SEED_COMMAND = "./stack utxo-seed dogecoin";
-export const DOGECOIN_SEED_WARNING = "Dogecoin Core 1.14 has no coin-set export, so seeding stops the Dogecoin node while its chainstate is copied, then builds the index from the copy. It works on a pruned node, and Dogecoin RPC is unavailable while the node is stopped.";
+export const SEED_COMMANDS = {
+  bitcoin: "./stack utxo-seed",
+  litecoin: "./stack utxo-seed litecoin",
+  bitcoincash: "./stack utxo-seed bitcoincash",
+  dogecoin: "./stack utxo-seed dogecoin",
+};
 
 const CHAINS = {
-  bitcoin: { card: "utxo-index", heading: "#watch h2", title: "Bitcoin balance index", command: SEED_COMMAND, warning: SEED_WARNING, api: "/api/utxo-index" },
-  litecoin: { card: "utxo-index-litecoin", heading: '[data-family-watch="litecoin"] h2', title: "Litecoin balance index", command: LITECOIN_SEED_COMMAND, warning: LITECOIN_SEED_WARNING, api: "/api/utxo-index?chain=litecoin" },
-  bitcoincash: { card: "utxo-index-bitcoincash", heading: '[data-family-watch="bitcoincash"] h2', title: "Bitcoin Cash balance index", command: BITCOINCASH_SEED_COMMAND, warning: BITCOINCASH_SEED_WARNING, api: "/api/utxo-index?chain=bitcoincash" },
-  dogecoin: { card: "utxo-index-dogecoin", heading: '[data-family-watch="dogecoin"] h2', title: "Dogecoin balance index", command: DOGECOIN_SEED_COMMAND, warning: DOGECOIN_SEED_WARNING, api: "/api/utxo-index?chain=dogecoin" },
+  bitcoin: { card: "utxo-index", heading: "#watch h2", title: "Bitcoin balance index", api: "/api/utxo-index" },
+  litecoin: { card: "utxo-index-litecoin", heading: '[data-family-watch="litecoin"] h2', title: "Litecoin balance index", api: "/api/utxo-index?chain=litecoin" },
+  bitcoincash: { card: "utxo-index-bitcoincash", heading: '[data-family-watch="bitcoincash"] h2', title: "Bitcoin Cash balance index", api: "/api/utxo-index?chain=bitcoincash" },
+  dogecoin: { card: "utxo-index-dogecoin", heading: '[data-family-watch="dogecoin"] h2', title: "Dogecoin balance index", api: "/api/utxo-index?chain=dogecoin" },
 };
 
 export const CONFIRMED_ONLY = "Balances are confirmed only; unconfirmed and mempool activity is not included.";
@@ -75,34 +71,77 @@ export function indexView(status, chain = "bitcoin") {
   if (!seeding && last && last.outcome !== "ok") {
     rows.push(`Last seed ${last.outcome}${last.reason ? `: ${last.reason}` : ""}.`);
   }
-  const seedNow = idle && status.seed_now === true;
   return {
     rows,
     progress: seeding && status.seed_progress != null ? status.seed_progress : null,
     refusals: (status.refusals || []).map(r => `${r.guard}: ${r.detail}`),
-    seedNow,
-    command: idle && !seedNow ? CHAINS[chain].command : "",
-    warning: idle || seeding ? CHAINS[chain].warning : "",
+    command: idle && status.needs_host === true ? SEED_COMMANDS[chain] : "",
   };
 }
 
-export async function requestSeed(post = fetch, node = "bitcoin") {
-  try {
-    const res = await post("/api/settings/host", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
-      body: JSON.stringify({ action: "utxo_seed", node }),
-    });
-    if (res.ok) return "Seed requested; the host starts it within a minute.";
-    const message = (await res.text()).trim();
-    return message && message.length <= 200 ? message : "Could not request a seed.";
-  } catch {
-    return "Could not request a seed.";
+const shortReason = (text) => {
+  const line = String(text || "").trim();
+  return line.length > 80 ? `${line.slice(0, 79)}…` : line;
+};
+
+const WAITING_START = new Set(["node_start", "other_seed", "host_busy"]);
+
+// value is a fraction, or null for an indeterminate bar.
+export function indexBarView(status) {
+  if (!status || !status.enabled || status.state === "off") return { hidden: true };
+  const bar = (text, value, tone = "info") => ({ hidden: false, label: `Balance index: ${text}`, value, tone });
+  const pct = status.seed_progress == null ? null : Math.floor(status.seed_progress * 100);
+  if (status.seed_stopped) {
+    const reason = shortReason(status.last_seed && status.last_seed.reason);
+    return bar(`seeding ${status.seed_stopped === "cancelled" ? "stopped" : "failed"}${reason ? `: ${reason}` : ""}`, null, "warn");
   }
+  switch (status.state) {
+    case "ready":
+      return bar("ready", 1, "ok");
+    case "seeding": {
+      const paused = status.phase === "paused";
+      return bar(`${paused ? "paused" : "building"}${pct == null ? "" : `, ${pct}%`}`, status.seed_progress);
+    }
+    case "catching_up":
+      return bar(status.blocks_behind == null ? "catching up" : `catching up ${status.blocks_behind} blocks`, null);
+    case "degraded":
+    case "invalid": {
+      const reason = shortReason(status.reason);
+      return bar(`needs attention${reason ? `: ${reason}` : ""}`, null, "warn");
+    }
+    case "not_seeded": {
+      if (status.needs_host) return bar("needs the host helper", null, "warn");
+      if (status.waiting_for === "node_sync") return bar("waiting for the node to sync", null);
+      if (WAITING_START.has(status.waiting_for)) return bar("waiting to start", null);
+      if (status.waiting_for === "blocked") {
+        const detail = shortReason(status.refusals && status.refusals[0] && status.refusals[0].detail);
+        return bar(`waiting to start${detail ? `: ${detail}` : ""}`, null, "warn");
+      }
+      return bar("starting", null);
+    }
+  }
+  return bar(String(status.state), null, "warn");
+}
+
+export function applyIndexBar(bar, view) {
+  if (!bar) return;
+  bar.hidden = view.hidden;
+  if (view.hidden) return;
+  bar.querySelector(".index-bar-label").textContent = view.label.replace(/^Balance index: /, "");
+  const track = bar.querySelector(".progress-bg");
+  const fill = bar.querySelector(".index-bar-fill");
+  bar.className = `index-bar index-bar-${view.value == null ? "indeterminate" : "determinate"} index-bar-${view.tone}`;
+  fill.style.width = view.value == null ? "" : `${Math.round(view.value * 100)}%`;
+  track.setAttribute("aria-label", view.label);
+  if (view.value == null) track.removeAttribute("aria-valuenow");
+  else track.setAttribute("aria-valuenow", String(Math.round(view.value * 100)));
 }
 
 function wire(chain) {
   const { card: cardID, heading: headingSelector, title, api } = CHAINS[chain];
+  let lastStatus;
+  const renderBar = () => applyIndexBar(document.getElementById(`index-bar-${chain}`), indexBarView(lastStatus));
+  window.addEventListener("live-updated", renderBar);
   const card = document.getElementById(cardID);
   const heading = document.querySelector(headingSelector);
   let renderBadge = () => {};
@@ -126,6 +165,8 @@ function wire(chain) {
   }
   if (!card) return;
   const render = (status) => {
+    lastStatus = status;
+    renderBar();
     renderBadge(status);
     const view = indexView(status, chain);
     const hint = chain === "bitcoin" ? offHint(status) : "";
@@ -152,19 +193,7 @@ function wire(chain) {
       card.append(bar);
     }
     for (const refusal of view.refusals) card.append(el("div", "watch-warn", refusal));
-    if (view.seedNow) {
-      const button = el("button", null, "Seed now");
-      button.type = "button";
-      const note = el("div", "watch-hint", "");
-      button.addEventListener("click", async () => {
-        button.disabled = true;
-        note.textContent = await requestSeed(undefined, chain);
-        button.disabled = false;
-      });
-      card.append(button, note);
-    }
     if (view.command) card.append(el("div", "watch-hint", "Start a seed on the host:"), el("code", null, view.command));
-    if (view.warning) card.append(el("div", "watch-hint", view.warning));
   };
   const refresh = async () => {
     try {

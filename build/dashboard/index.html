@@ -123,6 +123,7 @@
         <div class="row"><span class="label">Blocks:</span> <span>{{.Blocks}} / {{.Headers}}</span></div>
         <div class="progress-bg"><div class="progress-fill" style="width: {{printf "%.4f" .Progress}}%"></div></div>
         <div class="row"><span class="label">Sync Progress:</span> <span>{{printf "%.4f" .Progress}}%</span></div>
+        <div id="index-bar-bitcoin" class="index-bar" hidden><div class="row"><span class="label">Balance index:</span><span class="index-bar-label"></span></div><div class="progress-bg" role="progressbar" aria-label="Balance index" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill index-bar-fill" style="width:0%"></div></div></div>
         <div class="row"><span class="label">Node Data Size:</span> <span>{{if .NodeSizeBytes}}{{printf "%.2f" .NodeGB}} GiB{{else}}—{{end}}</span></div>
         {{if .ShowMempool}}<hr>
         <div class="row"><span class="label">Mempool:</span> <span>{{.MempoolTxs}} tx · {{printf "%.1f" .MempoolMB}} MiB</span></div>
@@ -247,6 +248,7 @@
         <div class="row"><span class="label">Blocks:</span><span id="litecoin-blocks">—</span></div>
         <div class="progress-bg"><div id="litecoin-progress" class="progress-fill" style="width:0%"></div></div>
         <div class="row"><span class="label">Sync Progress:</span><span id="litecoin-sync">—</span></div>
+        <div id="index-bar-litecoin" class="index-bar" hidden><div class="row"><span class="label">Balance index:</span><span class="index-bar-label"></span></div><div class="progress-bg" role="progressbar" aria-label="Balance index" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill index-bar-fill" style="width:0%"></div></div></div>
         <div class="row"><span class="label">Node Data Size:</span><span id="litecoin-size">—</span></div>
         <hr>
         <div class="row"><span class="label">Mempool:</span><span id="litecoin-mempool">—</span></div>
@@ -282,6 +284,7 @@
         <div class="row"><span class="label">Blocks:</span><span id="dogecoin-blocks">—</span></div>
         <div class="progress-bg"><div id="dogecoin-progress" class="progress-fill" style="width:0%"></div></div>
         <div class="row"><span class="label">Sync Progress:</span><span id="dogecoin-sync">—</span></div>
+        <div id="index-bar-dogecoin" class="index-bar" hidden><div class="row"><span class="label">Balance index:</span><span class="index-bar-label"></span></div><div class="progress-bg" role="progressbar" aria-label="Balance index" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill index-bar-fill" style="width:0%"></div></div></div>
         <div class="row"><span class="label">Node Data Size:</span><span id="dogecoin-size">—</span></div>
         <hr>
         <div class="row"><span class="label">Mempool:</span><span id="dogecoin-mempool">—</span></div>
@@ -317,6 +320,7 @@
         <div class="row"><span class="label">Blocks:</span><span id="bitcoincash-blocks">—</span></div>
         <div class="progress-bg"><div id="bitcoincash-progress" class="progress-fill" style="width:0%"></div></div>
         <div class="row"><span class="label">Sync Progress:</span><span id="bitcoincash-sync">—</span></div>
+        <div id="index-bar-bitcoincash" class="index-bar" hidden><div class="row"><span class="label">Balance index:</span><span class="index-bar-label"></span></div><div class="progress-bg" role="progressbar" aria-label="Balance index" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill index-bar-fill" style="width:0%"></div></div></div>
         <div class="row"><span class="label">Node Data Size:</span><span id="bitcoincash-size">—</span></div>
         <hr>
         <div class="row"><span class="label">Mempool:</span><span id="bitcoincash-mempool">—</span></div>
@@ -516,6 +520,8 @@
       <div class="settings-heading"><h2 id="settings-install-title">Install node</h2></div>
       <p id="settings-install-disk" class="settings-note"></p>
       <label>Blockchain data folder<input id="settings-install-data-dir" type="text" autocomplete="off" maxlength="1024" required></label>
+      <label id="settings-install-index-label" class="settings-check" hidden><input id="settings-install-index" type="checkbox" checked> Instant balances (balance index)</label>
+      <p id="settings-install-index-hint" class="settings-note" hidden>Adds a disk volume and raises the dashboard memory limit to 1 to 2 GB.</p>
       <fieldset>
         <legend>Private LAN interfaces</legend>
         <p class="settings-note">All interfaces are closed by default.</p>
