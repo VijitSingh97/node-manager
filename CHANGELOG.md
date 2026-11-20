@@ -6,6 +6,27 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The stack also survives the host getting a different LAN address after a
+  reboot, power cut or network change. With `dashboard.bind_ip` set to `auto`,
+  the host helper waits until the old address has been gone for a minute and the
+  new one has held for that minute. It then re-renders the last approved
+  configuration and recreates only Tor and the dashboard on the new address. A
+  pending `config.json` change stays pending. LAN RPC, ZMQ and gRPC listeners on
+  the old address move with the dashboard in both `config.json` and the approved
+  snapshot, because Tor cannot start while one of them names a missing address.
+  They follow even when the 1.39.0 failed-start recovery re-rendered the
+  dashboard first. Listeners on any other address, such as a WireGuard
+  interface, are left alone. It also moves the dashboard off the `127.0.0.1`
+  fallback left by a start before the network came up, which the 1.39.0
+  failed-start recovery could cause. A fixed `dashboard.bind_ip` that
+  disappears is reported once in `./stack events` and left unchanged, and
+  `./stack doctor` lists every published address the host no longer has.
+  `configure.sh --detect-bind-ip` prints the address `auto` would pick.
+
+## [1.39.0] - 2026-11-20
+
 ### Added
 
 - Bitcoin Cash's balance index (`bitcoincash.utxo_index`) works on a pruned node.
@@ -77,6 +98,7 @@ All notable changes to this project are documented here. Format follows
   restarts on upgrade.
 - A seed request may name its `mode` (`chainstate` or `replay`); a request with
   no mode behaves as before.
+- Zcash runs Zakura 1.8.9 (from 1.8.8).
 
 ### Fixed
 
@@ -116,22 +138,6 @@ All notable changes to this project are documented here. Format follows
   10 minutes) until it starts, and records it in `./stack events`. Other start
   errors, containers you stopped and deactivated nodes are left alone.
   `up --force-recreate <service>` recreates a service by hand.
-- The stack also survives the host getting a different LAN address after a
-  reboot, power cut or network change. With `dashboard.bind_ip` set to `auto`,
-  the host helper waits until the old address has been gone for a minute and the
-  new one has held for that minute. It then re-renders the last approved
-  configuration and recreates only Tor and the dashboard on the new address. A
-  pending `config.json` change stays pending. LAN RPC, ZMQ and gRPC listeners on
-  the old address move with the dashboard in both `config.json` and the approved
-  snapshot, because Tor cannot start while one of them names a missing address.
-  They follow even when the failed-start recovery re-rendered the dashboard
-  first. Listeners on any other address, such as a WireGuard interface, are left
-  alone.
-  It also moves the dashboard off the `127.0.0.1` fallback left by a start before
-  the network came up, which the failed-start recovery above could cause. A fixed
-  `dashboard.bind_ip` that disappears is reported once in `./stack events` and
-  left unchanged, and `./stack doctor` lists every published address the host no
-  longer has. `configure.sh --detect-bind-ip` prints the address `auto` would pick.
 
 ## [1.38.0] - 2026-11-17
 
@@ -1973,7 +1979,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.38.0...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.39.0...HEAD
+[1.39.0]: https://github.com/VijitSingh97/node-manager/compare/v1.38.0...v1.39.0
 [1.38.0]: https://github.com/VijitSingh97/node-manager/compare/v1.37.0...v1.38.0
 [1.37.0]: https://github.com/VijitSingh97/node-manager/compare/v1.36.0...v1.37.0
 [1.36.0]: https://github.com/VijitSingh97/node-manager/compare/v1.35.1...v1.36.0
