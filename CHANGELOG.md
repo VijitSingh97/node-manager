@@ -6,6 +6,24 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+- On Debian and Ubuntu a dashboard request now starts its host helper at once.
+  New `node-manager-node-control.path` and `node-manager-port-control.path`
+  units watch the request files in the dashboard state volume, and upgrades
+  enable them. The helper timers now run once a minute (were every 10 seconds for
+  node control and 30 seconds for LAN port control). That is the slowest rate
+  that keeps each host capability inside the dashboard's 90-second limit. An
+  idle run also costs less. Node control makes 2 Docker calls instead of 6 and
+  4 jq calls instead of 18. Port control makes 2 or 3 Docker calls instead of 9.
+  Measured in docker-in-docker on an Apple M5 (median of 6 interleaved rounds of
+  20 idle runs, Docker daemon included): node control fell from 398 to 123 ms of
+  CPU per run and port control from 299 to 102 ms. At the new rates that is
+  about 14 CPU-seconds an hour instead of 179. With a Docker data root other than
+  `/var/lib/docker`, a request waits for the once-a-minute run. Homebrew's host
+  loop still runs both helpers every 10 seconds, since launchd cannot watch files
+  inside Docker Desktop's VM, and gets the cheaper runs.
+
 ## [1.39.0] - 2026-11-20
 
 ### Added

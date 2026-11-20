@@ -1212,17 +1212,16 @@ ensure_resource_profile_timer() {
 
 ensure_port_control_timer() {
   [ "$package_managed" = "1" ] || return 0
-  unit='node-manager-port-control.timer'
   systemctl daemon-reload >/dev/null 2>&1 || true
-  systemctl enable --now "$unit" >/dev/null 2>&1 ||
-    echo "WARN  could not enable LAN port controls; run: sudo systemctl enable --now $unit"
+  systemctl enable --now node-manager-port-control.timer node-manager-port-control.path >/dev/null 2>&1 ||
+    echo "WARN  could not enable LAN port controls; run: sudo systemctl enable --now node-manager-port-control.timer node-manager-port-control.path"
 }
 
 ensure_node_control_timer() {
   [ "$package_managed" = "1" ] || return 0
   systemctl daemon-reload >/dev/null 2>&1 || true
-  systemctl enable --now node-manager-node-control.timer >/dev/null 2>&1 ||
-    echo "WARN  could not enable node controls; run: sudo systemctl enable --now node-manager-node-control.timer"
+  systemctl enable --now node-manager-node-control.timer node-manager-node-control.path >/dev/null 2>&1 ||
+    echo "WARN  could not enable node controls; run: sudo systemctl enable --now node-manager-node-control.timer node-manager-node-control.path"
 }
 
 ensure_host_stats_timer() {

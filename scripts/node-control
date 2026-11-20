@@ -11,7 +11,10 @@ now=${NODE_CONTROL_NOW_EPOCH:-$(date +%s)}
 package_managed=${BITCOIN_STACK_PACKAGE_MANAGED:-0}
 host_os=${NODE_CONTROL_OS:-$(uname -s)}
 host_arch=${NODE_CONTROL_ARCH:-$(uname -m)}
-project_name=${BITCOIN_STACK_PROJECT_NAME:-$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' "$env_file" 2>/dev/null | tail -n 1)}
+env_get() {
+  sed -n "/^$1=/h;\${x;s/^$1=//p;}" "$env_file" || true
+}
+project_name=${BITCOIN_STACK_PROJECT_NAME:-$(env_get COMPOSE_PROJECT_NAME 2>/dev/null)}
 if [ -z "$project_name" ]; then
   case "$package_managed" in brew) project_name=bitcoin-starter-stack-brew ;; 1 | apt) project_name=bitcoin-starter-stack-apt ;; *) project_name=bitcoin-starter-stack ;; esac
 fi
@@ -24,7 +27,6 @@ service_ids() {
   "$docker_bin" ps -a --filter "label=com.docker.compose.project=$project_name" \
     --format '{{.Label "com.docker.compose.service"}} {{.ID}}' 2>/dev/null | sort || true
 }
-dashboard_id=$(container_id dashboard)
 mkdir -p "$state_root/node-control"
 chmod 700 "$state_root/node-control"
 exec 9>"$state_root/node-control/.lock"
@@ -186,8 +188,16 @@ if [ -d "$install_transaction" ]; then
   fi
 fi
 [ "${install_recovery_failed:-false}" = true ] || [ -r "$env_file" ] || exit 0
+containers=$("$docker_bin" ps -a --filter "label=com.docker.compose.project=$project_name" \
+  --format '{{.Label "com.docker.compose.service"}} {{.ID}} {{.State}} {{.Label "com.docker.compose.project.config_files"}}' 2>/dev/null) || exit 0
+dashboard_id='' config_files='' stopped_ids=''
+while read -r service id state files; do
+  if [ "$service" = dashboard ] && [ -z "$dashboard_id" ]; then dashboard_id=$id config_files=$files; fi
+  case "$state" in exited | created) stopped_ids="$stopped_ids $id" ;; esac
+done <<EOF
+$containers
+EOF
 [ -n "$dashboard_id" ] || exit 0
-config_files=$($docker_bin inspect --format '{{ index .Config.Labels "com.docker.compose.project.config_files" }}' "$dashboard_id" 2>/dev/null || true)
 case ",$config_files," in *",$stack_root/docker-compose.yml,"*) ;; *) exit 0 ;; esac
 if [ -f "$install_recovery_status" ]; then
   $docker_bin exec -i -u 1000 "$dashboard_id" sh -c 'umask 077; cat > /state/.node-control.status.tmp; mv /state/.node-control.status.tmp /state/node-control.status' <"$install_recovery_status" >/dev/null
@@ -209,16 +219,14 @@ if [ "${install_recovery_applied:-false}" = true ]; then
 fi
 recover_failed_starts() {
   recover_file=$state_root/node-control/recover
-  stopped=$("$docker_bin" ps -a --filter "label=com.docker.compose.project=$project_name" --filter status=exited --filter status=created \
-    --format '{{.Label "com.docker.compose.service"}} {{.ID}}' 2>/dev/null) || return 0
+  [ -n "$stopped_ids" ] || [ -s "$recover_file" ] || return 0
+  stopped=
+  # shellcheck disable=SC2086
+  [ -z "$stopped_ids" ] || stopped=$("$docker_bin" inspect \
+    --format '{{index .Config.Labels "com.docker.compose.service"}}|{{.HostConfig.RestartPolicy.Name}}|{{.State.Running}}|{{.State.Error}}' $stopped_ids 2>/dev/null) || true
   recover_next=$(mktemp "$state_root/node-control/.recover.XXXXXX")
-  printf '%s\n' "$stopped" | while read -r service id; do
-    [ -n "$id" ] || continue
-    details=$("$docker_bin" inspect --format '{{.HostConfig.RestartPolicy.Name}}|{{.State.Running}}|{{.State.Error}}' "$id" 2>/dev/null) || continue
-    policy=${details%%|*}
-    rest=${details#*|}
-    running=${rest%%|*}
-    start_error=${rest#*|}
+  printf '%s\n' "$stopped" | while IFS='|' read -r service policy running start_error; do
+    [ -n "$service" ] || continue
     [ "$policy" = unless-stopped ] && [ "$running" = false ] || continue
     # Other start errors, such as a missing data disk, must not be recreated: Docker would create an empty bind source.
     case "$start_error" in *"failed to bind host port"*) ;; *) continue ;; esac
@@ -282,9 +290,6 @@ config_pending() {
   approved=$(canonical_config "$approved_config") || return 0
   [ -f "$approved_config" ] && [ "$current" = "$approved" ] && return 1
   return 0
-}
-env_get() {
-  sed -n "s/^$1=//p" "$env_file" | tail -n 1
 }
 host_absolute_path() {
   case "$1" in
@@ -509,28 +514,9 @@ launch_at_boot_state() {
     *) printf true ;;
   esac
 }
-publish_host_capability() {
+host_capability() {
   boot_enabled=false
   [ "$boot_supported" != true ] || boot_enabled=$(launch_at_boot_state "$approved_config")
-  clearnet_over_tor=true
-  inbound_connections=true
-  utxo_index=false
-  utxo_index_litecoin=false
-  utxo_index_bitcoincash=false
-  utxo_index_dogecoin=false
-  utxo_blocked='{}'
-  if [ -f "$approved_config" ]; then
-    utxo_blocked=$(jq -c '
-      def off($n): if $n=="bitcoin" then .bitcoin.enabled == false else .[$n].enabled != true end;
-      . as $cfg | {bitcoin:"Bitcoin",litecoin:"Litecoin",dogecoin:"Dogecoin",bitcoincash:"Bitcoin Cash"} | to_entries |
-      map(select(. as $e | $cfg | off($e.key)) | {key:.key, value:("The balance index requires " + .value + " to be enabled.")}) | from_entries' "$approved_config" 2>/dev/null || printf '{}')
-    utxo_index=$(jq -r '.bitcoin.utxo_index == true' "$approved_config" 2>/dev/null || printf false)
-    utxo_index_litecoin=$(jq -r '.litecoin.utxo_index == true' "$approved_config" 2>/dev/null || printf false)
-    utxo_index_bitcoincash=$(jq -r '.bitcoincash.utxo_index == true' "$approved_config" 2>/dev/null || printf false)
-    utxo_index_dogecoin=$(jq -r '.dogecoin.utxo_index == true' "$approved_config" 2>/dev/null || printf false)
-    clearnet_over_tor=$(jq -r '.network.clearnet_over_tor != false' "$approved_config" 2>/dev/null || printf true)
-    inbound_connections=$(jq -r '.network.inbound_connections != false' "$approved_config" 2>/dev/null || printf true)
-  fi
   pending=false
   revision=
   if config_pending; then
@@ -538,23 +524,37 @@ publish_host_capability() {
     revision=$(canonical_config "$config_file" | config_revision)
   fi
   config_path=$(cd "$config_root" && pwd -P)/config.json
-  data_paths='{}'
-  for node_spec in bitcoin:BITCOIN_DATA_DIR monero:MONERO_DATA_DIR tari:TARI_DATA_DIR litecoin:LITECOIN_DATA_DIR dogecoin:DOGECOIN_DATA_DIR bitcoincash:BITCOINCASH_DATA_DIR zcash:ZCASH_DATA_DIR; do
-    node=${node_spec%%:*}
-    variable=${node_spec#*:}
-    path=$(env_get "$variable")
-    [ -n "$path" ] || path=./data/$node
-    path=$(host_absolute_path "$path")
-    data_paths=$(printf '%s' "$data_paths" | jq -c --arg node "$node" --arg path "$path" '.[$node]=$path')
-  done
-  jq -nc --argjson timestamp "$now" --arg platform "$host_platform" --arg boot_kind "$boot_kind" \
+  approved_source=$approved_config
+  [ -f "$approved_source" ] || approved_source=/dev/null
+  env_source=$env_file
+  [ -f "$env_source" ] || env_source=/dev/null
+  jq -nc --rawfile approved "$approved_source" --rawfile env "$env_source" --arg stack_root "$stack_root" \
+    --argjson timestamp "$now" --arg platform "$host_platform" --arg boot_kind "$boot_kind" \
     --argjson boot_supported "$boot_supported" --argjson boot_enabled "$boot_enabled" --argjson config_pending "$pending" \
-    --argjson clearnet_over_tor "$clearnet_over_tor" --argjson inbound_connections "$inbound_connections" --argjson utxo_index "$utxo_index" --argjson utxo_index_litecoin "$utxo_index_litecoin" --argjson utxo_index_bitcoincash "$utxo_index_bitcoincash" --argjson utxo_index_dogecoin "$utxo_index_dogecoin" \
-    --arg config_revision "$revision" --arg config_path "$config_path" --argjson data_paths "$data_paths" --argjson unsupported_nodes "$unsupported_nodes" --argjson utxo_blocked "$utxo_blocked" \
-    '{timestamp:$timestamp,install_supported:true,install_index_supported:true,migrate_supported:true,delete_supported:true,utxo_seed_supported:true,boot_supported:$boot_supported,boot_enabled:$boot_enabled,clearnet_over_tor:$clearnet_over_tor,inbound_connections:$inbound_connections,utxo_index:$utxo_index,utxo_index_litecoin:$utxo_index_litecoin,utxo_index_bitcoincash:$utxo_index_bitcoincash,utxo_index_dogecoin:$utxo_index_dogecoin,config_pending:$config_pending,config_revision:$config_revision,platform:$platform,boot_kind:$boot_kind,config_path:$config_path,data_paths:$data_paths} + if $unsupported_nodes == [] then {} else {unsupported_nodes:$unsupported_nodes} end + if $utxo_blocked == {} then {} else {utxo_index_blocked:$utxo_blocked} end' |
+    --arg config_revision "$revision" --arg config_path "$config_path" --argjson unsupported_nodes "$unsupported_nodes" '
+    (try [$approved | fromjson] catch []) as $saved |
+    def setting(f; fallback): if $saved == [] then fallback else (try ($saved[0] | f) catch fallback) end;
+    def off($n): if $n=="bitcoin" then .bitcoin.enabled == false else .[$n].enabled != true end;
+    def blocked: . as $cfg | {bitcoin:"Bitcoin",litecoin:"Litecoin",dogecoin:"Dogecoin",bitcoincash:"Bitcoin Cash"} | to_entries |
+      map(select(. as $e | $cfg | off($e.key)) | {key:.key, value:("The balance index requires " + .value + " to be enabled.")}) | from_entries;
+    def host_path: if startswith("/") then . elif startswith("./") then $stack_root + "/" + .[2:] else $stack_root + "/" + . end;
+    (reduce ($env | split("\n")[] | capture("^(?<node>[A-Z]+)_DATA_DIR=(?<path>.*)$")) as $line ({}; .[$line.node | ascii_downcase] = $line.path)) as $dirs |
+    setting(blocked; {}) as $utxo_blocked |
+    {timestamp:$timestamp,install_supported:true,install_index_supported:true,migrate_supported:true,delete_supported:true,utxo_seed_supported:true,
+      boot_supported:$boot_supported,boot_enabled:$boot_enabled,
+      clearnet_over_tor:setting(.network.clearnet_over_tor != false; true),inbound_connections:setting(.network.inbound_connections != false; true),
+      utxo_index:setting(.bitcoin.utxo_index == true; false),utxo_index_litecoin:setting(.litecoin.utxo_index == true; false),
+      utxo_index_bitcoincash:setting(.bitcoincash.utxo_index == true; false),utxo_index_dogecoin:setting(.dogecoin.utxo_index == true; false),
+      config_pending:$config_pending,config_revision:$config_revision,platform:$platform,boot_kind:$boot_kind,config_path:$config_path,
+      data_paths:(reduce ("bitcoin","monero","tari","litecoin","dogecoin","bitcoincash","zcash") as $node ({};
+        .[$node] = (($dirs[$node] // "") | if . == "" then "./data/" + $node else . end | host_path)))} +
+    if $unsupported_nodes == [] then {} else {unsupported_nodes:$unsupported_nodes} end +
+    if $utxo_blocked == {} then {} else {utxo_index_blocked:$utxo_blocked} end'
+}
+publish_host_capability() {
+  host_capability |
     $docker_bin exec -i -u 1000 "$dashboard_id" sh -c 'umask 077; cat > /state/.node-control.capability.tmp; mv /state/.node-control.capability.tmp /state/node-control.capability' >/dev/null
 }
-publish_host_capability
 # A chainstate copy pins the node's old tables, so it goes once its seed has finished; the age check covers the moment before the dashboard takes the request.
 remove_finished_chainstate_copy() {
   copy_node=$1
@@ -572,15 +572,18 @@ remove_finished_chainstate_copy() {
 }
 remove_finished_chainstate_copy dogecoin
 remove_finished_chainstate_copy bitcoincash
+# The heartbeat and the request check share one exec because each docker call costs more than the rest of an idle tick.
+request_state=$(host_capability | "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c '
+  umask 077
+  cat > /state/.node-control.capability.tmp && mv /state/.node-control.capability.tmp /state/node-control.capability || exit 1
+  if [ -f /state/node-control.processing ]; then echo processing; elif [ -f /state/node-control.request ]; then echo request; fi')
 delete_marker=$state_root/node-control/delete-pending.json
 size=0
-if ! dashboard_exec test -f /state/node-control.processing >/dev/null 2>&1; then
-  if dashboard_exec test -f /state/node-control.request >/dev/null 2>&1; then
-    dashboard_exec mv /state/node-control.request /state/node-control.processing >/dev/null 2>&1 || exit 0
-  else
-    [ -f "$delete_marker" ] || exit 0
-  fi
-fi
+case "$request_state" in
+  processing) ;;
+  request) dashboard_exec mv /state/node-control.request /state/node-control.processing >/dev/null 2>&1 || exit 0 ;;
+  *) [ -f "$delete_marker" ] || exit 0 ;;
+esac
 if dashboard_exec test -f /state/node-control.processing >/dev/null 2>&1; then
   size=$(dashboard_exec sh -c 'wc -c < /state/node-control.processing' 2>/dev/null | tr -d ' ' || true)
   case "$size" in '' | *[!0-9]*) size=4097 ;; esac

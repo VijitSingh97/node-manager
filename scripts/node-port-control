@@ -43,7 +43,7 @@ if [ "$check_ports_mode" = false ]; then
 fi
 
 env_get() {
-  sed -n "s/^$1=//p" "$env_file" | tail -n 1
+  sed -n "/^$1=/h;\${x;s/^$1=//p;}" "$env_file" || true
 }
 
 project_name=${BITCOIN_STACK_PROJECT_NAME:-$(env_get COMPOSE_PROJECT_NAME)}
@@ -55,9 +55,11 @@ container_id() {
     --filter "label=com.docker.compose.project=$project_name" \
     --filter "label=com.docker.compose.service=$1" | head -n 1
 }
-dashboard_id=$(container_id dashboard)
+dashboard=$("$docker_bin" ps -a --filter "label=com.docker.compose.project=$project_name" --filter "label=com.docker.compose.service=dashboard" \
+  --format '{{.ID}} {{.Label "com.docker.compose.project.config_files"}}' 2>/dev/null | head -n 1)
+dashboard_id=${dashboard%% *}
+config_files=${dashboard#* }
 [ -n "$dashboard_id" ] || preflight_unavailable
-config_files=$($docker_bin inspect --format '{{ index .Config.Labels "com.docker.compose.project.config_files" }}' "$dashboard_id" 2>/dev/null || true)
 case ",$config_files," in
   *",$stack_root/docker-compose.yml,"*) ;;
   *) preflight_unavailable ;;
@@ -142,11 +144,6 @@ clear_credential_processing() {
 
 remove_credential_capability() {
   dashboard_exec rm -f "$credential_capability_path" >/dev/null 2>&1 || true
-}
-
-write_credential_capability() {
-  jq -nc --argjson timestamp "$now" '{timestamp:$timestamp}' | "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c \
-    'umask 077; cat >/state/.credential-control.capability.tmp; mv /state/.credential-control.capability.tmp /state/credential-control.capability' >/dev/null
 }
 
 credential_resource_limits() {
@@ -363,9 +360,14 @@ if [ "${1:-}" = --check-ports ]; then
   exit $?
 fi
 
+pending_has() {
+  case " $pending " in *" $1 "*) return 0 ;; esac
+  return 1
+}
+
 process_credential_request() {
-  if ! dashboard_exec test -f "$credential_processing_path" >/dev/null 2>&1; then
-    dashboard_exec test -f "$credential_request_path" >/dev/null 2>&1 || return 1
+  if ! pending_has credential-control.processing; then
+    pending_has credential-control.request || return 1
     if dashboard_exec sh -c \
       'test -e /state/port-control.request || test -e /state/port-control.processing || test -e /state/node-control.request || test -e /state/node-control.processing' \
       >/dev/null 2>&1; then
@@ -666,19 +668,29 @@ dashboard_auth_configured() {
   ' >/dev/null 2>&1
 }
 
-dashboard_exec sh -c \
-  'umask 077; printf "ready\n" > /state/.port-control.capability.tmp; mv /state/.port-control.capability.tmp /state/port-control.capability' >/dev/null
-if ! dashboard_auth_configured; then
-  remove_credential_capability
-else
-  write_credential_capability
-  if process_credential_request; then
-    exit 0
+credential_capability=
+! dashboard_auth_configured || credential_capability=$(printf '{"timestamp":%s}' "$now")
+# Both heartbeats and the request checks share one exec because each docker call costs more than the rest of an idle tick.
+# shellcheck disable=SC2016
+pending=$(printf '%s\n' "$credential_capability" | "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c '
+  umask 077
+  printf "ready\n" > /state/.port-control.capability.tmp && mv /state/.port-control.capability.tmp /state/port-control.capability || exit 1
+  read -r capability
+  if [ -n "$capability" ]; then
+    printf "%s\n" "$capability" > /state/.credential-control.capability.tmp &&
+      mv /state/.credential-control.capability.tmp /state/credential-control.capability || exit 1
+  else
+    rm -f /state/credential-control.capability
   fi
+  for name in credential-control.processing credential-control.request port-control.processing port-control.request; do
+    [ ! -f "/state/$name" ] || printf "%s " "$name"
+  done')
+if [ -n "$credential_capability" ] && process_credential_request; then
+  exit 0
 fi
 
-if ! dashboard_exec test -f "$processing_path" >/dev/null 2>&1; then
-  dashboard_exec test -f "$request_path" >/dev/null 2>&1 || exit 0
+if ! pending_has port-control.processing; then
+  pending_has port-control.request || exit 0
   dashboard_exec mv "$request_path" "$processing_path" >/dev/null 2>&1 || exit 0
 fi
 
