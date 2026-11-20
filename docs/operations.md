@@ -663,8 +663,9 @@ the last approved configuration, so a pending `config.json` change stays
 pending, and recreates only Tor and the dashboard.
 
 Tor publishes every LAN RPC, ZMQ and gRPC listener and cannot start while one
-names a missing address. The trust rule for listeners is that the same subnet
-means the same LAN:
+names a missing address. Listeners follow the host only onto the same network,
+because Tari gRPC and Monero ZMQ have no password. The same subnet counts as the
+same network:
 
 - If the old address is inside the new address's interface subnet (the router
   just handed out a new lease), listeners on the old address move to the new
@@ -683,12 +684,12 @@ means the same LAN:
 
 The helper also moves the dashboard off the `127.0.0.1` fallback that a start
 before the network came up leaves behind, and recreates a dashboard that still
-holds the old address after the failed-start recovery recreated only Tor. Each step logs one `Host:` line naming
-the listeners it moved, paused or published again. It does nothing while the
-network has no private address, and it leaves a stack you stopped alone. With a
-fixed `dashboard.bind_ip`, it changes nothing and logs one warning instead.
-`./stack doctor` lists every published address the host no longer has and every
-paused listener.
+holds the old address after the failed-start recovery recreated only Tor. Each
+step logs one `Host:` line naming the listeners it moved, paused or published
+again. It does nothing while the network has no private address, and it leaves
+a stack you stopped alone. With a fixed `dashboard.bind_ip`, it changes nothing
+and logs one warning instead. `./stack doctor` lists every published address
+the host no longer has and every paused listener.
 
 On Homebrew the same check runs from the host service. Docker Desktop records
 no start error when a port cannot be bound, so the failed-start recovery above
