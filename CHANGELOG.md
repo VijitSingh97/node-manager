@@ -6,6 +6,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.39.0] - 2026-11-20
+
 ### Added
 
 - Bitcoin Cash's balance index (`bitcoincash.utxo_index`) works on a pruned node.
@@ -77,6 +79,7 @@ All notable changes to this project are documented here. Format follows
   restarts on upgrade.
 - A seed request may name its `mode` (`chainstate` or `replay`); a request with
   no mode behaves as before.
+- Zcash runs Zakura 1.8.9 (from 1.8.8).
 
 ### Fixed
 
@@ -1957,7 +1960,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.38.0...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.39.0...HEAD
+[1.39.0]: https://github.com/VijitSingh97/node-manager/compare/v1.38.0...v1.39.0
 [1.38.0]: https://github.com/VijitSingh97/node-manager/compare/v1.37.0...v1.38.0
 [1.37.0]: https://github.com/VijitSingh97/node-manager/compare/v1.36.0...v1.37.0
 [1.36.0]: https://github.com/VijitSingh97/node-manager/compare/v1.35.1...v1.36.0
