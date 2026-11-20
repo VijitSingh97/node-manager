@@ -7,6 +7,8 @@ env_file=$state_root/.env
 config_file=$config_root/config.json
 approved_config=$state_root/.approved-config.json
 docker_bin=${DOCKER_BIN:-docker}
+ip_bin=${IP_BIN:-ip}
+ifconfig_bin=${IFCONFIG_BIN:-/sbin/ifconfig}
 now=${NODE_CONTROL_NOW_EPOCH:-$(date +%s)}
 package_managed=${BITCOIN_STACK_PACKAGE_MANAGED:-0}
 host_os=${NODE_CONTROL_OS:-$(uname -s)}
@@ -251,6 +253,90 @@ recover_failed_starts() {
     rm -f "$recover_next"
   fi
 }
+host_has_ipv4() {
+  case "$host_os" in
+    Darwin) addresses=$("$ifconfig_bin" -a 2>/dev/null) ;;
+    *) addresses=$("$ip_bin" -o -4 addr show 2>/dev/null) ;;
+  esac || return 0
+  printf '%s\n' "$addresses" | grep -Fq -e "inet $1/" -e "inet $1 "
+}
+remember_bind_address() {
+  [ "$(cat "$bind_state" 2>/dev/null)" != "$*" ] || return 0
+  printf '%s\n' "$*" >"$bind_state.tmp"
+  mv "$bind_state.tmp" "$bind_state"
+}
+check_bind_address() {
+  bind_state=$state_root/node-control/bind-address
+  bound=$(sed -n 's/^DASHBOARD_BIND_IP=//p' "$env_file" 2>/dev/null | tail -n 1)
+  setting=$(jq -r '.dashboard.bind_ip // ""' "$approved_config" 2>/dev/null) || setting=
+  read -r last pending since acted_on 2>/dev/null <"$bind_state" || true
+  case "$bound" in '' | ::1) rm -f "$bind_state"; return 0 ;; esac
+  if [ "$setting" != auto ]; then
+    case "$bound" in 127.*) rm -f "$bind_state"; return 0 ;; esac
+    if host_has_ipv4 "$bound"; then rm -f "$bind_state"; return 0; fi
+    old=$bound new=fixed
+  else
+    old=${last:-$bound} new=
+    case "$bound" in 127.*) ;; *) ! host_has_ipv4 "$bound" || new=$bound ;; esac
+    [ -n "$new" ] || new=$("$stack_root/configure.sh" --detect-bind-ip 2>/dev/null) || new=
+    case "$new" in '' | 127.*) remember_bind_address "$old"; return 0 ;; esac
+    if [ "$new" = "$bound" ] && { [ "$old" = "$new" ] || host_has_ipv4 "$old"; }; then
+      remember_bind_address "$bound"
+      return 0
+    fi
+  fi
+  case "${since:-}" in '' | *[!0-9]*) pending= ;; esac
+  if [ "${last:-} ${pending:-}" != "$old $new" ]; then
+    remember_bind_address "$old" "$new" "$now"
+    return 0
+  fi
+  # A DHCP renewal or Wi-Fi reconnect drops the address for seconds; act only on a lasting change.
+  [ $((now - since)) -ge 60 ] && [ "${acted_on:-}" != "$bound" ] || return 0
+  if [ "$new" = fixed ]; then
+    remember_bind_address "$old" "$new" "$since" "$bound"
+    host_event "dashboard.bind_ip $bound is not on this host; the dashboard and LAN listeners on it stay down until the address returns or dashboard.bind_ip changes."
+    return 0
+  fi
+  tor_id=$(container_id tor)
+  tor_state=$("$docker_bin" inspect --format '{{.State.Status}}|{{.State.Error}}' "$tor_id" 2>/dev/null) || tor_state=
+  case "$tor_state" in running\|* | created\|* | *"failed to bind host port"*) ;; *) remember_bind_address "$old"; return 0 ;; esac
+  exec 8>"$state_root/.config.lock"
+  flock 8
+  moved=
+  if [ "$old" != "$new" ] && ! host_has_ipv4 "$old"; then
+    for listener_config in "$config_file" "$approved_config"; do
+      [ -f "$listener_config" ] || continue
+      moved_config=$(mktemp "${listener_config%/*}/.bind-config.XXXXXX")
+      jq --arg old "$old" --arg new "$new" 'if type == "object" then with_entries(if .key != "dashboard" and (.value | type) == "object" then .value |= with_entries(if (.key | endswith("bind_ip")) and .value == $old then .value = $new else . end) else . end) else . end' \
+        "$listener_config" >"$moved_config" 2>/dev/null || { rm -f "$moved_config"; continue; }
+      if [ "$(jq -S -c . "$listener_config")" = "$(jq -S -c . "$moved_config")" ]; then
+        rm -f "$moved_config"
+      else
+        chmod 600 "$moved_config"
+        mv "$moved_config" "$listener_config"
+        moved=1
+      fi
+    done
+  fi
+  remember_bind_address "$new" "$new" "$since" "$bound"
+  what="the dashboard" from=$bound
+  if [ -n "$moved" ]; then
+    what="the dashboard and its LAN listeners" from=$old
+    [ "$bound" != "$new" ] || what="the LAN listeners"
+  elif [ "$bound" = "$new" ]; then
+    exec 8>&-
+    return 0
+  fi
+  if BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" up tor dashboard >/dev/null 2>&1; then
+    refresh_dashboard_id
+    host_event "Moved $what from $from to $new, this host's current LAN address."
+  else
+    refresh_dashboard_id
+    host_event "Could not move $what from $from to $new, this host's current LAN address."
+  fi
+  exec 8>&-
+}
+check_bind_address
 recover_failed_starts
 restore_approved_runtime() {
   [ -f "$approved_config" ] && [ -f "$state_root/.approved.env" ] || return 1

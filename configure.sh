@@ -10,27 +10,6 @@ env_file=$state_dir/.env
 stack_command=${BITCOIN_STACK_COMMAND:-./stack}
 package_managed=${BITCOIN_STACK_PACKAGE_MANAGED:-0}
 BITCOIN_STACK_DATA_DIR=${BITCOIN_STACK_DATA_DIR:-}
-umask 077
-mkdir -p "$state_dir" "$config_dir"
-if [ "${BITCOIN_STACK_CONFIG_LOCK_HELD:-0}" != 1 ]; then
-  exec 8>"$state_dir/.config.lock"
-  flock 8
-fi
-cd "$state_dir"
-
-for tool in jq openssl; do
-  command -v "$tool" >/dev/null || {
-    echo "$tool is required; install it with your host package manager."
-    exit 1
-  }
-done
-
-config='{}'
-[ -f "$config_file" ] && config=$(cat "$config_file")
-
-get() { jq -r "$1 // \"${2:-}\"" <<<"$config"; }
-flag() { jq -r "if $1 == true then 1 else 0 end" <<<"$config"; }
-
 private_ipv4() {
   local ip=$1 a b c d
   [[ "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || return 1
@@ -68,6 +47,28 @@ detect_dashboard_bind_ip() {
     printf '%s\n' 127.0.0.1
   fi
 }
+
+[ "${1:-}" != --detect-bind-ip ] || { detect_dashboard_bind_ip; exit 0; }
+umask 077
+mkdir -p "$state_dir" "$config_dir"
+if [ "${BITCOIN_STACK_CONFIG_LOCK_HELD:-0}" != 1 ]; then
+  exec 8>"$state_dir/.config.lock"
+  flock 8
+fi
+cd "$state_dir"
+
+for tool in jq openssl; do
+  command -v "$tool" >/dev/null || {
+    echo "$tool is required; install it with your host package manager."
+    exit 1
+  }
+done
+
+config='{}'
+[ -f "$config_file" ] && config=$(cat "$config_file")
+
+get() { jq -r "$1 // \"${2:-}\"" <<<"$config"; }
+flag() { jq -r "if $1 == true then 1 else 0 end" <<<"$config"; }
 
 # Fresh installs generate separate passwords; upgrades reuse each existing value.
 rpc_user=$(get '.bitcoin.node_username')

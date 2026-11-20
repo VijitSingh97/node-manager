@@ -650,6 +650,31 @@ the first failure and the recovery as `Host:` lines in `./stack events`. Other
 start errors, such as a data disk that is not mounted, are left for you, and so
 are containers you stopped and deactivated nodes. `./stack up --force-recreate
 <svc>` recreates a service by hand.
+
+The router can also hand the host a different LAN address after a power cut, or
+a laptop can join another network. Docker cannot bind the old address again, so
+recreating Tor alone does not help. With `dashboard.bind_ip` set to `auto`, the
+host helper remembers the last LAN address the dashboard was reachable on. Once
+that address has been gone from every host interface for a minute, and this
+host's detected LAN address has stayed the same different private address for
+that minute, it acts. A DHCP renewal or a Wi-Fi reconnect is shorter and changes
+nothing. It re-renders the last approved configuration, so a pending
+`config.json` change stays pending, and recreates only Tor and the dashboard.
+LAN RPC, ZMQ and gRPC listeners on the remembered address move to the new one,
+in both `config.json` and the approved snapshot, because Tor publishes them all
+and cannot start while one names a missing address. They move even when another
+start, such as the failed-start recovery above, already re-rendered the
+dashboard. A listener on any other address, such as a WireGuard interface, is
+left alone. The helper also moves the dashboard off the `127.0.0.1` fallback that
+a start before the network came up leaves behind. It logs one `Host:` line, does
+nothing while the network has no private address, and leaves a stack you stopped
+alone. With a fixed `dashboard.bind_ip`, it changes nothing and logs one warning
+instead. `./stack doctor` lists every published address the host no longer has.
+
+On Homebrew the same check runs from the host service. Docker Desktop records
+no start error when a port cannot be bound, so the failed-start recovery above
+never applies there. The host service re-renders and starts the stack at login
+instead.
 The remaining case — running but unhealthy — would need something with
 Docker-socket access to act on, and a socket proxy is a bigger attack
 surface than the failure it heals on a single-node stack. So: unhealthy

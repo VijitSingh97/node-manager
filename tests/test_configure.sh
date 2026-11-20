@@ -441,6 +441,10 @@ grep -q '^DASHBOARD_BIND_IP=192.168.50.41$' "$tmp/.env" || fail "auto dashboard 
 (cd "$tmp" && BITCOIN_STACK_DEFAULT_BIND_IP=8.8.8.8 ./configure.sh) >"$tmp/auto-bind.out" 2>&1
 grep -q '^DASHBOARD_BIND_IP=127.0.0.1$' "$tmp/.env" || fail "auto dashboard bind did not fall back to loopback"
 grep -q 'No private LAN address detected' "$tmp/auto-bind.out" || fail "loopback fallback was not reported"
+cp "$tmp/.env" "$tmp/env.before"
+[ "$(cd "$tmp" && BITCOIN_STACK_DEFAULT_BIND_IP=192.168.50.44 ./configure.sh --detect-bind-ip)" = 192.168.50.44 ] || fail "bind detection did not print the LAN address"
+[ "$(cd "$tmp" && BITCOIN_STACK_DEFAULT_BIND_IP=8.8.8.8 ./configure.sh --detect-bind-ip 2>/dev/null)" = 127.0.0.1 ] || fail "bind detection did not fall back to loopback"
+cmp -s "$tmp/.env" "$tmp/env.before" || fail "bind detection rendered .env"
 echo '{"dashboard":{"bind_ip":"192.168.50.42"}}' >"$tmp/config.json"
 (cd "$tmp" && BITCOIN_STACK_DEFAULT_BIND_IP=192.168.50.43 ./configure.sh) >/dev/null
 grep -q '^DASHBOARD_BIND_IP=192.168.50.42$' "$tmp/.env" || fail "explicit dashboard bind was replaced by auto detection"
