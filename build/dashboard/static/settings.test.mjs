@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { notificationPayload, notificationChanged, configurationAccess, configuredNodeVisibility, portControlModel, portChanges, portCollision, portStatusMessage, portStatusNode, portDraftAfterStatus, portSubmissionOutcome, shouldPollPort, settingsSaveMessage, normalizeDefaultCurrency, applyAppearance, requestSettings, scopedSettingsPayload, splitNodeControlSections, alertPreferenceModel, hostControlModel, hostActionPayload, bootControlLabel, newlyInstalledNodes, shouldPollHost, pendingHostNode, latestRequestGate, hostToggleChanges, hostQueueSettled, savedHostActions, resetSaveRequests, hostToggleDefaults, copyField } from "./settings.js";
+import { notificationPayload, notificationChanged, configurationAccess, configuredNodeVisibility, portControlModel, portChanges, portCollision, portStatusMessage, portStatusNode, portDraftAfterStatus, portSubmissionOutcome, shouldPollPort, settingsSaveMessage, normalizeDefaultCurrency, applyAppearance, requestSettings, scopedSettingsPayload, splitNodeControlSections, alertPreferenceModel, hostControlModel, hostActionPayload, bootControlLabel, newlyInstalledNodes, shouldPollHost, pendingHostNode, latestRequestGate, hostToggleChanges, hostQueueSettled, savedHostActions, resetSaveRequests, hostToggleDefaults } from "./settings.js";
 
 const alertDefaults = {
   alert_monitor_online: true,
@@ -435,11 +435,11 @@ test("host switches stay staged until Save and then apply one at a time in a fix
     { action: "utxo_index", enabled: true },
   ]);
   const pending = { status: { action: "inbound_connections", state: "pending" } };
-  assert.equal(hostQueueSettled(pending, "inbound_connections"), "");
-  assert.equal(hostQueueSettled({ status: { action: "inbound_connections", state: "applied" } }, "inbound_connections"), "applied");
-  assert.equal(hostQueueSettled({ status: { action: "inbound_connections", state: "rejected" } }, "inbound_connections"), "failed");
-  assert.equal(hostQueueSettled({ status: { action: "launch_at_boot", state: "failed" } }, "inbound_connections"), "applied");
-  assert.equal(hostQueueSettled({ status: { action: "inbound_connections", state: "failed" } }, ""), "");
+  assert.equal(hostQueueSettled(pending, { action: "inbound_connections" }), "");
+  assert.equal(hostQueueSettled({ status: { action: "inbound_connections", state: "applied" } }, { action: "inbound_connections" }), "applied");
+  assert.equal(hostQueueSettled({ status: { action: "inbound_connections", state: "rejected" } }, { action: "inbound_connections" }), "failed");
+  assert.equal(hostQueueSettled({ status: { action: "launch_at_boot", state: "failed" } }, { action: "inbound_connections" }), "applied");
+  assert.equal(hostQueueSettled({ status: { action: "inbound_connections", state: "failed" } }, null), "");
   const source = await readFile(new URL("./settings.js", import.meta.url), "utf8");
   assert.doesNotMatch(source, /addEventListener\("change", \(\) => submitHost/);
   assert.match(source, /for \(const \[action, input\] of Object\.entries\(hostToggles\)\) input\.addEventListener\("change", \(\) => \{ hostDraft\[action\] = input\.checked; \}\);/);
@@ -485,7 +485,7 @@ test("host switch defaults match the host helper and the configuration reference
   const reference = await readFile(new URL("../../../docs/configuration.md", import.meta.url), "utf8");
   assert.match(helper, new RegExp(`clearnet_over_tor=${hostToggleDefaults.clearnet_over_tor}\\n\\s*inbound_connections=${hostToggleDefaults.inbound_connections}\\n\\s*utxo_index=${hostToggleDefaults.utxo_index}\\n`));
   assert.match(reference, new RegExp(`\\| \`dashboard\\.launch_at_boot\` \\| \`${hostToggleDefaults.launch_at_boot}\` \\|`));
-  assert.deepEqual(Object.keys(hostToggleDefaults).sort(), ["clearnet_over_tor", "inbound_connections", "launch_at_boot", "utxo_index", "utxo_index_bitcoincash", "utxo_index_litecoin"]);
+  assert.deepEqual(Object.keys(hostToggleDefaults).sort(), ["clearnet_over_tor", "inbound_connections", "launch_at_boot", "utxo_index", "utxo_index_bitcoincash", "utxo_index_dogecoin", "utxo_index_litecoin"]);
 });
 
 test("Settings ends with Reset to default, Cancel and Save, and Cancel closes like the X", async () => {
@@ -518,24 +518,10 @@ test("Reset to default turns off whichever actuator endpoint is on, and keeps on
   assert.equal(saved.actuator_health && saved.actuator_info, true);
 });
 
-test("copyField copies the field and falls back to selecting it when the clipboard is unavailable", async () => {
-  const written = [];
-  let selected = 0;
-  const input = { value: "secret", select: () => { selected++; } };
-  assert.equal(await copyField(input, { writeText: async (text) => { written.push(text); } }), true);
-  assert.deepEqual(written, ["secret"]);
-  assert.equal(selected, 0);
-  assert.equal(await copyField(input, { writeText: async () => { throw new Error("denied"); } }), false);
-  assert.equal(await copyField(input, undefined), false);
-  assert.equal(selected, 2);
-});
-
-test("the settings page shows the actuator login read-only next to both toggles and never keeps the password after close", async () => {
+test("the settings page has only the two actuator toggles and no actuator login fields", async () => {
   const page = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const source = await readFile(new URL("./settings.js", import.meta.url), "utf8");
-  for (const id of ["actuator-health", "actuator-info", "actuator-username", "actuator-password"]) assert.match(page, new RegExp(`id="settings-${id}"`));
-  assert.match(page, /id="settings-actuator-username" type="text" readonly/);
-  assert.match(page, /id="settings-actuator-password" type="text" readonly/);
+  for (const id of ["actuator-health", "actuator-info"]) assert.match(page, new RegExp(`id="settings-${id}"`));
+  assert.doesNotMatch(page + source, /actuator-username|actuator-password|actuator_username|actuator_password/);
   assert.doesNotMatch(page + source, /health-endpoints|health_endpoints/);
-  assert.match(source, /dialog\.addEventListener\("close", \(\) => \{ clearSecrets\(\); actuatorPassword\.value = ""; delete saved\.actuator_password;/);
 });

@@ -22,10 +22,10 @@
   <aside id="update-notice" class="update-notice update-notice-global" role="status"{{if not .UpdateNote}} hidden{{end}}>{{if .UpdateNote}}<strong>🆕 {{.UpdateNote}}</strong> <a href="https://github.com/VijitSingh97/node-manager#updating" target="_blank" rel="noopener noreferrer">How to update</a>{{end}}</aside>
   <main id="node-overview" class="node-overview" aria-label="Choose a node">
     <div id="host-stats" class="host-stats" hidden>
+      <div class="host-stats-health" data-host-health role="group" aria-label="Host vitals" hidden></div>
       <p class="host-stats-line" data-host-line></p>
       <div class="host-stats-disk" data-host-disk></div>
       <div class="host-stats-pies" data-host-pies hidden></div>
-      <dl class="host-stats-health" data-host-health hidden></dl>
     </div>
     <h1 class="node-set-title">{{.NodeName}} Node Set</h1><p id="node-overview-status" role="status">Loading node set…</p>
     <button class="node-choice node-choice-bitcoin" type="button" data-select-node="bitcoin" hidden data-node-active="1" style="--node-accent:#f2a900" aria-label="Bitcoin" aria-controls="bitcoin-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Bitcoin</b><small data-tower-price-asset="bitcoin">Price unavailable</small></span></button>
@@ -89,10 +89,10 @@
   <aside id="update-notice" class="update-notice update-notice-global" role="status"{{if not .UpdateNote}} hidden{{end}}>{{if .UpdateNote}}<strong>🆕 {{.UpdateNote}}</strong> <a href="https://github.com/VijitSingh97/node-manager#updating" target="_blank" rel="noopener noreferrer">How to update</a>{{end}}</aside>
   <main id="node-overview" class="node-overview" aria-label="Choose a node">
     <div id="host-stats" class="host-stats" hidden>
+      <div class="host-stats-health" data-host-health role="group" aria-label="Host vitals" hidden></div>
       <p class="host-stats-line" data-host-line></p>
       <div class="host-stats-disk" data-host-disk></div>
       <div class="host-stats-pies" data-host-pies hidden></div>
-      <dl class="host-stats-health" data-host-health hidden></dl>
     </div>
     <h1 class="node-set-title">{{.NodeName}} Node Set</h1><p id="node-overview-status" role="status">Loading node set…</p>
     <button class="node-choice node-choice-bitcoin" type="button" data-select-node="bitcoin" hidden data-node-active="1" style="--node-accent:#f2a900" aria-label="Bitcoin" aria-controls="bitcoin-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Bitcoin</b><small data-tower-price-asset="bitcoin">Price unavailable</small></span></button>
@@ -118,11 +118,12 @@
         <h2>Bitcoin Node Status<span class="badge">{{if .Pruned}}Pruned{{else}}Full{{end}}</span></h2>
         <div class="row"><span class="label">Version:</span> <span>{{.CoreVersion}}</span></div>
         <div class="row"><span class="label">Uptime:</span> <span>{{.Uptime}}</span></div>
-        <div class="row"><span class="label">Connections:</span> <span>{{.Inbound}} in · {{.Outbound}} out</span></div>
+        <div class="row"><span class="label">Connections:</span> <span>{{if .PeersUnknown}}—{{else}}{{.Inbound}} in · {{.Outbound}} out{{end}}</span></div>
         <hr>
         <div class="row"><span class="label">Blocks:</span> <span>{{.Blocks}} / {{.Headers}}</span></div>
         <div class="progress-bg"><div class="progress-fill" style="width: {{printf "%.4f" .Progress}}%"></div></div>
         <div class="row"><span class="label">Sync Progress:</span> <span>{{printf "%.4f" .Progress}}%</span></div>
+        <div id="index-bar-bitcoin" class="index-bar" hidden><div class="row"><span class="label">Balance index:</span><span class="index-bar-label"></span></div><div class="progress-bg" role="progressbar" aria-label="Balance index" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill index-bar-fill" style="width:0%"></div></div></div>
         <div class="row"><span class="label">Node Data Size:</span> <span>{{if .NodeSizeBytes}}{{printf "%.2f" .NodeGB}} GiB{{else}}—{{end}}</span></div>
         {{if .ShowMempool}}<hr>
         <div class="row"><span class="label">Mempool:</span> <span>{{.MempoolTxs}} tx · {{printf "%.1f" .MempoolMB}} MiB</span></div>
@@ -138,7 +139,6 @@
           </div>
         </section>
         <hr>
-        <div class="row"><span class="label">Open ports:</span> <span></span></div>
         <div class="row"><span class="label">RPC:</span> <span>{{if .BitcoinRPCEndpoint}}{{.BitcoinRPCEndpoint}} · LAN{{else}}Disabled{{end}}</span></div>
         <p class="node-state">Configured LAN access. Use your Bitcoin RPC login.</p>
         <div class="footer"><span>Updated: {{.LastUpdate}}</span><span>{{.Version}}</span><span>Auto-refresh: 30s</span></div>
@@ -185,7 +185,6 @@
           </div>
         </section>
         <hr>
-        <div class="row"><span class="label">Open ports:</span> <span></span></div>
         <div class="row"><span class="label">RPC:</span> <span id="monero-rpc-exposure">Disabled</span></div>
         <div class="row"><span class="label">ZMQ:</span> <span id="monero-zmq-exposure">Disabled</span></div>
         <p class="node-state">Configured LAN access. RPC is restricted and requires your Monero login. ZMQ is for a trusted LAN.</p>
@@ -222,7 +221,6 @@
         <section data-price-asset="tari" hidden><hr><div class="price-row"><span class="price-label">Tari price</span><strong class="price-value" data-price-value>—</strong><select class="price-currency" data-price-currency aria-label="Tari price currency"></select><span class="price-status" data-price-status>Price unavailable</span></div></section>
         <hr>
         <div class="row"><span class="label">gRPC:</span><span id="tari-rpc-exposure">—</span></div>
-        <p class="node-state">For Pithead on a trusted LAN. This mining endpoint has no password support.</p>
         <div class="footer"><span id="tari-updated">Updated: —</span><span>{{.Version}}</span><span>Auto-refresh: 30s</span></div>
       </div>
     </section>
@@ -248,6 +246,7 @@
         <div class="row"><span class="label">Blocks:</span><span id="litecoin-blocks">—</span></div>
         <div class="progress-bg"><div id="litecoin-progress" class="progress-fill" style="width:0%"></div></div>
         <div class="row"><span class="label">Sync Progress:</span><span id="litecoin-sync">—</span></div>
+        <div id="index-bar-litecoin" class="index-bar" hidden><div class="row"><span class="label">Balance index:</span><span class="index-bar-label"></span></div><div class="progress-bg" role="progressbar" aria-label="Balance index" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill index-bar-fill" style="width:0%"></div></div></div>
         <div class="row"><span class="label">Node Data Size:</span><span id="litecoin-size">—</span></div>
         <hr>
         <div class="row"><span class="label">Mempool:</span><span id="litecoin-mempool">—</span></div>
@@ -283,6 +282,7 @@
         <div class="row"><span class="label">Blocks:</span><span id="dogecoin-blocks">—</span></div>
         <div class="progress-bg"><div id="dogecoin-progress" class="progress-fill" style="width:0%"></div></div>
         <div class="row"><span class="label">Sync Progress:</span><span id="dogecoin-sync">—</span></div>
+        <div id="index-bar-dogecoin" class="index-bar" hidden><div class="row"><span class="label">Balance index:</span><span class="index-bar-label"></span></div><div class="progress-bg" role="progressbar" aria-label="Balance index" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill index-bar-fill" style="width:0%"></div></div></div>
         <div class="row"><span class="label">Node Data Size:</span><span id="dogecoin-size">—</span></div>
         <hr>
         <div class="row"><span class="label">Mempool:</span><span id="dogecoin-mempool">—</span></div>
@@ -296,6 +296,7 @@
       </div>
     </section>
     <section class="card chain-wallet-card" data-family-watch="dogecoin"><h2>Watch-only wallets</h2><p class="node-state" data-family-watch-status>Loading wallet capabilities…</p><div data-family-watch-list></div></section>
+    <section id="utxo-index-dogecoin" class="card watch-card" hidden></section>
     <section class="card node-power-card" style="--node-accent:#b88746">
       <h2>Node controls</h2>
       <p id="dogecoin-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
@@ -317,6 +318,7 @@
         <div class="row"><span class="label">Blocks:</span><span id="bitcoincash-blocks">—</span></div>
         <div class="progress-bg"><div id="bitcoincash-progress" class="progress-fill" style="width:0%"></div></div>
         <div class="row"><span class="label">Sync Progress:</span><span id="bitcoincash-sync">—</span></div>
+        <div id="index-bar-bitcoincash" class="index-bar" hidden><div class="row"><span class="label">Balance index:</span><span class="index-bar-label"></span></div><div class="progress-bg" role="progressbar" aria-label="Balance index" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill index-bar-fill" style="width:0%"></div></div></div>
         <div class="row"><span class="label">Node Data Size:</span><span id="bitcoincash-size">—</span></div>
         <hr>
         <div class="row"><span class="label">Mempool:</span><span id="bitcoincash-mempool">—</span></div>
@@ -440,8 +442,11 @@
         <legend>Actuator</legend>
         <label class="settings-check"><input id="settings-actuator-health" type="checkbox"> Serve /actuator/health</label>
         <label class="settings-check"><input id="settings-actuator-info" type="checkbox"> Serve /actuator/info</label>
-        <label>Username<span class="settings-copy"><input id="settings-actuator-username" type="text" readonly autocomplete="off"><button id="settings-actuator-username-copy" type="button">Copy</button></span></label>
-        <label>Password<span class="settings-copy"><input id="settings-actuator-password" type="text" readonly autocomplete="off"><button id="settings-actuator-password-copy" type="button">Copy</button></span></label>
+        <div class="settings-actuator-copy">
+          <button type="button" id="settings-actuator-copy-health" hidden>Copy curl for health</button>
+          <button type="button" id="settings-actuator-copy-info" hidden>Copy curl for info</button>
+        </div>
+        <p id="settings-actuator-copy-note" class="settings-note">Turn a switch on and press Save to copy a curl command for it.</p>
       </fieldset>
       <fieldset id="settings-config">
         <legend>Config</legend>
@@ -513,6 +518,8 @@
       <div class="settings-heading"><h2 id="settings-install-title">Install node</h2></div>
       <p id="settings-install-disk" class="settings-note"></p>
       <label>Blockchain data folder<input id="settings-install-data-dir" type="text" autocomplete="off" maxlength="1024" required></label>
+      <label id="settings-install-index-label" class="settings-check" hidden><input id="settings-install-index" type="checkbox" checked> Instant balances (balance index)</label>
+      <p id="settings-install-index-hint" class="settings-note" hidden>Adds a disk volume and raises the dashboard memory limit to 1 to 2 GB.</p>
       <fieldset>
         <legend>Private LAN interfaces</legend>
         <p class="settings-note">All interfaces are closed by default.</p>
@@ -530,6 +537,16 @@
       <p class="settings-note">The node must be installed again from scratch and re-synced. Other nodes are not touched.</p>
       <label id="settings-delete-confirm-label">Type <b></b> to confirm<input id="settings-delete-confirm" type="text" autocomplete="off" spellcheck="false"></label>
       <div class="settings-actions"><button id="settings-delete-cancel" type="button">Cancel</button><button id="settings-delete-submit" type="submit" disabled>Delete on Save</button></div>
+    </form>
+  </dialog>
+  <dialog id="actuator-curl-dialog" class="settings-dialog" aria-labelledby="actuator-curl-title">
+    <form id="actuator-curl-form">
+      <div class="settings-heading"><h2 id="actuator-curl-title">Copy curl command</h2></div>
+      <p>The command includes your dashboard password, so it will stay in shell history. For scripts and monitors, prefer <code>curl --user admin</code> with the URL, which asks for the password.</p>
+      <label>Dashboard password<input id="actuator-curl-password" type="password" autocomplete="current-password" spellcheck="false"></label>
+      <label id="actuator-curl-fallback-label" hidden>Press Ctrl+C / Cmd+C to copy<textarea id="actuator-curl-fallback" readonly rows="3" spellcheck="false"></textarea></label>
+      <p id="actuator-curl-error" class="node-state" role="status" aria-live="polite"></p>
+      <div class="settings-actions"><button type="button" id="actuator-curl-cancel">Close</button><button type="submit" id="actuator-curl-submit">Copy</button></div>
     </form>
   </dialog>
   <dialog id="credential-reset-dialog" class="settings-dialog" aria-labelledby="credential-reset-title">

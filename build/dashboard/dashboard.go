@@ -69,6 +69,7 @@ type pageData struct {
 	Blocks               int64
 	Headers              int64
 	Progress             float64
+	PeersUnknown         bool
 	Inbound              int
 	Outbound             int
 	Pruned               bool
@@ -115,8 +116,6 @@ type app struct {
 	dashboardAuth    *dashboardAuth
 	sessions         *dashboardSessions
 	loginLimiter     *loginLimiter
-	actuatorLimiter  *loginLimiter
-	actuator         actuatorCredentials
 	passwordWork     *passwordWorkLimiter
 	passwordAttempts chan struct{}
 	controlMu        sync.Mutex
@@ -142,7 +141,6 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 	a := &app{cfg: cfg, rpc: rpc, template: t, static: http.StripPrefix("/static/", http.FileServer(http.Dir(staticPath))), log: logger, additionalFees: make(map[string][]float64), nodeHealth: make(map[string]nodeHealthSnapshot)}
 	a.sessions = newDashboardSessions()
 	a.loginLimiter = newLoginLimiter()
-	a.actuatorLimiter = newLoginLimiter()
 	a.passwordWork = newPasswordWorkLimiter()
 	a.passwordAttempts = make(chan struct{}, 2)
 	a.dashboardAuth, err = newDashboardAuth(cfg.stateDir, cfg.dashboardPassword)
@@ -155,9 +153,7 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 	if cfg.stateDir != "" {
 		a.sessions.persist(filepath.Join(cfg.stateDir, "sessions.json"), a.dashboardAuth.sessionBinding(), time.Now())
 	}
-	if a.actuator, err = loadOrCreateActuatorCredentials(cfg.stateDir); err != nil {
-		a.log.Print("actuator credentials could not be saved; they change on every restart until the state directory is writable")
-	}
+	removeLegacyActuatorCredentials(cfg.stateDir, a.log)
 	a.watch = NewWatchStore(cfg.stateDir)
 	if a.watch.ScanErr() != nil {
 		a.log.Print("watch balance cache unavailable; pruned balance scans disabled until the cache is repaired and the dashboard restarts")
@@ -196,7 +192,7 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 			dumpRPC := *rpc
 			dumpRPC.client, dumpRPC.maxBody = newInternalHTTPClient(0), 1<<20
 			a.utxo.configureSeed(utxoSeedHost{stateDir: cfg.stateDir, dataDir: cfg.dataDir, dump: &dumpRPC, hold: a.scanner.hold, release: a.scanner.release, lock: &a.utxoSeedLock,
-				autoSeed: func() (string, string) { return a.queueSeedHostAction(nodeBitcoin) }})
+				autoSeed: func() (string, string) { return a.queueSeedHostAction(nodeBitcoin) }, autoResult: a.seedHostResult, otherSeedActive: a.anySeedActive})
 			a.utxo.configureBench(a.benchHost())
 		}
 	}
@@ -254,9 +250,16 @@ func (a *app) index(w http.ResponseWriter, r *http.Request) {
 	networkErr := a.rpc.call(ctx, "getnetworkinfo", []any{}, &network)
 	peersErr := a.rpc.call(ctx, "getpeerinfo", []any{}, &peers)
 	uptimeErr := a.rpc.call(ctx, "uptime", []any{}, &uptime)
+	usage := a.hostNodeUsage(nodeBitcoin)
 	uptimeLabel := formatUptime(uptime)
 	if uptimeErr != nil {
 		uptimeLabel = "—"
+		if seconds, ok := hostUptime(usage); ok {
+			uptimeLabel = formatUptime(float64(seconds))
+		}
+	}
+	if chain.SizeOnDisk <= 0 && usage.DiskBytes > 0 {
+		chain.SizeOnDisk = int64(usage.DiskBytes)
 	}
 	if networkErr == nil && peersErr == nil {
 		a.noteNodeNetwork(nodeBitcoin, network.Subversion, int64(len(peers)))
@@ -276,7 +279,7 @@ func (a *app) index(w http.ResponseWriter, r *http.Request) {
 		InitialBlockDownload: chain.InitialBlockDownload,
 		Version:              versionLabel(a.cfg.version), CoreVersion: network.Subversion, Uptime: uptimeLabel,
 		Blocks: chain.Blocks, Headers: chain.Headers, Progress: chain.VerificationProgress * 100,
-		Inbound: inbound, Outbound: len(peers) - inbound,
+		PeersUnknown: peersErr != nil, Inbound: inbound, Outbound: len(peers) - inbound,
 		Pruned: chain.Pruned, NodeGB: gib(chain.SizeOnDisk), NodeSizeBytes: chain.SizeOnDisk,
 		NextBlock: chain.Blocks + 1, LastUpdate: time.Now().Format("15:04:05"),
 		FeeNext: "—", Fee30m: "—", FeeHour: "—",

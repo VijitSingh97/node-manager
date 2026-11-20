@@ -154,14 +154,27 @@ flow("Turning every host switch the other way sends one request each, in a fixed
   ]);
 });
 
-flow("A failed host change stops the changes queued after it", async ({ page, helper }) => {
-  helper.outcome = (request) => (request.action === "launch_at_boot" ? "failed" : "applied");
+flow("A failed host change shows the host's reason and does not stop the independent changes after it", async ({ page, helper }) => {
+  helper.outcome = (request) => (request.action === "launch_at_boot" ? "rejected" : "applied");
+  helper.detail = (request) => (request.action === "launch_at_boot" ? "Launch setting requires the host service." : "");
   await openHostSettings(page);
   await page.setChecked("#settings-launch-at-start", true);
   await page.setChecked("#settings-inbound-connections", false);
   await save(page);
-  await page.waitText("#settings-status", "A host change failed; the changes after it were not sent.");
-  assert.deepEqual(helper.requests.map(withoutIdentity), [{ action: "launch_at_boot", enabled: true }]);
-  assert.equal(helper.capability.inbound_connections, true);
+  await page.waitText("#settings-status", "Launch at start: The requested host change did not pass validation. Launch setting requires the host service. Skipped: none.");
+  assert.deepEqual(helper.requests.map(withoutIdentity), [{ action: "launch_at_boot", enabled: true }, { action: "inbound_connections", enabled: false }]);
+  assert.equal(helper.capability.inbound_connections, false);
   assert.equal(await page.checked("#settings-launch-at-start"), false);
+});
+
+flow("A host change already in effect still lets a staged Delete go out after it", { nodes: ["litecoin"], capability: { delete_supported: true } }, async ({ dash, page, helper }) => {
+  dash.writeState("node-runtime.json", { litecoin: false });
+  await openHostSettings(page);
+  await page.setChecked("#settings-launch-at-start", true);
+  await page.click("#settings-host-nodes .settings-host-node:nth-child(4) .settings-delete-button");
+  await page.type("#settings-delete-confirm", "litecoin");
+  await page.click("#settings-delete-submit");
+  await save(page);
+  await savedAndSettled(page);
+  assert.deepEqual(helper.requests.map(withoutIdentity), [{ action: "launch_at_boot", enabled: true }, { action: "delete", node: "litecoin", confirmation: "litecoin" }]);
 });

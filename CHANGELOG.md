@@ -8,6 +8,120 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
+- Bitcoin Cash's balance index (`bitcoincash.utxo_index`) works on a pruned node.
+  Bitcoin Cash Node 29.2.0 has no coin-set export, so a seed now works like
+  Dogecoin's: the node stops briefly while its chainstate is copied, then the
+  dashboard builds the index from the copy and follows raw blocks from there. The
+  reader was checked against a real Bitcoin Cash Node regtest chainstate (every
+  script type, CashTokens outputs unwrapped to their script, coinbase, spent and
+  unspendable outputs, multi-byte output indexes); the fixture is rebuilt by
+  `tools/regenerate-bitcoincash-chainstate-fixture.py`. The copy marks Bitcoin
+  Cash as restarting, so it raises no node-down alert, and it is refused if the
+  node was flushing when it was taken. Seed time and index size on mainnet are not
+  measured yet.
+- `./stack utxo-seed bitcoincash --replay` replays every block of an archival
+  node, the previous behaviour, which is still what an install with no host
+  helper uses automatically.
+- The install dialog offers "Instant balances (balance index)" next to the data
+  folder for Bitcoin, Litecoin, Dogecoin and Bitcoin Cash, ticked by default. The
+  install request carries an optional `utxo_index` boolean; the host helper accepts
+  both request shapes, and the dashboard sends the option only when the helper
+  reports `install_index_supported`.
+- Every node card shows a progress bar for its balance index (waiting for the node
+  to sync, building with a percentage, catching up, ready, seeding failed), hidden
+  when the index is off. `/api/utxo-index` gains `node_synced`, `waiting_for`,
+  `needs_host` and `seed_stopped`.
+- Settings shows the host's real rejection message (for example which node an index
+  option needs) instead of only "The requested host change did not pass
+  validation", and the host helper reports it as the status `detail`.
+- The host helper refuses a seed with `busy` while another index is seeding or a
+  chainstate copy is in progress, and with `recently_started` within 10 minutes of
+  the node starting; neither stops the node, and neither counts as a failed seed.
+
+### Changed
+
+- The Seed now buttons and the explanatory paragraphs under Settings → Balance index
+  are gone. An index seeds itself as soon as it is on and the node has synced, on
+  every chain, without asking: never while the node syncs, within 10 minutes of its
+  start, or beside another seed; those waits re-check every 30 seconds. A seed whose
+  host preparation fails (a chainstate copy exit 2 or 3) now counts towards the
+  three-failure stop, so a Dogecoin or Bitcoin Cash node is not stopped every hour
+  indefinitely, and an index that turns invalid is reseeded (not within a day of a
+  good seed). After the third failure the bar reads "seeding failed" with the
+  reason, and turning the index off and on clears the count.
+- A failed or rejected host change in Settings no longer drops the changes queued
+  after it. Changes are matched to the host's result by action, node and request id,
+  independent changes still go out (only later changes to the same node are skipped),
+  and the final line names each failure with its real message and what was skipped.
+- Settings greys out a balance index switch the host would refuse and shows the
+  host's reason as its tooltip (`install_index_supported` and `utxo_index_blocked`
+  in the capability file; the dashboard also refuses such a request itself).
+- `node-control` accepts the install request with or without `utxo_index`, so a new
+  dashboard and an old helper (or the reverse) still install: the dashboard omits the
+  option when the helper does not report support for it.
+- Upgrade: existing installs keep their current index setting. Nothing is turned on,
+  seeded or restarted by the upgrade, an index that is off stays off (turn it on in
+  Settings and it seeds itself), and a seed that already failed three times keeps
+  its stop until you turn the index off and on. A host that never set an index key
+  still defaults to off; the default-on applies to nodes installed through the
+  dialog, which writes the key you choose.
+- Dashboard memory is unchanged: 1g for any mix of Bitcoin, Litecoin and Dogecoin
+  indexes and 2g with `GOMEMLIMIT` 1600MiB once Bitcoin Cash is on. Memory with all
+  four indexes and one seeding has not been measured; see `docs/hardware.md`.
+
+- A Bitcoin Cash install from the dashboard is now pruned by default (10,000 MiB
+  of block files) with its balance index on, instead of archival. The install
+  disk estimate reads "Not measured" until a pruned sync is measured.
+  `configure.sh` and the host helper no longer refuse the index on a pruned
+  Bitcoin Cash node. Existing installs keep their settings; nothing seeds or
+  restarts on upgrade.
+- A seed request may name its `mode` (`chainstate` or `replay`); a request with
+  no mode behaves as before.
+- Adding a Bitcoin watch-only wallet to the balance index derives its 2,000
+  scripts in four chunks per branch, up to three at a time (leaving one of
+  bitcoind's default four RPC threads free), instead of one sequential call per
+  branch, to bring a cold add closer to 1 s. The same scripts are derived. Not
+  yet measured on a real node.
+
+### Fixed
+
+- Node cards no longer show a dash for Node Data Size and Uptime when the node
+  cannot report them (Tari, Zcash, and Dogecoin's uptime). The dashboard falls
+  back to the host collector's measured data directory size and the node
+  container's start time, both added to `host-stats.json` (`started_at` per
+  node), and still shows a dash when that file is missing or stale. A node's own
+  size and uptime win when it reports them. The fallback size is the whole data
+  directory and can lag by one measurement cycle, and the host collector now
+  inspects each running node container once per sample to read its start time.
+- The Bitcoin card shows a dash for Connections when `getpeerinfo` fails instead
+  of `0 in · 0 out`.
+- The Bitcoin and Monero cards no longer show an empty Open ports row.
+
+## [1.38.0] - 2026-11-17
+
+### Added
+
+- Instant Dogecoin balances: `dogecoin.utxo_index` (Settings → Balance index →
+  "Instant Dogecoin balances") keeps a Dogecoin balance index, on a pruned node
+  too, and the Dogecoin watch-only card reads its balances from it once it is at
+  the node's tip. Dogecoin Core 1.14.9 has no coin-set export, so a seed stops the
+  Dogecoin node while its chainstate is copied, starts it again, and
+  builds the index from the copy; the index then follows new blocks, merge-mined
+  ones included. A Dogecoin install from the dashboard turns the index on, and the
+  archival watch wallet is no longer needed for balances. If a pruned node drops
+  blocks the index still needs, Settings offers Seed now. The copy marks
+  Dogecoin as restarting while it is stopped, from Settings or the command line,
+  so it raises no node-down alert. Dogecoin is not in `utxo-index bench` or its CI
+  test, since Dogecoin Core 1.14.9 has none of the RPCs it uses; its index is
+  checked by a regtest test against the node's own `gettxout`. The seed time and
+  index size on mainnet are not measured yet.
+- Host vitals redesign: the Node Manager usage panel now shows Temperature,
+  Fan, Uptime and Network as four tiles above the disk bars. Temperature has a
+  dot that runs from blue to red up to the 88 °C throttle limit, the fan icon
+  spins in proportion to rpm over the fan's maximum (still at 0 rpm), uptime has
+  a ring that fills over each day, and network down and up are green and blue.
+  The collector now reports each fan's maximum (`fans_max_rpm`, from hwmon
+  `fanN_max`). Animations stop when the system asks for reduced motion.
 - Instant Bitcoin Cash balances: `bitcoincash.utxo_index` (Settings → Balance
   index → "Instant Bitcoin Cash balances") keeps a Bitcoin Cash balance index, and
   the Bitcoin Cash watch-only card reads its balances from it once it is at the
@@ -40,10 +154,46 @@ All notable changes to this project are documented here. Format follows
 
 ### Changed
 
-- Adding a Bitcoin watch-only wallet to the balance index derives its 2,000
-  scripts in four chunks per branch, up to three at a time (leaving one of bitcoind's default four RPC threads
-  free), instead of one sequential call per branch, to bring a cold add closer to 1 s. The same
-  scripts are derived. Not yet measured on a real node.
+- The Debian and Ubuntu host helpers poll less often to cut idle CPU: node
+  control every 10 seconds (was 2) and LAN port control every 30 seconds (was
+  15). A node or credential change from the dashboard can now take up to about
+  10 seconds to start, and a LAN port change up to about 30 seconds. Port
+  control looks up the dashboard container once per run instead of for every
+  command, and the resource-profile helper reads the container list and `.env`
+  once per run instead of calling `docker compose ps` and `sed` repeatedly.
+  Homebrew's host loop already ran every 10 seconds and is unchanged.
+- The actuator endpoints now use the same login as the dashboard (user `admin`
+  and the dashboard password, over HTTP Basic auth) instead of a generated
+  `actuator` login. Settings no longer shows an actuator username and
+  password, and a leftover `actuator-credentials.json` is deleted on start.
+  A wrong login still gets a 401 with a `WWW-Authenticate` challenge, a
+  switched-off endpoint a 404, and repeated wrong passwords share the dashboard
+  sign-in limit. A monitor given this login can also sign in to the dashboard.
+  Upgrade note: monitors that sent the generated login must be changed to the
+  dashboard login.
+- Settings → Actuator has **Copy curl for health** and **Copy curl for info**
+  buttons, shown while the matching switch is saved on. Each asks for the
+  dashboard password, has the server check it, then copies a complete curl
+  command for the endpoint with the admin login and that password filled in. On a plain
+  `http://` address, where the browser blocks clipboard access, it falls back
+  to a selected field with a **Copy again** button (pressed with the click, so
+  Safari allows it) or Ctrl+C / Cmd+C. The command holds the password and will
+  stay in shell history.
+- The `WWW-Authenticate` challenge is now sent only with actuator 401 and 429
+  answers, and a leftover actuator credentials file that cannot be deleted is
+  logged with a fixed message.
+- Host vitals now refresh every 10 seconds on Debian and Ubuntu installs. A
+  small Go helper, the new recommended `node-manager-hostd` package, replaces the
+  shell collector on a systemd timer and is much cheaper than the minute-by-minute
+  shell run. Existing installs add it once with
+  `sudo apt-get install node-manager-hostd`; without it the shell collector runs
+  as before. Homebrew installs are unchanged.
+
+### Fixed
+
+- Turning Launch at boot off on an APT install no longer fails with "Launch
+  setting is already in that state", and a Settings change that is already in
+  effect no longer drops the changes queued after it, such as a node delete.
 
 ## [1.37.0] - 2026-11-17
 
@@ -1775,7 +1925,7 @@ First tagged release.
   (v31.1)** — lncm stopped publishing in January 2025; the official images
   track every Core release, so Dependabot catches node upgrades.
 - Stack subnet moved to `172.29.0.0/24` (the old `172.28.0.0/24` collides
-  with Pithead's network on a shared Docker host).
+  with another project's network on a shared Docker host).
 - Credentials flow `config.json` → gitignored `.env` → container
   environment; no tracked file is ever modified.
 
@@ -1787,7 +1937,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.37.0...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.38.0...HEAD
+[1.38.0]: https://github.com/VijitSingh97/node-manager/compare/v1.37.0...v1.38.0
 [1.37.0]: https://github.com/VijitSingh97/node-manager/compare/v1.36.0...v1.37.0
 [1.36.0]: https://github.com/VijitSingh97/node-manager/compare/v1.35.1...v1.36.0
 [1.35.1]: https://github.com/VijitSingh97/node-manager/compare/v1.35.0...v1.35.1

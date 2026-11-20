@@ -1,0 +1,94 @@
+{
+  "board_temp_c": 45.0,
+  "cpu_temp_c": 61.2,
+  "cpus": 4,
+  "disks": [
+    {
+      "disk_free_bytes": 600000000000,
+      "disk_total_bytes": 1000000000000,
+      "label": "WDC PC SN730 NVMe",
+      "name": "/dev/nvme0n1",
+      "nodes": [
+        "bitcoin",
+        "bitcoincash",
+        "dogecoin",
+        "litecoin",
+        "tari",
+        "zcash"
+      ]
+    },
+    {
+      "disk_free_bytes": 70526870912,
+      "disk_total_bytes": 100536870912,
+      "label": "Samsung SSD 860 EVO 500GB",
+      "name": "/dev/sda",
+      "nodes": [
+        "stack"
+      ]
+    },
+    {
+      "disk_free_bytes": 2000000000000,
+      "disk_total_bytes": 4000000000000,
+      "label": "ST4000VN006 HDD",
+      "name": "/dev/sdb",
+      "nodes": [
+        "monero"
+      ]
+    }
+  ],
+  "failed": {
+    "dogecoin": "It exited with an error."
+  },
+  "fans_max_rpm": [
+    0,
+    4825
+  ],
+  "fans_rpm": [
+    0,
+    2506
+  ],
+  "host_cpu_pct": 30.0,
+  "host_mem_bytes": 4096000000,
+  "mem_total_bytes": 8197607424,
+  "net_rx_bps": 3000,
+  "net_tx_bps": 500,
+  "nodes": {
+    "bitcoin": {
+      "cpu_pct": 5,
+      "disk_bytes": 2097152,
+      "mem_bytes": 700055321,
+      "started_at": 1767225600
+    },
+    "monero": {
+      "cpu_pct": 28,
+      "disk_bytes": 5120000,
+      "mem_bytes": 1334678532,
+      "started_at": 1767225600
+    },
+    "stack": {
+      "cpu_pct": 0,
+      "disk_bytes": 819200,
+      "mem_bytes": 0
+    },
+    "tari": {
+      "cpu_pct": 1.5,
+      "mem_bytes": 600055321,
+      "started_at": 1767225600
+    }
+  },
+  "other": {
+    "cpu_pct": 5,
+    "mem_bytes": 90110642
+  },
+  "running": {
+    "bitcoin": true,
+    "bitcoincash": false,
+    "dogecoin": false,
+    "litecoin": false,
+    "monero": true,
+    "tari": true,
+    "zcash": true
+  },
+  "updated": 100000,
+  "uptime_s": 1002
+}

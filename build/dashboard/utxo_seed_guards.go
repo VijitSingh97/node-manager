@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -32,38 +33,59 @@ type seedRefusal struct {
 
 type seedGuardInput struct {
 	Replay     bool
-	State      string
-	TempC      float64
-	TempErr    error
-	CPUs       float64
-	CPUErr     error
-	FreeBytes  uint64
-	FreeErr    error
-	Chain      blockchainInfo
-	TipTime    time.Time
-	ChainErr   error
-	RPCMethods []string
-	RPCErr     error
-	Now        time.Time
+	Chainstate bool
+	// ChainstateBytes is the node's live chainstate on disk, which a chainstate seed's sort runs and tables scale with.
+	ChainstateBytes uint64
+	ChainstateErr   error
+	State           string
+	TempC           float64
+	TempErr         error
+	CPUs            float64
+	CPUErr          error
+	FreeBytes       uint64
+	FreeErr         error
+	Chain           blockchainInfo
+	TipTime         time.Time
+	ChainErr        error
+	RPCMethods      []string
+	RPCErr          error
+	Now             time.Time
+}
+
+// dirBytes sums the regular files directly in dir; a chainstate keeps no subdirectories.
+func dirBytes(dir string) (uint64, error) {
+	entries, err := os.ReadDir(dir)
+	var total uint64
+	for _, e := range entries {
+		if info, err := e.Info(); err == nil && info.Mode().IsRegular() {
+			total += uint64(info.Size())
+		}
+	}
+	return total, err
 }
 
 func evaluateSeedGuards(in seedGuardInput) []seedRefusal {
 	var out []seedRefusal
 	// A replay writes no sort runs, so it needs only the runtime free-space floor.
 	need := uint64(seedMinFreeBytes)
-	if in.Replay {
+	switch {
+	case in.Replay:
 		need = utxoMinFreeBytes
+	// Bitcoin's measured seed needs about 2.5 times its chainstate, so a chainstate seed asks for three times its own.
+	case in.Chainstate:
+		need = max(utxoMinFreeBytes, 3*in.ChainstateBytes)
 	}
 	guards := []*seedRefusal{
 		stateGuard(in.State, in.Replay),
 		thermalStartGuard(in.TempC, in.TempErr),
 		cpuGuard(in.CPUs, in.CPUErr),
-		freeSpaceGuard(in.FreeBytes, need, in.FreeErr),
+		freeSpaceGuard(in.FreeBytes, need, cmp.Or(in.FreeErr, chainstateErr(in))),
 		nodeGuard(in.Chain, in.TipTime, in.Now, in.ChainErr),
 	}
-	if in.Replay {
+	switch {
+	case in.Replay:
 		guards = append(guards, archivalGuard(in.Chain, in.ChainErr))
-	} else {
+	case !in.Chainstate:
 		guards = append(guards, rpcIdleGuard(in.RPCMethods, in.RPCErr))
 	}
 	for _, r := range guards {
@@ -72,6 +94,13 @@ func evaluateSeedGuards(in seedGuardInput) []seedRefusal {
 		}
 	}
 	return out
+}
+
+func chainstateErr(in seedGuardInput) error {
+	if in.Chainstate {
+		return in.ChainstateErr
+	}
+	return nil
 }
 
 func stateGuard(state string, replay bool) *seedRefusal {
@@ -257,6 +286,18 @@ func (m *utxoManager) gatherSeedGuards(ctx context.Context) seedGuardInput {
 	in.TempC, in.TempErr = m.temp()
 	in.CPUs, in.CPUErr = readCPULimit(seedCgroupRoot)
 	in.Chain, in.TipTime, in.ChainErr = readSeedChain(ctx, m.rpc)
+	if m.chain.Chainstate && m.host != nil {
+		// Without the chainstate's size the space a seed needs is unknown, so it counts as unreadable free space.
+		if bytes, err := dirBytes(filepath.Join(m.host.dataDir, "chainstate")); err != nil {
+			in.ChainstateErr = err
+			if !m.chain.Replay {
+				in.FreeErr = err
+			}
+		} else {
+			in.ChainstateBytes = bytes
+		}
+		return in
+	}
 	in.RPCMethods, in.RPCErr = readActiveRPCMethods(ctx, m.rpc)
 	return in
 }

@@ -788,6 +788,24 @@ printf '%s\n' '{"dashboard":{"password":"configuretest12"},"litecoin":{"utxo_ind
 (cd "$ltc" && ./configure.sh) >/dev/null 2>&1 && fail "litecoin.utxo_index without litecoin was accepted"
 rm -rf "$ltc"
 
+doge=$(mktemp -d)
+cp configure.sh "$doge/"
+doge_config() { printf '{"dashboard":{"password":"configuretest12"},"dogecoin":%s}\n' "$1" >"$doge/config.json"; }
+doge_config '{"enabled":true}'
+(cd "$doge" && ./configure.sh) >/dev/null || fail "a pruned Dogecoin node was refused"
+cp "$doge/.env" "$doge/baseline.env"
+doge_config '{"enabled":true,"utxo_index":true}'
+(cd "$doge" && ./configure.sh) >"$doge/out.log" || fail "dogecoin.utxo_index=true on a pruned node failed"
+grep -q 'works on a pruned node too' "$doge/out.log" || fail "enabling dogecoin.utxo_index did not say how it seeds"
+doge_compose=$(sed -n 's/^COMPOSE_FILE=//p' "$doge/baseline.env")
+grep -qx "COMPOSE_FILE=$doge_compose:docker-compose.dogecoin-utxo-index.yml" "$doge/.env" || fail "dogecoin.utxo_index=true did not add only its overlay"
+[ "$(diff "$doge/baseline.env" "$doge/.env" | grep -c '^>')" = 1 ] || fail "dogecoin.utxo_index=true changed more than COMPOSE_FILE"
+doge_config '{"enabled":true,"utxo_index":"yes"}'
+(cd "$doge" && ./configure.sh) >/dev/null 2>&1 && fail "non-boolean dogecoin.utxo_index was accepted"
+doge_config '{"utxo_index":true}'
+(cd "$doge" && ./configure.sh) >/dev/null 2>&1 && fail "dogecoin.utxo_index without dogecoin was accepted"
+rm -rf "$doge"
+
 bch=$(mktemp -d)
 cp configure.sh "$bch/"
 bch_config() { printf '{"dashboard":{"password":"configuretest12"},"bitcoincash":%s}\n' "$1" >"$bch/config.json"; }
@@ -802,8 +820,13 @@ bch_compose=$(sed -n 's/^COMPOSE_FILE=//p' "$bch/baseline.env")
 grep -qx "COMPOSE_FILE=$bch_compose:docker-compose.bitcoincash-utxo-index.yml" "$bch/.env" || fail "bitcoincash.utxo_index=true did not add only its overlay"
 [ "$(diff "$bch/baseline.env" "$bch/.env" | grep -c '^>')" = 1 ] || fail "bitcoincash.utxo_index=true changed more than COMPOSE_FILE"
 bch_config '{"enabled":true,"utxo_index":true}'
-(cd "$bch" && ./configure.sh) >"$bch/out.log" 2>&1 && fail "bitcoincash.utxo_index was accepted on a pruned node"
-grep -q 'needs an archival node' "$bch/out.log" || fail "the pruned refusal did not name the archival requirement"
+(cd "$bch" && ./configure.sh) >"$bch/out.log" 2>&1 || fail "bitcoincash.utxo_index was refused on a pruned node"
+grep -qx 'BITCOINCASH_PRUNE=10000' "$bch/.env" || fail "the pruned Bitcoin Cash node did not keep its default pruning"
+grep -qx "COMPOSE_FILE=$bch_compose:docker-compose.bitcoincash-utxo-index.yml" "$bch/.env" || fail "bitcoincash.utxo_index=true on a pruned node did not add its overlay"
+grep -q 'works on a pruned node too' "$bch/out.log" || fail "enabling bitcoincash.utxo_index did not say a pruned node can seed from its chainstate"
+bch_config '{"enabled":true}'
+(cd "$bch" && ./configure.sh) >/dev/null 2>&1 || fail "a Bitcoin Cash node without the index was refused"
+grep -q 'docker-compose.bitcoincash-utxo-index.yml' "$bch/.env" && fail "an absent bitcoincash.utxo_index turned the index on"
 bch_config '{"enabled":true,"prune_mb":0,"utxo_index":"yes"}'
 (cd "$bch" && ./configure.sh) >/dev/null 2>&1 && fail "non-boolean bitcoincash.utxo_index was accepted"
 bch_config '{"prune_mb":0,"utxo_index":true}'

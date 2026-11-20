@@ -106,6 +106,11 @@ grep -q '^STACK_VERSION=' "$tmp/state/.env" || fail "package upgrade did not ren
 grep -q '^enable --now node-manager-resource-profile.timer$' "$systemctl_log" || fail "package upgrade did not enable post-sync resource controls"
 grep -q '^enable --now node-manager-port-control.timer$' "$systemctl_log" || fail "package upgrade did not enable LAN port controls"
 grep -q '^enable --now node-manager-node-control.timer$' "$systemctl_log" || fail "package upgrade did not enable node controls"
+grep -q 'node-manager-host-stats.timer' "$systemctl_log" && fail "package upgrade enabled host readings without the hostd binary"
+printf '#!/bin/sh\n' >"$tmp/hostd" && chmod +x "$tmp/hostd"
+: >"$systemctl_log"
+BITCOIN_STACK_HOSTD="$tmp/hostd" ./stack package-upgrade >/dev/null
+grep -q '^enable --now node-manager-host-stats.timer$' "$systemctl_log" || fail "package upgrade did not enable host readings with the hostd binary installed"
 
 : >"$log"
 printf '%s\n' tor dashboard >"$running"

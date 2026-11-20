@@ -204,3 +204,47 @@ configured loopback or private-LAN bind.
 > NOTE: The onion keys live in the `tor_data` volume. Recreating it (e.g.
 > `docker compose down -v`) generates a **new** address — back it up with
 > `./stack backup` after enabling.
+
+---
+
+## Public VPS access with Caddy
+
+Prefer a private VPN such as Tailscale or WireGuard. For HTTPS access through a
+host-managed Caddy reverse proxy, add `dashboard.public_url` as the exact origin,
+set a dashboard password of 12–128 letters or numbers, and bind the dashboard to
+loopback. Choose this HTTPS ingress or the Tor onion ingress above; enabling both
+at once is rejected:
+
+```json
+"dashboard": {
+  "public_url": "https://node.example.com",
+  "password": "ReplaceWithYourOwnRandomPassword",
+  "bind_ip": "127.0.0.1",
+  "port": 8080
+}
+```
+
+Replace the example password with your own random value; `openssl rand -hex 16`
+generates a compatible password.
+
+For APT, edit `/etc/node-manager/config.json` with `sudo` and run
+`sudo node-manager apply`; for a source install, edit `config.json` and run
+`./stack apply`. See [Caddyfile.example](Caddyfile.example) for a minimal host
+config. Then:
+
+1. Install Caddy from its [official Ubuntu packages](https://caddyserver.com/docs/install#debian-ubuntu-raspbian)
+   and copy the example to `/etc/caddy/Caddyfile`.
+2. Set `dashboard.port` to `8080` in the config, point the domain's DNS at the
+   VPS, and replace the domain in the Caddyfile.
+3. Allow Caddy's ports 80/443 for redirects and automatic public certificates.
+   If both ports are restricted to a VPN or IP allowlist, use DNS-based
+   certificate validation or the VPN's HTTPS service instead.
+4. Validate with `sudo caddy validate --config /etc/caddy/Caddyfile`, then run
+   `sudo systemctl reload caddy`.
+
+The example uses backend `127.0.0.1:8080` so Caddy owns the public 80/443 ports;
+if the dashboard binds to `::1`, use `[::1]:8080` instead. Preserve `Host`,
+overwrite `X-Node-Manager-Client-IP`, and allow only Caddy's 80/443 and any VPN
+ports in the host firewall. Docker published ports bypass UFW. Keep all RPC, ZMQ,
+and gRPC exposure settings false. ACME and Tailscale remain host-managed outside
+Tor.

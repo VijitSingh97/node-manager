@@ -3,7 +3,7 @@ Description=Watch Node Manager node state requests
 
 [Timer]
 OnBootSec=30s
-OnUnitActiveSec=2s
+OnUnitActiveSec=10s
 AccuracySec=1s
 
 [Install]

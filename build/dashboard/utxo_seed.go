@@ -11,6 +11,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -42,6 +44,8 @@ var (
 	errSeedThermal     = errors.New("temperature rose above the start limit before the dump")
 	errSeedInterrupted = errors.New("dashboard restarted during the seed")
 	errSeedPipeGone    = errors.New("the seed pipe was replaced during the seed")
+	errSeedChainstate  = errors.New("the chainstate copy could not be read")
+	errSeedOffChain    = errors.New("the chainstate copy's best block is not on the node's chain")
 	errSeedUserCancel  = fmt.Errorf("%w by the user", context.Canceled)
 )
 
@@ -55,6 +59,14 @@ type utxoSeedHost struct {
 	release  func()
 	lock     *sync.Mutex
 	autoSeed func() (id, refusal string)
+	helper   func() bool
+	// autoResult reports node-control's answer to a seed request it was sent; otherSeedActive reports a seed running in any index.
+	autoResult      func(id string) (hostSeedResult, bool)
+	otherSeedActive func() bool
+}
+
+type hostSeedResult struct {
+	State, Code, Detail string
 }
 
 // A failed automatic seed stalls the node's RPC for minutes, so retries back off and stop after utxoAutoSeedTries.
@@ -69,6 +81,40 @@ var (
 type seedRequest struct {
 	ID          string `json:"id"`
 	RequestedAt int64  `json:"requested_at"`
+	Mode        string `json:"mode,omitempty"`
+}
+
+const (
+	seedModeChainstate = "chainstate"
+	seedModeReplay     = "replay"
+)
+
+// seedMode resolves how a seed runs: the mode a request names when the chain supports it, else a chainstate copy when the host helper can take one
+// (a chain with no replay always uses it), else a replay of every block, else a dumptxoutset seed, named by "".
+func (m *utxoManager) seedMode(asked string) string {
+	switch {
+	case asked == seedModeChainstate && m.chain.Chainstate, asked == seedModeReplay && m.chain.Replay:
+		return asked
+	case m.chain.Chainstate && (!m.chain.Replay || m.host != nil && m.host.helper != nil && m.host.helper()):
+		return seedModeChainstate
+	case m.chain.Replay:
+		return seedModeReplay
+	}
+	return ""
+}
+
+// replayingLocked reports whether the seed running now, or else the next one, replays every block.
+func (m *utxoManager) replayingLocked() bool {
+	if m.seed.SeedState == utxoSeedChecking || m.seed.SeedState == utxoSeedRunning {
+		return m.seed.Mode == seedModeReplay || m.seed.Mode == "" && m.chain.Replay
+	}
+	return m.seedMode("") == seedModeReplay
+}
+
+func (m *utxoManager) replays() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.replayingLocked()
 }
 
 type seedDumpResult struct {
@@ -87,7 +133,7 @@ func (m *utxoManager) configureSeed(h utxoSeedHost) {
 }
 
 func seedErrorClass(err error) string {
-	for _, target := range []error{errSeedDump, errSeedLowDisk, errSeedMismatch, errSeedThermal, errSeedInterrupted, errSeedPipeGone, errUtxoBlockTooLarge} {
+	for _, target := range []error{errSeedDump, errSeedLowDisk, errSeedMismatch, errSeedThermal, errSeedInterrupted, errSeedPipeGone, errSeedChainstate, errSeedOffChain, errUtxoBlockTooLarge} {
 		if errors.Is(err, target) {
 			return target.Error()
 		}
@@ -175,8 +221,13 @@ func (f *seedFIFO) intact() bool {
 	if err != nil {
 		return false
 	}
-	b, err := os.Lstat(f.path)
-	return err == nil && b.Mode()&os.ModeNamedPipe != 0 && os.SameFile(a, b)
+	// Core renames a finished dump to its final name, which a tiny dump can do before the first read returns.
+	for _, name := range []string{f.path, filepath.Join(filepath.Dir(f.path), seedDumpName)} {
+		if b, err := os.Lstat(name); err == nil && b.Mode()&os.ModeNamedPipe != 0 && os.SameFile(a, b) {
+			return true
+		}
+	}
+	return false
 }
 
 func (f *seedFIFO) closeKeeper() {
@@ -201,6 +252,9 @@ func (f *seedFIFO) Close() error {
 func validSeedRequest(raw []byte, now time.Time) (seedRequest, *seedRefusal) {
 	var req seedRequest
 	if json.Unmarshal(raw, &req) != nil || !validPortControlID(req.ID) {
+		return seedRequest{}, &seedRefusal{"request", "the seed request is malformed"}
+	}
+	if req.Mode != "" && req.Mode != seedModeChainstate && req.Mode != seedModeReplay {
 		return seedRequest{}, &seedRefusal{"request", "the seed request is malformed"}
 	}
 	age := now.Unix() - req.RequestedAt
@@ -258,19 +312,35 @@ func (m *utxoManager) pollSeed(ctx context.Context) {
 		m.seed.AutoFailures = 0
 	}
 	m.mu.Unlock()
-	m.seedRequested(ctx, req.ID)
+	m.seedRequestedAs(ctx, req.ID, req.Mode)
 }
 
 func (m *utxoManager) seedRequested(ctx context.Context, id string) {
+	m.seedRequestedAs(ctx, id, "")
+}
+
+func (m *utxoManager) seedRequestedAs(ctx context.Context, id, asked string) {
 	h := m.host
 	_ = os.Remove(filepath.Join(h.stateDir, h.prefix+seedCancelName))
+	mode := m.seedMode(asked)
+	m.mu.Lock()
+	m.seed.Mode = mode
+	m.waiting = ""
+	m.mu.Unlock()
 	m.markSeedRequest(id, utxoSeedChecking, nil)
-	network, refusals := m.checkSeed(ctx)
+	network, refusals := m.checkSeed(ctx, mode)
 	seed := func(ctx context.Context) error { return m.seedFromDump(ctx, network) }
-	if m.chain.Replay {
+	switch mode {
+	case seedModeReplay:
 		seed = m.seedFromReplay
-	} else if r := seedFIFOGuard(h.dataDir); r != nil {
-		refusals = append(refusals, *r)
+	case seedModeChainstate:
+		seed = m.seedFromChainstate
+		// The host helper copied the chainstate while the node was synced and has just restarted it, so its warm-up is no reason to refuse.
+		refusals = slices.DeleteFunc(refusals, func(r seedRefusal) bool { return r.Guard == "node" })
+	default:
+		if r := seedFIFOGuard(h.dataDir); r != nil {
+			refusals = append(refusals, *r)
+		}
 	}
 	if len(refusals) == 0 && h.lock != nil {
 		if h.lock.TryLock() {
@@ -279,8 +349,8 @@ func (m *utxoManager) seedRequested(ctx context.Context, id string) {
 			refusals = append(refusals, seedRefusal{"lock", "another balance index is seeding"})
 		}
 	}
-	// A replay runs for hours, so the watch keeps scanning through it.
-	if len(refusals) == 0 && !m.chain.Replay {
+	// A replay runs for hours and a chainstate seed reads a file, so the watch keeps scanning through either.
+	if len(refusals) == 0 && mode == "" {
 		if h.hold() {
 			defer h.release()
 		} else {
@@ -296,10 +366,13 @@ func (m *utxoManager) seedRequested(ctx context.Context, id string) {
 	}
 }
 
-func (m *utxoManager) checkSeed(ctx context.Context) ([4]byte, []seedRefusal) {
+func (m *utxoManager) checkSeed(ctx context.Context, mode string) ([4]byte, []seedRefusal) {
 	in := m.guards(ctx)
-	in.Replay = m.chain.Replay
+	in.Replay, in.Chainstate = mode == seedModeReplay, mode == seedModeChainstate
 	refusals := evaluateSeedGuards(in)
+	m.mu.Lock()
+	m.checked = true
+	m.mu.Unlock()
 	network, known := m.chain.Networks[in.Chain.Chain]
 	if in.ChainErr == nil && !known {
 		refusals = append(refusals, seedRefusal{"node", "this chain cannot be seeded"})
@@ -307,15 +380,114 @@ func (m *utxoManager) checkSeed(ctx context.Context) ([4]byte, []seedRefusal) {
 	return network, refusals
 }
 
-// maybeAutoSeed asks the host for a seed once an hour while the index has none; a refusal stays in the status.
-// A replay chain needs no host, so it starts or resumes its replay here.
-func (m *utxoManager) maybeAutoSeed(ctx context.Context) {
-	if m.host.autoSeed == nil && !m.chain.Replay {
+const (
+	waitNodeSync  = "node_sync"
+	waitNodeStart = "node_start"
+	waitOtherSeed = "other_seed"
+	waitHostBusy  = "host_busy"
+	waitBlocked   = "blocked"
+
+	utxoAutoSeedRecheck   = 30 * time.Second
+	utxoAutoSeedHostLimit = 10 * time.Minute
+	utxoInvalidReseedWait = 24 * time.Hour
+)
+
+func nodeSyncRefusal(r seedRefusal) bool {
+	return r.Guard == "node" && !strings.HasPrefix(r.Detail, "the node is pruned") && r.Detail != "this chain cannot be seeded"
+}
+
+// waitingFor names what a refused automatic seed is waiting on; only "blocked" needs the owner, so it alone keeps the hourly cadence.
+func waitingFor(refusals []seedRefusal) string {
+	switch {
+	case slices.ContainsFunc(refusals, nodeSyncRefusal):
+		return waitNodeSync
+	case slices.ContainsFunc(refusals, func(r seedRefusal) bool { return r.Guard == "lock" }):
+		return waitOtherSeed
+	case slices.ContainsFunc(refusals, func(r seedRefusal) bool { return r.Guard == "thermal" && strings.Contains(r.Detail, "above") }):
+		return waitHostBusy
+	case len(refusals) > 0:
+		return waitBlocked
+	}
+	return ""
+}
+
+func (m *utxoManager) setWaiting(waiting string) {
+	m.mu.Lock()
+	m.waiting = waiting
+	m.mu.Unlock()
+}
+
+func (m *utxoManager) autoSeedStartableLocked(now time.Time, replay bool) bool {
+	switch {
+	case m.state == utxoStateNotSeeded, m.replayBehindLocked():
+		return true
+	case m.state == utxoStateInvalid && !replay:
+		// An index that went invalid right after a good seed is not reseeded at once, which would stop the node again and again.
+		return m.seed.Last == nil || m.seed.Last.Outcome != "ok" || now.Sub(m.seed.Last.FinishedAt) >= utxoInvalidReseedWait
+	}
+	return false
+}
+
+// settleAutoHostResult reads node-control's answer to the last automatic seed request: a failure counts towards the stop, a refusal only waits.
+func (m *utxoManager) settleAutoHostResult() {
+	m.mu.Lock()
+	id, since := m.hostPendingID, m.hostPendingAt
+	started := id != "" && m.seed.RequestID == id
+	now := m.now()
+	m.mu.Unlock()
+	if id == "" {
+		return
+	}
+	if started || m.host.autoResult == nil || now.Sub(since) > utxoAutoSeedHostLimit {
+		m.mu.Lock()
+		m.hostPendingID = ""
+		m.mu.Unlock()
+		return
+	}
+	res, found := m.host.autoResult(id)
+	if !found || res.State == "applied" {
 		return
 	}
 	m.mu.Lock()
+	m.hostPendingID = ""
+	if res.State == "failed" {
+		m.seed.AutoFailures++
+		m.seed.Last = &utxoSeedResult{Outcome: "failed", Reason: res.Detail, FinishedAt: now}
+		m.waiting = ""
+		m.persistSeedLocked()
+		m.mu.Unlock()
+		return
+	}
+	switch res.Code {
+	case "busy", "seed_running":
+		m.waiting = waitOtherSeed
+	case "recently_started":
+		m.waiting = waitNodeStart
+	default:
+		m.waiting = waitBlocked
+	}
+	if m.waiting != waitBlocked {
+		m.autoSeedAt = now
+	}
+	m.mu.Unlock()
+	m.markSeedRequest(m.lastSeedRequest(), utxoSeedRefused, []seedRefusal{{"host", res.Detail}})
+}
+
+// maybeAutoSeed asks the host for a seed once an hour while the index has none, and every 30 seconds while a node syncs, cools down or another seed runs; a refusal stays in the status.
+// A replay chain needs no host, so it starts or resumes its replay here.
+func (m *utxoManager) maybeAutoSeed(ctx context.Context) {
+	replay := m.replays()
+	if m.host.autoSeed == nil && !replay {
+		return
+	}
+	m.settleAutoHostResult()
+	m.mu.Lock()
 	now, last := m.now(), m.autoSeedAt
-	due := (m.state == utxoStateNotSeeded || m.replayBehindLocked()) && !m.seeding && now.Sub(m.autoSeedAt) >= utxoAutoSeedEvery && m.autoSeedBackedOffLocked(now)
+	every := utxoAutoSeedEvery
+	if m.waiting != "" && m.waiting != waitBlocked {
+		every = utxoAutoSeedRecheck
+	}
+	due := m.autoSeedStartableLocked(now, replay) && !m.seeding && m.hostPendingID == "" && now.Sub(m.autoSeedAt) >= every && m.autoSeedBackedOffLocked(now)
 	if due {
 		m.autoSeedAt = now
 	}
@@ -323,20 +495,28 @@ func (m *utxoManager) maybeAutoSeed(ctx context.Context) {
 	if !due {
 		return
 	}
-	if m.chain.Replay {
+	if replay {
 		id := newSeedRequestID()
 		m.mu.Lock()
 		m.seed.AutoRequestID = id
 		m.mu.Unlock()
-		m.seedRequested(ctx, id)
+		m.seedRequestedAs(ctx, id, seedModeReplay)
+		m.mu.Lock()
+		if m.seed.SeedState == utxoSeedRefused {
+			m.waiting = waitingFor(m.refusals)
+		}
+		m.mu.Unlock()
 		return
 	}
-	_, refusals := m.checkSeed(ctx)
+	_, refusals := m.checkSeed(ctx, m.seedMode(""))
+	if len(refusals) == 0 && m.host.otherSeedActive != nil && m.host.otherSeedActive() {
+		refusals = append(refusals, seedRefusal{"lock", "another balance index is seeding"})
+	}
 	if len(refusals) == 0 {
 		id, detail := m.host.autoSeed()
 		if detail == "" {
 			m.mu.Lock()
-			m.seed.AutoRequestID = id
+			m.seed.AutoRequestID, m.hostPendingID, m.hostPendingAt, m.waiting = id, id, now, ""
 			m.persistSeedLocked()
 			m.mu.Unlock()
 			return
@@ -344,12 +524,13 @@ func (m *utxoManager) maybeAutoSeed(ctx context.Context) {
 		// Another index's seed request is usually gone within seconds, so try again on the next poll.
 		if detail == hostChangePending {
 			m.mu.Lock()
-			m.autoSeedAt = last
+			m.autoSeedAt, m.waiting = last, waitHostBusy
 			m.mu.Unlock()
 			return
 		}
 		refusals = append(refusals, seedRefusal{"host", detail})
 	}
+	m.setWaiting(waitingFor(refusals))
 	m.markSeedRequest(m.lastSeedRequest(), utxoSeedRefused, refusals)
 }
 
@@ -556,6 +737,72 @@ func (g *seedGate) checkpoint() error {
 		g.m.setSeedPhase(g.phase())
 	}
 	return nil
+}
+
+// utxoChainstateCopyName is the directory the host helper fills with the stopped node's chainstate, inside the node's data directory.
+const utxoChainstateCopyName = "utxo-seed-chainstate"
+
+func (m *utxoManager) seedFromChainstate(parent context.Context) (err error) {
+	ctx, cancel := context.WithCancelCause(parent)
+	defer cancel(nil)
+	go m.watchSeedCancel(ctx, cancel)
+	if c, err := m.temp(); thermalStartGuard(c, err) != nil {
+		return errSeedThermal
+	}
+	// A tampered copy can make Pebble panic; that fails this seed instead of crash-looping the dashboard.
+	defer func() {
+		if r := recover(); r != nil {
+			m.log.Printf("utxo index: reading the chainstate copy panicked: %v", r)
+			err = errSeedChainstate
+		}
+	}()
+	copied, err := openChainstateCopy(filepath.Join(m.host.dataDir, utxoChainstateCopyName))
+	if err != nil {
+		m.log.Printf("utxo index: %v", err)
+		return errSeedChainstate
+	}
+	defer copied.Close()
+	copied.txout = m.chain.TxOutRows
+	m.setSeedPhase(utxoPhaseImporting)
+	prog := &utxoIngestProgress{}
+	gate := &seedGate{m: m, ctx: ctx, prog: prog}
+	prog.Checkpoint = gate.checkpoint
+	_, err = ingestUtxoRecords(m.currentStore(), copied.parse, func(hash [32]byte) (uint32, error) { return m.chainstateBaseHeight(ctx, hash) }, prog)
+	if err != nil {
+		if cause := context.Cause(ctx); cause != nil {
+			return cause
+		}
+		if errors.Is(err, errChainstateFormat) {
+			m.log.Printf("utxo index: %v", err)
+			return errSeedChainstate
+		}
+		return err
+	}
+	return nil
+}
+
+// chainstateBaseHeight retries while the node, restarted right after the copy, is still loading its block index.
+func (m *utxoManager) chainstateBaseHeight(ctx context.Context, hash [32]byte) (uint32, error) {
+	var header struct {
+		Height        uint32 `json:"height"`
+		Confirmations int64  `json:"confirmations"`
+	}
+	for try := 0; ; try++ {
+		err := m.rpc.call(ctx, "getblockheader", []any{reverseHex(hash)}, &header)
+		switch {
+		case err == nil && header.Confirmations < 1:
+			return 0, errSeedOffChain
+		case err == nil:
+			return header.Height, nil
+		case try >= utxoReplayRetries:
+			return 0, err
+		}
+		select {
+		case <-ctx.Done():
+			return 0, context.Cause(ctx)
+		case <-time.After(utxoReplayRetryWait):
+		}
+	}
 }
 
 func (m *utxoManager) seedFromDump(parent context.Context, network [4]byte) error {

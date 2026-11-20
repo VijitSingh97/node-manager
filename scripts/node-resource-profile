@@ -5,6 +5,8 @@ stack_root=${BITCOIN_STACK_ROOT:-/usr/lib/node-manager}
 state_root=${BITCOIN_STACK_STATE_DIR:-/var/lib/node-manager}
 env_file=${BITCOIN_STACK_ENV_FILE:-$state_root/.env}
 docker_bin=${DOCKER_BIN:-docker}
+hostd_bin=${RESOURCE_HOSTD_BIN:-/usr/lib/node-manager/hostd}
+systemctl_bin=${RESOURCE_SYSTEMCTL_BIN:-systemctl}
 profile_state=$state_root/resource-profile
 stable_checks=${RESOURCE_STABLE_CHECKS:-3}
 memory_headroom_mb=${RESOURCE_MEMORY_HEADROOM_MB:-256}
@@ -25,8 +27,15 @@ if ! flock -n 9; then
   exit 0
 fi
 
+env_content=$(cat "$env_file")
 env_get() {
-  sed -n "s/^$1=//p" "$env_file" | tail -n 1
+  env_value=
+  while IFS= read -r env_line; do
+    case "$env_line" in "$1="*) env_value=${env_line#"$1="} ;; esac
+  done <<EOF_ENV
+$env_content
+EOF_ENV
+  printf '%s\n' "$env_value"
 }
 
 project_name=${BITCOIN_STACK_PROJECT_NAME:-$(env_get COMPOSE_PROJECT_NAME)}
@@ -40,8 +49,9 @@ compose() {
     -f "$stack_root/docker-compose.yml" "$@"
 }
 
+container_rows=$("$docker_bin" ps --filter "label=com.docker.compose.project=$project_name" --format '{{.ID}} {{.Label "com.docker.compose.service"}}' 2>/dev/null || true)
 container_id() {
-  compose ps -q "$1" 2>/dev/null | head -n 1
+  printf '%s\n' "$container_rows" | awk -v service="$1" '$2 == service { print $1; exit }'
 }
 
 container_healthy() {
@@ -496,6 +506,12 @@ EOF
   done)
 }
 
+hostd_owns_host_stats() {
+  [ -x "$hostd_bin" ] && command -v "$systemctl_bin" >/dev/null 2>&1 || return 1
+  "$systemctl_bin" is-active --quiet node-manager-host-stats.timer &&
+    ! "$systemctl_bin" is-failed --quiet node-manager-host-stats.service
+}
+
 write_host_stats() {
   dashboard=$(container_id dashboard)
   [ -n "$dashboard" ] || return 0
@@ -587,8 +603,16 @@ EOF
     awk '{ printf "uptime_s %.0f\n", $1 }' "$proc_root/uptime" 2>/dev/null
     printf '%s\n' "$net_rates"
   )
-  fans=$(cat "$sys_root"/class/hwmon/hwmon*/fan*_input "$sys_root"/class/hwmon/hwmon*/device/fan*_input 2>/dev/null |
-    awk '/^[0-9]+$/ { printf "%s%s", sep, $1; sep = " " }')
+  fan_pairs=$(for fan in "$sys_root"/class/hwmon/hwmon*/fan*_input "$sys_root"/class/hwmon/hwmon*/device/fan*_input; do
+    [ -f "$fan" ] || continue
+    rpm=$(cat "$fan" 2>/dev/null) || continue
+    case $rpm in (''|*[!0-9]*) continue ;; esac
+    max=$(cat "${fan%_input}_max" 2>/dev/null || true)
+    case $max in (''|*[!0-9]*) max=0 ;; esac
+    printf '%s %s\n' "$rpm" "$max"
+  done)
+  fans=$(printf '%s\n' "$fan_pairs" | awk 'NF { printf "%s%s", sep, $1; sep = " " }')
+  fans_max=$(printf '%s\n' "$fan_pairs" | awk 'NF { printf "%s%s", sep, $2; sep = " " }')
   host_disks=$(df -P -B1 2>/dev/null | awk 'NR > 1 && $1 ~ /^\/dev\//')
   disk_labels=$(printf '%s\n' "$host_disks" | awk '{print $1}' | sort -u | while read -r dev; do
     [ -b "$dev" ] || continue
@@ -641,6 +665,13 @@ EOF
   stack_bytes=$((stack_kb * 1024))
   [ "$stack_bytes" -le 0 ] || node_sizes="${node_sizes}stack $stack_bytes
 "
+  started=$(printf '%s\n' "$rows" | while read -r id service state; do
+    [ "$state" = running ] || continue
+    case "$service" in (bitcoin | monero | tari | litecoin | dogecoin | bitcoincash | zcash) ;; (*) continue ;; esac
+    began=$("$docker_bin" inspect "$id" 2>/dev/null | jq -r '.[0].State.StartedAt | sub("\\.[0-9]+"; "") | fromdateiso8601' 2>/dev/null) || continue
+    case "$began" in ('' | *[!0-9]*) continue ;; esac
+    printf '%s %s\n' "$service" "$began"
+  done)
   payload=$(printf '%s\n' "$stats" | awk -F '\t' -v project="$project_name" -v cpus="$cpus" '
     index($1, project "-") == 1 {
       service = substr($1, length(project) + 2)
@@ -676,6 +707,7 @@ EOF
         failed: ($failed | split("\n") | map(select(length > 0) | split("\t") | {(.[0]): (.[1] // "")}) | add // {}), running: (reduce (rows($containers)[] | select(length == 2 and (.[0] | IN("bitcoin", "monero", "tari", "litecoin", "dogecoin", "bitcoincash", "zcash")))) as $c ({}; .[$c[0]] = ((.[$c[0]] // false) or ($c[1] | IN("exited", "dead") | not))))} |
       reduce (rows($nodesizes)[]) as $row (.;
         .nodes[$row[0]] = ((.nodes[$row[0]] // {cpu_pct: 0, mem_bytes: 0}) + {disk_bytes: ($row[1] | tonumber? // 0)})) |
+      reduce (rows($started)[]) as $row (.; if .nodes[$row[0]] then .nodes[$row[0]].started_at = ($row[1] | tonumber) else . end) |
       . + {disks: (
         (rows($hostdisks) | map({name: .[0], mount: .[5], total: (((.[2] | tonumber? // 0) + (.[3] | tonumber? // 0))), free: (.[3] | tonumber? // 0)}) | map(select(.total > 0))) as $mounts |
         (rows($nodedirs) | map(. as $d |
@@ -694,7 +726,7 @@ EOF
         } + (([$group[].label | select(. != null)] | .[0]) as $label | if $label then {label: $label} else {} end))
       )} +
       (rows($health) | map({(.[0]): (.[1] | tonumber? // empty)}) | add // {}) +
-      (if $fans == "" then {} else {fans_rpm: ($fans | split(" ") | map(tonumber))} end)' --arg hostdisks "$host_disks" --arg nodedirs "$node_dirs" --arg nodesizes "$node_sizes" --arg containers "$containers" --arg failed "$failed_starts" --arg disklabels "$disk_labels" --arg health "$health" --arg fans "$fans") || return 0
+      (if $fans == "" then {} else {fans_rpm: ($fans | split(" ") | map(tonumber))} + (if ($fansmax | split(" ") | map(tonumber) | any(. > 0)) then {fans_max_rpm: ($fansmax | split(" ") | map(tonumber))} else {} end) end)' --arg hostdisks "$host_disks" --arg nodedirs "$node_dirs" --arg nodesizes "$node_sizes" --arg started "$started" --arg containers "$containers" --arg failed "$failed_starts" --arg disklabels "$disk_labels" --arg health "$health" --arg fans "$fans" --arg fansmax "$fans_max") || return 0
   [ -n "$payload" ] || return 0
   printf '%s' "$payload" | "$docker_bin" exec -i -u 1000 "$dashboard" sh -c 'umask 077; cat > /state/host-stats.json.tmp && mv /state/host-stats.json.tmp /state/host-stats.json' 2>/dev/null || true
 }
@@ -709,4 +741,4 @@ apply_profile dogecoin DOGECOIN_RESOURCE_PROFILE dogecoin_synced DOGECOIN_STEADY
 apply_profile bitcoincash BITCOINCASH_RESOURCE_PROFILE bitcoincash_synced BITCOINCASH_STEADY_CPUS BITCOINCASH_STEADY_MEM_LIMIT_MB
 apply_profile zcash ZCASH_RESOURCE_PROFILE zcash_synced ZCASH_STEADY_CPUS ZCASH_STEADY_MEM_LIMIT_MB
 check_failed_starts || true
-write_host_stats || true
+hostd_owns_host_stats || write_host_stats || true

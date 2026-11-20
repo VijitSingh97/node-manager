@@ -65,6 +65,7 @@ test("the confirmation names the data folder, volumes, credentials and watch-onl
   assert.match(text("litecoin"), /watch-only wallets.*saved balances and history/);
   assert.match(text("bitcoin"), /utxo_index\)/);
   assert.match(text("bitcoincash"), /utxo_index_bitcoincash/);
+  assert.match(text("dogecoin"), /utxo_index_dogecoin/);
   assert.match(text("monero"), /monero_wallets/);
   assert.match(text("tari"), /tari_wallet, tari_wallet_data/);
   assert.doesNotMatch(text("zcash"), /volume/);
@@ -77,9 +78,9 @@ test("Save sends a staged delete last, and the delete status reaches the queue",
   assert.deepEqual(savedHostActions(view, {}, { "delete:litecoin": remove, "migrate:bitcoin": move }), [move, remove]);
   const deleting = model([node("litecoin")], { status: { action: "delete", node: "litecoin", state: "pending", message: "Deleting…" } });
   assert.equal(pendingHostNode(deleting, "delete"), "litecoin");
-  assert.equal(hostQueueSettled(deleting, "delete"), "");
+  assert.equal(hostQueueSettled(deleting, { action: "delete", node: "litecoin" }), "");
   const failed = model([node("litecoin")], { status: { action: "delete", node: "litecoin", state: "rejected", message: "no" } });
-  assert.equal(hostQueueSettled(failed, "delete"), "failed");
+  assert.equal(hostQueueSettled(failed, { action: "delete", node: "litecoin" }), "failed");
 });
 
 test("the Node set row offers Delete next to Move data, behind a typed-confirmation dialog", async () => {

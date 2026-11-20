@@ -40,10 +40,41 @@ shows recent probe output when diagnosing.
 ## Host readings
 
 With **Node manager usage** ticked in Settings, the usage panel at the top left
-lists the host's temperature, fan speed, uptime and network rate under the disk
-bars and CPU and memory pies. The resource-profile host helper collects them
-once a minute with the other host figures, so the dashboard container needs no
-extra mounts or privileges.
+shows the host's temperature, fan speed, uptime and network rate as four tiles
+above the disk bars. On APT installs (amd64 and arm64) the small
+`node-manager-hostd` helper writes them every 10 seconds. New installs and
+upgrades get it as a recommended package. If `dpkg -s node-manager-hostd` says
+it is missing, install it with `sudo apt install node-manager-hostd`. Elsewhere, and whenever the helper
+is not running, the resource-profile shell helper collects them once a minute.
+Either way the dashboard container needs no extra mounts or privileges.
+
+Check the helper with:
+
+```sh
+systemctl status node-manager-host-stats.timer
+systemctl status node-manager-host-stats.service
+journalctl -u node-manager-host-stats.service
+```
+
+The timer should be `active (waiting)` and the service `inactive (dead)` between
+runs. The service logs only warnings and errors, so a healthy install adds
+nothing to the journal. If a run fails, the service shows `failed`, and the
+resource-profile helper writes the readings itself from its next run until the
+helper succeeds again, but only while `node-manager-resource-profile.timer` is
+enabled (it is when a node uses the compact resource profile); otherwise the
+readings stop until the helper is fixed. A stopped dashboard is not a failure:
+the helper exits quietly and resumes with it. Without the package (or on an architecture it is not
+built for) the shell collector runs as before.
+
+The helper writes into the dashboard's state volume, which it finds through
+Docker. If Docker's data root is not `/var/lib/docker`, allow that path with a
+drop-in, then run `sudo systemctl daemon-reload`:
+
+```ini
+# /etc/systemd/system/node-manager-host-stats.service.d/data-root.conf
+[Service]
+ReadWritePaths=/srv/docker/volumes
+```
 
 The CPU and memory pies split the host three ways. A node slice covers the
 node's container and its wallet container (Monero, Tari). **Node Manager
@@ -55,7 +86,7 @@ same second as the host total, and its memory is its anonymous memory plus its
 own kernel memory (page tables, unreclaimable slab, socket buffers), not file
 cache. Docker Desktop hosts use `docker stats` instead.
 
-The health rows below the pies read:
+The four vitals tiles read:
 
 - **Temperature** — the same `/sys/class/thermal` zones the thermal throttle
   reads. `CPU` is the hottest CPU package zone (`x86_pkg_temp`, `cpu-thermal`,
@@ -69,8 +100,9 @@ The health rows below the pies read:
 - **Network** — received and sent bytes per second, summed over the host's
   physical interfaces (those with a device in `/sys/class/net`, so loopback,
   Docker bridges, `veth` pairs and VPN tunnels such as `tailscale0` are left
-  out). The rate is measured across the helper's existing one-second CPU
-  sample, so it is a snapshot taken once a minute, not an average.
+  out). The rate is measured across the helper's CPU sample window: about 10
+  seconds with the Go helper, or one second once a minute with the shell
+  collector.
 
 Each reading the host cannot provide shows `not available`: on Homebrew for
 macOS (Docker runs in a VM, and the helper does not read the Mac's sensors),
@@ -152,6 +184,9 @@ sudo apt upgrade
 APT upgrades automatically download the new release images and recreate the
 services that were running. Changed services may restart. A stopped deployment
 stays stopped, and configuration edits still awaiting approval are not applied.
+Upgrades also install newly recommended packages such as `node-manager-hostd`.
+If it is missing (for example after `--no-install-recommends`), run
+`sudo apt install node-manager-hostd` (see [Host readings](#host-readings)).
 If Docker or the registry is unavailable, APT keeps the package installed and
 reports activation as pending. After correcting the problem, retry with
 `sudo node-manager package-upgrade`. Inspect `sudo node-manager status` and
@@ -263,21 +298,20 @@ first — a live copy of `chainstate/` is corrupt by construction.
   style of Spring Boot Actuator and read state the dashboard already keeps
   (the node probe that runs about once a minute, the balance index status and
   the last Tor price fetch), so a request never calls a node.
-  - **Login.** The dashboard creates an actuator username and a random
-    password (256 bits) once and keeps them in the dashboard state volume
-    (`actuator-credentials.json`, mode 600). Settings → Actuator shows both
-    with a **Copy** button, to signed-in administrators only. Both endpoints
-    always require HTTP Basic auth with exactly this login when switched on.
-    Without it, or with the wrong login, they answer 401 with a
-    `WWW-Authenticate: Basic` challenge. The dashboard `admin` login and a
-    dashboard session do not open them, and there is no anonymous access. A
-    switched-off endpoint answers 404 whatever credentials are sent. Behind
-    `dashboard.public_url`, repeated wrong logins from one client are
-    throttled with a 429 and `Retry-After`, separately from dashboard
-    sign-in. If the file is deleted, unreadable, or readable by group or
-    others, a new password is generated on the next start; update your
-    monitors then. Settings saved before this release with the old single
-    switch on turn both endpoints on after the upgrade.
+  - **Login.** Both endpoints use the same login as the dashboard: user
+    `admin` and the dashboard password, over HTTP Basic auth, with the same
+    wrong-password throttling (429 with `Retry-After`). A dashboard session
+    cookie also works, as on the rest of the protected API, and a Basic
+    request does not start a session. Without a valid login they answer 401
+    with a `WWW-Authenticate: Basic` challenge, and there is no anonymous
+    access; if no dashboard password is configured they answer 503 like the
+    rest of the API. A switched-off endpoint answers 404 whatever credentials
+    are sent. A monitor given this login can also sign in to the dashboard.
+    A monitor polling with a wrong password counts against the same
+    sign-in limit, so with no `dashboard.public_url` set it can briefly
+    throttle dashboard sign-in too. Settings saved before this release with the old single switch on turn
+    both endpoints on after the upgrade; the generated `actuator` login from
+    earlier releases is gone, so update monitors to the dashboard login.
   - `GET /actuator/health` returns the overall `status` and `components`: HTTP
     503 for `DOWN`, 200 for `UP` or `DEGRADED`.
     - `dashboard`: always `UP`.
@@ -329,16 +363,27 @@ first — a live copy of `chainstate/` is corrupt by construction.
         credentials.
 
   **The info response contains the RPC passwords of every exposed LAN
-  service.** There is one actuator login for both endpoints, so any client
-  that can poll `/actuator/health` can also read `/actuator/info` and those
-  passwords. If monitors must not see them, leave **Serve /actuator/info** off.
+  service.** The actuator uses the same login as the dashboard for both
+  endpoints, so any client that can poll `/actuator/health` can also read
+  `/actuator/info` and those passwords. If monitors must not see them, leave **Serve /actuator/info** off.
+  Settings → **Actuator** shows **Copy curl for health** and **Copy curl for
+  info** under the switches, for each switch that is saved on. After you type
+  the dashboard password (checked by the server, after a recent sign-in), the
+  button copies a complete curl command for `<address>/actuator/health`
+  (or `/info`), with the admin login and that password filled in, using the
+  address the page was opened from. **The copied
+  command contains the password and will land in shell history.** For scripts
+  and monitors prefer `curl --user admin <url>`, which prompts. On a plain
+  `http://` dashboard the browser blocks the clipboard API, so the button
+  falls back to a temporary copy, then to a selected field you copy with
+  Ctrl+C or Cmd+C.
   Neither endpoint returns wallet data, onion addresses or host paths.
   A configured `dashboard.public_url` still limits which host name they answer
   on, except for Basic-auth clients on the private network, as for `/metrics`.
-  For example, `curl -fsS --user actuator https://node.example.com/actuator/health`
-  prompts for the password and exits non-zero when something is down. Uptime
-  monitors that cannot prompt take the same username and password in their
-  own Basic-auth settings.
+  For example, `curl -fsS --user admin https://node.example.com/actuator/info`
+  prompts for the password; use `/actuator/health` to exit non-zero when
+  something is down. Uptime monitors that cannot prompt take the same
+  username and password in their own Basic-auth settings.
 - **Telegram / Healthchecks.io:** see [Notifications](notifications.md).
 - **Fee sparkline:** the dashboard samples the next-block fee once a minute
   into an in-memory 24-hour series (reset on restart) and draws it under the
@@ -367,34 +412,54 @@ litecoin`. Its seed time and size on mainnet are not measured yet. Only one
 balance index seeds at a time; a second request is refused with the `lock`
 guard until the first finishes.
 
-The Bitcoin Cash balance index (`bitcoincash.utxo_index`, archival nodes only) has
-no dump to seed from. It replays every block from genesis through the dashboard,
-which starts it on its own once the node has synced, or from **Replay Bitcoin Cash
-now** or `./stack utxo-seed bitcoincash`; no seed pipe is made. A cancel, failure or
+The Bitcoin Cash balance index (`bitcoincash.utxo_index`) works on a pruned node.
+Bitcoin Cash Node has no coin-set export, so a seed stops the Bitcoin Cash node
+while its chainstate is copied, starts it again, and builds the index from the
+copy; the index then follows new blocks. The copy hardlinks the node's tables, so
+it needs free space for three times the chainstate and marks Bitcoin Cash as
+restarting while the node is down, so it raises no node-down alert. The dashboard
+asks for this itself on APT and Homebrew installs, and `./stack utxo-seed
+bitcoincash` does it from a source checkout. The seed reads the copy only after a
+clean stop; a copy taken while the node was flushing is refused. Seed time and
+index size on mainnet are not measured yet.
+
+An archival Bitcoin Cash node with no host helper can instead replay every block
+from genesis through the dashboard: `./stack utxo-seed bitcoincash --replay`, or
+automatically once the node has synced. No seed pipe is made. A cancel, failure or
 restart keeps the blocks already applied, and the next run resumes from there. A
 node restart, an RPC timeout or a reorg near the tip is retried within the replay;
 progress resets the count, so it waits for the hourly check only after about five
-minutes of failures in a row, and storage errors stop it at once. After a cancel,
-automatic replays stop until you start one with **Replay Bitcoin Cash now** or
-`utxo-seed bitcoincash`. It
-takes the shared seed lock and the heat pause, but holds neither node alerts nor
-the watch scan. Regtest rates are in
-[the replay measurement](measurements/utxo-replay.md); a mainnet replay has not
-been timed.
+minutes of failures in a row, and storage errors stop it at once. It takes the
+shared seed lock and the heat pause, but holds neither node alerts nor the watch
+scan. Regtest rates are in [the replay measurement](measurements/utxo-replay.md);
+a mainnet replay has not been timed. A pruned node refuses a replay.
 
-With `bitcoin.utxo_index` enabled the index starts empty. On APT and Homebrew
-installs it seeds itself: while the index has no seed (or its last seed failed),
-the dashboard checks the seed guards once an hour, and when they pass it asks the
-host helper (`node-control`) to create the seed pipe and request, the same
-preparation `utxo-seed` does. A refused check stays in the index status with its
-reason. A seed that starts and then fails, or is cut short by a dashboard
-restart, is retried after 6 hours, then 24 hours, and not again after a third
-failure until you start one; a guard refusal costs nothing and is re-checked
-hourly. Cancelling a seed (`utxo-seed cancel`) stops automatic seeding until you
-start one with **Seed now** or `utxo-seed`. The automatic seed holds node-down alerts
-like a manual one. **Seed now** on the index card or in Settings starts a seed
-through the same host helper. A source checkout has no host helper, so seed it by
-hand. To seed it from the host, with the stack running and the node synced:
+With a balance index enabled the index starts empty, and on APT and Homebrew
+installs it seeds itself as soon as the node has synced; there is no Seed button.
+While an index has no seed (or went invalid), the dashboard checks the seed guards
+and, when they pass, asks the host helper (`node-control`) to prepare the seed, the
+same preparation `utxo-seed` does. The node card shows a bar for the index: waiting
+for the node to sync, building with a percentage, catching up, or ready.
+
+- A seed never starts while the node is still syncing, within 10 minutes of the
+  node starting, or beside another index's seed or chainstate copy. These waits are
+  re-checked every 30 seconds, cost nothing and are not failures. The host helper
+  makes the last two checks itself and refuses before it stops any node.
+- A seed that starts and then fails, is cut short by a dashboard restart, or whose
+  host preparation fails (for example a chainstate copy that could not be taken)
+  is retried after 6 hours, then 24 hours, and not again after a third failure; the
+  bar then reads "seeding failed" with the reason. Turning the index off and on in
+  Settings clears that count. An index that turns invalid is reseeded the same way,
+  but not within a day of a successful seed, so it cannot stop a node again and
+  again. Cancelling a seed (`utxo-seed cancel`) stops automatic seeding until you
+  start one with `utxo-seed`.
+- Settings changes made while a Dogecoin or Bitcoin Cash chainstate copy runs wait
+  for it (the node's stop can take up to five minutes) and then go through.
+- Turning an index on from Settings or the install dialog is all it takes: the
+  next check seeds it.
+- The automatic seed holds node-down alerts like a manual one. A source checkout
+  has no host helper, so the index card shows the command and you seed it by hand.
+  To seed it from the host, with the stack running and the node synced:
 
 ```
 ./stack utxo-seed        # asks for y; -y skips the question
@@ -539,6 +604,35 @@ Recovery:
   the next `./stack utxo-seed` removes both. The status file
   (`utxo-seed.json` in the state volume) and logs carry phases, counts and
   error classes only, never addresses, descriptors or script hashes.
+
+## Seeding the Dogecoin balance index
+
+Dogecoin Core 1.14.9 has no coin-set export, so `dogecoin.utxo_index` seeds from a copy of the node's
+chainstate, which a pruned node keeps whole.
+
+- The automatic seed goes through the host helper. It
+  checks that the node has finished syncing and that the disk beside its data can hold the chainstate
+  twice, stops the Dogecoin node, hardlinks the chainstate's tables into
+  `<data_dir>/utxo-seed-chainstate`, copies its other files, and starts the node again. The dashboard
+  then builds the index from the copy and follows new blocks.
+- From the command line, `./stack utxo-seed dogecoin` (`sudo node-manager utxo-seed dogecoin` on APT)
+  does the same and waits for the outcome. `./stack utxo-seed dogecoin cancel` stops the dashboard's
+  build.
+- **Alerts:** either way, the copy marks Dogecoin as restarting from just before the stop until its RPC
+  answers after the start, for at most 10 minutes, so the stop raises no node-down alert. If the node
+  does not start again, the mark is dropped and the alert follows.
+- The copy keeps the node's older tables on disk until it is removed. The host helper removes it once
+  the dashboard reports the seed finished, or when an interrupted copy left it with no seed at all; the
+  command line removes it when it ends. An interrupted or hung-up copy starts the node again. If the
+  owner stops the node while the index is being built, the seed leaves it stopped.
+- The seed reports which of three things happened when it does not start: it refused before the stop
+  (nothing changed), the copy failed and the node was started again, or the node did not start again
+  (start it with `./stack up`).
+- `./stack utxo-index remove dogecoin` deletes the index volume once `dogecoin.utxo_index` is off and
+  applied.
+- If a pruned node drops blocks the index still needs, the index turns invalid and is seeded again
+  automatically (not within a day of a successful seed).
+- Dogecoin is not in `utxo-index bench` or its CI test; see [the lookup bench](measurements/lookup-bench.md).
 
 ## Self-healing (a deliberate non-feature)
 

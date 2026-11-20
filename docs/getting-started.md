@@ -24,8 +24,8 @@ on Linux: `avahi-daemon` also lets other machines use `http://<hostname>.local`
 (append `:8080` for Homebrew). Set `dashboard.bind_ip` explicitly to use another
 private address or `127.0.0.1` for access only from this machine.
 
-On Ubuntu, install `jq`, `openssl`, `curl`, `iproute2`, and optionally
-`avahi-daemon` with APT.
+For a source install on Ubuntu, install `jq`, `openssl`, `curl`, and
+`iproute2` with APT. `avahi-daemon` is optional for any install.
 
 ## Install
 
@@ -128,6 +128,16 @@ starts a pruned Bitcoin node. It does not ask setup questions. Docker stores
 image layers in its managed storage. Setup does not change Docker's daemon or
 proxy configuration. Use **Settings → Node set** later to install another chain.
 
+On amd64 and arm64 the package also recommends `node-manager-hostd`, and
+`sudo node-manager init` starts its 10-second timer (see
+[Host readings](operations.md#host-readings)). Other architectures, source
+installs, Homebrew installs, and APT run with `--no-install-recommends` use the
+shell collector. An upgrade installs the helper too, because it is recommended;
+if `dpkg -s node-manager-hostd` says it is missing (for example after
+`--no-install-recommends`), run `sudo apt install node-manager-hostd`. Installing the package on an
+already-initialized stack starts the timer too. Check with
+`systemctl status node-manager-host-stats.timer`.
+
 ### Install from source on Ubuntu
 
 Install Docker Engine and Docker Compose 2.33.1 or newer using the
@@ -140,7 +150,7 @@ tools and check out the published release:
 ```bash
 sudo apt update
 sudo apt install ca-certificates curl git iproute2 jq openssl util-linux
-git clone --branch v1.37.0 --depth 1 https://github.com/VijitSingh97/node-manager.git
+git clone --branch v1.38.0 --depth 1 https://github.com/VijitSingh97/node-manager.git
 cd node-manager
 ./stack init
 ```
@@ -183,7 +193,10 @@ Run `node-manager init` for Homebrew, `sudo node-manager init` for APT, or
 `./stack init` for source. A fresh run:
 
 1. Starts **Bitcoin only**, pruned to 10 GB of recent block files (plan roughly
-   28–56 GiB total disk space).
+   28–56 GiB total disk space). APT and Homebrew also turn on the Bitcoin
+   balance index, which seeds itself once the node has synced, and the compact
+   resource profile (see [resource caps](configuration.md#resource-caps)).
+   Source installs leave both off.
 2. Chooses an IPv4 address on your private LAN, with localhost as a fallback,
    and prints the actual dashboard URL. Homebrew uses port 8080; APT/source use 80.
 3. Generates and persists one 32-character dashboard password and keeps every

@@ -1,0 +1,9 @@
+anon 700000000
+file 99
+kernel_stack 1
+pagetables 1000
+sec_pagetables 20
+percpu 300
+sock 4000
+slab_unreclaimable 50000
+slab_reclaimable 600000

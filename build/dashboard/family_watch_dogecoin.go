@@ -16,6 +16,28 @@ const (
 	dogecoinImportRetry   = 6 * time.Hour
 )
 
+// dogecoinIndexFamilyWatchBackend serves a node without the watch wallet from the balance index alone, so its wallets wait until the index is ready.
+func dogecoinIndexFamilyWatchBackend() familyWatchBackend {
+	base, wallet := utxoFamilyWatchBackend(false), dogecoinFamilyWatchBackend()
+	return familyWatchBackend{
+		ready: func(ctx context.Context, s *familyWatchStore, now int64) (familyWatchTip, bool) {
+			if s.index == nil || s.index.Status().State != utxoStateReady {
+				return familyWatchTip{}, false
+			}
+			// A ready index may trail by a block; with no other source the wallets wait for it rather than fail.
+			tip, ok := base.ready(ctx, s, now)
+			if st := s.index.Status(); !ok || st.IndexTip == nil || int64(*st.IndexTip) != tip.Blocks {
+				return familyWatchTip{}, false
+			}
+			return tip, true
+		},
+		scan: func(context.Context, *familyWatchStore, string, familyWatchTip) (familyWatchResult, string) {
+			return familyWatchResult{}, "index_behind"
+		},
+		validate: wallet.validate,
+	}
+}
+
 func dogecoinFamilyWatchBackend() familyWatchBackend {
 	base := utxoFamilyWatchBackend(false)
 	return familyWatchBackend{

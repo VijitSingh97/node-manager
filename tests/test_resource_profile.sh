@@ -13,6 +13,7 @@ fake=$tmp/fake-docker
 log=$tmp/docker.log
 caps=$tmp/caps
 mkdir "$caps"
+export RESOURCE_HOSTD_BIN=$tmp/no-hostd
 
 cat >"$fake" <<'EOF'
 #!/bin/sh
@@ -121,7 +122,13 @@ case "$1" in
     ;;
   ps)
     case "$*" in
-      *'{{.ID}}'*) printf '%s\n' "${FAKE_PS_ID_ROWS:-}" ;;
+      *' -a '*'{{.ID}}'*) printf '%s\n' "${FAKE_PS_ID_ROWS:-}" ;;
+      *'{{.ID}} {{.Label'*)
+        [ "${FAKE_BITCOIN_RUNNING:-1}" != 1 ] || printf '%s bitcoin\n' "${FAKE_BITCOIN_ID:-btc-id}"
+        [ "${FAKE_MONERO_RUNNING:-1}" != 1 ] || printf '%s monero\n' "${FAKE_MONERO_ID:-xmr-id}"
+        printf '%s litecoin\n%s dogecoin\n%s bitcoincash\ntari-id tari\nzcash-id zcash\n' "${FAKE_LITECOIN_ID:-ltc-id}" "${FAKE_DOGECOIN_ID:-doge-id}" "${FAKE_BITCOINCASH_ID:-bch-id}"
+        [ "${FAKE_DASHBOARD_DOWN:-0}" = 1 ] || printf 'dashboard-id dashboard\n'
+        ;;
       *) printf 'monero running\nmonero-wallet running\nbitcoin exited\ntari restarting\nlitecoin created\ndashboard running\n' ;;
     esac
     ;;
@@ -426,6 +433,11 @@ grep -q '^ProtectHome=read-only$' packaging/systemd/node-manager-resource-profil
 grep -q '^RestrictAddressFamilies=AF_UNIX$' packaging/systemd/node-manager-resource-profile.service || fail "systemd service can use public network sockets"
 grep -q '^Persistent=true$' packaging/systemd/node-manager-resource-profile.timer || fail "systemd timer does not catch up after reboot"
 
+new_case one-container-listing-per-run
+scripts/node-resource-profile || fail "resource profile run failed"
+[ "$(grep -c '^compose .* ps ' "$log")" = 0 ] || fail "container ids were resolved with compose ps: $(cat "$log")"
+[ "$(grep -c '^ps --filter label=com.docker.compose.project=[^ ]* --format {{.ID}} {{.Label' "$log")" = 1 ] || fail "a run listed containers more than once: $(cat "$log")"
+
 new_case host-stats
 mkdir -p "$case_root/state/data/bitcoin" "$case_root/state/data/tari"
 head -c 2097152 /dev/zero >"$case_root/state/data/bitcoin/blk00000.dat"
@@ -446,6 +458,16 @@ unset RESOURCE_CGROUP_ROOT FAKE_HOST_STATS_OUT
 jq -e '.nodes.monero.mem_bytes == 1234567890 + 1 + 1000 + 20 + 300 + 4000 + 50000 + 104857600' "$tmp/host-stats-payload.json" >/dev/null ||
   fail "cgroup anon and kernel memory did not override docker stats: $(jq -c .nodes.monero "$tmp/host-stats-payload.json")"
 jq -e '.failed == {}' "$tmp/host-stats-payload.json" >/dev/null || fail "healthy containers were reported as failed starts"
+
+new_case started-at
+mkdir -p "$case_root/state/data/bitcoin" "$case_root/inspect"
+head -c 2097152 /dev/zero >"$case_root/state/data/bitcoin/blk00000.dat"
+printf '[{"RestartCount":0,"State":{"ExitCode":0,"OOMKilled":false,"StartedAt":"2026-01-01T00:00:00.5Z","FinishedAt":"0001-01-01T00:00:00Z"}}]\n' >"$case_root/inspect/btc-id.json"
+export FAKE_PS_ID_ROWS='btc-id bitcoin running
+xmr-id monero exited' FAKE_INSPECT_DIR=$case_root/inspect FAKE_HOST_STATS_OUT=$tmp/host-stats-payload.json
+run_profile
+unset FAKE_PS_ID_ROWS FAKE_INSPECT_DIR FAKE_HOST_STATS_OUT
+jq -e '.nodes.bitcoin.started_at == 1767225600 and (.nodes.monero | has("started_at") | not)' "$tmp/host-stats-payload.json" >/dev/null || fail "host stats lost the running node start time or stamped a stopped one: $(jq -c .nodes "$tmp/host-stats-payload.json")"
 
 new_case failed-start
 mkdir -p "$case_root/inspect"
@@ -559,6 +581,7 @@ for iface in lo enp3s0f0 wlp2s0 tailscale0 docker0 br-26404e166c9c veth559171e; 
 mkdir -p "$host_sys/class/hwmon/hwmon1" "$host_sys/class/hwmon/hwmon2/device" "$host_sys/class/hwmon/hwmon3"
 printf 'coretemp\n' >"$host_sys/class/hwmon/hwmon1/name"
 printf '2506\n' >"$host_sys/class/hwmon/hwmon2/device/fan1_input"
+printf '4825\n' >"$host_sys/class/hwmon/hwmon2/device/fan1_max"
 printf '0\n' >"$host_sys/class/hwmon/hwmon3/fan2_input"
 printf '59000\n' >"$case_root/zones/0/temp"; printf 'x86_pkg_temp\n' >"$case_root/zones/0/type"
 printf '45000\n' >"$case_root/zones/1/temp"; printf 'acpitz\n' >"$case_root/zones/1/type"
@@ -580,15 +603,46 @@ PATH="$tmp/bin:$PATH" run_profile
 unset RESOURCE_CGROUP_ROOT FAKE_CGROUP_NEXT
 jq -e '.host_cpu_pct == 30 and .nodes.monero.cpu_pct == 30' "$tmp/host-stats-payload.json" >/dev/null ||
   fail "container CPU was not measured over the host CPU window: $(jq -c '{host_cpu_pct, monero: .nodes.monero.cpu_pct}' "$tmp/host-stats-payload.json")"
-jq -e '.cpu_temp_c == 59 and .board_temp_c == 45 and .fans_rpm == [0, 2506] and .uptime_s == 1002 and .net_rx_bps == 3000 and .net_tx_bps == 500' "$tmp/host-stats-payload.json" >/dev/null ||
+jq -e '.cpu_temp_c == 59 and .board_temp_c == 45 and .fans_rpm == [0, 2506] and .fans_max_rpm == [0, 4825] and .uptime_s == 1002 and .net_rx_bps == 3000 and .net_tx_bps == 500' "$tmp/host-stats-payload.json" >/dev/null ||
   fail "host health readings are wrong: $(jq -c '{cpu_temp_c, board_temp_c, fans_rpm, uptime_s, net_rx_bps, net_tx_bps}' "$tmp/host-stats-payload.json")"
 ! grep -Eq 'enp3s0f0|wlp2s0|tailscale0|docker0|veth|iwlwifi|coretemp' "$tmp/host-stats-payload.json" || fail "host stats leaked interface or sensor names"
 mkdir -p "$case_root/empty"
 export RESOURCE_PROC_ROOT=$case_root/empty RESOURCE_SYS_ROOT=$case_root/empty RESOURCE_THERMAL_GLOB="$case_root/empty/none*/temp"
 run_profile
-jq -e '.cpus == 4 and ([has("cpu_temp_c", "board_temp_c", "fans_rpm", "uptime_s", "net_rx_bps", "net_tx_bps")] | any | not)' "$tmp/host-stats-payload.json" >/dev/null ||
+jq -e '.cpus == 4 and ([has("cpu_temp_c", "board_temp_c", "fans_rpm", "fans_max_rpm", "uptime_s", "net_rx_bps", "net_tx_bps")] | any | not)' "$tmp/host-stats-payload.json" >/dev/null ||
   fail "missing sensors were not left out of the host stats payload"
 unset RESOURCE_PROC_ROOT RESOURCE_SYS_ROOT RESOURCE_THERMAL_GLOB FAKE_PROC_NEXT FAKE_HOST_STATS_OUT
+
+new_case hostd-owns-stats
+fake_hostd=$tmp/hostd
+printf '#!/bin/sh\n' >"$fake_hostd"
+chmod +x "$fake_hostd"
+cat >"$tmp/systemctl" <<'EOF'
+#!/bin/sh
+case "$1" in
+  is-active) [ "${FAKE_TIMER_ACTIVE:-1}" = 1 ] ;;
+  is-failed) [ "${FAKE_SERVICE_FAILED:-0}" = 1 ] ;;
+  *) exit 2 ;;
+esac
+EOF
+chmod +x "$tmp/systemctl"
+export RESOURCE_HOSTD_BIN=$fake_hostd RESOURCE_SYSTEMCTL_BIN=$tmp/systemctl FAKE_HOST_STATS_OUT=$tmp/hostd-owned.json
+writes_stats() {
+  rm -f "$FAKE_HOST_STATS_OUT"
+  run_profile
+  [ -s "$FAKE_HOST_STATS_OUT" ]
+}
+! writes_stats || fail "shell wrote host stats while hostd owned them"
+FAKE_TIMER_ACTIVE=0 writes_stats || fail "shell did not take over with the hostd timer inactive"
+FAKE_SERVICE_FAILED=1 writes_stats || fail "shell did not take over after a failed hostd run"
+RESOURCE_HOSTD_BIN=$tmp/no-hostd writes_stats || fail "shell did not take over without the hostd binary"
+chmod -x "$fake_hostd"
+writes_stats || fail "shell did not take over with a non-executable hostd binary"
+chmod +x "$fake_hostd"
+RESOURCE_SYSTEMCTL_BIN=$tmp/no-systemctl writes_stats || fail "shell did not write host stats without systemctl"
+! writes_stats || fail "shell stopped deferring to hostd after the fallback cases"
+export RESOURCE_HOSTD_BIN=$tmp/no-hostd
+unset RESOURCE_SYSTEMCTL_BIN FAKE_HOST_STATS_OUT
 
 new_case thermal
 cat >>"$case_root/state/.env" <<'ENVEOF'

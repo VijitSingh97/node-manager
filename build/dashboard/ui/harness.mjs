@@ -59,7 +59,7 @@ export function skipReason(env = process.env) {
 const SKIP = skipReason();
 let chrome;
 const sharedChrome = async () => (chrome ??= await launchChrome(findChrome()));
-after(async () => { await (await chrome)?.close(); });
+after(async () => { await chrome?.close(); });
 
 function startRPC() {
   const result = {
@@ -105,6 +105,7 @@ class Helper {
     this.requests = [];
     this.hold = false;
     this.outcome = () => "applied";
+    this.detail = () => "";
     this.timer = setInterval(() => this.#tick(), 5);
     this.keepalive = setInterval(() => this.writeCapability(), 10000);
     this.writeCapability();
@@ -128,7 +129,7 @@ class Helper {
     this.requests.push(request);
     const state = this.outcome(request);
     const status = request.action
-      ? { id: request.id, action: request.action, ...(request.node ? { node: request.node } : {}), ...(request.enabled === undefined ? {} : { enabled: request.enabled }), state }
+      ? { id: request.id, action: request.action, ...(request.node ? { node: request.node } : {}), ...(request.enabled === undefined ? {} : { enabled: request.enabled }), state, ...(this.detail(request) ? { error_code: "validation_failed", detail: this.detail(request) } : {}) }
       : { id: request.id, node: request.node, active: request.active, state };
     if (state === "applied") this.#apply(request);
     writeAtomic(join(this.stateDir, "node-control.status"), JSON.stringify(status));
@@ -156,9 +157,8 @@ export async function startDashboard({ nodes = [], settings, capability = {}, ho
   const stateDir = mkdtempSync(join(tmpdir(), "ui-state-"));
   const rpc = await startRPC();
   const rpcURL = `http://127.0.0.1:${rpc.address().port}`;
-  const port = await freePort();
   const env = {
-    ...process.env, RPC_URL: rpcURL, RPC_USER: "uiuser", RPC_PASSWORD: "uirpc", DASHBOARD_PASSWORD: password, PORT: String(port),
+    ...process.env, RPC_URL: rpcURL, RPC_USER: "uiuser", RPC_PASSWORD: "uirpc", DASHBOARD_PASSWORD: password,
     DATA_DIR: stateDir, STATE_DIR: stateDir, WATCH_STORE: join(stateDir, "wallets.json"), BALANCE_HISTORY: join(stateDir, "balance_history.json"),
     EVENTS_LOG: join(stateDir, "events.log"), WATCH_WALLETS_B64: "", TELEGRAM_BOT_TOKEN: "", TELEGRAM_CHAT_ID: "", HEALTHCHECKS_URL: "", STACK_VERSION: "1.0.0-ui",
   };
@@ -170,20 +170,36 @@ export async function startDashboard({ nodes = [], settings, capability = {}, ho
     env[`${prefix}_RPC_PASSWORD`] = "uirpc";
   }
   if (settings) writeFileSync(join(stateDir, "notification_settings.json"), JSON.stringify({ ...defaultSettings, ...settings }), { mode: 0o600 });
-  const log = [];
-  const child = spawn(resolveBinary(), [], { cwd: DASHBOARD_DIR, env, stdio: ["ignore", "pipe", "pipe"] });
-  children.add(child);
-  child.stdout.on("data", (chunk) => log.push(String(chunk)));
-  child.stderr.on("data", (chunk) => log.push(String(chunk)));
-  const url = `http://127.0.0.1:${port}`;
-  const deadline = Date.now() + 15000;
-  for (;;) {
-    if (child.exitCode !== null) throw new Error(`dashboard exited: ${log.join("")}`);
-    if (Date.now() > deadline) throw new Error(`dashboard did not become ready: ${log.join("")}`);
+  let child, url;
+  // Test files run in parallel, so another file can take the free port before the dashboard binds it.
+  for (let attempt = 1; ; attempt++) {
+    env.PORT = String(await freePort());
+    const log = [];
+    child = spawn(resolveBinary(), [], { cwd: DASHBOARD_DIR, env, stdio: ["ignore", "pipe", "pipe"] });
+    children.add(child);
+    child.stdout.on("data", (chunk) => log.push(String(chunk)));
+    child.stderr.on("data", (chunk) => log.push(String(chunk)));
+    url = `http://127.0.0.1:${env.PORT}`;
+    const deadline = Date.now() + 15000;
     try {
-      if ((await fetch(`${url}/healthz`)).ok) break;
-    } catch {}
-    await sleep(25);
+      for (;;) {
+        if (child.exitCode !== null) throw new Error(`dashboard exited: ${log.join("")}`);
+        if (Date.now() > deadline) throw new Error(`dashboard did not become ready: ${log.join("")}`);
+        try {
+          if ((await fetch(`${url}/healthz`, { signal: AbortSignal.timeout(2000) })).ok) break;
+        } catch {}
+        await sleep(25);
+      }
+      break;
+    } catch (error) {
+      child.kill("SIGKILL");
+      children.delete(child);
+      if (attempt < 3 && /address already in use/i.test(log.join(""))) continue;
+      rpc.close();
+      rpc.closeAllConnections();
+      rmSync(stateDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      throw error;
+    }
   }
   const helper = host ? new Helper(stateDir, { ...baseCapability, ...capability }) : undefined;
   const readJSON = (name) => (existsSync(join(stateDir, name)) ? JSON.parse(readFileSync(join(stateDir, name), "utf8")) : undefined);
@@ -194,12 +210,15 @@ export async function startDashboard({ nodes = [], settings, capability = {}, ho
     writeHostStats: (extra = {}) => writeAtomic(join(stateDir, "host-stats.json"), JSON.stringify({ updated: Math.floor(Date.now() / 1000), cpus: 4, mem_total_bytes: 8 * 2 ** 30, nodes: {}, other: { cpu_pct: 1, mem_bytes: 1 }, ...extra })),
     async stop() {
       helper?.stop();
-      child.kill("SIGTERM");
       children.delete(child);
-      await Promise.race([new Promise((resolve) => child.once("exit", resolve)), sleep(5000).then(() => child.kill("SIGKILL"))]);
       rpc.close();
       rpc.closeAllConnections();
-      rmSync(stateDir, { recursive: true, force: true });
+      if (child.exitCode === null && child.signalCode === null) {
+        const exited = new Promise((resolve) => child.once("exit", resolve));
+        child.kill("SIGTERM");
+        await Promise.race([exited, sleep(5000).then(() => child.kill("SIGKILL"))]);
+      }
+      rmSync(stateDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     },
   };
   if (hostStats) dash.writeHostStats(hostStats === true ? {} : hostStats);
@@ -276,7 +295,8 @@ export function flow(name, options, body) {
       await body({ dash, page, helper: dash.helper });
       page.assertClean();
     } finally {
-      await page?.close();
+      dash.helper?.release();
+      await page?.close().catch(() => {});
       await dash.stop();
     }
   });

@@ -69,6 +69,12 @@ jobs:
           go test -race ./...
           go vet ./...
 
+      - name: Host helper Go checks
+        run: |
+          cd build/hostd
+          go test -race ./...
+          go vet ./...
+
       - name: Python reference + HTTP parity
         run: |
           pip install -r build/dashboard/parity/reference/requirements.txt pytest pytest-cov
@@ -83,7 +89,7 @@ jobs:
           node-version: "22"
 
       - name: UI flows
-        run: DASHBOARD_BIN=/tmp/dashboard node --test "build/dashboard/ui/*.test.mjs"
+        run: DASHBOARD_BIN=/tmp/dashboard node --test --test-timeout=600000 "build/dashboard/ui/*.test.mjs"
 
       - name: Frontend unit tests
         run: node --test build/dashboard/static/*.test.mjs

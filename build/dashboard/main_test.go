@@ -24,6 +24,7 @@ type rpcFixture struct {
 	initialBlockDownload bool
 	unpruned             bool
 	idleSynced           bool
+	noPeers              bool
 }
 
 type lifecycleRPC struct {
@@ -175,6 +176,9 @@ func (f *rpcFixture) handler(w http.ResponseWriter, r *http.Request) {
 		if request.Method == "uptime" {
 			rpcError = map[string]any{"code": -32601, "message": "unavailable"}
 		}
+	}
+	if f.noPeers && request.Method == "getpeerinfo" {
+		rpcError = map[string]any{"code": -1, "message": "unavailable"}
 	}
 	_ = json.NewEncoder(w).Encode(map[string]any{"result": results[request.Method], "error": rpcError, "id": "go-dashboard"})
 }

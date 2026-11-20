@@ -1,6 +1,7 @@
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { diskViews, zoomSlices, pieView, healthView, rescaleToStack, arcPath, withCollectorSizes, NODE_COLORS, OTHER_COLOR } from "./host-stats.js";
+import { diskViews, zoomSlices, pieView, healthView, tempColor, fanTurnSeconds, uptimeRing, rescaleToStack, arcPath, withCollectorSizes, NODE_COLORS, OTHER_COLOR } from "./host-stats.js";
 
 const GiB = 1024 ** 3;
 
@@ -191,7 +192,8 @@ test("other and free slices use distinct colors on bars and pies", () => {
 });
 
 test("healthView formats temperatures, spinning fans, uptime and network rate", () => {
-  assert.deepEqual(healthView({ cpu_temp_c: 59.4, board_temp_c: 45, fans_rpm: [0, 2506], uptime_s: 90061, net_rx_bps: 1536, net_tx_bps: 0 }), [
+  const rows = (stats) => healthView(stats).map(({ label, value }) => ({ label, value }));
+  assert.deepEqual(rows({ cpu_temp_c: 59.4, board_temp_c: 45, fans_rpm: [0, 2506], uptime_s: 90061, net_rx_bps: 1536, net_tx_bps: 0 }), [
     { label: "Temperature", value: "CPU 59 °C · Board 45 °C" },
     { label: "Fan", value: "2506 rpm" },
     { label: "Uptime", value: "1d 1h 1m" },
@@ -199,9 +201,56 @@ test("healthView formats temperatures, spinning fans, uptime and network rate", 
   ]);
   const view = healthView({ board_temp_c: 41, fans_rpm: [1200, 0, 800.4], net_rx_bps: 3 * 1024 ** 2, net_tx_bps: 512 });
   assert.equal(view[0].value, "Board 41 °C");
-  assert.deepEqual(view[1], { label: "Fans", value: "1200 · 800 rpm" });
+  assert.deepEqual(view[1].label + view[1].value, "Fans1200 · 800 rpm");
   assert.equal(view[3].value, "↓ 3.0 MiB/s · ↑ 512 B/s");
   assert.equal(healthView({ fans_rpm: [0, 0] })[1].value, "0 rpm");
+});
+
+test("healthView carries the graphic data for each tile", () => {
+  const [temp, fan, uptime, network] = healthView({ cpu_temp_c: 71, board_temp_c: 45, fans_rpm: [2497], fans_max_rpm: [4825], uptime_s: 2 * 86400 + 14 * 3600 + 50 * 60, net_rx_bps: 954163, net_tx_bps: 322970 });
+  assert.deepEqual(temp.lines, ["CPU 71 °C", "Board 45 °C"]);
+  assert.equal(temp.color, tempColor(71));
+  assert.equal(fan.turnSeconds, fanTurnSeconds(2497, 4825));
+  assert.deepEqual(uptime.ring.days, 2);
+  assert.equal(uptime.value, "2d 14h 50m");
+  assert.deepEqual(network.rates.map((rate) => rate.dir), ["down", "up"]);
+  assert.equal(network.rates[0].text, "↓ 931.8 KiB/s");
+  assert.equal(network.rates[1].text, "↑ 315.4 KiB/s");
+  const idle = healthView({ fans_rpm: [0, 0] })[1];
+  assert.equal(idle.turnSeconds, 0);
+  assert.equal(healthView({ fans_rpm: [0, 1500], fans_max_rpm: [4000, 3000] })[1].turnSeconds, 0.7);
+  assert.equal(healthView({})[0].color, "");
+});
+
+test("tempColor runs from blue when cool to red at the thermal limit", () => {
+  assert.equal(tempColor(20), "hsl(215 85% 52%)");
+  assert.equal(tempColor(40), "hsl(215 85% 52%)");
+  assert.equal(tempColor(88), "hsl(0 85% 52%)");
+  assert.equal(tempColor(120), "hsl(0 85% 52%)");
+  assert.equal(tempColor(64), "hsl(288 85% 52%)");
+  assert.equal(tempColor(60, 80), "hsl(288 85% 52%)");
+  assert.equal(tempColor(64, 30), tempColor(64));
+});
+
+test("the reduced-motion rule stops the spin and the pulse", () => {
+  const css = readFileSync(new URL("./dashboard.css", import.meta.url), "utf8");
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*\.vital-dot, \.vital-fan\.spinning \{ animation: none; \}/);
+});
+
+test("fanTurnSeconds is still at 0 rpm and one turn per 0.35 s at the fan maximum", () => {
+  assert.equal(fanTurnSeconds(0, 4825), 0);
+  assert.equal(fanTurnSeconds(4825, 4825), 0.35);
+  assert.equal(fanTurnSeconds(9000, 4825), 0.35);
+  assert.equal(fanTurnSeconds(2412.5, 4825), 0.7);
+  assert.equal(fanTurnSeconds(2500, 0), 0.7);
+  assert.equal(fanTurnSeconds(2500), 0.7);
+  assert.equal(fanTurnSeconds(NaN, 4825), 0);
+});
+
+test("uptimeRing fills over each day and counts whole days", () => {
+  assert.deepEqual(uptimeRing(0), { days: 0, fill: 0 });
+  assert.deepEqual(uptimeRing(43200), { days: 0, fill: 0.5 });
+  assert.deepEqual(uptimeRing(86400 + 21600), { days: 1, fill: 0.25 });
 });
 
 test("healthView says not available for each missing sensor", () => {

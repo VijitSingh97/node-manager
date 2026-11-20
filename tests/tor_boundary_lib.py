@@ -130,6 +130,7 @@ OTHER_OVERLAYS = {
     "docker-compose.utxo-index.yml",
     "docker-compose.litecoin-utxo-index.yml",
     "docker-compose.bitcoincash-utxo-index.yml",
+    "docker-compose.dogecoin-utxo-index.yml",
 }
 BAD_CAPS = {"NET_ADMIN", "NET_RAW", "SYS_ADMIN", "ALL"}
 PROXY_ENV = re.compile(r"^(http|https|ftp|all|no)_proxy$", re.IGNORECASE)

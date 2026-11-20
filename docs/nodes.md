@@ -23,7 +23,7 @@ temporary compaction space, or future growth.
 | Tari | 10,000-block pruning horizon | No current measured total; use an expandable volume and measure after first sync | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 4 GiB for the node, plus a 0.5 CPU / 512 MiB view-only wallet sidecar | Node startup and native wallet lifecycle/authentication proven; funded pruned full-sync balance and sustained caps not qualified |
 | Litecoin | 10,000 MiB of block files | Provisional 28–56 GiB; current full-sync total is not measured | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 4 GiB | Binary and runtime startup proven; full sync not qualified |
 | Dogecoin | 10,000 MiB of block files | Provisional 28–56 GiB; current full-sync total is not measured | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 4 GiB | Binary and runtime startup proven; full sync not qualified |
-| Bitcoin Cash Node | Archival when installed from the dashboard (needed by the balance index); otherwise 10,000 MiB of block files | Archival: 231 GiB of block files reported by a public Bitcoin Cash Node on 2026-11-16 ([bch.chaingraph.cash](https://bch.chaingraph.cash/node-status)), plus chainstate and the index, not measured here. Pruned: provisional 28–56 GiB | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 4 GiB | Signed upstream binary and runtime startup proven; full sync not qualified |
+| Bitcoin Cash Node | 10,000 MiB of block files (pruned); the balance index works on a pruned node | Archival: 231 GiB of block files reported by a public Bitcoin Cash Node on 2026-11-16 ([bch.chaingraph.cash](https://bch.chaingraph.cash/node-status)), plus chainstate and the index, not measured here. Pruned: provisional 28–56 GiB | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 4 GiB | Signed upstream binary and runtime startup proven; full sync not qualified |
 | Zcash / Zakura | Pruned state with 10,000 retained blocks | Upstream's published snapshot was roughly 10 GiB when checked; plan 28–56 GiB on an expandable volume until a full sync is measured | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 4 GiB | Pruning, Tor bootstrap, and RPC proven; full sync not qualified |
 
 All six non-Bitcoin adapters have passed native-daemon startup and dashboard
@@ -92,7 +92,7 @@ Wallet capabilities differ by chain:
 | Monero | Primary address plus private view key, with optional signed key images. Without complete key images, the amount is received-only rather than a verified current balance. |
 | Litecoin | Address-only confirmed UTXO snapshots from the local node. |
 | Bitcoin Cash | Address-only confirmed UTXO snapshots from the local node. |
-| Dogecoin | **Wallet balance not available** by default: the pruned daemon cannot discover an arbitrary address balance. With the opt-in `dogecoin.watch_wallet` (archival node, fresh unpruned sync, hours-long rescans, disk not yet measured here), public addresses are read from the local node's watch-only wallet and the Dogecoin Foundation address is shown as an example. |
+| Dogecoin | Address-only confirmed UTXO snapshots from the local node with `dogecoin.utxo_index`, pruned or archival, which Dogecoin installs from the dashboard turn on; the index seeds from a copy of the node's chainstate. Without it, **wallet balance is not available**: the pruned daemon cannot discover an arbitrary address balance. With the opt-in `dogecoin.watch_wallet` (archival node, fresh unpruned sync, hours-long rescans, disk not yet measured here), public addresses are read from the local node's watch-only wallet and the Dogecoin Foundation address is shown as an example. |
 | Zcash / Zakura | **Wallet balance** needs `zcash.address_index`, which new Zcash installs from the dashboard turn on (slower and less secure upstream than checkpoint sync, disk not yet measured). Existing installs keep their setting, and enabling it later needs a fresh data directory and resync. With it, transparent `t1`/`t3` addresses are read from the local node and the Zcash Community Grants address is shown as an example. |
 | Tari | One native view-only wallet using a public spend key, private view key, and optional `YYYY-MM-DD` birthday. Blank birthday scans from genesis. No seed or private spend key is accepted. |
 
@@ -232,9 +232,9 @@ malformed, conflicting, and already-used bindings before applying a change.
 | Node | Default host port | Authentication and intended use |
 |---|---:|---|
 | Bitcoin Core | 8332 | Generated Bitcoin RPC login; trusted wallet apps |
-| Monero restricted RPC | 18081 | Generated Digest-auth login; wallets and Pithead/P2Pool |
+| Monero restricted RPC | 18081 | Generated Digest-auth login; wallets and mining software such as P2Pool |
 | Monero ZMQ | 18083 | No application authentication; trusted P2Pool host only |
-| Tari gRPC | 18142 | No application authentication; Pithead remote Tari base node on trusted LAN/WireGuard |
+| Tari gRPC | 18142 | No application authentication; a remote mining client on a trusted LAN or WireGuard link |
 | Litecoin | 9332 | Generated Litecoin RPC login |
 | Dogecoin | 22555 | Generated Dogecoin RPC login |
 | Bitcoin Cash Node | 8332 | Generated Bitcoin Cash RPC login |
@@ -248,22 +248,19 @@ The dashboard shows credentials only for the authenticated endpoints in this
 table. Monero ZMQ and Tari gRPC are intentionally unauthenticated and never show
 a username or password.
 
-## Pithead remote nodes
+## Remote mining
 
 For Monero, enable restricted RPC and, when P2Pool needs it, ZMQ. Enter the
 server's private address, the configured ports, and the **Monero RPC** login in
-Pithead. The dashboard login is unrelated. ZMQ has no password.
+the mining software. The dashboard login is unrelated. ZMQ has no password.
 
-For Tari, enable gRPC on port 18142 and configure Pithead with `tari.mode:
-remote`, this host, and the gRPC port. Pithead's current mining client uses
-plaintext unauthenticated gRPC, so use only a trusted LAN or WireGuard link.
+For Tari, enable gRPC on port 18142 and point the mining client at this host
+and the gRPC port. The endpoint is plaintext unauthenticated gRPC, so use only a
+trusted LAN or WireGuard link.
 The allowlist supports node status, mining-template creation, and block
 submission. The stack runs no miner or payout key. Its separate internal
 view-only wallet service has no published port and is not part of the mining
 endpoint.
-
-Pithead's current settings are documented in its
-[remote-node configuration](https://github.com/p2pool-starter-stack/pithead/blob/develop/docs/configuration.md#remote-tari-node).
 
 ## Deactivation
 
@@ -337,7 +334,8 @@ node that is already deactivated and is not the last installed node; otherwise
 its tooltip says what is missing. The confirmation dialog warns that the step
 cannot be undone and lists exactly what goes: the node's data folder shown in
 Settings, its balance-index or wallet Docker volumes (Bitcoin `utxo_index`,
-Litecoin `utxo_index_litecoin`, Bitcoin Cash `utxo_index_bitcoincash`, Monero
+Litecoin `utxo_index_litecoin`, Bitcoin Cash `utxo_index_bitcoincash`, Dogecoin
+`utxo_index_dogecoin`, Monero
 `monero_wallets`, Tari `tari_wallet` and `tari_wallet_data`), its `config.json` section with the credentials in it, and
 the watch-only wallets you added for that coin with their saved balances and
 history. Delete stays disabled until you type the node's name (`zcash`,

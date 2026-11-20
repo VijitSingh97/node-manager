@@ -120,6 +120,9 @@ package instead. Install Docker Engine and Compose 2.33.1 or newer separately,
 configure Docker so the current user can run it without `sudo`, and enable
 Docker at boot. The formula uses the same install and setup commands as macOS.
 
+The `node-manager-hostd` helper is an APT package only. Homebrew installs,
+including Linuxbrew, use the shell collector for host readings.
+
 Linuxbrew follows the XDG directory convention:
 
 - configuration: `${XDG_CONFIG_HOME:-~/.config}/node-manager/config.json`

@@ -26,3 +26,4 @@ dist/
 public/
 .claude/
 build/dashboard/dashboard
+build/hostd/hostd
