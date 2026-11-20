@@ -173,6 +173,16 @@ export class Page {
 
   async #center(selector) {
     await this.waitVisible(selector);
+    const deadline = Date.now() + 20000;
+    const pendingAnimations = (sel, budget) => {
+      const element = document.querySelector(sel);
+      const live = document.getAnimations().filter((animation) => {
+        const end = animation.effect?.getComputedTiming().endTime;
+        return Number.isFinite(end) && animation.effect.target?.contains(element);
+      });
+      return Promise.race([Promise.all(live.map((animation) => animation.finished.catch(() => {}))), new Promise((resolve) => setTimeout(resolve, budget))]);
+    };
+    await this.evaluate(pendingAnimations, selector, deadline - Date.now());
     const sample = () => this.evaluate((sel) => {
       const element = document.querySelector(sel);
       element.scrollIntoView({ block: "center", inline: "center" });
@@ -186,7 +196,6 @@ export class Page {
       const describe = (node) => node && `${node.tagName.toLowerCase()}${node.id ? `#${node.id}` : ""}${node.className && typeof node.className === "string" ? `.${node.className.split(" ").join(".")}` : ""}`;
       return { x: found?.[0], y: found?.[1], hit: !!found, disabled: !!element.disabled, rect: [rect.left, rect.top, rect.width, rect.height].map(Math.round), covering: describe(centre), scrollY: Math.round(scrollY) };
     }, selector);
-    const deadline = Date.now() + 5000;
     let previous = await sample();
     for (;;) {
       await sleep(40);
@@ -195,7 +204,14 @@ export class Page {
         if (current.disabled) throw new Error(`${selector} is disabled`);
         return current;
       }
-      if (Date.now() > deadline) throw new Error(`${selector} is covered by another element or still moving: ${JSON.stringify([previous, current])}`);
+      if (Date.now() > deadline) {
+        const under = await this.evaluate((sel) => {
+          const rect = document.querySelector(sel).getBoundingClientRect();
+          const at = (px, py) => { const node = document.elementFromPoint(px, py); return node && `${node.tagName.toLowerCase()}${node.id ? `#${node.id}` : ""}${typeof node.className === "string" && node.className ? `.${node.className.split(" ").join(".")}` : ""}`; };
+          return { under: at(rect.left + rect.width / 2, rect.top + rect.height / 2), animations: document.getAnimations().map((animation) => animation.animationName || animation.transitionProperty || animation.constructor.name), viewport: [innerWidth, innerHeight], overview: (() => { const o = document.getElementById("node-overview"); return o && { opacity: o.style.opacity, pointerEvents: o.style.pointerEvents, hidden: o.hidden }; })() };
+        }, selector).catch(() => ({}));
+        throw new Error(`${selector} is covered by another element or still moving: ${JSON.stringify([previous, current, under])}`);
+      }
       previous = current;
     }
   }
