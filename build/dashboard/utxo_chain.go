@@ -19,6 +19,8 @@ type utxoChainParams struct {
 	AuxPow         bool
 	Chainstate     bool
 	TxOutRows      bool
+	// gettxoutsetinfo "none" skips the set hash; Dogecoin 1.14.9 takes no argument and always hashes.
+	TxOutSetNone bool
 }
 
 var (
@@ -29,6 +31,7 @@ var (
 		WaitTip:        true,
 		Descriptors:    []string{"addr(", "pkh(", "wpkh(", "sh(wpkh(", "wsh(", "tr("},
 		LocalScripts:   true,
+		TxOutSetNone:   true,
 	}
 	// Litecoin 0.21.5.8, measured on regtest in the #238 P0 spike.
 	utxoLitecoin = &utxoChainParams{
@@ -37,6 +40,7 @@ var (
 		BlockVerbosity: 2,
 		Descriptors:    []string{"addr(", "pkh(", "wpkh(", "sh(wpkh(", "wsh("},
 		ReverseIndex:   true,
+		TxOutSetNone:   true,
 	}
 	// Bitcoin Cash Node 29.2.0 has no dumptxoutset, so the index seeds from a copy of the node's chainstate, which a pruned node keeps whole,
 	// or, with no host helper to take the copy, replays raw blocks from an archival node; verbose JSON costs the node gigabytes on a 32 MB block.
@@ -48,6 +52,7 @@ var (
 		CashTokens:     true,
 		Chainstate:     true,
 		TxOutRows:      true,
+		TxOutSetNone:   true,
 	}
 	// Dogecoin Core 1.14.9 has neither dumptxoutset nor descriptors; the index seeds from a copy of its chainstate, which a pruned node keeps whole.
 	utxoDogecoin = &utxoChainParams{

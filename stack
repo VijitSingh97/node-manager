@@ -888,6 +888,115 @@ EOF
   [ "$(jq -r '(.refusals // []) + (.failures // []) | length' <<<"$result")" = 0 ]
 }
 
+utxo_verify_print() {
+  local result=$1 tab=$'\t'
+  jq -r '(.refusals // [])[] | "refused: " + .' <<<"$result"
+  jq -e '.index and .node' <<<"$result" >/dev/null || return 0
+  jq -r '"At height \(.height) (block \(.best_block)), gettxoutsetinfo hash_type \(.hash_type):"' <<<"$result"
+  jq -r '(["", "coins", "amount", "seconds"] | join("\t")),
+    (["index", "node"][] as $side | [$side, .[$side].coins, .[$side].amount, ((.[$side].seconds * 10 | round) / 10)] | join("\t"))' <<<"$result" | { column -t -s "$tab" 2>/dev/null || cat; }
+  jq -r '(.failures // [])[] | "FAIL: " + .' <<<"$result"
+  jq -r 'select(.match == true) | "PASS: the index matches the node'"'"'s UTXO set."' <<<"$result"
+}
+
+utxo_index_verify() {
+  local usage="Usage: $stack_command utxo-index verify [--chain bitcoin|litecoin|dogecoin|bitcoincash] [-y]"
+  local chain=bitcoin assume_yes=0 hash_note
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -y) assume_yes=1 ;;
+      --chain)
+        [ $# -ge 2 ] || {
+          echo "$usage" >&2
+          return 1
+        }
+        shift
+        chain=$1
+        ;;
+      *)
+        echo "$usage" >&2
+        return 1
+        ;;
+    esac
+    shift
+  done
+  utxo_select_chain "$chain"
+  [ "$chain" = bitcoin ] || [ -n "$utxo_prefix" ] || {
+    echo "$usage" >&2
+    echo "--chain takes a chain with a balance index." >&2
+    return 1
+  }
+  command -v jq >/dev/null || {
+    echo "jq is required; install it with your host package manager." >&2
+    return 1
+  }
+  utxo_seed_overlay_enabled || {
+    echo "The $utxo_name balance index is not enabled. Set $utxo_chain.utxo_index to true in config.json and run $stack_command apply." >&2
+    return 1
+  }
+  utxo_seed_running dashboard || {
+    echo "The dashboard container is not running." >&2
+    return 1
+  }
+  hash_note="with hash_type none, which skips the set hash"
+  [ "$chain" != dogecoin ] || hash_note="with no arguments: Dogecoin Core 1.14.9 has no hash_type, so it also hashes the whole set"
+  cat <<EOF
+This compares the $utxo_name balance index with the node's own UTXO set at the same block.
+  - The dashboard waits up to 10 minutes for the index to reach the node tip.
+  - It then calls $utxo_daemon gettxoutsetinfo $hash_note.
+    That call reads the whole chainstate: minutes of disk and CPU on mainnet.
+  - The walk does not hold the node's main lock, so $utxo_name RPC keeps answering.
+    Node-down alerts for $utxo_name are still held while it runs, for at most 30 minutes.
+  - The index stays at the compared block until the check ends, then catches up.
+Run it in a window the owner approved.
+EOF
+  if [ "$assume_yes" != 1 ]; then
+    [ -t 0 ] || [ "${BITCOIN_STACK_INTERACTIVE:-0}" = 1 ] || {
+      echo "Run this on a terminal, or pass -y." >&2
+      return 1
+    }
+    local reply
+    printf 'Start the check? [y/N] '
+    read -r reply || true
+    case "$reply" in
+      y | Y) ;;
+      *)
+        echo "Not started."
+        return 1
+        ;;
+    esac
+  fi
+  local id request
+  id=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
+  request=$(jq -cn --arg id "$id" --arg chain "$chain" --argjson at "$(date -u +%s)" '{id: $id, chain: $chain, requested_at: $at}') || return 1
+  trap 'trap - INT TERM HUP; compose exec -T -u 1000 dashboard rm -f "/state/${utxo_prefix}utxo-verify.request" >/dev/null 2>&1 || true; echo; echo "Detached. A check already under way still finishes; its result stays in the dashboard state volume." >&2; exit 130' INT TERM HUP
+  if ! printf '%s\n' "$request" |
+    compose exec -T -u 1000 dashboard sh -c \
+      "umask 077; cat > /state/.${utxo_prefix}utxo-verify.request.tmp; mv /state/.${utxo_prefix}utxo-verify.request.tmp /state/${utxo_prefix}utxo-verify.request" >/dev/null; then
+    trap - INT TERM HUP
+    echo "Could not write the verify request into the dashboard state." >&2
+    return 1
+  fi
+  local poll deadline result=''
+  poll=$(utxo_seed_interval BITCOIN_STACK_UTXO_VERIFY_POLL_SECONDS 5)
+  deadline=$((SECONDS + $(utxo_seed_interval BITCOIN_STACK_UTXO_VERIFY_TIMEOUT_SECONDS 2700)))
+  echo "Waiting for the dashboard to finish the check..."
+  while true; do
+    result=$(compose exec -T -u 1000 dashboard cat "/state/${utxo_prefix}utxo-verify.result" 2>/dev/null || true)
+    [ "$(jq -r '.id // ""' <<<"$result" 2>/dev/null || true)" != "$id" ] || break
+    if [ "$SECONDS" -ge "$deadline" ]; then
+      compose exec -T -u 1000 dashboard rm -f "/state/${utxo_prefix}utxo-verify.request" >/dev/null 2>&1 || true
+      trap - INT TERM HUP
+      echo "The dashboard returned no result in time. Check that it is healthy and has the $utxo_name balance index enabled." >&2
+      return 1
+    fi
+    sleep "$poll"
+  done
+  trap - INT TERM HUP
+  utxo_verify_print "$result"
+  jq -e '.match == true' <<<"$result" >/dev/null
+}
+
 utxo_unpark_dump() {
   local chain
   for chain in bitcoin litecoin; do
@@ -951,6 +1060,8 @@ Usage: $stack_command <command> [args]
                              Delete the balance index volume (needs <chain>.utxo_index off and applied)
   utxo-index bench <file> [--chain bitcoin|litecoin] [--scan [-y]] [--repeat N]
                              Time balance lookups for the wallets in <file> (needs the index seeded)
+  utxo-index verify [--chain bitcoin|litecoin|dogecoin|bitcoincash] [-y]
+                             Compare the index's coin count and total with the node's gettxoutsetinfo (run after a seed)
   help                       This text
 EOF
 }
@@ -2058,8 +2169,12 @@ case "$cmd" in
         shift
         guard_package_containers && utxo_index_bench "$@"
         ;;
+      verify)
+        shift
+        guard_package_containers && utxo_index_verify "$@"
+        ;;
       *)
-        echo "Usage: $stack_command utxo-index remove [litecoin | bitcoincash | dogecoin] [-y] | bench <wallets.json> [--chain bitcoin|litecoin] [--scan [-y]] [--repeat N]" >&2
+        echo "Usage: $stack_command utxo-index remove [litecoin | bitcoincash | dogecoin] [-y] | bench <wallets.json> [--chain bitcoin|litecoin] [--scan [-y]] [--repeat N] | verify [--chain bitcoin|litecoin|dogecoin|bitcoincash] [-y]" >&2
         exit 1
         ;;
     esac
