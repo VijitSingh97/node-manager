@@ -1,9 +1,9 @@
 class NodeManager < Formula
   desc "Run private cryptocurrency nodes behind Tor"
   homepage "https://github.com/VijitSingh97/node-manager"
-  url "https://github.com/VijitSingh97/node-manager/releases/download/v1.38.0/node-manager.tar.gz"
-  version "1.38.0"
-  sha256 "eb3dc97af32c3af27cbb681a2dbcd21f81a40cb6a975d6627f706a7aec882a81"
+  url "https://github.com/VijitSingh97/node-manager/releases/download/v1.39.0/node-manager.tar.gz"
+  version "1.39.0"
+  sha256 "dcd48d85f05799d17a1be4e5c80ce07751058c5ab80e470c0e95e28020667abc"
   license "MIT"
 
   depends_on "bash"
