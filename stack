@@ -932,6 +932,7 @@ usage() {
 Usage: $stack_command <command> [args]
 
   up | down | restart [svc]  Start / stop / restart the stack (or one service)
+  up --force-recreate svc    Recreate a service whose container failed to start
   pull                       Download container images using host Docker settings
   init                       Create the default config, download images, and start
   logs [svc]                 Follow logs (all services, or one)
@@ -1215,6 +1216,8 @@ prepare_linuxbrew_data_dirs() {
 
 offline_up() {
   guard_package_containers || return 1
+  local recreate=0
+  [ "${1:-}" != --force-recreate ] || { recreate=1; shift; }
   for arg in "$@"; do
     case "$arg" in
       tor | bitcoin | monero | monero-wallet | tari | tari-wallet | litecoin | dogecoin | bitcoincash | zcash | dashboard) ;;
@@ -1226,6 +1229,7 @@ offline_up() {
     return 1
   }
   prepare_linuxbrew_data_dirs || return 1
+  [ "$recreate" = 0 ] || set -- --force-recreate --no-deps "$@"
   compose up -d --pull never --no-build "$@" || {
     echo "Start failed. Missing images? Run $stack_command pull, then retry."
     return 1

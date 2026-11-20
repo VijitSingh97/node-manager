@@ -446,6 +446,10 @@ awk '/^flock 8$/ { lock=NR } /docker compose .* up -d --pull never --no-build/ {
 HOME="$tmp" PATH="$stub:$PATH" ./stack up tari-wallet >/dev/null
 grep -q 'docker compose .* up -d --pull never --no-build tari-wallet' "$FAKE_LOG" || fail "up rejected the Tari wallet service"
 HOME="$tmp" PATH="$stub:$PATH" ./stack up --build >/dev/null 2>&1 && fail "up allows an implicit build"
+: >"$FAKE_LOG"
+HOME="$tmp" PATH="$stub:$PATH" ./stack up --force-recreate tor >/dev/null
+grep -q 'docker compose .* up -d --pull never --no-build --force-recreate --no-deps tor$' "$FAKE_LOG" || fail "up --force-recreate did not recreate only the named service"
+HOME="$tmp" PATH="$stub:$PATH" ./stack up tor --force-recreate >/dev/null 2>&1 && fail "up accepted a flag after a service name"
 
 # Explicit pulls use the host Docker configuration and report pull failures.
 rm -f "$FAKE_LOG"
