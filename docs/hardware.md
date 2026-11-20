@@ -112,16 +112,17 @@ on upgrade.
 | Bitcoin | about 7.5 GiB, up to about 17 GiB during the seed | 1 GiB | one `dumptxoutset` seed; 27 GB free |
 | Litecoin | not measured | 1 GiB | one `dumptxoutset` seed; 27 GB free |
 | Dogecoin | not measured | 1 GiB | node stopped briefly; free space for 3 times its chainstate |
-| Bitcoin Cash | not measured | 2 GiB with `GOMEMLIMIT` 1600 MiB | node stopped briefly; free space for 3 times its chainstate |
+| Bitcoin Cash | not measured | 1 GiB | node stopped briefly; free space for 3 times its chainstate |
 
-- The dashboard memory limit is the largest of the enabled indexes, so Bitcoin Cash
-  raises it to 2 GiB for every index. Seeds run one at a time, so the peak is one seed
-  plus the followers of the other indexes. The followers are light, but dashboard
+- Every index sets the same 1 GiB dashboard limit, whichever are on. Bitcoin Cash's
+  32 MB blocks fit because a large block is applied in pieces. Seeds run one at a
+  time, so the peak is one seed plus the followers of the other indexes. The
+  followers are light, but dashboard
   memory with all four indexes ready and one seeding has not been measured; measure it
   on a host before relying on it.
 - By cap arithmetic, four chains with their indexes on an 8 GB host are
   over-committed: Litecoin, Dogecoin and Bitcoin Cash each have a 4 GiB steady cap,
-  Bitcoin 2 GiB, and the dashboard up to 2 GiB. Keep the chains you do not need
+  Bitcoin 2 GiB, and the dashboard 1 GiB. Keep the chains you do not need
   deactivated, or leave their indexes off.
 - A Dogecoin or Bitcoin Cash seed hardlinks the node's chainstate tables into
   `<data_dir>/utxo-seed-chainstate`; the copy is small, but the seed needs free space

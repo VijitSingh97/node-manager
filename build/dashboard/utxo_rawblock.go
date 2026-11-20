@@ -9,7 +9,7 @@ import (
 
 const cashTokenPrefix = 0xef
 
-// About 1 KiB of heap per coin operation was measured, so a block over this stays under the 1600 MiB GOMEMLIMIT with room for the rest of the dashboard.
+// A parsed block stays whole while it applies in pieces, at about 110 bytes of heap per coin operation (measured), so this keeps it near 130 MiB.
 var utxoBlockOpsCap = 1_200_000
 
 type rawReader struct {
@@ -247,7 +247,7 @@ func parseRawBlock(raw []byte, height uint32, chain *utxoChainParams) (utxoBlock
 		r.err = fmt.Errorf("%w: %d trailing bytes after the transactions", errUtxoBadBlock, len(raw)-r.off)
 	}
 	if r.err == nil && ops > utxoBlockOpsCap {
-		return utxoBlock{}, fmt.Errorf("%w: block %d has %d coin operations, more than the %d that fit in the dashboard's memory; applying it in pieces is issue #363", errUtxoBlockTooLarge, height, ops, utxoBlockOpsCap)
+		return utxoBlock{}, fmt.Errorf("%w: block %d has %d coin operations, more than the %d that fit in the dashboard's memory", errUtxoBlockTooLarge, height, ops, utxoBlockOpsCap)
 	}
 	// Copy the scripts out so a queued block does not keep the whole raw block, input padding included, alive.
 	size := 0

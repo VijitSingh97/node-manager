@@ -60,12 +60,8 @@ func TestUtxoReplayRegtestRate(t *testing.T) {
 	}
 	name := n.name + "-replay"
 	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", "-v", name).Run() })
-	mem, goMem := "1g", "off"
-	if chain == nodeBitcoinCash {
-		mem, goMem = "2g", "1600MiB"
-	}
 	out, err := exec.Command("docker", "run", "--rm", "--name", name, "--network", "container:"+n.name,
-		"--cpus", "0.5", "--memory", mem, "-e", "GOMEMLIMIT="+goMem, "-v", bin+":/t:ro",
+		"--cpus", "0.5", "--memory", "1g", "-e", "GOMEMLIMIT=off", "-v", bin+":/t:ro",
 		"-e", "UTXO_REPLAY_IN_CONTAINER=1", "-e", "UTXO_REPLAY_CHAIN="+chain, "-e", "REPLAY_SMALL_TIP="+strconv.Itoa(small), "-e", "REPLAY_SCRIPTS="+strings.Join(scripts, ","),
 		"--entrypoint", "/t/replay.test", image,
 		"-test.run", "^TestUtxoReplayRateInContainer$", "-test.count", "3", "-test.v", "-test.timeout", "20m").CombinedOutput()
