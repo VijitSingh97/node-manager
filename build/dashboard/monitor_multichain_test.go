@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -123,5 +124,39 @@ func TestZcashMonitorStateSurvivesRestart(t *testing.T) {
 	state := restored.extraStates[nodeZcash]
 	if state == nil || state.fails != 2 || state.lastBlock != 123 || !state.hasLastBlock {
 		t.Fatalf("restored Zcash monitor state = %#v", state)
+	}
+}
+
+func TestLastSeenHeightAndProgressSurviveRestartAndOutages(t *testing.T) {
+	t.Setenv("HEALTHCHECKS_URL", "")
+	dir := t.TempDir()
+	nodes := map[string]nodeConfig{nodeTari: {ID: nodeTari, Enabled: true, Supported: true}, nodeLitecoin: {ID: nodeLitecoin, Enabled: true, Supported: true}}
+	m := NewMonitor("1.2.0", t.TempDir(), dir)
+	m.configureNodes(true, false, "")
+	m.configureAdditionalNodes(nodes)
+	m.output = io.Discard
+	m.healthTicks = 1
+	m.diskFreeGB = func(string) (float64, error) { return 1000, nil }
+	m.tickConfiguredNodes(t.Context(), map[string]map[string]any{
+		nodeBitcoin: {"initialblockdownload": false, "blocks": float64(900000), "verificationprogress": 0.9999},
+		nodeTari:    {"active": true, "initialblockdownload": true, "blocks": int64(150000), "sync_progress": 0.5},
+	})
+	if seen := m.LastSeen(nodeTari); seen.LastBlock != 150000 || !seen.HasLastBlock || seen.SyncPercent != 50 {
+		t.Fatalf("Tari last seen before restart = %#v", seen)
+	}
+	m.tickConfiguredNodes(t.Context(), map[string]map[string]any{nodeBitcoin: nil, nodeTari: nil, nodeLitecoin: nil})
+
+	restarted := NewMonitor("1.2.0", t.TempDir(), dir)
+	for id, want := range map[string][2]float64{nodeBitcoin: {900000, 100}, nodeTari: {150000, 50}} {
+		if seen := restarted.LastSeen(id); !seen.HasLastBlock || float64(seen.LastBlock) != want[0] || seen.SyncPercent != want[1] {
+			t.Fatalf("%s last seen after restart = %#v", id, seen)
+		}
+	}
+	if seen := restarted.LastSeen(nodeLitecoin); seen.HasLastBlock {
+		t.Fatalf("a node that never answered has a last height: %#v", seen)
+	}
+	var missing *Monitor
+	if seen := missing.LastSeen(nodeBitcoin); seen.HasLastBlock {
+		t.Fatalf("nil monitor last seen = %#v", seen)
 	}
 }

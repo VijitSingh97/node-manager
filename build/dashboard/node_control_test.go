@@ -361,3 +361,32 @@ func TestNodesStoppedFromHostStats(t *testing.T) {
 		t.Fatal("deactivated node marked stopped")
 	}
 }
+
+func TestNodeListCarriesTheLastHeightTheMonitorPersisted(t *testing.T) {
+	dir := t.TempDir()
+	state := `{"bitcoin":{"last_block":900000,"has_last_block":true,"sync_percent":100},"nodes":{"tari":{"last_block":150000,"has_last_block":true,"sync_percent":61.5}}}`
+	if err := os.WriteFile(filepath.Join(dir, "monitor_state.json"), []byte(state), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	nodes := map[string]nodeConfig{nodeTari: {ID: nodeTari, Enabled: true, Supported: true}, nodeLitecoin: {ID: nodeLitecoin, Enabled: true, Supported: true}}
+	a := &app{cfg: config{dashboardPassword: "secret", stateDir: dir, dataDir: dir, nodes: nodes}, monitor: NewMonitor("1.2.0", dir, dir)}
+	initializeTestDashboardAuth(t, a)
+	response := nodeControlHTTP(a, http.MethodGet, "/api/nodes", "", false)
+	var payload struct {
+		Nodes []map[string]any `json:"nodes"`
+	}
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &payload) != nil {
+		t.Fatalf("nodes = %d %s", response.Code, response.Body.String())
+	}
+	got := map[string][2]any{}
+	for _, node := range payload.Nodes {
+		got[node["id"].(string)] = [2]any{node["last_height"], node["last_sync_percent"]}
+	}
+	want := map[string][2]any{
+		nodeBitcoin: {float64(900000), float64(100)}, nodeMonero: {nil, nil}, nodeTari: {float64(150000), 61.5},
+		nodeLitecoin: {nil, nil}, nodeDogecoin: {nil, nil}, nodeBitcoinCash: {nil, nil}, nodeZcash: {nil, nil},
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("last heights = %v, want %v", got, want)
+	}
+}

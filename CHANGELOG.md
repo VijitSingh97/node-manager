@@ -78,6 +78,24 @@ All notable changes to this project are documented here. Format follows
 - A seed request may name its `mode` (`chainstate` or `replay`); a request with
   no mode behaves as before.
 
+### Fixed
+
+- A node that is down, starting or not answering keeps its tower in the skyline
+  view. It is drawn greyed out at the last height and sync progress the dashboard
+  saw, with no "loading block" label, and the coin's name on its card turns red
+  (the card shows even with tower labels off). The tower returns to its colours
+  and label as soon as a status poll gets a height again. A node counts as
+  unreachable when it is switched on but stopped, restarting, or without a
+  successful health probe in the last 2 minutes, and its latest status poll gave
+  no height. The height and progress come from `monitor_state.json`
+  (`last_block` and the new `sync_percent`), so they survive dashboard restarts,
+  and `/api/nodes` now returns `last_height` and `last_sync_percent`. A node that
+  has never reported a height draws no tower, only its card with the red name.
+  A deactivated node also keeps its greyed tower, but its name stays grey.
+- Tari no longer reports height 0 while it starts up. Its sync progress call
+  returns zero heights then, so the dashboard keeps the stored tip height. This
+  caused the "loading block 1" label with no tower after a power cut.
+
 ## [1.38.0] - 2026-11-17
 
 ### Added

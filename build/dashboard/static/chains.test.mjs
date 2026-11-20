@@ -113,9 +113,18 @@ test('the tower choice and panel go grey with a Restarting badge and status line
     assert.equal(texts['litecoin-state'].textContent,'Restarting after a settings change…');
     assert.equal(texts['litecoin-power-status'].textContent,'Restarting after a settings change…');
     assert.equal(button.disabled,true);
+    assert.equal(choice.dataset.nodeOffline,'1');
     setNodeActive('litecoin',active);
     assert.equal(choice.dataset.nodeActive,'1');
     assert.equal(choice.classes.has('inactive'),false);
+    assert.equal(choice.dataset.nodeOffline,'1','an active node without a recent health probe is offline');
+    assert.match(choice.attrs['aria-label'],/not responding/);
+    assert.deepEqual([choice.dataset.lastNextBlock,choice.dataset.lastSyncPercent],['','']);
+    setNodeActive('litecoin',{...active,available:true,last_height:2650000,last_sync_percent:99.5});
+    assert.deepEqual([choice.dataset.nodeOffline,choice.attrs['aria-label']],['0','Litecoin']);
+    assert.deepEqual([choice.dataset.lastNextBlock,choice.dataset.lastSyncPercent],['2650001','99.5']);
+    setNodeActive('litecoin',{...active,active:false,last_height:-1});
+    assert.deepEqual([choice.dataset.nodeOffline,choice.dataset.lastNextBlock],['0',''],'a deactivated node is not offline');
   } finally {
     delete globalThis.document; delete globalThis.window; delete globalThis.CustomEvent;
   }

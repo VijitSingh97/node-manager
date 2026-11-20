@@ -23,14 +23,16 @@ type nodeHealthSnapshot struct {
 }
 
 type nodeControlNode struct {
-	ID         string `json:"id"`
-	Active     bool   `json:"active"`
-	Available  bool   `json:"available"`
-	Supported  bool   `json:"supported"`
-	Configured bool   `json:"configured"`
-	Stopped    bool   `json:"stopped"`
-	Restarting bool   `json:"restarting"`
-	Failure    string `json:"failure,omitempty"`
+	ID         string  `json:"id"`
+	Active     bool    `json:"active"`
+	Available  bool    `json:"available"`
+	Supported  bool    `json:"supported"`
+	Configured bool    `json:"configured"`
+	Stopped    bool    `json:"stopped"`
+	Restarting bool    `json:"restarting"`
+	Failure    string  `json:"failure,omitempty"`
+	LastHeight *int64  `json:"last_height,omitempty"`
+	LastSync   float64 `json:"last_sync_percent,omitempty"`
 }
 
 type nodeControlInput struct {
@@ -175,7 +177,11 @@ func (a *app) apiNodes(w http.ResponseWriter, _ *http.Request) {
 		if stopped {
 			failure = stats.Failed[id]
 		}
-		nodes = append(nodes, nodeControlNode{ID: id, Active: active, Available: a.nodeAvailable(id, active), Supported: supported, Configured: configured, Stopped: stopped, Restarting: restarting[id] && failure == "", Failure: failure})
+		entry := nodeControlNode{ID: id, Active: active, Available: a.nodeAvailable(id, active), Supported: supported, Configured: configured, Stopped: stopped, Restarting: restarting[id] && failure == "", Failure: failure}
+		if seen := a.monitor.LastSeen(id); seen.HasLastBlock && seen.LastBlock >= 0 {
+			entry.LastHeight, entry.LastSync = &seen.LastBlock, seen.SyncPercent
+		}
+		nodes = append(nodes, entry)
 	}
 	status, pending := a.pendingNodeControlStatus()
 	if !pending {

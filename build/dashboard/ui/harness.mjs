@@ -71,6 +71,7 @@ function startRPC() {
     estimatesmartfee: { feerate: 0.00002 },
   };
   const server = createServer((request, response) => {
+    if (server.down) return void request.socket.destroy();
     let body = "";
     request.on("data", (chunk) => (body += chunk));
     request.on("end", () => {
@@ -153,9 +154,10 @@ class Helper {
   }
 }
 
-export async function startDashboard({ nodes = [], settings, capability = {}, host = true, hostStats = false, password = PASSWORD } = {}) {
+export async function startDashboard({ nodes = [], settings, capability = {}, host = true, hostStats = false, password = PASSWORD, state = {}, rpcDown = false } = {}) {
   const stateDir = mkdtempSync(join(tmpdir(), "ui-state-"));
   const rpc = await startRPC();
+  rpc.down = rpcDown;
   const rpcURL = `http://127.0.0.1:${rpc.address().port}`;
   const env = {
     ...process.env, RPC_URL: rpcURL, RPC_USER: "uiuser", RPC_PASSWORD: "uirpc", DASHBOARD_PASSWORD: password,
@@ -170,6 +172,7 @@ export async function startDashboard({ nodes = [], settings, capability = {}, ho
     env[`${prefix}_RPC_PASSWORD`] = "uirpc";
   }
   if (settings) writeFileSync(join(stateDir, "notification_settings.json"), JSON.stringify({ ...defaultSettings, ...settings }), { mode: 0o600 });
+  for (const [name, value] of Object.entries(state)) writeFileSync(join(stateDir, name), JSON.stringify(value), { mode: 0o600 });
   let child, url;
   // Test files run in parallel, so another file can take the free port before the dashboard binds it.
   for (let attempt = 1; ; attempt++) {
@@ -205,6 +208,7 @@ export async function startDashboard({ nodes = [], settings, capability = {}, ho
   const readJSON = (name) => (existsSync(join(stateDir, name)) ? JSON.parse(readFileSync(join(stateDir, name), "utf8")) : undefined);
   const dash = {
     url, stateDir, password, helper, readJSON,
+    setRPCDown: (down) => { rpc.down = down; },
     settings: () => readJSON("notification_settings.json"),
     writeState: (name, value) => writeAtomic(join(stateDir, name), JSON.stringify(value)),
     writeHostStats: (extra = {}) => writeAtomic(join(stateDir, "host-stats.json"), JSON.stringify({ updated: Math.floor(Date.now() / 1000), cpus: 4, mem_total_bytes: 8 * 2 ** 30, nodes: {}, other: { cpu_pct: 1, mem_bytes: 1 }, ...extra })),

@@ -66,9 +66,13 @@ export function setNodeActive(id, node) {
   const view = powerView(node);
   for (const choice of document.querySelectorAll(`[data-select-node="${id}"]`)) {
     choice.hidden = node.configured !== true;
+    const offline = node.active === true && !(view.active && node.available === true);
     choice.dataset.nodeActive = view.active ? "1" : "0";
+    choice.dataset.nodeOffline = offline ? "1" : "0";
+    choice.dataset.lastNextBlock = Number.isSafeInteger(node.last_height) && node.last_height >= 0 ? String(node.last_height + 1) : "";
+    choice.dataset.lastSyncPercent = Number.isFinite(node.last_sync_percent) ? String(node.last_sync_percent) : "";
     choice.classList.toggle("inactive", !view.active);
-    choice.setAttribute("aria-label", `${NODE_LABELS[id]}${view.active ? "" : view.restarting ? " — restarting" : view.stopped ? " — stopped" : " — inactive"}`);
+    choice.setAttribute("aria-label", `${NODE_LABELS[id]}${view.active ? (offline ? " — not responding" : "") : view.restarting ? " — restarting" : view.stopped ? " — stopped" : " — inactive"}`);
   }
   const panel = byId(`${id}-panel`);
   if (panel) panel.dataset.nodeActive = view.active ? "1" : "0";
