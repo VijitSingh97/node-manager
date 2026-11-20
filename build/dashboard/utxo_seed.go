@@ -221,8 +221,13 @@ func (f *seedFIFO) intact() bool {
 	if err != nil {
 		return false
 	}
-	b, err := os.Lstat(f.path)
-	return err == nil && b.Mode()&os.ModeNamedPipe != 0 && os.SameFile(a, b)
+	// Core renames a finished dump to its final name, which a tiny dump can do before the first read returns.
+	for _, name := range []string{f.path, filepath.Join(filepath.Dir(f.path), seedDumpName)} {
+		if b, err := os.Lstat(name); err == nil && b.Mode()&os.ModeNamedPipe != 0 && os.SameFile(a, b) {
+			return true
+		}
+	}
+	return false
 }
 
 func (f *seedFIFO) closeKeeper() {
