@@ -6,8 +6,6 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
-## [1.39.0] - 2026-11-20
-
 ### Added
 
 - `./stack utxo-index verify [--chain bitcoin|litecoin|dogecoin|bitcoincash]`
@@ -28,6 +26,11 @@ All notable changes to this project are documented here. Format follows
   holding alerts until that deadline. The command
   confirms first, or takes `-y`. Regtest runs on all four nodes matched.
   Mainnet timing is not measured.
+
+## [1.39.0] - 2026-11-20
+
+### Added
+
 - Bitcoin Cash's balance index (`bitcoincash.utxo_index`) works on a pruned node.
   Bitcoin Cash Node 29.2.0 has no coin-set export, so a seed now works like
   Dogecoin's: the node stops briefly while its chainstate is copied, then the
