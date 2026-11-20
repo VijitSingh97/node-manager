@@ -199,6 +199,7 @@ type hostStatsUsage struct {
 	CPUPct    float64 `json:"cpu_pct"`
 	MemBytes  uint64  `json:"mem_bytes"`
 	DiskBytes uint64  `json:"disk_bytes,omitempty"`
+	StartedAt int64   `json:"started_at,omitempty"`
 }
 
 type hostStatsFile struct {
@@ -318,6 +319,28 @@ func (a *app) hostStats() *hostStatsFile {
 		return nil
 	}
 	return &stats
+}
+
+func (a *app) hostNodeUsage(id string) hostStatsUsage {
+	if stats := a.hostStats(); stats != nil {
+		return stats.Nodes[id]
+	}
+	return hostStatsUsage{}
+}
+
+func hostUptime(usage hostStatsUsage) (int64, bool) {
+	now := time.Now().Unix()
+	return now - usage.StartedAt, usage.StartedAt > 0 && usage.StartedAt <= now
+}
+
+func (a *app) fillFromHostStats(id string, status *genericNodeStatus) {
+	usage := a.hostNodeUsage(id)
+	if (!status.DatabaseSizeAvailable || status.DatabaseSizeBytes <= 0) && usage.DiskBytes > 0 {
+		status.DatabaseSizeBytes, status.DatabaseSizeAvailable = int64(usage.DiskBytes), true
+	}
+	if seconds, ok := hostUptime(usage); !status.UptimeAvailable && ok {
+		status.UptimeSeconds, status.UptimeAvailable = seconds, true
+	}
 }
 
 func (a *app) nodeControlAvailable() bool {

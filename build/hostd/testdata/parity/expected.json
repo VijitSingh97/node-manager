@@ -56,12 +56,14 @@
     "bitcoin": {
       "cpu_pct": 5,
       "disk_bytes": 2097152,
-      "mem_bytes": 700055321
+      "mem_bytes": 700055321,
+      "started_at": 1767225600
     },
     "monero": {
       "cpu_pct": 28,
       "disk_bytes": 5120000,
-      "mem_bytes": 1334678532
+      "mem_bytes": 1334678532,
+      "started_at": 1767225600
     },
     "stack": {
       "cpu_pct": 0,
@@ -70,7 +72,8 @@
     },
     "tari": {
       "cpu_pct": 1.5,
-      "mem_bytes": 600055321
+      "mem_bytes": 600055321,
+      "started_at": 1767225600
     }
   },
   "other": {
