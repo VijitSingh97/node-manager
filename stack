@@ -1527,6 +1527,8 @@ doctor() {
     host_has_ipv4 "$address" ||
       echo "WARN  ${listener}_BIND_IP $address is not on this host; Tor cannot publish it until the address returns or config.json changes (an auto dashboard moves within a minute)"
   done
+  [ ! -s "$state_dir/.paused-listeners" ] ||
+    awk '{print "WARN  LAN listeners on " $1 " are paused until that address is back on this host; re-point them from Settings"}' "$state_dir/.paused-listeners"
 
   echo "== Leftovers"
   found_orphan=0

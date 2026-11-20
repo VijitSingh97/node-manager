@@ -150,9 +150,13 @@ EOF
 chmod +x "$tmp/docker"
 cat >"$tmp/ifaddrs" <<'EOF'
 #!/bin/sh
-for address in $FAKE_HOST_ADDRESSES; do printf '2: eth0    inet %s/24 brd 192.168.1.255 scope global eth0\n' "$address"; done
+for address in $FAKE_HOST_ADDRESSES; do printf '2: eth0    inet %s/%s brd 192.168.1.255 scope global eth0\n' "$address" "${FAKE_HOST_PREFIX:-24}"; done
 EOF
-chmod +x "$tmp/ifaddrs"
+cat >"$tmp/ifconfig" <<'EOF'
+#!/bin/sh
+for address in $FAKE_HOST_ADDRESSES; do printf 'en0: flags=8863<UP>\n\tinet %s netmask 0xffffff00 broadcast 192.168.1.255\n' "$address"; done
+EOF
+chmod +x "$tmp/ifaddrs" "$tmp/ifconfig"
 cat >"$config/config.json" <<'EOF'
 {"bitcoin":{"enabled":true,"active":true},"monero":{"enabled":true,"active":true},"tari":{"enabled":true,"active":true},"litecoin":{"enabled":false,"data_dir":"/preset/litecoin","resource_profile":"compact","steady_cpus":0.75,"steady_mem_limit_mb":3072},"dogecoin":{"enabled":false},"bitcoincash":{"enabled":false}}
 EOF
@@ -170,7 +174,7 @@ export FAKE_STACK_INTERRUPT_ON_PULL=0
 export FAKE_DASHBOARD_MISSING=0
 export FAKE_DOCKER_LOG=$tmp/stack.log FAKE_VOLUMES=$tmp/volumes FAKE_CONTAINERS='' FAKE_VOLUME_IN_USE=0 FAKE_VOLUME_RM_FAIL=0
 export NODE_CONTROL_ARCH=x86_64 NODE_CONTROL_CPU_FLAGS="fpu sse4_2 avx2 bmi1 bmi2 adx"
-export IP_BIN=$tmp/ifaddrs IFCONFIG_BIN=$tmp/ifaddrs FAKE_HOST_ADDRESSES="127.0.0.1 192.168.1.20" FAKE_DETECTED_BIND_IP=192.168.1.20
+export IP_BIN=$tmp/ifaddrs IFCONFIG_BIN=$tmp/ifconfig FAKE_HOST_ADDRESSES="127.0.0.1 192.168.1.20" FAKE_DETECTED_BIND_IP=192.168.1.20
 
 request() { rm -f "$dashboard_state"/*utxo-seed.request; printf '%s\n' "$1" >"$dashboard_state/node-control.request"; }
 status() { jq -r "$1" "$dashboard_state/node-control.status"; }
@@ -1219,7 +1223,7 @@ grep -qx 'up --force-recreate tor' "$tmp/stack.log" || fail "a due recovery was 
 rm -f "$state/node-control/recover" "$dashboard_state/events.log"
 printf 'tor tor-ctr\n' >"$tmp/drift-ids"
 printf 'tor-ctr running|\n' >"$tmp/drift-states"
-jq '.dashboard.bind_ip="auto" | .bitcoin.rpc_bind_ip="192.168.1.20" | .monero.zmq_bind_ip="192.168.1.99"' "$state/.approved-config.json" >"$tmp/drift-approved.json"
+jq '.dashboard.bind_ip="auto" | .bitcoin.rpc_expose=true | .bitcoin.rpc_bind_ip="192.168.1.20" | .monero.zmq_bind_ip="192.168.1.99"' "$state/.approved-config.json" >"$tmp/drift-approved.json"
 mv "$tmp/drift-approved.json" "$state/.approved-config.json"
 jq '.bitcoin.dbcache_mb=999' "$state/.approved-config.json" >"$config/config.json"
 printf 'DASHBOARD_PASSWORD=testpassword\nDASHBOARD_BIND_IP=192.168.1.20\n' >"$state/.env"
@@ -1258,10 +1262,12 @@ drift_moved || fail "a lasting address change did not restart the dashboard: $(c
   fail "an address change did not move only the LAN listeners on the old address in the pending config"
 [ "$(jq -c '[.bitcoin.rpc_bind_ip, .monero.zmq_bind_ip, .bitcoin.dbcache_mb]' "$state/.approved-config.json")" = '["192.168.1.30","192.168.1.99",null]' ] ||
   fail "an address change did not move only the LAN listeners on the old address in the approved config"
-grep -q 'Host: Moved the dashboard and its LAN listeners from 192.168.1.20 to 192.168.1.30, this host' "$dashboard_state/events.log" || fail "the move was not logged"
+grep -q 'Host: Moved the dashboard from 192.168.1.20 to 192.168.1.30, this host.s current LAN address. Moved LAN listeners on the same LAN with it: bitcoin RPC.$' "$dashboard_state/events.log" ||
+  fail "the move did not name the moved listeners: $(cat "$dashboard_state/events.log")"
+[ ! -e "$state/.paused-listeners" ] || fail "a listener on the same LAN was paused"
 drift_nc 1400 "127.0.0.1 192.168.1.30" 192.168.1.30
 ! drift_moved || fail "a failed move was retried without a change"
-[ "$(grep -c 'Moved the' "$dashboard_state/events.log")" = 1 ] || fail "a failed move was logged again"
+[ "$(grep -c 'Moved' "$dashboard_state/events.log")" = 1 ] || fail "a failed move was logged again"
 
 rm -f "$dashboard_state/events.log"
 printf '192.168.1.20\n' >"$state/node-control/bind-address"
@@ -1272,12 +1278,67 @@ done
 printf 'DASHBOARD_PASSWORD=testpassword\nDASHBOARD_BIND_IP=192.168.1.30\n' >"$state/.env"
 printf 'tor-ctr exited|failed to bind host port 192.168.1.20:8332/tcp: cannot assign requested address\n' >"$tmp/drift-states"
 drift_nc 2000 "127.0.0.1 192.168.1.30" 192.168.1.30
-FAKE_SERVICE_IDS=$tmp/drift-ids drift_nc 2060 "127.0.0.1 192.168.1.30" 192.168.1.30
+NODE_CONTROL_OS=Darwin FAKE_SERVICE_IDS=$tmp/drift-ids drift_nc 2060 "127.0.0.1 192.168.1.30" 192.168.1.30
 drift_moved || fail "LAN listeners left behind by an earlier render were not moved"
 [ "$(jq -r .bitcoin.rpc_bind_ip "$state/.approved-config.json")" = 192.168.1.30 ] || fail "a listener left behind kept the old address"
-grep -q 'Host: Moved the LAN listeners from 192.168.1.20 to 192.168.1.30' "$dashboard_state/events.log" || fail "the listener move was not logged"
+grep -q 'Host: Moved the dashboard from 192.168.1.20 to 192.168.1.30, this host.s current LAN address. Moved LAN listeners on the same LAN with it: bitcoin RPC.$' "$dashboard_state/events.log" ||
+  fail "the listener move was not logged: $(cat "$dashboard_state/events.log")"
 drift_nc 2070 "127.0.0.1 192.168.1.30" 192.168.1.30
 [ "$(drift_state)" = 192.168.1.30 ] || fail "the new address was not remembered after the move"
+
+rm -f "$dashboard_state/events.log"
+for drift_config in "$config/config.json" "$state/.approved-config.json"; do
+  jq '.bitcoin.rpc_bind_ip="192.168.1.20" | .tari.grpc_expose=true | .tari.grpc_bind_ip="192.168.1.20" | .monero.zmq_expose=true | .monero.zmq_bind_ip="192.168.1.20"' "$drift_config" >"$tmp/drift-config.json"
+  mv "$tmp/drift-config.json" "$drift_config"
+done
+cp "$config/config.json" "$tmp/drift-pending.json"
+cp "$state/.approved-config.json" "$tmp/drift-approved-before.json"
+printf '192.168.1.20\n' >"$state/node-control/bind-address"
+printf 'DASHBOARD_PASSWORD=testpassword\nDASHBOARD_BIND_IP=192.168.1.20\n' >"$state/.env"
+printf 'tor-ctr running|\n' >"$tmp/drift-states"
+drift_nc 2500 "127.0.0.1 10.0.0.5" 10.0.0.5
+drift_nc 2560 "127.0.0.1 10.0.0.5" 10.0.0.5
+drift_moved || fail "a move to another network did not restart the dashboard"
+cmp -s "$config/config.json" "$tmp/drift-pending.json" || fail "listeners followed the host onto another network in config.json"
+cmp -s "$state/.approved-config.json" "$tmp/drift-approved-before.json" || fail "listeners followed the host onto another network in the approved config"
+[ "$(cat "$state/.paused-listeners")" = 192.168.1.20 ] || fail "listeners on a lost network were not paused"
+grep -q 'Host: Moved the dashboard from 192.168.1.20 to 10.0.0.5, this host.s current LAN address. Paused LAN listeners whose address is not on this network: bitcoin RPC, monero ZMQ, tari gRPC. Re-point them from Settings to use this network.$' "$dashboard_state/events.log" ||
+  fail "the pause did not name the paused listeners: $(cat "$dashboard_state/events.log")"
+[ "$(grep -c 'Host:' "$dashboard_state/events.log")" = 1 ] || fail "a move to another network logged more than one event"
+printf 'DASHBOARD_PASSWORD=testpassword\nDASHBOARD_BIND_IP=10.0.0.5\n' >"$state/.env"
+drift_nc 2600 "127.0.0.1 10.0.0.5" 10.0.0.5
+! drift_moved || fail "a paused listener was published while its address was gone"
+[ -s "$state/.paused-listeners" ] || fail "a paused listener was dropped while its address was gone"
+drift_nc 2610 "127.0.0.1 10.0.0.5 192.168.1.20" 10.0.0.5
+! drift_moved || fail "a paused listener was published the moment its address returned"
+drift_nc 2669 "127.0.0.1 10.0.0.5 192.168.1.20" 10.0.0.5
+! drift_moved || fail "a paused listener was published before its address held for a minute"
+drift_nc 2670 "127.0.0.1 10.0.0.5 192.168.1.20" 10.0.0.5
+drift_moved || fail "a paused listener was not published again when its address returned"
+[ ! -e "$state/.paused-listeners" ] || fail "a published listener stayed paused"
+grep -q 'Host: Published LAN listeners again now that their address is back: bitcoin RPC, monero ZMQ, tari gRPC.$' "$dashboard_state/events.log" ||
+  fail "publishing again was not logged"
+
+printf '192.168.1.20\n' >"$state/node-control/bind-address"
+printf 'DASHBOARD_PASSWORD=testpassword\nDASHBOARD_BIND_IP=192.168.1.20\n' >"$state/.env"
+FAKE_HOST_PREFIX=32 drift_nc 2700 "127.0.0.1 192.168.1.30" 192.168.1.30
+FAKE_HOST_PREFIX=32 drift_nc 2760 "127.0.0.1 192.168.1.30" 192.168.1.30
+[ "$(jq -r .bitcoin.rpc_bind_ip "$state/.approved-config.json")" = 192.168.1.20 ] || fail "a /32 address was treated as the same LAN"
+[ "$(cat "$state/.paused-listeners")" = 192.168.1.20 ] || fail "listeners were not paused next to a /32 address"
+rm -f "$state/.paused-listeners"
+
+rm -f "$dashboard_state/events.log"
+for drift_config in "$config/config.json" "$state/.approved-config.json"; do
+  jq '.bitcoin.rpc_expose=false | .tari.grpc_expose=false | .monero.zmq_expose=false' "$drift_config" >"$tmp/drift-config.json"
+  mv "$tmp/drift-config.json" "$drift_config"
+done
+printf '192.168.1.20\n' >"$state/node-control/bind-address"
+printf 'DASHBOARD_PASSWORD=testpassword\nDASHBOARD_BIND_IP=192.168.1.30\n' >"$state/.env"
+drift_nc 2800 "127.0.0.1 192.168.1.30" 192.168.1.30
+drift_nc 2860 "127.0.0.1 192.168.1.30" 192.168.1.30
+drift_moved || fail "the dashboard kept its old address after the failed-start recovery re-rendered first"
+grep -q 'Host: Moved the dashboard from 192.168.1.20 to 192.168.1.30, this host.s current LAN address.$' "$dashboard_state/events.log" ||
+  fail "the dashboard move after an earlier render was not logged: $(cat "$dashboard_state/events.log")"
 
 printf 'DASHBOARD_PASSWORD=testpassword\nDASHBOARD_BIND_IP=192.168.1.20\n' >"$state/.env"
 rm -f "$state/node-control/bind-address"

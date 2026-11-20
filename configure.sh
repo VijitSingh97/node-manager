@@ -246,6 +246,11 @@ zcash_rpc_port=$(jq -r '.zcash.rpc_port // 8232' <<<"$config")
 [ "$dogecoin_enabled" = "1" ] || dogecoin_rpc_expose=0
 [ "$bitcoincash_enabled" = "1" ] || bitcoincash_rpc_expose=0
 [ "$zcash_enabled" = "1" ] || zcash_rpc_expose=0
+paused_listeners=$(awk '{print $1}' "$state_dir/.paused-listeners" 2>/dev/null || true)
+for listener in rpc monero_rpc monero_zmq tari_grpc litecoin_rpc dogecoin_rpc bitcoincash_rpc zcash_rpc; do
+  bind_ip_var=${listener}_bind_ip
+  [ -z "${!bind_ip_var}" ] || ! grep -Fxq -- "${!bind_ip_var}" <<<"$paused_listeners" || printf -v "${listener}_expose" 0
+done
 bitcoin_resource_profile=$(get '.bitcoin.resource_profile')
 monero_resource_profile=$(get '.monero.resource_profile')
 [ -n "$bitcoin_resource_profile" ] || bitcoin_resource_profile=$(sed -n 's/^BITCOIN_RESOURCE_PROFILE=//p' "$env_file" 2>/dev/null || true)

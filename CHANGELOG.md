@@ -14,15 +14,18 @@ All notable changes to this project are documented here. Format follows
   new one has held for that minute. It then re-renders the last approved
   configuration and recreates only Tor and the dashboard on the new address. A
   pending `config.json` change stays pending. LAN RPC, ZMQ and gRPC listeners on
-  the old address move with the dashboard in both `config.json` and the approved
-  snapshot, because Tor cannot start while one of them names a missing address.
-  They follow even when the 1.39.0 failed-start recovery re-rendered the
-  dashboard first. Listeners on any other address, such as a WireGuard
-  interface, are left alone. It also moves the dashboard off the `127.0.0.1`
-  fallback left by a start before the network came up, which the 1.39.0
-  failed-start recovery could cause. A fixed `dashboard.bind_ip` that
-  disappears is reported once in `./stack events` and left unchanged, and
-  `./stack doctor` lists every published address the host no longer has.
+  the old address follow only when it is in the new address's subnet, in both
+  `config.json` and the approved snapshot, even when the 1.39.0 failed-start
+  recovery re-rendered the dashboard first. On another network, listeners whose
+  address is gone are paused instead: rendered unpublished, with the
+  configuration unchanged, so Tor still starts. They are published again once
+  their address has been back for a minute. A `/32` or point-to-point address
+  never counts as the same LAN. It also moves the dashboard off the `127.0.0.1`
+  fallback left by a start before the network came up, and recreates a
+  dashboard that kept the old address, both of which the 1.39.0 failed-start
+  recovery could cause. A fixed `dashboard.bind_ip` that disappears is reported
+  once in `./stack events` and left unchanged. `./stack doctor` lists every
+  published address the host no longer has and every paused listener.
   `configure.sh --detect-bind-ip` prints the address `auto` would pick.
 
 ## [1.39.0] - 2026-11-20

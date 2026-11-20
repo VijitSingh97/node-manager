@@ -292,6 +292,21 @@ grep -q '^BITCOIN_RPC_EXPOSE=1$' "$tmp/.env" || fail "rpc_expose=true not render
 grep -q '^BITCOIN_RPC_BIND_IP=192.168.1.118$' "$tmp/.env" || fail "RPC LAN bind not rendered"
 grep -q '^BITCOIN_RPC_PORT=18332$' "$tmp/.env" || fail "RPC host port not rendered"
 grep -q '^COMPOSE_FILE=docker-compose.yml:docker-compose.rpc.yml$' "$tmp/.env" || fail "RPC compose override not enabled"
+cp "$tmp/config.json" "$tmp/config.before-pause"
+printf '192.168.1.118 1000\n' >"$tmp/.paused-listeners"
+(cd "$tmp" && ./configure.sh) >/dev/null
+grep -q '^COMPOSE_FILE=docker-compose.yml$' "$tmp/.env" || fail "a paused LAN listener was still published"
+grep -q '^BITCOIN_RPC_EXPOSE=0$' "$tmp/.env" || fail "a paused LAN listener was rendered as exposed"
+cmp -s "$tmp/config.json" "$tmp/config.before-pause" || fail "pausing a LAN listener changed config.json"
+cp "$tmp/config.json" "$tmp/config.custom.json"
+printf '%s\n' '{"bitcoin":{"enabled":false},"monero":{"enabled":true,"zmq_expose":true,"zmq_bind_ip":"192.168.1.118"},"tari":{"enabled":true,"grpc_expose":true,"grpc_bind_ip":"192.168.1.118"},"dashboard":{"password":"dashpassword12","bind_ip":"127.0.0.1"}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null
+grep -q '^COMPOSE_FILE=docker-compose.yml:docker-compose.tari-wallet.yml$' "$tmp/.env" || fail "paused gRPC and ZMQ listeners were still published"
+grep -q '^MONERO_ZMQ_EXPOSE=0$' "$tmp/.env" || fail "a paused ZMQ listener was rendered as exposed"
+grep -q '^TARI_GRPC_EXPOSE=0$' "$tmp/.env" || fail "a paused gRPC listener was rendered as exposed"
+mv "$tmp/config.custom.json" "$tmp/config.json"
+rm -f "$tmp/.paused-listeners" "$tmp/config.before-pause"
+(cd "$tmp" && ./configure.sh) >/dev/null
 grep -q '^DASHBOARD_PASSWORD=dashpassword12$' "$tmp/.env" || fail "dashboard password not rendered"
 grep -q '^DASHBOARD_ONION=1$' "$tmp/.env" || fail "dashboard onion not rendered"
 grep -q '^DASHBOARD_BIND_IP=192.168.1.117$' "$tmp/.env" || fail "dashboard LAN bind not rendered"

@@ -218,5 +218,9 @@ FAKE_HOST_ADDRESSES="127.0.0.1 192.168.1.20 192.168.1.21" IP_BIN=$fake/ifaddrs I
 FAKE_HOST_ADDRESSES="127.0.0.1 192.168.1.30" IP_BIN=$fake/ifaddrs IFCONFIG_BIN=$fake/ifaddrs ./stack doctor >"$tmp/doctor.out" 2>&1 || true
 grep -q '^WARN  DASHBOARD_BIND_IP 192.168.1.20 is not on this host' "$tmp/doctor.out" || fail "doctor missed a dashboard address the host lost"
 grep -q '^WARN  BITCOIN_RPC_BIND_IP 192.168.1.21 is not on this host' "$tmp/doctor.out" || fail "doctor missed a LAN listener address the host lost"
+printf '192.168.1.22\n' >"$tmp/state/.paused-listeners"
+FAKE_HOST_ADDRESSES="127.0.0.1 192.168.1.20 192.168.1.21" IP_BIN=$fake/ifaddrs IFCONFIG_BIN=$fake/ifaddrs ./stack doctor >"$tmp/doctor.out" 2>&1 || true
+grep -q '^WARN  LAN listeners on 192.168.1.22 are paused' "$tmp/doctor.out" || fail "doctor did not report paused LAN listeners"
+rm -f "$tmp/state/.paused-listeners"
 
 echo "PASS: test_package_upgrade.sh"
