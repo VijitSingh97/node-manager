@@ -348,7 +348,7 @@ services:
     dns: ["127.0.0.1"]
 
   zcash:
-    image: zakuracore/zakura:1.8.8@sha256:b27298f912c058fccca46472c08137d4e0ebbbecdba4242b735ccb135db063bc
+    image: zakuracore/zakura:1.8.9@sha256:dfed18db7fb5005d31778a9b5b5ebfbd2c6590a616eacbd435a59c689c19a0e1
     profiles: ["zcash"]
     labels:
       - "io.node-starter-stack.resource-profile=${ZCASH_RESOURCE_PROFILE:-off}"
