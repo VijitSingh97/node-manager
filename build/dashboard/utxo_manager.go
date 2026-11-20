@@ -122,6 +122,7 @@ type utxoManager struct {
 	phase         string
 	refusals      []seedRefusal
 	seed          utxoSeedState
+	verifyUntil   time.Time
 }
 
 type utxoIndexStatus struct {
@@ -362,6 +363,9 @@ func (m *utxoManager) run(ctx context.Context) {
 			case <-poll:
 				m.pollSeed(ctx)
 				m.maybeAutoSeed(ctx)
+				if m.bench != nil {
+					m.pollVerify(ctx)
+				}
 			}
 		}
 	}
@@ -618,7 +622,7 @@ func (m *utxoManager) AlertsSuppressed() bool {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.alertsSuppressedLocked()
+	return m.alertsSuppressedLocked() || m.now().Before(m.verifyUntil)
 }
 
 func (m *utxoManager) tick(ctx context.Context) {

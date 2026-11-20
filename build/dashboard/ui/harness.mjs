@@ -126,7 +126,8 @@ class Helper {
     if (this.hold || !existsSync(path)) return;
     let request;
     try { request = JSON.parse(readFileSync(path, "utf8")); } catch { return; }
-    unlinkSync(path);
+    const processing = join(this.stateDir, "node-control.processing");
+    renameSync(path, processing);
     this.requests.push(request);
     const state = this.outcome(request);
     const status = request.action
@@ -134,6 +135,7 @@ class Helper {
       : { id: request.id, node: request.node, active: request.active, state };
     if (state === "applied") this.#apply(request);
     writeAtomic(join(this.stateDir, "node-control.status"), JSON.stringify(status));
+    unlinkSync(processing);
   }
 
   #apply(request) {

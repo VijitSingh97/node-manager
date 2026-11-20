@@ -2,12 +2,14 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/bits"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -850,6 +852,38 @@ func (s *utxoStore) scanPrefix(h [utxoPrefixLen]byte) ([]utxoCoin, error) {
 		out = append(out, c)
 	}
 	return out, it.Close()
+}
+
+// Totals counts every coin and sums its amount at the tip; the caller keeps the follower out so the tip cannot move.
+func (s *utxoStore) Totals(ctx context.Context) (coins, sats uint64, err error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := s.usable(); err != nil {
+		return 0, 0, err
+	}
+	it, err := s.db.NewIter(nil)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer it.Close()
+	for ok := it.First(); ok; ok = it.Next() {
+		if len(it.Key()) != utxoKeyLen {
+			continue
+		}
+		v := it.Value()
+		if len(v) != utxoValueLen {
+			return 0, 0, errors.New("corrupt coin record")
+		}
+		// shortcut: uint64 holds 184.4 billion coins of 10^8 units, which Dogecoin reaches around 2032; sum in big.Int before then.
+		var carry uint64
+		if sats, carry = bits.Add64(sats, binary.BigEndian.Uint64(v), 0); carry != 0 {
+			return 0, 0, errors.New("the coin total overflows 64 bits")
+		}
+		if coins++; coins%(1<<16) == 0 && ctx.Err() != nil {
+			return 0, 0, ctx.Err()
+		}
+	}
+	return coins, sats, it.Error()
 }
 
 func (s *utxoStore) emptyLocked() error {
