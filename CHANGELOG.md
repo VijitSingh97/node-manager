@@ -78,6 +78,19 @@ All notable changes to this project are documented here. Format follows
 - A seed request may name its `mode` (`chainstate` or `replay`); a request with
   no mode behaves as before.
 
+### Fixed
+
+- The stack comes back after a power cut or reboot even when the host gets its
+  LAN address late. Docker gives up on a container it cannot start: when the
+  host booted before DHCP assigned the address Tor publishes the dashboard on,
+  Tor stayed down, taking the dashboard, node peers and alerts with it until
+  someone recreated it by hand. With Launch at boot on, the host helper now
+  recreates any stack container that Docker could not start because a published
+  port could not be bound, retrying after 30 s and then less often (at most every
+  10 minutes) until it starts, and records it in `./stack events`. Other start
+  errors, containers you stopped and deactivated nodes are left alone.
+  `up --force-recreate <service>` recreates a service by hand.
+
 ## [1.38.0] - 2026-11-17
 
 ### Added

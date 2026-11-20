@@ -207,6 +207,51 @@ if [ "${install_recovery_applied:-false}" = true ]; then
   rm -rf "$install_transaction"
   exit 0
 fi
+recover_failed_starts() {
+  recover_file=$state_root/node-control/recover
+  stopped=$("$docker_bin" ps -a --filter "label=com.docker.compose.project=$project_name" --filter status=exited --filter status=created \
+    --format '{{.Label "com.docker.compose.service"}} {{.ID}}' 2>/dev/null) || return 0
+  recover_next=$(mktemp "$state_root/node-control/.recover.XXXXXX")
+  printf '%s\n' "$stopped" | while read -r service id; do
+    [ -n "$id" ] || continue
+    details=$("$docker_bin" inspect --format '{{.HostConfig.RestartPolicy.Name}}|{{.State.Running}}|{{.State.Error}}' "$id" 2>/dev/null) || continue
+    policy=${details%%|*}
+    rest=${details#*|}
+    running=${rest%%|*}
+    start_error=${rest#*|}
+    [ "$policy" = unless-stopped ] && [ "$running" = false ] || continue
+    # Other start errors, such as a missing data disk, must not be recreated: Docker would create an empty bind source.
+    case "$start_error" in *"failed to bind host port"*) ;; *) continue ;; esac
+    node=$service
+    case "$service" in monero-wallet) node=monero ;; tari-wallet) node=tari ;; esac
+    [ "$(jq -r --arg node "$node" 'if (.[$node] // {} | has("active")) then .[$node].active else true end' "$config_file" 2>/dev/null || printf true)" != false ] || continue
+    entry=$(awk -v service="$service" '$1 == service { print $2, $3; exit }' "$recover_file" 2>/dev/null || true)
+    due=${entry%% *}
+    delay=${entry#* }
+    if [ -n "$entry" ] && [ "$now" -lt "$due" ]; then
+      printf '%s %s\n' "$service" "$entry" >>"$recover_next"
+    elif "$stack_root/stack" up --force-recreate "$service" >/dev/null 2>&1; then
+      host_event "$service failed to start (${start_error##*: }); recreated it."
+    else
+      if [ -z "$entry" ]; then
+        delay=30
+        host_event "$service failed to start (${start_error##*: }); retrying until it starts."
+      elif [ "$delay" -lt 300 ]; then
+        delay=$((delay * 2))
+      else
+        delay=600
+      fi
+      printf '%s %s %s\n' "$service" $((now + delay)) "$delay" >>"$recover_next"
+    fi
+  done
+  if [ -s "$recover_next" ] || [ -s "$recover_file" ]; then
+    chmod 600 "$recover_next"
+    mv "$recover_next" "$recover_file"
+  else
+    rm -f "$recover_next"
+  fi
+}
+recover_failed_starts
 restore_approved_runtime() {
   [ -f "$approved_config" ] && [ -f "$state_root/.approved.env" ] || return 1
   pending_copy=$(mktemp "$state_root/node-control/.pending-config.XXXXXX")
