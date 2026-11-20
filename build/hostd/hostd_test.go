@@ -619,3 +619,31 @@ func TestRunDoesNoDuBeforeRateWindowCloses(t *testing.T) {
 		t.Error("du never ran")
 	}
 }
+
+func TestNodeStartTime(t *testing.T) {
+	e := newEnv(t)
+	e.cgroup("systemd", "b17c00000000aaaa", 1, 10)
+	e.cgroup("systemd", "a0e100000000aaaa", 1, 10)
+	e.cgroup("systemd", "7a4100000000aaaa", 1, 10)
+	st := sampleOnce(t, e, []Container{
+		ctr("dash000000000000", "dashboard", "running"),
+		ctr("b17c00000000aaaa", "bitcoin", "running"),
+		ctr("a0e100000000aaaa", "monero-wallet", "running"),
+		ctr("7a4100000000aaaa", "tari", "restarting"),
+	})
+	if got := st.Nodes["bitcoin"].StartedAt; got != 1767225600 {
+		t.Errorf("bitcoin started_at = %d", got)
+	}
+	if got := st.Nodes["monero"].StartedAt; got != 0 {
+		t.Errorf("a wallet container set the node start time: %d", got)
+	}
+	if got := st.Nodes["tari"].StartedAt; got != 0 {
+		t.Errorf("a restarting container set a start time: %d", got)
+	}
+	d := NewDocker(dockerServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"State":{"StartedAt":"0001-01-01T00:00:00Z"}}`))
+	})))
+	if _, err := d.StartedAt("x"); err == nil {
+		t.Error("a never-started container produced a start time")
+	}
+}

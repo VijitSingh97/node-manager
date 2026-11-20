@@ -80,6 +80,17 @@ All notable changes to this project are documented here. Format follows
 
 ### Fixed
 
+- Node cards no longer show a dash for Node Data Size and Uptime when the node
+  cannot report them (Tari, Zcash, and Dogecoin's uptime). The dashboard falls
+  back to the host collector's measured data directory size and the node
+  container's start time, both added to `host-stats.json` (`started_at` per
+  node), and still shows a dash when that file is missing or stale. A node's own
+  size and uptime win when it reports them. The fallback size is the whole data
+  directory and can lag by one measurement cycle, and the host collector now
+  inspects each running node container once per sample to read its start time.
+- The Bitcoin card shows a dash for Connections when `getpeerinfo` fails instead
+  of `0 in · 0 out`.
+- The Bitcoin and Monero cards no longer show an empty Open ports row.
 - The stack comes back after a power cut or reboot even when the host gets its
   LAN address late. Docker gives up on a container it cannot start: when the
   host booted before DHCP assigned the address Tor publishes the dashboard on,
