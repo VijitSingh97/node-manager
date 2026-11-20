@@ -16,10 +16,16 @@ All notable changes to this project are documented here. Format follows
   waits up to 10 minutes for the index to reach the node tip. It then counts the
   index and calls the node's `gettxoutsetinfo` at that same block, and prints
   both coin counts and totals. The verdict is PASS, or FAIL with a non-zero exit.
+  Only PASS exits 0. FAIL, every refusal (printed as `refused:`) and a command
+  timeout exit 1. The refusals cover an index behind the tip, a tip that moved, and
+  a node call that failed or timed out. If the dashboard stops mid-wait, the command
+  says so and exits 1 at once.
   The call uses `hash_type none` on Bitcoin Core 32.1, Litecoin 0.21.5.8 and
   Bitcoin Cash Node 29.2.0. Dogecoin Core 1.14.9 takes no argument and always
   hashes. The walk takes no `cs_main` in any of these versions, but node-down
-  alerts are still held while it runs, for at most 30 minutes. The command
+  alerts are still held while it runs, for at most 30 minutes. The hold is saved
+  with the seed state, so a dashboard restarted during the node's walk keeps
+  holding alerts until that deadline. The command
   confirms first, or takes `-y`. Regtest runs on all four nodes matched.
   Mainnet timing is not measured.
 - Bitcoin Cash's balance index (`bitcoincash.utxo_index`) works on a pruned node.

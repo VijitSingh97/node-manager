@@ -128,15 +128,9 @@ func (m *utxoManager) execVerify(ctx context.Context, res *verifyResult, height 
 	res.Height, res.BestBlock = height, reverseHex(hash)
 	ctx, cancel := context.WithTimeout(ctx, verifyCallLimit)
 	defer cancel()
-	// The walk takes no cs_main, but a CPU-capped node may still answer health probes too slowly.
-	m.mu.Lock()
-	m.verifyUntil = m.now().Add(verifyCallLimit)
-	m.mu.Unlock()
-	defer func() {
-		m.mu.Lock()
-		m.verifyUntil = time.Time{}
-		m.mu.Unlock()
-	}()
+	// A CPU-capped node may answer health probes too slowly during the walk, which outlives a dashboard restart.
+	m.holdVerifyAlerts(m.now().Add(verifyCallLimit))
+	defer m.holdVerifyAlerts(time.Time{})
 	type reply struct {
 		info    txOutSetInfo
 		err     error
@@ -174,4 +168,11 @@ func (m *utxoManager) execVerify(ctx context.Context, res *verifyResult, height 
 	if !match {
 		res.Failures = append(res.Failures, fmt.Sprintf("the index and the node's UTXO set differ at height %d", height))
 	}
+}
+
+func (m *utxoManager) holdVerifyAlerts(until time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.seed.VerifyAlertsUntil = until
+	m.persistSeedLocked()
 }

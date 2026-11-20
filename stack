@@ -987,6 +987,11 @@ EOF
   while true; do
     result=$(compose exec -T -u 1000 dashboard cat "/state/${utxo_prefix}utxo-verify.result" 2>/dev/null || true)
     [ "$(jq -r '.id // ""' <<<"$result" 2>/dev/null || true)" != "$id" ] || break
+    utxo_seed_running dashboard || {
+      trap - INT TERM HUP
+      echo "The dashboard stopped before the check finished, so nothing was compared. Run it again once the dashboard is back; if the check had started, the node may still be walking its UTXO set for a few minutes." >&2
+      return 1
+    }
     if [ "$SECONDS" -ge "$deadline" ]; then
       compose exec -T -u 1000 dashboard rm -f "/state/${utxo_prefix}utxo-verify.request" >/dev/null 2>&1 || true
       trap - INT TERM HUP
