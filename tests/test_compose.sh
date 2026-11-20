@@ -461,8 +461,8 @@ bch_render=$(docker compose --env-file /dev/null -f docker-compose.yml -f docker
 bch_dashboard=$(echo "$bch_render" | sed -n '/^  dashboard:$/,/^  [a-z][a-z-]*:$/p')
 echo "$bch_dashboard" | grep -q 'BITCOINCASH_UTXO_INDEX_ENABLED: "1"' || fail "Bitcoin Cash index flag did not reach the dashboard"
 echo "$bch_dashboard" | grep -q 'BITCOINCASH_UTXO_INDEX_DIR: /utxo-index-bitcoincash' || fail "Bitcoin Cash index directory did not reach the dashboard"
-echo "$bch_dashboard" | grep -q 'mem_limit: "2147483648"' || fail "Bitcoin Cash index overlay did not set the dashboard memory limit to 2g"
-echo "$bch_dashboard" | grep -q 'GOMEMLIMIT: 1600MiB' || fail "Bitcoin Cash index overlay did not set GOMEMLIMIT"
+echo "$bch_dashboard" | grep -q 'mem_limit: "1073741824"' || fail "Bitcoin Cash index overlay did not set the dashboard memory limit to 1g"
+echo "$bch_dashboard" | grep -q 'GOMEMLIMIT' && fail "Bitcoin Cash index overlay set GOMEMLIMIT"
 echo "$bch_dashboard" | grep -q 'cpus: 0.5' || fail "Bitcoin Cash index overlay did not set the dashboard CPU limit"
 echo "$bch_dashboard" | grep -B2 -A2 'target: /utxo-index-bitcoincash' | grep -q 'source: utxo_index_bitcoincash' || fail "dashboard is missing the utxo_index_bitcoincash volume"
 echo "$bch_render" | sed -n '/^  bitcoincash:$/,/^  [a-z][a-z-]*:$/p' | grep -q 'utxo' && fail "Bitcoin Cash index overlay changed the bitcoincash service"
@@ -490,15 +490,11 @@ for combo in none btc ltc bch doge btc+bch ltc+bch doge+bch btc+ltc+doge btc+ltc
   for file in "${order[@]}"; do files+=(-f "$file"); done
   dashboard=$(docker compose --env-file "$dir/.env" "${files[@]}" config | sed -n '/^  dashboard:$/,/^  [a-z][a-z-]*:$/p')
   rm -rf "$dir"
-  if [[ "+$combo+" == *+bch+* ]]; then
-    echo "$dashboard" | grep -q 'mem_limit: "2147483648"' || fail "with the $combo indexes the dashboard is not capped at 2g"
-    echo "$dashboard" | grep -q 'GOMEMLIMIT: 1600MiB' || fail "with the $combo indexes the dashboard has no GOMEMLIMIT"
-  elif [ "$combo" = none ]; then
+  echo "$dashboard" | grep -q 'GOMEMLIMIT' && fail "with the $combo indexes the dashboard got GOMEMLIMIT"
+  if [ "$combo" = none ]; then
     echo "$dashboard" | grep -q 'mem_limit' && fail "without an index the dashboard got a memory limit"
-    echo "$dashboard" | grep -q 'GOMEMLIMIT' && fail "without an index the dashboard got GOMEMLIMIT"
   else
     echo "$dashboard" | grep -q 'mem_limit: "1073741824"' || fail "with the $combo indexes the dashboard is not capped at 1g"
-    echo "$dashboard" | grep -q 'GOMEMLIMIT' && fail "with the $combo indexes the dashboard got the Bitcoin Cash GOMEMLIMIT"
   fi
 done
 

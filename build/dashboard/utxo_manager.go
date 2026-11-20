@@ -826,7 +826,7 @@ func pathsOverlap(a, b string) bool {
 
 // newChainUtxo builds the index for a chain other than Bitcoin; its seed holds that chain's watch scan.
 func (a *app) newChainUtxo(node nodeConfig, chain *utxoChainParams, logger *log.Logger) *utxoManager {
-	// shortcut: 64 MiB holds a 32 MB Bitcoin Cash block as hex; raise it, and the 2 GiB cap, if Bitcoin Cash blocks grow past 32 MB.
+	// shortcut: 64 MiB holds a 32 MB Bitcoin Cash block as hex; raise it, and utxoBlockOpsCap, if Bitcoin Cash blocks grow past 32 MB.
 	rpc := &rpcClient{url: node.RPCURL, user: node.RPCUser, password: node.RPCPassword, client: newInternalHTTPClient(2 * time.Minute), maxBody: 64 << 20}
 	m := newUtxoManager(node.UTXOIndexDir, nil, rpc, logger, chain)
 	m.blockWait = rpc

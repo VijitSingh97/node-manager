@@ -382,7 +382,7 @@ func (f *utxoFollower) fetchRawBlock(ctx context.Context, height uint32, hash st
 		}
 	}
 	if errors.Is(err, errRPCTooLarge) {
-		return utxoBlock{}, fmt.Errorf("%w: block %d is larger than the dashboard reads over RPC; applying it in pieces is issue #363", errUtxoBlockTooLarge, height)
+		return utxoBlock{}, fmt.Errorf("%w: block %d is larger than the dashboard reads over RPC", errUtxoBlockTooLarge, height)
 	}
 	if err != nil {
 		return utxoBlock{}, err
