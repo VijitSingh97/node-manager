@@ -205,18 +205,27 @@ func TestUtxoStoreDisconnectRestoresPreviousCoins(t *testing.T) {
 }
 
 func TestUtxoStoreJournalDepth(t *testing.T) {
-	s := utxoTestOpen(t, t.TempDir())
-	utxoTestApply(t, s, 1, 200)
-	for i := 0; i < utxoJournalDepth; i++ {
-		if err := s.DisconnectTip(); err != nil {
-			t.Fatalf("disconnect %d: %v", i, err)
+	for _, pieces := range []int{utxoBlockPieceOps, 1} {
+		s := utxoTestOpen(t, t.TempDir())
+		withPieceOps(pieces, func() { utxoTestApply(t, s, 1, 200) })
+		// Blocks after the first have four operations, so in 1-op pieces each keeps three piece records.
+		if got, want := utxoTestPieceKeys(utxoTestDump(t, s)), map[int]int{1: 3 * utxoJournalDepth}[pieces]; got != want {
+			t.Fatalf("pieces of %d: %d piece records in the journal, want %d", pieces, got, want)
+		}
+		for i := 0; i < utxoJournalDepth; i++ {
+			if err := s.DisconnectTip(); err != nil {
+				t.Fatalf("disconnect %d: %v", i, err)
+			}
+		}
+		utxoTestExpectTip(t, s, 200-utxoJournalDepth)
+		if err := s.DisconnectTip(); !errors.Is(err, errUtxoNoUndo) {
+			t.Fatalf("disconnect past the journal: %v", err)
+		}
+		utxoTestExpectTip(t, s, 200-utxoJournalDepth)
+		if n := utxoTestPieceKeys(utxoTestDump(t, s)); n != 0 {
+			t.Fatalf("pieces of %d: %d piece records left after undoing the journal", pieces, n)
 		}
 	}
-	utxoTestExpectTip(t, s, 200-utxoJournalDepth)
-	if err := s.DisconnectTip(); !errors.Is(err, errUtxoNoUndo) {
-		t.Fatalf("disconnect past the journal: %v", err)
-	}
-	utxoTestExpectTip(t, s, 200-utxoJournalDepth)
 }
 
 func TestUtxoStoreIntraBlockSpendAndOverwriteUndo(t *testing.T) {

@@ -34,7 +34,7 @@ const (
 	utxoIngestTmpDir    = "ingest-tmp"
 )
 
-// A block with more coin operations than this commits in pieces, each batch under Pebble's 8 MB large-batch size, so a 32 MB Bitcoin Cash block fits the 1 GiB cap.
+// A block with more coin operations than this commits in pieces of about 9 MB of batch each, so a 32 MB Bitcoin Cash block fits the 1 GiB cap.
 var utxoBlockPieceOps = 50_000
 
 var (
