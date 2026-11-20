@@ -27,6 +27,22 @@ All notable changes to this project are documented here. Format follows
   confirms first, or takes `-y`. Regtest runs on all four nodes matched.
   Mainnet timing is not measured.
 
+### Changed
+
+- The Bitcoin Cash balance index fits the same 1 GiB dashboard limit as the other
+  indexes (#363). Its overlay now sets `mem_limit: 1g` and no `GOMEMLIMIT`,
+  instead of 2g with `GOMEMLIMIT=1600MiB`. A block of more than 50,000 coin
+  operations is applied in pieces of 50,000, each committed on its own, so no
+  database batch or undo record holds a whole 32 MB block. Only the last piece
+  moves the index's tip. Pieces left by a stop or crash are rolled back when the
+  index reopens, and a reorg undoes such a block piece by piece. On the regtest
+  replay of four 31 MB blocks at 0.5 CPU, the dashboard under 1 GiB finished in 78
+  to 109 s and peaked at 0.69 to 0.77 GiB RSS and 296 MiB of live heap. The same
+  replay with whole blocks under the 2 GiB cap took 966 s and peaked at 1.57 GiB
+  RSS and 945 MiB, in the same session. Mainnet is not measured. A block over 1.2
+  million coin operations still stops the index, because the parsed block stays
+  whole while its pieces apply.
+
 ## [1.39.0] - 2026-11-20
 
 ### Added
