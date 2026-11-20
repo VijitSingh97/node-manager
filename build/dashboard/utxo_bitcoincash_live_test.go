@@ -296,4 +296,5 @@ func TestUtxoBitcoinCashRawReplayRegtestLive(t *testing.T) {
 		t.Fatalf("after the reorg: %+v", st)
 	}
 	compare(fmt.Sprintf("after a one-block reorg to height %d", n.height()))
+	verifyLiveStore(t, n, nodeBitcoinCash, utxoBitcoinCash, m.currentStore())
 }

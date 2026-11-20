@@ -415,7 +415,8 @@ guard until the first finishes.
 The Bitcoin Cash balance index (`bitcoincash.utxo_index`) works on a pruned node.
 Bitcoin Cash Node has no coin-set export, so a seed stops the Bitcoin Cash node
 while its chainstate is copied, starts it again, and builds the index from the
-copy; the index then follows new blocks. The copy hardlinks the node's tables, so
+copy; the index then follows new blocks. Check either kind of seed with
+`./stack utxo-index verify --chain bitcoincash`. The copy hardlinks the node's tables, so
 it needs free space for three times the chainstate and marks Bitcoin Cash as
 restarting while the node is down, so it raises no node-down alert. The dashboard
 asks for this itself on APT and Homebrew installs, and `./stack utxo-seed
@@ -506,6 +507,10 @@ What happens:
   new blocks from there. A cancel, an error, a dump that does not match the
   `dumptxoutset` result, or a dashboard restart during the seed discards the
   partial index and records `last_seed`; start again with the same command.
+- **Check it.** After the first seed, once the card reads ready, run
+  `./stack utxo-index verify` (with `--chain litecoin` or `--chain bitcoincash`
+  for those indexes); see
+  [Checking a balance index against the node](#checking-a-balance-index-against-the-node).
 
 To time lookups with and without the index on public test wallets, run
 `utxo-index bench`, with `--chain litecoin` for the Litecoin index; the steps
@@ -633,6 +638,55 @@ chainstate, which a pruned node keeps whole.
 - If a pruned node drops blocks the index still needs, the index turns invalid and is seeded again
   automatically (not within a day of a successful seed).
 - Dogecoin is not in `utxo-index bench` or its CI test; see [the lookup bench](measurements/lookup-bench.md).
+- After the first seed, once the card reads ready, run `./stack utxo-index verify --chain dogecoin`; see
+  [Checking a balance index against the node](#checking-a-balance-index-against-the-node).
+
+## Checking a balance index against the node
+
+Run this after a seed, once the index card reads ready. It checks the index against the node's own
+UTXO set at the same block:
+
+```
+./stack utxo-index verify                   # Bitcoin; asks for y, -y skips the question
+./stack utxo-index verify --chain dogecoin  # or litecoin, bitcoincash
+```
+
+On APT and Homebrew installs the command is `node-manager utxo-index verify`.
+
+- The dashboard waits up to 10 minutes for the index to reach the node's best block. If it does not get
+  there, the check is refused.
+- It then counts every coin in the index and, at the same time, calls the node's `gettxoutsetinfo`. It
+  compares the coin count (`txouts`) and the total amount, and prints both rows. The verdict is `PASS`,
+  or `FAIL` with a non-zero exit.
+- If the node moves to a new block before its walk starts, nothing is compared. Run it again.
+- Coins a node never keeps are in neither count: OP_RETURN outputs, scripts over 10,000 bytes and the
+  genesis coinbase. Litecoin's MWEB outputs are in neither count either.
+- **Node load.** `gettxoutsetinfo` reads the node's whole chainstate, which takes minutes of disk and
+  CPU on mainnet. Each node gets the cheapest form it accepts, read from its help and source at the
+  pinned version and checked on regtest:
+
+  | Node | Call | Notes |
+  | --- | --- | --- |
+  | Bitcoin Core 32.1 | `gettxoutsetinfo none` | `muhash` and `hash_serialized_3` (the default) both hash the set |
+  | Litecoin Core 0.21.5.8 | `gettxoutsetinfo none` | No `muhash`; the default is `hash_serialized_2` |
+  | Bitcoin Cash Node 29.2.0 | `gettxoutsetinfo none` | `ecmh`, `muhash_testing` and the default `hash_serialized_3` all hash the set |
+  | Dogecoin Core 1.14.9 | `gettxoutsetinfo` | Takes no argument and always hashes the whole set, so it is the slowest |
+
+  How long this takes on mainnet has not been measured. For Bitcoin on the 2018 Mac mini with bitcoind
+  capped at 0.5 CPU, expect about 3 minutes, a guess from `scantxoutset`, which makes a similar walk there
+  in 164 seconds ([lookup bench](measurements/lookup-bench-mainnet.md)).
+- **Alerts.** In all four versions the walk reads a database snapshot without the node's main lock
+  (`cs_main`). The lock is taken only for the flush before the walk and for short lookups, so the
+  health probe's `getblockchaininfo` keeps answering. Node-down alerts for that chain are still held
+  while the call runs, for at most 30 minutes, in case a CPU-capped node answers too slowly. They
+  resume when the call ends.
+- **Index.** The index stays at the compared block until the check ends: its own count is a full read
+  of the index, and it then waits for the node. Balances keep answering from that block and catch up
+  afterwards.
+- After 30 minutes without an answer from the node, the check gives up. The node may still finish its
+  walk afterwards.
+- The check takes no seed lock, so run it when no other index is seeding, in a window the owner
+  approved.
 
 ## Self-healing (a deliberate non-feature)
 
