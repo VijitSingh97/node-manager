@@ -138,6 +138,10 @@ fi
   exit 0
 }
 [ "$1" = exec ] || exit 1
+if [ -n "${FAKE_EXEC_FAIL_ONCE:-}" ] && [ ! -e "$FAKE_EXEC_FAIL_ONCE" ]; then
+  : >"$FAKE_EXEC_FAIL_ONCE"
+  exit 1
+fi
 shift
 [ "${1:-}" != -i ] || shift
 if [ "${1:-}" = -u ]; then shift 2; fi
@@ -1216,6 +1220,21 @@ NODE_CONTROL_NOW_EPOCH=1690 recover_nc
 grep -qx 'up --force-recreate tor' "$tmp/stack.log" || fail "a due recovery was not retried"
 [ ! -s "$state/node-control/recover" ] || fail "a retried recovery did not clear its entry"
 [ "$(grep -c 'recreated it' "$dashboard_state/events.log")" = 2 ] || fail "the retried recovery was not logged"
+: >"$tmp/docker-calls"
+NODE_CONTROL_NOW_EPOCH=1700 FAKE_CALL_LOG=$tmp/docker-calls recover_nc
+heartbeat_line=$(grep -n '^exec -i -u 1000 dashboard-id sh -c' "$tmp/docker-calls" | head -n 1 | cut -d: -f1)
+recover_line=$(grep -n '^inspect --format {{index' "$tmp/docker-calls" | head -n 1 | cut -d: -f1)
+[ -n "$heartbeat_line" ] && [ -n "$recover_line" ] && [ "$heartbeat_line" -lt "$recover_line" ] ||
+  fail "the capability heartbeat waited for container recovery: $(cat "$tmp/docker-calls")"
+printf '900.12 1800.00\n' >"$tmp/uptime"
+if NODE_CONTROL_UPTIME_FILE=$tmp/uptime FAKE_EXEC_FAIL_ONCE=$tmp/exec-failed run_nc; then
+  fail "a run that could not reach the dashboard long after boot reported success"
+fi
+printf '120.50 240.00\n' >"$tmp/uptime"
+NODE_CONTROL_NOW_EPOCH=1800 NODE_CONTROL_UPTIME_FILE=$tmp/uptime FAKE_EXEC_FAIL_ONCE=$tmp/exec-failed-at-boot run_nc ||
+  fail "a run right after boot gave up while the dashboard was starting"
+[ -e "$tmp/exec-failed-at-boot" ] && [ "$(jq -r .timestamp "$dashboard_state/node-control.capability")" = 1800 ] ||
+  fail "a run right after boot did not publish once the dashboard answered"
 
 jq -S . "$config/config.json" >"$state/.approved-config.json"
 mkdir -p "$tmp/jq-shim"
@@ -1233,10 +1252,13 @@ NODE_CONTROL_NOW_EPOCH=2000 run_nc
 [ "$(status .id):$(status .state)" = 7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f:applied ] && [ ! -e "$dashboard_state/node-control.request" ] ||
   fail "a triggered run did not take the waiting request"
 
+timer_seconds() { value=$(sed -n "s/^$1=\([0-9]*\)s$/\1/p" "$2"); printf '%s\n' "${value:-$3}"; }
+timer=packaging/systemd/node-manager-node-control.timer
 age=$(sed -n 's/^const nodeControlCapabilityAge = \([0-9]*\) \* time.Second$/\1/p' build/dashboard/node_control.go)
-interval=$(sed -n 's/^OnUnitActiveSec=\([0-9]*\)s$/\1/p' packaging/systemd/node-manager-node-control.timer)
-[ -n "$age" ] && [ -n "$interval" ] && [ $((interval + 20)) -le "$age" ] ||
-  fail "the node-control heartbeat (${interval:-?} s) does not refresh the capability 20 s inside the dashboard's ${age:-?} s limit"
+interval=$(timer_seconds OnUnitActiveSec "$timer" '')
+slack=$(($(timer_seconds AccuracySec "$timer" 60) + $(timer_seconds RandomizedDelaySec "$timer" 0)))
+[ -n "$age" ] && [ -n "$interval" ] && [ $((interval + slack + 20)) -le "$age" ] ||
+  fail "the node-control heartbeat (${interval:-?} s plus ${slack} s of timer slack) does not refresh the capability 20 s inside the dashboard's ${age:-?} s limit"
 [ "$interval" -ge 60 ] || fail "the node-control timer runs more often than its heartbeat needs"
 unit=packaging/systemd/node-manager-node-control.path
 grep -qx 'Unit=node-manager-node-control.service' "$unit" || fail "the request watch does not start node-control"

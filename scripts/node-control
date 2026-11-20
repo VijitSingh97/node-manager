@@ -259,7 +259,6 @@ recover_failed_starts() {
     rm -f "$recover_next"
   fi
 }
-recover_failed_starts
 restore_approved_runtime() {
   [ -f "$approved_config" ] && [ -f "$state_root/.approved.env" ] || return 1
   pending_copy=$(mktemp "$state_root/node-control/.pending-config.XXXXXX")
@@ -570,13 +569,25 @@ remove_finished_chainstate_copy() {
   fi
   rm -rf -- "$copy_dir"
 }
+# The heartbeat and the request check share one exec because each docker call costs more than the rest of an idle tick.
+publish_heartbeat() {
+  request_state=$(host_capability | "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c '
+    umask 077
+    cat > /state/.node-control.capability.tmp && mv /state/.node-control.capability.tmp /state/node-control.capability || exit 1
+    if [ -f /state/node-control.processing ]; then echo processing; elif [ -f /state/node-control.request ]; then echo request; fi')
+}
+heartbeat=0
+publish_heartbeat || heartbeat=$?
+recover_failed_starts
 remove_finished_chainstate_copy dogecoin
 remove_finished_chainstate_copy bitcoincash
-# The heartbeat and the request check share one exec because each docker call costs more than the rest of an idle tick.
-request_state=$(host_capability | "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c '
-  umask 077
-  cat > /state/.node-control.capability.tmp && mv /state/.node-control.capability.tmp /state/node-control.capability || exit 1
-  if [ -f /state/node-control.processing ]; then echo processing; elif [ -f /state/node-control.request ]; then echo request; fi')
+# The dashboard may still be starting after boot, and the timer would not try again for a minute.
+while [ "$heartbeat" != 0 ]; do
+  [ "$package_managed" = 1 ] && read -r uptime _ 2>/dev/null <"${NODE_CONTROL_UPTIME_FILE:-/proc/uptime}" && [ "${uptime%.*}" -lt 300 ] || exit "$heartbeat"
+  sleep 10
+  heartbeat=0
+  publish_heartbeat || heartbeat=$?
+done
 delete_marker=$state_root/node-control/delete-pending.json
 size=0
 case "$request_state" in

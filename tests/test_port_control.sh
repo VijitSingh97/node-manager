@@ -68,6 +68,10 @@ if [ "$1" = update ]; then
   exit 0
 fi
 [ "$1" = exec ] || exit 1
+if [ -n "${FAKE_EXEC_FAIL_ONCE:-}" ] && [ ! -e "$FAKE_EXEC_FAIL_ONCE" ]; then
+  : >"$FAKE_EXEC_FAIL_ONCE"
+  exit 1
+fi
 shift
 if [ "${1:-}" = -i ]; then shift; fi
 if [ "${1:-}" = -u ]; then shift 2; fi
@@ -319,6 +323,16 @@ scripts/node-port-control || fail "idle port-control run failed"
   fail "an idle run made more than one listing and one exec: $(cat "$FAKE_DOCKER_LOG")"
 [ "$(cat "$FAKE_DASH_STATE/port-control.capability")" = ready ] || fail "an idle run did not refresh the port capability"
 [ "$(jq -r .timestamp "$FAKE_DASH_STATE/credential-control.capability")" = 1000 ] || fail "an idle run did not refresh the credential capability"
+printf '900.12 1800.00\n' >"$case_root/uptime"
+if BITCOIN_STACK_PACKAGE_MANAGED=1 PORT_CONTROL_UPTIME_FILE=$case_root/uptime FAKE_EXEC_FAIL_ONCE=$case_root/exec-failed scripts/node-port-control; then
+  fail "a run that could not reach the dashboard long after boot reported success"
+fi
+printf '120.50 240.00\n' >"$case_root/uptime"
+rm -f "$FAKE_DASH_STATE/port-control.capability"
+BITCOIN_STACK_PACKAGE_MANAGED=1 PORT_CONTROL_UPTIME_FILE=$case_root/uptime FAKE_EXEC_FAIL_ONCE=$case_root/exec-failed-at-boot scripts/node-port-control ||
+  fail "a run right after boot gave up while the dashboard was starting"
+[ -e "$case_root/exec-failed-at-boot" ] && [ "$(cat "$FAKE_DASH_STATE/port-control.capability")" = ready ] ||
+  fail "a run right after boot did not publish once the dashboard answered"
 request '{"id":"12121212121212121212121212121212","changes":[{"port":"bitcoin_rpc","enabled":false}],"requested_at":1000}'
 scripts/node-port-control
 [ "$(status .id):$(status .state)" = 12121212121212121212121212121212:applied ] && [ ! -e "$FAKE_DASH_STATE/port-control.request" ] ||
@@ -964,10 +978,13 @@ grep -q '^ProtectSystem=strict$' packaging/systemd/node-manager-port-control.ser
 grep -q '^RestrictAddressFamilies=AF_UNIX AF_NETLINK$' packaging/systemd/node-manager-port-control.service ||
   fail "systemd service lacks its restricted Unix and socket-diagnostic families"
 grep -q '^Persistent=true$' packaging/systemd/node-manager-port-control.timer || fail "systemd timer does not catch up after reboot"
+timer_seconds() { value=$(sed -n "s/^$1=\([0-9]*\)s$/\1/p" "$2"); printf '%s\n' "${value:-$3}"; }
+timer=packaging/systemd/node-manager-port-control.timer
 age=$(sed -n 's/^\tportControlCapabilityAge = \([0-9]*\) \* time.Second$/\1/p' build/dashboard/port_control.go)
-interval=$(sed -n 's/^OnUnitActiveSec=\([0-9]*\)s$/\1/p' packaging/systemd/node-manager-port-control.timer)
-[ -n "$age" ] && [ -n "$interval" ] && [ $((interval + 20)) -le "$age" ] ||
-  fail "the port-control heartbeat (${interval:-?} s) does not refresh the capabilities 20 s inside the dashboard's ${age:-?} s limit"
+interval=$(timer_seconds OnUnitActiveSec "$timer" '')
+slack=$(($(timer_seconds AccuracySec "$timer" 60) + $(timer_seconds RandomizedDelaySec "$timer" 0)))
+[ -n "$age" ] && [ -n "$interval" ] && [ $((interval + slack + 20)) -le "$age" ] ||
+  fail "the port-control heartbeat (${interval:-?} s plus ${slack} s of timer slack) does not refresh the capabilities 20 s inside the dashboard's ${age:-?} s limit"
 [ "$interval" -ge 60 ] || fail "the port-control timer runs more often than its heartbeat needs"
 unit=packaging/systemd/node-manager-port-control.path
 grep -qx 'Unit=node-manager-port-control.service' "$unit" || fail "the request watch does not start port-control"

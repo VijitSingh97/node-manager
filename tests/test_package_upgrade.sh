@@ -51,6 +51,7 @@ case "${1:-}" in
     esac
     ;;
   image) exit 0 ;;
+  volume) [ "${2:-}" != inspect ] || [ -z "${FAKE_VOLUME_MOUNTPOINT:-}" ] || printf '%s\n' "$FAKE_VOLUME_MOUNTPOINT" ;;
   compose)
     case " $* " in
       *' pull '*)
@@ -68,6 +69,7 @@ chmod +x "$fake/docker"
 cat >"$fake/systemctl" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$*" >>"$FAKE_SYSTEMCTL_LOG"
+case "$*" in 'is-enabled --quiet node-manager-'*'.timer') [ "${FAKE_TIMERS_DISABLED:-0}" != 1 ] ;; esac
 EOF
 chmod +x "$fake/systemctl"
 export PATH="$fake:$PATH" FAKE_DOCKER_LOG=$log FAKE_RUNNING_FILE=$running
@@ -111,6 +113,26 @@ printf '#!/bin/sh\n' >"$tmp/hostd" && chmod +x "$tmp/hostd"
 : >"$systemctl_log"
 BITCOIN_STACK_HOSTD="$tmp/hostd" ./stack package-upgrade >/dev/null
 grep -q '^enable --now node-manager-host-stats.timer$' "$systemctl_log" || fail "package upgrade did not enable host readings with the hostd binary installed"
+
+custom_volume=/srv/docker/volumes/node-manager-apt_dashboard_state/_data
+BITCOIN_STACK_SYSTEMD_DIR=$tmp/systemd FAKE_VOLUME_MOUNTPOINT=$custom_volume ./stack package-upgrade >/dev/null
+[ "$(cat "$tmp/systemd/node-manager-node-control.path.d/volume.conf")" = "$(printf '[Path]\nPathChanged=%s/node-control.request' "$custom_volume")" ] ||
+  fail "a custom Docker data root was not added to the node-control request watch"
+[ "$(cat "$tmp/systemd/node-manager-port-control.path.d/volume.conf")" = "$(printf '[Path]\nPathChanged=%s/port-control.request\nPathChanged=%s/credential-control.request' "$custom_volume" "$custom_volume")" ] ||
+  fail "a custom Docker data root was not added to the port-control request watch"
+BITCOIN_STACK_SYSTEMD_DIR=$tmp/systemd FAKE_VOLUME_MOUNTPOINT=/var/lib/docker/volumes/node-manager-apt_dashboard_state/_data ./stack package-upgrade >/dev/null
+[ ! -e "$tmp/systemd/node-manager-node-control.path.d/volume.conf" ] && [ ! -e "$tmp/systemd/node-manager-port-control.path.d/volume.conf" ] ||
+  fail "the request watch kept a custom path after the volume moved back to the default"
+
+sed "s|^PATH=.*|PATH=$fake:/usr/bin:/bin|" packaging/postinst >"$tmp/postinst"
+: >"$systemctl_log"
+sh "$tmp/postinst" configure 1.0.0 || fail "postinst failed before package activation"
+{ grep -qx 'daemon-reload' "$systemctl_log" && grep -qx 'enable --now node-manager-node-control.path' "$systemctl_log" &&
+  grep -qx 'enable --now node-manager-port-control.path' "$systemctl_log"; } ||
+  fail "an upgrade that stopped before package activation left the request watches off: $(cat "$systemctl_log")"
+: >"$systemctl_log"
+FAKE_TIMERS_DISABLED=1 sh "$tmp/postinst" configure 1.0.0
+grep -q '^enable' "$systemctl_log" && fail "postinst enabled a request watch whose timer is off"
 
 : >"$log"
 printf '%s\n' tor dashboard >"$running"

@@ -5,6 +5,7 @@ Description=Refresh Node Manager LAN port controls
 OnBootSec=1min
 # The dashboard ignores a host capability older than 90 s; requests start from node-manager-port-control.path.
 OnUnitActiveSec=60s
+AccuracySec=1s
 RandomizedDelaySec=2s
 Persistent=true
 Unit=node-manager-port-control.service

@@ -19,8 +19,10 @@ All notable changes to this project are documented here. Format follows
   Measured in docker-in-docker on an Apple M5 (median of 6 interleaved rounds of
   20 idle runs, Docker daemon included): node control fell from 398 to 123 ms of
   CPU per run and port control from 299 to 102 ms. At the new rates that is
-  about 14 CPU-seconds an hour instead of 179. With a Docker data root other than
-  `/var/lib/docker`, a request waits for the once-a-minute run. Homebrew's host
+  about 14 CPU-seconds an hour instead of 179. A Docker data root outside
+  `/var/lib/docker`, or another project name, is added to the watch when Node
+  Manager starts. In the first 5 minutes after boot a helper that cannot reach
+  the dashboard retries every 10 seconds. Homebrew's host
   loop still runs both helpers every 10 seconds, since launchd cannot watch files
   inside Docker Desktop's VM, and gets the cheaper runs.
 

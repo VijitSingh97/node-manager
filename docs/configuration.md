@@ -476,9 +476,11 @@ node-control and port-control timers and their `.path` units. A save starts its
 helper at once: the `.path` units watch the request files in the dashboard
 state volume under `/var/lib/docker/volumes/`. The timers also run each helper
 every 60 seconds to keep its capability inside the dashboard's 90-second limit
-and to pick up a request written while the helper was finishing a run. With a
-Docker data root other than `/var/lib/docker`, a save waits for that
-60-second run. Source installs reuse the host
+and to pick up a request written while the helper was finishing a run. When
+Docker keeps its data outside `/var/lib/docker`, or the project has another
+name, `init`, `up`, and `apply` add the volume's real path to the watch in a
+`volume.conf` drop-in. Right after boot each helper retries every 10 seconds
+until the dashboard answers. Source installs reuse the host
 agent for authenticated trusted-LAN controls. On
 macOS source installs, setup starts a session helper with a private
 `host-service.log`; Homebrew registers the user service automatically. No host

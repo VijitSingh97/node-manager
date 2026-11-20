@@ -1210,8 +1210,23 @@ ensure_resource_profile_timer() {
   fi
 }
 
+watch_dashboard_requests() {
+  local unit=$1 mountpoint dropin=${BITCOIN_STACK_SYSTEMD_DIR:-/etc/systemd/system}/$1.path.d/volume.conf name
+  shift
+  mountpoint=$(docker volume inspect --format '{{.Mountpoint}}' "${project_name}_dashboard_state" 2>/dev/null) || return 0
+  case "$mountpoint" in
+    '') ;;
+    /var/lib/docker/volumes/node-manager-apt_dashboard_state/_data | /var/lib/docker/volumes/bitcoin-starter-stack-apt_dashboard_state/_data)
+      rm -f "$dropin" ;;
+    *)
+      { mkdir -p "${dropin%/*}" && { echo '[Path]'; for name; do echo "PathChanged=$mountpoint/$name.request"; done; } >"$dropin"; } 2>/dev/null ||
+        echo "WARN  could not watch $mountpoint for dashboard requests; saves wait for the once-a-minute run" ;;
+  esac
+}
+
 ensure_port_control_timer() {
   [ "$package_managed" = "1" ] || return 0
+  watch_dashboard_requests node-manager-port-control port-control credential-control
   systemctl daemon-reload >/dev/null 2>&1 || true
   systemctl enable --now node-manager-port-control.timer node-manager-port-control.path >/dev/null 2>&1 ||
     echo "WARN  could not enable LAN port controls; run: sudo systemctl enable --now node-manager-port-control.timer node-manager-port-control.path"
@@ -1219,6 +1234,7 @@ ensure_port_control_timer() {
 
 ensure_node_control_timer() {
   [ "$package_managed" = "1" ] || return 0
+  watch_dashboard_requests node-manager-node-control node-control
   systemctl daemon-reload >/dev/null 2>&1 || true
   systemctl enable --now node-manager-node-control.timer node-manager-node-control.path >/dev/null 2>&1 ||
     echo "WARN  could not enable node controls; run: sudo systemctl enable --now node-manager-node-control.timer node-manager-node-control.path"
