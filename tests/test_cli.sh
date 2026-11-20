@@ -975,6 +975,11 @@ grep -q 'The Litecoin balance index is not enabled' "$tmp/uverify.out" || fail "
 verify_written && fail "utxo-index verify --chain litecoin wrote a request without the overlay"
 
 reset_uverify
+FAKE_BITCOIN_DOWN=1 uverify utxo-index verify -y >"$tmp/uverify.out" 2>&1 && fail "utxo-index verify ran with the bitcoin container down"
+grep -q 'The bitcoin container is not running' "$tmp/uverify.out" || fail "utxo-index verify did not name the stopped node container"
+verify_written && fail "utxo-index verify wrote a request with the node container down"
+
+reset_uverify
 echo y | BITCOIN_STACK_INTERACTIVE=1 uverify utxo-index verify >"$tmp/uverify.out" 2>&1 || fail "utxo-index verify failed on the happy path"
 grep -q ' -u 1000 dashboard sh -c umask 077; cat > /state/.utxo-verify.request.tmp' "$FAKE_LOG" || fail "utxo-index verify did not write the request privately as the dashboard user"
 jq -e '(.id | test("^[0-9a-f]{32}$")) and .chain == "bitcoin" and (.requested_at | . > 1e9 and . <= now + 5) and (keys | length == 3)' "$FAKE_UTXO/verify-request.json" >/dev/null || fail "utxo-index verify request is not {id, chain, requested_at}"

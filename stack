@@ -934,10 +934,13 @@ utxo_index_verify() {
     echo "The $utxo_name balance index is not enabled. Set $utxo_chain.utxo_index to true in config.json and run $stack_command apply." >&2
     return 1
   }
-  utxo_seed_running dashboard || {
-    echo "The dashboard container is not running." >&2
-    return 1
-  }
+  local service
+  for service in "$utxo_chain" dashboard; do
+    utxo_seed_running "$service" || {
+      echo "The $service container is not running." >&2
+      return 1
+    }
+  done
   hash_note="with hash_type none, which skips the set hash"
   [ "$chain" != dogecoin ] || hash_note="with no arguments: Dogecoin Core 1.14.9 has no hash_type, so it also hashes the whole set"
   cat <<EOF
