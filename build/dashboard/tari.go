@@ -49,7 +49,8 @@ func (a *app) fetchTariStatus(ctx context.Context, node nodeConfig, status gener
 	a.recordNodeHealth(node.ID, true)
 	status.Height = int64(tip.Metadata.BestBlockHeight)
 	status.TargetHeight = status.Height
-	if progressErr == nil {
+	// Tari reports zero sync heights while starting, so keep the tip height then.
+	if progressErr == nil && progress.LocalHeight > 0 {
 		status.Height, status.TargetHeight = int64(progress.LocalHeight), int64(progress.TipHeight)
 		if status.TargetHeight < status.Height {
 			status.TargetHeight = status.Height

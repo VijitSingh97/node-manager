@@ -229,6 +229,11 @@ export function sceneDepth(H, anchorY, tw, overviewY, overviewTw) {
   return Math.max(previewDepth(H, anchorY, tw), previewDepth(H, overviewY, overviewTw));
 }
 
+// The server's offline flag lags the status polls, so a fresh height overrides it.
+export function nodeUnreachable(choice, nextBlock) {
+  return choice?.nodeOffline === "1" && !/^\d+$/.test(String(nextBlock ?? "").trim());
+}
+
 export function overviewBlockLabels(nextBlocks, labelsEnabled, overviewSettled) {
   const label = (value) => {
     const block = String(value || "").trim();
@@ -339,7 +344,10 @@ if (typeof document !== "undefined") {
     const nextBlocks = () => Object.fromEntries(NODE_IDS.map((node) =>
       [node, liveElement(node)?.dataset?.nextBlock]));
 
-    const activeNode = (node) => document.querySelector(`[data-select-node="${node}"]`)?.dataset.nodeActive !== "0";
+    const choiceFor = (node) => document.querySelector(`[data-select-node="${node}"]`);
+    const activeNode = (node) => choiceFor(node)?.dataset.nodeActive !== "0";
+    const unreachableNode = (node) => nodeUnreachable(choiceFor(node)?.dataset, liveElement(node)?.dataset?.nextBlock);
+    const litNode = (node) => activeNode(node) && !unreachableNode(node);
 
     function hideOverviewLabels() {
       for (const element of Object.values(overviewLabels)) if (element) element.hidden = true;
@@ -418,7 +426,7 @@ if (typeof document !== "undefined") {
     }
 
     function drawTower(node, ox, anchorY, tw, depthCount, pulse, highlight, opacity = 1, push = 0, layerFill = null) {
-      const pal = palette(node, activeNode(node));
+      const pal = palette(node, litNode(node));
       const bh = tw * 0.5;
       const p = (gx, gy, layer) => project(gx, gy, 0, tw, bh, ox, anchorY - push - layer * bh - GRID * (tw / 4));
       const background = effectiveLight() ? "#f4f4f5" : "#0f0f0f";
@@ -494,7 +502,8 @@ if (typeof document !== "undefined") {
       const layout = overviewLayout(W,ids.length,H);
       const scrollLeft = overview?.scrollLeft || 0;
       for (const node of ids) {
-        knownProgress[node] = retainedSyncProgress(liveElement(node)?.dataset?.syncPercent, knownProgress[node]);
+        knownProgress[node] = retainedSyncProgress(liveElement(node)?.dataset?.syncPercent,
+          knownProgress[node] ?? retainedSyncProgress(choiceFor(node)?.dataset.lastSyncPercent));
       }
       const sameNodes = overviewOrder.length === ids.length && overviewOrder.every((node) => ids.includes(node));
       if (overviewOrder.length === 0 || (!selected && scene.progress === 0)) {
@@ -514,9 +523,11 @@ if (typeof document !== "undefined") {
         if (knownProgress[node] !== null) {
           buildProgress[node] = nextBuildProgress(buildProgress[node], knownProgress[node] / 100, dt, reduce);
         }
-        const targetFill = retainedBlockFill(liveElement(node)?.dataset?.nextBlock, knownBlockFill[node]);
+        const live = liveElement(node)?.dataset?.nextBlock;
+        const stored = choiceFor(node)?.dataset.lastNextBlock;
+        const targetFill = retainedBlockFill(live, knownBlockFill[node] ?? retainedBlockFill(stored));
         knownConfirmedBlocks[node] = retainedConfirmedBlocks(
-          liveElement(node)?.dataset?.nextBlock, knownConfirmedBlocks[node]);
+          live, knownConfirmedBlocks[node] ?? retainedConfirmedBlocks(stored));
         knownBlockFill[node] = targetFill;
         if (targetFill === null) continue;
         if (displayedBlockFill[node] === null) displayedBlockFill[node] = targetFill;
@@ -567,6 +578,7 @@ if (typeof document !== "undefined") {
           const tw = overviewTw(node) * (1 + 0.12 * previewHighlight[node]);
           const construction = overviewBuild(node, tw);
           choice.dataset.nodeEmpty = construction.depth === 0 && layerFill(node, construction) === 0 ? "1" : "0";
+          choice.dataset.nodeUnreachable = unreachableNode(node) ? "1" : "0";
           const diamondWidth=GRID*tw*1.12;
           const hitWidth=overviewHitWidth(tw);
           const actualTop = constructionTop(node, construction, tw) - towerPush(node, construction, tw);
@@ -587,7 +599,7 @@ if (typeof document !== "undefined") {
           const fullDepth = sceneDepth(H, overviewY(node), tw, overviewY(node), overviewTw(node));
           const construction = overviewBuild(node, tw, overviewY(node), fullDepth);
           drawTower(node, overviewX(node), construction.anchorY, tw,
-            construction.depth, pulse, previewHighlight[node], activeNode(node) ? 1 : 0.62,
+            construction.depth, pulse, previewHighlight[node], litNode(node) ? 1 : 0.62,
             towerPush(node, construction, tw), layerFill(node, construction));
         }
         const blockLabels = overviewBlockLabels(nextBlocks(), document.body.dataset.towerLabels === "1", true);
@@ -621,7 +633,7 @@ if (typeof document !== "undefined") {
                 source.depth,
                 pulse,
                 startHighlight + (1 - startHighlight) * amount,
-                activeNode(node) ? 1 : 0.62 + 0.38 * amount,
+                litNode(node) ? 1 : 0.62 + 0.38 * amount,
                 towerPush(node, source, tw),
                 layerFill(node, source),
               );
@@ -633,7 +645,7 @@ if (typeof document !== "undefined") {
             } else if (overviewState.opacity > 0.001) {
               const construction = overviewBuild(node);
               drawTower(node, overviewX(node), construction.anchorY, overviewTw(node), construction.depth, pulse, 0,
-                (activeNode(node) ? 1 : 0.62) * overviewState.opacity,
+                (litNode(node) ? 1 : 0.62) * overviewState.opacity,
                 towerPush(node, construction, overviewTw(node)), layerFill(node, construction));
             }
           }
@@ -641,7 +653,7 @@ if (typeof document !== "undefined") {
           for (const node of drawOrder) {
             const construction = overviewBuild(node);
             drawTower(node, overviewX(node), construction.anchorY, overviewTw(node), construction.depth, pulse, 0,
-              activeNode(node) ? 1 : 0.62,
+              litNode(node) ? 1 : 0.62,
               towerPush(node, construction, overviewTw(node)), layerFill(node, construction));
           }
           showFocusedLabel("", 0, 0, 0, 0);
