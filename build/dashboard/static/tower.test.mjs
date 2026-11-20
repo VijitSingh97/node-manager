@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { project, gridCell, isRollover, nextDisplayed, retainedBlockFill, retainedConfirmedBlocks, smooth, nextHighlight, retainedSyncProgress, nextBuildProgress, constructionGeometry, overviewConstructionGeometry, overviewPartialBottomLimit, nextLayoutPoint, loadingHighlight, nextScene, scenePhase, overviewTransition, focusedLabelTransition, overviewHitWidth, overviewChoiceGeometry, overviewLabelPosition, towerLayout, overviewLayout, assignOverviewSlots, previewDepth, sceneDepth, overviewBlockLabels, NODE_IDS, GRID, PER_LAYER, SCENE_MS } from "./tower.js";
+import { project, gridCell, isRollover, nextDisplayed, retainedBlockFill, retainedConfirmedBlocks, smooth, nextHighlight, retainedSyncProgress, nextBuildProgress, constructionGeometry, overviewConstructionGeometry, overviewPartialBottomLimit, nextLayoutPoint, loadingHighlight, nextScene, scenePhase, overviewTransition, focusedLabelTransition, overviewHitWidth, overviewChoiceGeometry, overviewLabelPosition, towerLayout, overviewLayout, assignOverviewSlots, previewDepth, sceneDepth, overviewBlockLabels, nodeUnreachable, NODE_IDS, GRID, PER_LAYER, SCENE_MS } from "./tower.js";
 
 test("a layer is 12x12 = 144 blocks", () => {
   assert.equal(GRID, 12);
@@ -472,6 +472,58 @@ test("renderer leaves block zero blank and draws one confirmed block as one cube
   assert.equal(await render("2", "100"), 3, "one confirmed block should stay one cube at 100% of its target");
   assert.equal(await render("144", "100"), 143 * 3, "143 confirmed blocks should remain individual cubes");
   assert.equal(await render("145", "100"), 144 + 2, "144 confirmed blocks should become exactly one tower layer");
+});
+
+test("an offline node keeps its stored tower in grey until a live height returns", async () => {
+  const purple = ["#8f5cff", "rgb(112, 72, 199)", "rgb(74, 48, 133)"];
+  const grey = ["#b7b7b7", "#8f8f8f", "#666"];
+  const render = async (dataset, nextBlock) => {
+    const fills = [];
+    const style = () => ({ setProperty(name, value) { this[name] = value; } });
+    const context = new Proxy({ fill() { fills.push(this.fillStyle); } }, {
+      get(target, key) { return target[key] || (() => {}); },
+    });
+    const choice = { dataset: { selectNode: "tari", nodeActive: "1", ...dataset }, hidden: false, style: style() };
+    const elements = {
+      tower: { getContext: () => context, style: style() },
+      "node-overview": { hidden: false, scrollLeft: 0, style: style(), addEventListener() {} },
+      "tari-live": { dataset: { nextBlock } },
+    };
+    globalThis.document = {
+      body: { dataset: { node: "", towerLabels: "1" } },
+      hidden: false,
+      documentElement: { getAttribute: () => "light" },
+      getElementById: (id) => elements[id] || null,
+      querySelectorAll: () => [choice],
+      querySelector: () => choice,
+    };
+    globalThis.window = { devicePixelRatio: 1, innerWidth: 1280, innerHeight: 900, matchMedia: () => ({ matches: true }), addEventListener() {} };
+    globalThis.MutationObserver = class { observe() {} };
+    try {
+      await import(`./tower.js?offline=${Date.now()}-${Math.random()}`);
+      const count = (colors) => fills.filter((fill) => colors.includes(fill)).length;
+      return { unreachable: choice.dataset.nodeUnreachable, empty: choice.dataset.nodeEmpty, purple: count(purple), grey: count(grey) };
+    } finally {
+      delete globalThis.document;
+      delete globalThis.window;
+      delete globalThis.MutationObserver;
+    }
+  };
+  const stored = { nodeOffline: "1", lastNextBlock: "2", lastSyncPercent: "100" };
+
+  assert.deepEqual(await render(stored, ""), { unreachable: "1", empty: "0", purple: 0, grey: 3 });
+  assert.deepEqual(await render(stored, "2"), { unreachable: "0", empty: "0", purple: 3, grey: 0 });
+  assert.deepEqual(await render({ nodeOffline: "1" }, ""), { unreachable: "1", empty: "1", purple: 0, grey: 0 });
+  assert.deepEqual(await render({ nodeOffline: "0", lastNextBlock: "2", lastSyncPercent: "100" }, ""), { unreachable: "0", empty: "0", purple: 3, grey: 0 });
+  assert.deepEqual(await render({ nodeActive: "0", nodeOffline: "0", lastNextBlock: "2", lastSyncPercent: "100" }, ""), { unreachable: "0", empty: "0", purple: 0, grey: 3 });
+});
+
+test("only an offline node without a fresh height counts as unreachable", () => {
+  assert.equal(nodeUnreachable({ nodeOffline: "1" }, ""), true);
+  assert.equal(nodeUnreachable({ nodeOffline: "1" }, undefined), true);
+  assert.equal(nodeUnreachable({ nodeOffline: "1" }, "974001"), false);
+  assert.equal(nodeUnreachable({ nodeOffline: "0" }, ""), false);
+  assert.equal(nodeUnreachable(undefined, ""), false);
 });
 
 test("mature towers keep the next block visible in overview and focus", async () => {
