@@ -24,7 +24,9 @@ installs use `node-manager` instead of `./stack` (with `sudo` for APT). Direct
 Shared services and configured node services define Docker health checks. For
 the core Bitcoin deployment:
 
-- `tor` — SOCKS port accepting connections (5 min grace for bootstrap).
+- `tor` — SOCKS port and the internal relay port accepting connections, and a
+  real stream opened through Tor (`tor-health`, every 30 s; 2 min start period
+  for bootstrap; see the Tor troubleshooting entry below).
 - `bitcoin` — RPC answers `getblockchaininfo`, authenticated with Core's
   `.cookie` file (30 min grace: RPC returns "warming up" during startup
   block verification).
@@ -718,6 +720,93 @@ missing or incomplete.
 **Tor never reaches "Bootstrapped 100%"** — your network may block Tor.
 Check `docker compose logs tor` for connection failures; a restrictive
 firewall needs outbound 443/9001 open.
+
+**Tor is up but nothing connects (Healthchecks.io alerts, nodes keep their old
+peers)** — Tor can stop completing circuits while the container stays up, for
+example after the host's link drops and returns. The tor container's
+healthcheck runs `tor-health` every 30 seconds. Each run opens a real stream
+through Tor's own SocksPort to `www.torproject.org:443`, then
+`check.torproject.org:443`, then `api.github.com:443` while each fails (one
+success counts as a good probe, no data is sent). It does not count circuits, so
+it gives the same answer under light or heavy load. It also reads Tor's
+bootstrap phase, network liveness and the number of connected relay channels
+over a unix control socket inside the container, only to explain a failure.
+`docker inspect` on the tor container shows the last output, one line such as
+`tor: ok via www.torproject.org bootstrap=100 liveness=up orconns=3`, `tor:
+probe-failed for 130s ... probes_ok=3/9`, `tor: offline for 130s ...` (Tor
+reports the network down and holds no relay connection) or `tor: bootstrapping
+...`.
+
+The container turns `unhealthy` when either holds. The probes have failed
+continuously for 4 minutes (a total stall), or at least 5 probes fall in the last
+10 minutes and fewer than half succeeded (a brown-out like the 2026-11-18
+incident, where a few streams still got through). One success does not clear
+either state: the container turns healthy again only after 3 good probes in a
+row. Time spent offline (Tor reports the network down and holds no relay
+connection) is not counted: the failure record is dropped while offline, so the
+4-minute timer starts when the link returns. Tor notices the network is down
+only after about 5-6 minutes, so a host outage can still cost one restart before
+that; after it, the outage costs nothing more. Only after an hour of Tor saying offline does it count as stuck. Tor
+not yet fully bootstrapped in its first 10 minutes of uptime is neutral. The host helper
+(`node-control`, run every 10 seconds by the APT timer and by the
+`host-service` loop, which `brew services` runs on Homebrew and which
+`./stack up` starts on source checkouts: a login-session process on macOS, a
+process plus an `@reboot` cron entry on Linux; a source checkout whose
+`host-service` is not running has no watchdog) then handles each incident,
+which starts when the container turns unhealthy and ends only when it is healthy
+with a good probe, and writes each step to the dashboard events log
+(`./stack events`, lines starting `Host:`). The events are local, so they are
+readable even while Tor is down; only their forwarding to Telegram waits for Tor
+to work again, so during the outage you see only the Healthchecks.io alert and
+this log. A container that stays unhealthy for 10 minutes without a probe result
+(for example SocksPort not listening) is treated as an incident too.
+
+1. **Save a snapshot and restart Tor** (`docker restart tor`; the nodes keep
+   running). The snapshot (relay channels, circuit counts by state, bootstrap
+   phase, liveness, `status/circuit-established`, `status/enough-dir-info`,
+   `dormant`, the entry guards and the last 40 Tor log lines) goes to
+   `node-control/tor-snapshots/` in the state directory, root-only, 64 KiB each,
+   newest 5 kept. Onion addresses stay the same, but Bitcoin, Litecoin and
+   Bitcoin Cash are unreachable over onion for a few minutes.
+2. **Clear Tor's saved state and restart once more**, if the container is
+   unhealthy again at least 8 minutes later while Tor holds at least one connected
+   relay channel (checked after the restart, so stale connections do not count),
+   so the host link works and Tor reaches relays. The state file holds both the
+   chosen guards and the learned circuit build timeout; which of the two helps
+   is not known, so both are discarded: Tor's whole state file is deleted, and Tor rebuilds it on start. This has a
+   small anonymity cost, runs at most once in 7 days, and is recorded only after
+   the restart succeeds.
+3. **Pause and tell you**, otherwise: the event names the likely cause (host
+   offline or blocked from relays, or Tor stuck). A long internet outage costs at
+   most one restart, about 6 minutes in, before Tor reports the network down; a Tor that stays broken costs one restart, one reset
+   and one pause event, never a loop. The helper does nothing more until the
+   probe succeeds, then logs `Tor working again after N min (actions taken)`, with N counted from
+   the first failed probe (or the start of the unhealthy state) to the first good
+   probe.
+
+Limits: at most 3 automatic restarts in 6 hours across incidents, so a Tor that
+flaps is paused, not restarted forever. The helper skips a tick while an install
+or upgrade holds the config lock and only acts on a tor container that belongs to
+this stack.
+
+Timeline against the recommended Healthchecks.io check (5-minute period,
+10-minute grace; the dashboard pings every 60 seconds through Tor). These are
+estimates from the settings, not measurements: a total stall is flagged after 4
+to 5 minutes of failed probes (probes that fail take up to 60 seconds each) and a
+brown-out after roughly 3 to 8 minutes, the helper restarts Tor within about 40
+seconds of that, and Tor takes 2 to 4 minutes to bootstrap, so the first ping
+after a successful restart lands around 8 to 12 minutes in. If the restart does
+not cure it, the checker starts counting again from the restart, so the reset
+comes at least 8 minutes after it (17 minutes after the first restart in a
+fault-injection run on a real Tor), and the alert can still fire. The events log and the snapshots show what happened.
+
+To disable the automatic recovery, create `node-control/tor-watchdog.disabled`
+in the state directory (`touch /var/lib/node-manager/node-control/tor-watchdog.disabled`
+on APT installs; the state directory is the checkout for source installs and
+`BITCOIN_STACK_STATE_DIR` for Homebrew) and remove it to turn it back on. The
+healthcheck keeps running and only reports. Tor's own check needs outbound
+access through Tor to the three probe hosts, the same as everything else the
+stack does.
 
 **bitcoind exits immediately** — almost always data-dir permissions. The
 container runs as uid 1000; `ls -ld <data_dir>` should show your user (uid

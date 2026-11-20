@@ -6,6 +6,28 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- Automatic recovery when Tor stops completing circuits. The tor container's
+  healthcheck opens a real stream through Tor's SocksPort to
+  `www.torproject.org:443`, `check.torproject.org:443` and `api.github.com:443`
+  (the last is already reached through Tor by the dashboard) every 30 seconds
+  and goes unhealthy after 4 minutes of failed probes, or when fewer than half of
+  the probes in the last 10 minutes succeeded, so a brown-out with a few
+  successes is caught too. Three good probes in a row clear it. Time while Tor
+  reports the network down with no relay connection is not counted, so a host
+  outage costs at most one restart, about 6 minutes in, before Tor notices it is
+  offline. Tor's control socket (a unix socket inside the
+  container, no `ControlPort`) is read only for context. `node-control` saves a
+  diagnostic snapshot, restarts Tor once, clears Tor's saved state (guards and learned
+  circuit timing; the whole state file is deleted) once if it still fails while
+  relay connections are up (at most once in 7 days), and otherwise pauses with an event naming the likely cause. A
+  container unhealthy for 10 minutes with no probe result is handled the same
+  way. It resumes by itself when the probe succeeds, logs the recovery, timed from the first failed probe, to the
+  events log (forwarded to Telegram once Tor works again), never restarts more
+  than 3 times in 6 hours, and can be turned off with
+  `node-control/tor-watchdog.disabled` in the state directory.
+
 ### Changed
 
 - The Bitcoin Cash balance index fits the same 1 GiB dashboard limit as the other
@@ -21,6 +43,9 @@ All notable changes to this project are documented here. Format follows
   RSS and 945 MiB, in the same session. Mainnet is not measured. A block over 1.2
   million coin operations still stops the index, because the parsed block stays
   whole while its pieces apply.
+- The tor healthcheck runs every 30 seconds with a 75-second timeout, 1 retry
+  and a 2-minute start period (was 60 seconds, 10, 3 and 5 minutes).
+- Tor no longer logs each control connection at notice level.
 
 ## [1.39.0] - 2026-11-20
 

@@ -35,11 +35,11 @@ services:
     restart: ${STACK_RESTART_POLICY:-on-failure:5}
     logging: *logging
     healthcheck:
-      test: ["CMD-SHELL", "nc -z 127.0.0.1 9050 && nc -z 127.0.0.1 8000"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 5m
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 9050 && nc -z 127.0.0.1 8000 && /usr/local/bin/tor-health"]
+      interval: 30s
+      timeout: 75s
+      retries: 1
+      start_period: 2m
     networks:
       btc_net:
         ipv4_address: 172.29.0.25
