@@ -665,6 +665,13 @@ EOF
   stack_bytes=$((stack_kb * 1024))
   [ "$stack_bytes" -le 0 ] || node_sizes="${node_sizes}stack $stack_bytes
 "
+  started=$(printf '%s\n' "$rows" | while read -r id service state; do
+    [ "$state" = running ] || continue
+    case "$service" in (bitcoin | monero | tari | litecoin | dogecoin | bitcoincash | zcash) ;; (*) continue ;; esac
+    began=$("$docker_bin" inspect "$id" 2>/dev/null | jq -r '.[0].State.StartedAt | sub("\\.[0-9]+"; "") | fromdateiso8601' 2>/dev/null) || continue
+    case "$began" in ('' | *[!0-9]*) continue ;; esac
+    printf '%s %s\n' "$service" "$began"
+  done)
   payload=$(printf '%s\n' "$stats" | awk -F '\t' -v project="$project_name" -v cpus="$cpus" '
     index($1, project "-") == 1 {
       service = substr($1, length(project) + 2)
@@ -700,6 +707,7 @@ EOF
         failed: ($failed | split("\n") | map(select(length > 0) | split("\t") | {(.[0]): (.[1] // "")}) | add // {}), running: (reduce (rows($containers)[] | select(length == 2 and (.[0] | IN("bitcoin", "monero", "tari", "litecoin", "dogecoin", "bitcoincash", "zcash")))) as $c ({}; .[$c[0]] = ((.[$c[0]] // false) or ($c[1] | IN("exited", "dead") | not))))} |
       reduce (rows($nodesizes)[]) as $row (.;
         .nodes[$row[0]] = ((.nodes[$row[0]] // {cpu_pct: 0, mem_bytes: 0}) + {disk_bytes: ($row[1] | tonumber? // 0)})) |
+      reduce (rows($started)[]) as $row (.; if .nodes[$row[0]] then .nodes[$row[0]].started_at = ($row[1] | tonumber) else . end) |
       . + {disks: (
         (rows($hostdisks) | map({name: .[0], mount: .[5], total: (((.[2] | tonumber? // 0) + (.[3] | tonumber? // 0))), free: (.[3] | tonumber? // 0)}) | map(select(.total > 0))) as $mounts |
         (rows($nodedirs) | map(. as $d |
@@ -718,7 +726,7 @@ EOF
         } + (([$group[].label | select(. != null)] | .[0]) as $label | if $label then {label: $label} else {} end))
       )} +
       (rows($health) | map({(.[0]): (.[1] | tonumber? // empty)}) | add // {}) +
-      (if $fans == "" then {} else {fans_rpm: ($fans | split(" ") | map(tonumber))} + (if ($fansmax | split(" ") | map(tonumber) | any(. > 0)) then {fans_max_rpm: ($fansmax | split(" ") | map(tonumber))} else {} end) end)' --arg hostdisks "$host_disks" --arg nodedirs "$node_dirs" --arg nodesizes "$node_sizes" --arg containers "$containers" --arg failed "$failed_starts" --arg disklabels "$disk_labels" --arg health "$health" --arg fans "$fans" --arg fansmax "$fans_max") || return 0
+      (if $fans == "" then {} else {fans_rpm: ($fans | split(" ") | map(tonumber))} + (if ($fansmax | split(" ") | map(tonumber) | any(. > 0)) then {fans_max_rpm: ($fansmax | split(" ") | map(tonumber))} else {} end) end)' --arg hostdisks "$host_disks" --arg nodedirs "$node_dirs" --arg nodesizes "$node_sizes" --arg started "$started" --arg containers "$containers" --arg failed "$failed_starts" --arg disklabels "$disk_labels" --arg health "$health" --arg fans "$fans" --arg fansmax "$fans_max") || return 0
   [ -n "$payload" ] || return 0
   printf '%s' "$payload" | "$docker_bin" exec -i -u 1000 "$dashboard" sh -c 'umask 077; cat > /state/host-stats.json.tmp && mv /state/host-stats.json.tmp /state/host-stats.json' 2>/dev/null || true
 }

@@ -318,6 +318,7 @@ func (a *app) fetchZcashStatus(ctx context.Context, node nodeConfig, status gene
 	if disk := diskUsage(node.DataDir); disk.Total > 0 {
 		status.DiskTotalBytes, status.DiskFreeBytes, status.DiskAvailable = disk.Total, disk.Free, true
 	}
+	a.fillFromHostStats(node.ID, &status)
 	return status, nil
 }
 
@@ -425,5 +426,6 @@ func (a *app) writeBitcoinFamilyStatus(w http.ResponseWriter, r *http.Request, n
 	if disk := diskUsage(node.DataDir); disk.Total > 0 {
 		status.DiskTotalBytes, status.DiskFreeBytes, status.DiskAvailable = disk.Total, disk.Free, true
 	}
+	a.fillFromHostStats(node.ID, &status)
 	writeJSON(w, status)
 }

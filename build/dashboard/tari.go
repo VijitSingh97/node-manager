@@ -83,6 +83,7 @@ func (a *app) fetchTariStatus(ctx context.Context, node nodeConfig, status gener
 	if disk := diskUsage(node.DataDir); disk.Total > 0 {
 		status.DiskTotalBytes, status.DiskFreeBytes, status.DiskAvailable = disk.Total, disk.Free, true
 	}
+	a.fillFromHostStats(node.ID, &status)
 	tipFresh := status.LatestBlockAvailable && status.LatestBlockAgeSeconds <= int64(tariTipFreshFor/time.Second)
 	a.updateTariSyncMarker(status.Synced && tipFresh)
 	return status, nil

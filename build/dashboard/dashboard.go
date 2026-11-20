@@ -69,6 +69,7 @@ type pageData struct {
 	Blocks               int64
 	Headers              int64
 	Progress             float64
+	PeersUnknown         bool
 	Inbound              int
 	Outbound             int
 	Pruned               bool
@@ -249,9 +250,16 @@ func (a *app) index(w http.ResponseWriter, r *http.Request) {
 	networkErr := a.rpc.call(ctx, "getnetworkinfo", []any{}, &network)
 	peersErr := a.rpc.call(ctx, "getpeerinfo", []any{}, &peers)
 	uptimeErr := a.rpc.call(ctx, "uptime", []any{}, &uptime)
+	usage := a.hostNodeUsage(nodeBitcoin)
 	uptimeLabel := formatUptime(uptime)
 	if uptimeErr != nil {
 		uptimeLabel = "—"
+		if seconds, ok := hostUptime(usage); ok {
+			uptimeLabel = formatUptime(float64(seconds))
+		}
+	}
+	if chain.SizeOnDisk <= 0 && usage.DiskBytes > 0 {
+		chain.SizeOnDisk = int64(usage.DiskBytes)
 	}
 	if networkErr == nil && peersErr == nil {
 		a.noteNodeNetwork(nodeBitcoin, network.Subversion, int64(len(peers)))
@@ -271,7 +279,7 @@ func (a *app) index(w http.ResponseWriter, r *http.Request) {
 		InitialBlockDownload: chain.InitialBlockDownload,
 		Version:              versionLabel(a.cfg.version), CoreVersion: network.Subversion, Uptime: uptimeLabel,
 		Blocks: chain.Blocks, Headers: chain.Headers, Progress: chain.VerificationProgress * 100,
-		Inbound: inbound, Outbound: len(peers) - inbound,
+		PeersUnknown: peersErr != nil, Inbound: inbound, Outbound: len(peers) - inbound,
 		Pruned: chain.Pruned, NodeGB: gib(chain.SizeOnDisk), NodeSizeBytes: chain.SizeOnDisk,
 		NextBlock: chain.Blocks + 1, LastUpdate: time.Now().Format("15:04:05"),
 		FeeNext: "—", Fee30m: "—", FeeHour: "—",

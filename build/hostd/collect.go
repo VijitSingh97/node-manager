@@ -27,6 +27,7 @@ type Usage struct {
 	CPUPct    float64 `json:"cpu_pct"`
 	MemBytes  uint64  `json:"mem_bytes"`
 	DiskBytes uint64  `json:"disk_bytes,omitempty"`
+	StartedAt int64   `json:"started_at,omitempty"`
 }
 
 type Stats struct {
@@ -238,6 +239,11 @@ func (s *Sampler) Sample(prev *Snapshot) (*Stats, *Snapshot, error) {
 			u := st.Nodes[node]
 			u.CPUPct += cpu
 			u.MemBytes += mem
+			if service == node && ct.State == "running" {
+				if started, err := s.Docker.StartedAt(ct.ID); err == nil {
+					u.StartedAt = started
+				}
+			}
 			st.Nodes[node] = u
 		} else {
 			st.Other.CPUPct += cpu

@@ -459,6 +459,16 @@ jq -e '.nodes.monero.mem_bytes == 1234567890 + 1 + 1000 + 20 + 300 + 4000 + 5000
   fail "cgroup anon and kernel memory did not override docker stats: $(jq -c .nodes.monero "$tmp/host-stats-payload.json")"
 jq -e '.failed == {}' "$tmp/host-stats-payload.json" >/dev/null || fail "healthy containers were reported as failed starts"
 
+new_case started-at
+mkdir -p "$case_root/state/data/bitcoin" "$case_root/inspect"
+head -c 2097152 /dev/zero >"$case_root/state/data/bitcoin/blk00000.dat"
+printf '[{"RestartCount":0,"State":{"ExitCode":0,"OOMKilled":false,"StartedAt":"2026-01-01T00:00:00.5Z","FinishedAt":"0001-01-01T00:00:00Z"}}]\n' >"$case_root/inspect/btc-id.json"
+export FAKE_PS_ID_ROWS='btc-id bitcoin running
+xmr-id monero exited' FAKE_INSPECT_DIR=$case_root/inspect FAKE_HOST_STATS_OUT=$tmp/host-stats-payload.json
+run_profile
+unset FAKE_PS_ID_ROWS FAKE_INSPECT_DIR FAKE_HOST_STATS_OUT
+jq -e '.nodes.bitcoin.started_at == 1767225600 and (.nodes.monero | has("started_at") | not)' "$tmp/host-stats-payload.json" >/dev/null || fail "host stats lost the running node start time or stamped a stopped one: $(jq -c .nodes "$tmp/host-stats-payload.json")"
+
 new_case failed-start
 mkdir -p "$case_root/inspect"
 iso() { jq -nr --argjson t "$1" '$t | todateiso8601'; }
