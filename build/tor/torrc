@@ -1,3 +1,7 @@
 # Listen on all interfaces within the container so the nodes can connect
 SocksPort 0.0.0.0:9050
 DataDirectory /var/lib/tor
+
+# Control over a unix socket in the container only, for the circuit health check.
+ControlSocket /var/lib/tor/control/sock
+CookieAuthentication 1
