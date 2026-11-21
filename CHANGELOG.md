@@ -72,6 +72,18 @@ All notable changes to this project are documented here. Format follows
   loop still runs both helpers every 10 seconds, since launchd cannot watch files
   inside Docker Desktop's VM, and gets the cheaper runs.
 
+- APT upgrades survive a transient image pull failure, and a failed activation
+  no longer looks like success. On 2026-11-20 one ghcr.io blob failed through
+  Tor during a 1.39.0 upgrade. Activation gave up after 985 s, apt still
+  reported success, and a manual retry worked in about 5 minutes. Activation now
+  pulls each running service's image on its own, with a 10-minute limit, up to
+  3 tries 15 s and 30 s apart, and logs each try's duration in the APT output.
+  Pulls use the same Docker daemon path as before. If activation still fails,
+  APT keeps the package installed and exits 0, so later APT runs are not
+  blocked. The last line Node Manager prints then starts with
+  `NODE MANAGER ACTIVATION FAILED` and gives the retry command, and
+  `node-manager doctor` repeats it until an activation succeeds.
+
 - The Bitcoin Cash balance index fits the same 1 GiB dashboard limit as the other
   indexes (#363). Its overlay now sets `mem_limit: 1g` and no `GOMEMLIMIT`,
   instead of 2g with `GOMEMLIMIT=1600MiB`. A block of more than 50,000 coin
