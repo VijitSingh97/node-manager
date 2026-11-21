@@ -56,14 +56,15 @@ type utxoSeedResult struct {
 }
 
 type utxoSeedState struct {
-	RequestID   string          `json:"request_id,omitempty"`
-	SeedState   string          `json:"seed_state,omitempty"`
-	Phase       string          `json:"phase,omitempty"`
-	Progress    *float64        `json:"progress,omitempty"`
-	Refusals    []seedRefusal   `json:"refusals,omitempty"`
-	StartedAt   time.Time       `json:"started_at"`
-	AlertsUntil time.Time       `json:"alerts_suppressed_until"`
-	Last        *utxoSeedResult `json:"last_seed"`
+	RequestID         string          `json:"request_id,omitempty"`
+	SeedState         string          `json:"seed_state,omitempty"`
+	Phase             string          `json:"phase,omitempty"`
+	Progress          *float64        `json:"progress,omitempty"`
+	Refusals          []seedRefusal   `json:"refusals,omitempty"`
+	StartedAt         time.Time       `json:"started_at"`
+	AlertsUntil       time.Time       `json:"alerts_suppressed_until"`
+	VerifyAlertsUntil time.Time       `json:"verify_alerts_suppressed_until"`
+	Last              *utxoSeedResult `json:"last_seed"`
 
 	AutoRequestID string `json:"auto_request_id,omitempty"`
 	AutoFailures  int    `json:"auto_failures,omitempty"`
@@ -122,7 +123,6 @@ type utxoManager struct {
 	phase         string
 	refusals      []seedRefusal
 	seed          utxoSeedState
-	verifyUntil   time.Time
 }
 
 type utxoIndexStatus struct {
@@ -622,7 +622,7 @@ func (m *utxoManager) AlertsSuppressed() bool {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.alertsSuppressedLocked() || m.now().Before(m.verifyUntil)
+	return m.alertsSuppressedLocked() || m.now().Before(m.seed.VerifyAlertsUntil)
 }
 
 func (m *utxoManager) tick(ctx context.Context) {
