@@ -189,8 +189,9 @@ tw_recovered() {
   tw_set actions ""
 }
 tw_step() {
-  tw_id=$(container_id tor)
+  tw_id=$tor_id
   [ -n "$tw_id" ] || return 0
+  case $tor_status in *"(healthy)"*) if [ "$(tw_getn incident_start)" -eq 0 ] && [ -z "$(tw_get odd_since)" ]; then return 0; fi ;; esac
   tw_info=$("$docker_bin" inspect "$tw_id" --format '{{.State.Running}}|{{.State.Health.Status}}|{{range .State.Health.Log}}{{.Output}}{{"\n--\n"}}{{end}}' 2>/dev/null) || return 0
   tw_running=${tw_info%%|*}
   tw_rest=${tw_info#*|}
@@ -365,10 +366,11 @@ if [ -d "$install_transaction" ]; then
 fi
 [ "${install_recovery_failed:-false}" = true ] || [ -r "$env_file" ] || exit 0
 containers=$("$docker_bin" ps -a --filter "label=com.docker.compose.project=$project_name" \
-  --format '{{.Label "com.docker.compose.service"}} {{.ID}} {{.State}} {{.Label "com.docker.compose.project.config_files"}}' 2>/dev/null) || exit 0
-dashboard_id='' config_files='' stopped_ids=''
-while read -r service id state files; do
+  --format '{{.Label "com.docker.compose.service"}} {{.ID}} {{.State}} {{.Label "com.docker.compose.project.config_files"}} {{.Status}}' 2>/dev/null) || exit 0
+dashboard_id='' config_files='' stopped_ids='' tor_id='' tor_status=''
+while read -r service id state files status; do
   if [ "$service" = dashboard ] && [ -z "$dashboard_id" ]; then dashboard_id=$id config_files=$files; fi
+  if [ "$service" = tor ] && [ -z "$tor_id" ]; then tor_id=$id tor_status=$status; fi
   case "$state" in exited | created) stopped_ids="$stopped_ids $id" ;; esac
 done <<EOF
 $containers

@@ -16,11 +16,17 @@ set -eu
 case "$1" in
   ps)
     case "$*" in
+      *'{{.State}}'*)
+        printf 'dashboard dashboard-id running %s\n' "${FAKE_CONFIG_FILES:-$FAKE_ROOT/docker-compose.yml}"
+        IFS='|' read -r running health _ <"$FAKE_INSPECT" || true
+        [ "${FAKE_NO_TOR:-0}" = 1 ] || printf 'tor tor-id %s %s/docker-compose.yml Up 9 minutes (%s)\n' "$([ "$running" = true ] && echo running || echo exited)" "$FAKE_ROOT" "${health/starting/health: starting}"
+        ;;
       *service=dashboard*) printf 'dashboard-id\n' ;;
       *service=tor*) [ "${FAKE_NO_TOR:-0}" = 1 ] || printf 'tor-id\n' ;;
     esac ;;
   inspect)
     case "$*" in *config_files*) printf '%s\n' "${FAKE_CONFIG_FILES:-$FAKE_ROOT/docker-compose.yml}"; exit 0 ;; esac
+    printf 'inspect %s\n' "$*" >>"$FAKE_ACTIONS.inspect"
     [ "${FAKE_INSPECT_FAIL:-0}" != 1 ] || exit 1
     cat "$FAKE_INSPECT" ;;
   restart)
@@ -56,7 +62,7 @@ fail_up='tor: probe-failed for 245s bootstrap=100 liveness=up orconns=3'
 fail_off='tor: offline for 3700s bootstrap=100 liveness=down orconns=0'
 fail_nolink='tor: probe-failed for 245s bootstrap=100 liveness=up orconns=0'
 fail_noctl='tor: probe-failed for 245s control=unavailable'
-okline='tor: ok via www.torproject.org bootstrap=100 liveness=up orconns=3'
+okline='tor: ok via www.torproject.org'
 
 inspect() {
   local running=$1 status=$2 line=$3
@@ -74,6 +80,7 @@ snapshots() { find "$snaps" -type f 2>/dev/null | wc -l | tr -d ' '; }
 reset() {
   rm -rf "$state/node-control" "$dash/events.log"
   : >"$FAKE_ACTIONS"
+  rm -f "$FAKE_ACTIONS.inspect"
   export FAKE_NO_TOR=0 FAKE_INSPECT_FAIL=0 FAKE_TOUCH_FAIL=0 FAKE_DASH_FAIL=0 FAKE_RESTART_FAIL=0
   unset FAKE_CONFIG_FILES
 }
@@ -89,6 +96,7 @@ reset
 inspect true healthy "$okline"
 tick "$T0"
 expect_idle "healthy with no incident"
+[ "$(count '^inspect' "$FAKE_ACTIONS.inspect")" = 0 ] || fail "a healthy Tor with no incident was inspected"
 [ ! -d "$snaps" ] || fail "snapshot taken while healthy"
 
 for status_line in "healthy|tor: probe-failed for 30s bootstrap=100 liveness=up orconns=3" "healthy|tor: bootstrapping uptime=30s bootstrap=50 liveness=up orconns=1" "unhealthy|tor: bootstrapping uptime=30s bootstrap=50" "unhealthy|" "unhealthy|nc: connect failed" "unhealthy|tor: okay" "starting|$fail_up" "healthy|$fail_up"; do
