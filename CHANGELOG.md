@@ -101,6 +101,9 @@ All notable changes to this project are documented here. Format follows
   and a 2-minute start period (was 60 seconds, 10, 3 and 5 minutes).
 - The health probe opens Tor's control socket only after a failed probe, so a
   healthy Tor logs no control connections.
+- The package ownership check before every start and stop asks Docker once for
+  all of the project's containers. It used to ask once per service and twice
+  more for each existing container, up to 33 calls.
 
 ### Fixed
 
