@@ -67,7 +67,6 @@ if ! env -i \
   PATH=/usr/sbin:/usr/bin:/sbin:/bin \
   DEBIAN_FRONTEND=noninteractive \
   /usr/bin/node-manager package-upgrade </dev/null; then
-  echo "WARNING: Node Manager was installed, but its running containers could not be updated." >&2
-  echo "After fixing Docker, retry with: sudo node-manager package-upgrade" >&2
+  echo "NODE MANAGER ACTIVATION FAILED: $new_version is installed, but the running containers were not updated; retry with: sudo node-manager package-upgrade" >&2
 fi
 exit 0
