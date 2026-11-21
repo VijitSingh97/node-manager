@@ -287,9 +287,10 @@ if [ "${1:-}" = ps ] && [ "${2:-}" = -aq ]; then
   fi
   exit 0
 fi
-if [ "${1:-}" = inspect ]; then
-  [ -n "${FAKE_EXISTING_CONFIG:-}" ] || exit 1
-  printf '%s\n' "$FAKE_EXISTING_CONFIG"
+if [ "${1:-}" = ps ] && [ "${2:-}" = -a ]; then
+  [ "${FAKE_PS_FAIL:-0}" != 1 ] || exit 70
+  [ -z "${FAKE_EXISTING_CONFIG:-}" ] || printf '%s|existing-id|%s|%s\n' "${FAKE_EXISTING_SERVICE:-tor}" "$FAKE_EXISTING_CONFIG" "$BITCOIN_STACK_STATE_DIR"
+  exit 0
 fi
 if [ "${FAKE_SOURCE_VOLUMES:-}" = 1 ] && [ "${1:-}" = compose ]; then
   case " $* " in
@@ -443,6 +444,11 @@ FAKE_EXISTING_SERVICE=tari-wallet FAKE_EXISTING_CONFIG=/source/node-manager/dock
   "$wrapper" up >"$tmp/existing-tari-wallet.out" 2>&1 && fail "package startup replaced a source-managed Tari wallet container"
 grep -q 'Existing tari-wallet container belongs to another installation' "$tmp/existing-tari-wallet.out" || fail "Tari wallet deployment refusal is unclear"
 grep -q 'compose .* up ' "$log" && fail "Tari wallet deployment refusal reached Compose up"
+
+: >"$log"
+FAKE_PS_FAIL=1 "$wrapper" up >"$tmp/ps-fail.out" 2>&1 && fail "package startup continued after the ownership query failed"
+grep -q 'ownership could not be queried' "$tmp/ps-fail.out" || fail "ownership query failure message is unclear"
+grep -q 'compose .* up ' "$log" && fail "ownership query failure reached Compose up"
 
 printf '%s\n' '{"dashboard":{"control":true}}' >"$config_dir/config.json"
 rm -f "$log"

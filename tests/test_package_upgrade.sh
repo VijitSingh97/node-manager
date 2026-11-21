@@ -28,6 +28,16 @@ case "${1:-}" in
     printf 'ghcr.io/vijitsingh97/node-manager-dashboard:ancient img001\nghcr.io/vijitsingh97/node-manager-tor:%s img002\nghcr.io/other/thing:1.0 img003\nghcr.io/vijitsingh97/node-manager-monero:<none> img004\nghcr.io/other/thing:<none> img005\n' "${FAKE_CURRENT_VERSION:-}"
     ;;
   ps)
+    case " $* " in *' --format '*)
+      [ "${FAKE_PS_FAIL_SERVICE:-}" = "" ] || exit 70
+      while read -r service; do
+        config=$BITCOIN_STACK_ROOT/docker-compose.yml
+        [ "${FAKE_FOREIGN_SERVICE:-}" != "$service" ] || config=/foreign/docker-compose.yml
+        printf '%s|%s-id|%s|%s\n' "$service" "$service" "$config" "$BITCOIN_STACK_STATE_DIR"
+        [ "${FAKE_DUPLICATE_SERVICE:-}" != "$service" ] || printf '%s|%s-duplicate-id|%s|%s\n' "$service" "$service" "$config" "$BITCOIN_STACK_STATE_DIR"
+      done <"$FAKE_RUNNING_FILE"
+      exit 0 ;;
+    esac
     service=
     for arg in "$@"; do case "$arg" in label=com.docker.compose.service=*) service=${arg##*=} ;; esac; done
     [ "${FAKE_PS_FAIL_SERVICE:-}" != "$service" ] || exit 70
@@ -38,15 +48,8 @@ case "${1:-}" in
     exit 0
     ;;
   inspect)
-    format=${3:-}
-    id=${4:-}
-    service=${id%-id}
-    [ "${FAKE_INSPECT_FAIL_SERVICE:-}" != "$service" ] || exit 73
-    case "$format" in
-      *project.config_files*)
-        if [ "${FAKE_FOREIGN_SERVICE:-}" = "$service" ]; then printf '/foreign/docker-compose.yml\n'; else printf '%s/docker-compose.yml\n' "$BITCOIN_STACK_ROOT"; fi
-        ;;
-      *project.working_dir*) printf '%s\n' "$BITCOIN_STACK_STATE_DIR" ;;
+    service=${4%-id}
+    case "${3:-}" in
       *State.Running*) grep -qx "$service" "$FAKE_RUNNING_FILE" 2>/dev/null && printf 'true\n' || printf 'false\n' ;;
     esac
     ;;
@@ -222,12 +225,6 @@ printf '%s\n' tor dashboard >"$running"
 FAKE_PS_FAIL_SERVICE=bitcoin ./stack package-upgrade >/dev/null 2>&1 && fail "package upgrade treated a Docker query failure as a stopped service"
 grep -q ' pull ' "$log" && fail "Docker query failure downloaded images"
 [ -f "$tmp/state/.package-upgrade-pending" ] || fail "Docker query failure did not leave a retry marker"
-
-: >"$log"
-printf '%s\n' tor dashboard >"$running"
-FAKE_INSPECT_FAIL_SERVICE=tor ./stack package-upgrade >/dev/null 2>&1 && fail "package upgrade accepted an ownership inspection failure"
-grep -q ' pull ' "$log" && fail "ownership inspection failure downloaded images"
-[ -f "$tmp/state/.package-upgrade-pending" ] || fail "ownership inspection failure did not leave a retry marker"
 
 : >"$log"
 printf '%s\n' tor dashboard >"$running"
