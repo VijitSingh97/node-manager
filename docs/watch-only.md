@@ -118,25 +118,25 @@ and update within a minute of each block; until then the scan answers. Outputs
 that carry CashTokens count their BCH like any other output; token amounts are
 not shown. Without the index a pruned Bitcoin Cash node keeps the hourly scan.
 
-With the Bitcoin Cash index on, the dashboard's memory limit is 2 GiB, with
-`GOMEMLIMIT=1600MiB`, instead of the 1 GiB the Bitcoin and Litecoin indexes set.
-Plan for the dashboard using up to 2 GiB on top of what [Nodes](nodes.md) plans
-for Bitcoin Cash Node itself. The limit is a cap, not memory set aside. The cap
-changes no allocation, so on ordinary blocks the dashboard should stay near what
-it uses today; that is inferred, not measured on Bitcoin Cash mainnet (the Bitcoin
-index peaked at 0.25 GiB RSS, #217). It only climbs while it applies a large
-block, at about 1 KiB of heap per coin operation. On regtest, replaying four 31 MB
-blocks of about 0.9 million operations each under the 2 GiB cap peaked at 954 MiB
-of live heap and 1.50 GiB RSS, and Bitcoin Cash Node peaked at about 1.21 GiB;
-under 1 GiB without `GOMEMLIMIT` the same replay was killed. These regtest peaks
-are lower bounds, and mainnet is not measured.
+With the Bitcoin Cash index on, the dashboard's memory limit is 1 GiB, the same
+as for the Bitcoin and Litecoin indexes. Plan for the dashboard using up to 1 GiB
+on top of what [Nodes](nodes.md) plans for Bitcoin Cash Node itself. A block of
+more than 50,000 coin operations is applied in pieces of 50,000, each committed
+on its own, so the dashboard never holds a whole large block's database batch and
+undo record. Only the last piece moves the index's tip, and pieces left by a stop
+or crash are rolled back when the index reopens, so a half-applied block is never
+served. On regtest, replaying four 31 MB blocks of about 0.9 million operations
+each under 1 GiB with no `GOMEMLIMIT` peaked at 296 MiB of live heap and 0.69 to
+0.77 GiB RSS in two runs, and Bitcoin Cash Node peaked at about 1.14 GiB. Applied
+whole, the same blocks needed 954 MiB of live heap and a 2 GiB cap. These regtest
+peaks are lower bounds, and mainnet is not measured.
 
-The index applies a block of up to 1.2 million coin operations and 32 MB. A
-larger block, such as a miner's block of millions of tiny outputs, stops the
-index at that height: the card reads Degraded with the block's height and
-operation count, the index keeps what it has and is not marked invalid, and it
-tries again only after the dashboard restarts. Applying such blocks in pieces is
-issue #363.
+The index applies a block of up to 1.2 million coin operations and 32 MB. The
+parsed block stays in memory whole while its pieces apply, at about 110 bytes per
+operation, and that cap bounds it. A larger block, such as a miner's block of
+millions of tiny outputs, stops the index at that height: the card reads Degraded
+with the block's height and operation count, the index keeps what it has and is
+not marked invalid, and it tries again only after the dashboard restarts.
 
 Fresh state includes two sourced public examples:
 

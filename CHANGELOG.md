@@ -6,6 +6,27 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- `./stack utxo-index verify [--chain bitcoin|litecoin|dogecoin|bitcoincash]`
+  (`node-manager utxo-index verify` on package installs) checks a balance index
+  against the node's own UTXO set. It is meant for after a seed. The dashboard
+  waits up to 10 minutes for the index to reach the node tip. It then counts the
+  index and calls the node's `gettxoutsetinfo` at that same block, and prints
+  both coin counts and totals. The verdict is PASS, or FAIL with a non-zero exit.
+  Only PASS exits 0. FAIL, every refusal (printed as `refused:`) and a command
+  timeout exit 1. The refusals cover an index behind the tip, a tip that moved, and
+  a node call that failed or timed out. If the dashboard stops mid-wait, the command
+  says so and exits 1 at once.
+  The call uses `hash_type none` on Bitcoin Core 32.1, Litecoin 0.21.5.8 and
+  Bitcoin Cash Node 29.2.0. Dogecoin Core 1.14.9 takes no argument and always
+  hashes. The walk takes no `cs_main` in any of these versions, but node-down
+  alerts are still held while it runs, for at most 30 minutes. The hold is saved
+  with the seed state, so a dashboard restarted during the node's walk keeps
+  holding alerts until that deadline. The command
+  confirms first, or takes `-y`. Regtest runs on all four nodes matched.
+  Mainnet timing is not measured.
+
 ### Changed
 
 - On Debian and Ubuntu a dashboard request now starts its host helper at once.
@@ -26,22 +47,24 @@ All notable changes to this project are documented here. Format follows
   loop still runs both helpers every 10 seconds, since launchd cannot watch files
   inside Docker Desktop's VM, and gets the cheaper runs.
 
+- The Bitcoin Cash balance index fits the same 1 GiB dashboard limit as the other
+  indexes (#363). Its overlay now sets `mem_limit: 1g` and no `GOMEMLIMIT`,
+  instead of 2g with `GOMEMLIMIT=1600MiB`. A block of more than 50,000 coin
+  operations is applied in pieces of 50,000, each committed on its own, so no
+  database batch or undo record holds a whole 32 MB block. Only the last piece
+  moves the index's tip. Pieces left by a stop or crash are rolled back when the
+  index reopens, and a reorg undoes such a block piece by piece. On the regtest
+  replay of four 31 MB blocks at 0.5 CPU, the dashboard under 1 GiB finished in 78
+  to 109 s and peaked at 0.69 to 0.77 GiB RSS and 296 MiB of live heap. The same
+  replay with whole blocks under the 2 GiB cap took 966 s and peaked at 1.57 GiB
+  RSS and 945 MiB, in the same session. Mainnet is not measured. A block over 1.2
+  million coin operations still stops the index, because the parsed block stays
+  whole while its pieces apply.
+
 ## [1.39.0] - 2026-11-20
 
 ### Added
 
-- `./stack utxo-index verify [--chain bitcoin|litecoin|dogecoin|bitcoincash]`
-  (`node-manager utxo-index verify` on package installs) checks a balance index
-  against the node's own UTXO set. It is meant for after a seed. The dashboard
-  waits up to 10 minutes for the index to reach the node tip. It then counts the
-  index and calls the node's `gettxoutsetinfo` at that same block, and prints
-  both coin counts and totals. The verdict is PASS, or FAIL with a non-zero exit.
-  The call uses `hash_type none` on Bitcoin Core 32.1, Litecoin 0.21.5.8 and
-  Bitcoin Cash Node 29.2.0. Dogecoin Core 1.14.9 takes no argument and always
-  hashes. The walk takes no `cs_main` in any of these versions, but node-down
-  alerts are still held while it runs, for at most 30 minutes. The command
-  confirms first, or takes `-y`. Regtest runs on all four nodes matched.
-  Mainnet timing is not measured.
 - Bitcoin Cash's balance index (`bitcoincash.utxo_index`) works on a pruned node.
   Bitcoin Cash Node 29.2.0 has no coin-set export, so a seed now works like
   Dogecoin's: the node stops briefly while its chainstate is copied, then the
