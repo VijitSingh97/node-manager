@@ -64,7 +64,8 @@ All notable changes to this project are documented here. Format follows
   whole while its pieces apply.
 - The tor healthcheck runs every 30 seconds with a 75-second timeout, 1 retry
   and a 2-minute start period (was 60 seconds, 10, 3 and 5 minutes).
-- Tor no longer logs each control connection at notice level.
+- The health probe opens Tor's control socket only after a failed probe, so a
+  healthy Tor logs no control connections.
 
 ## [1.39.0] - 2026-11-20
 

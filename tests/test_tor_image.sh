@@ -45,7 +45,10 @@ sleep 6
 template='{{.State.Running}}|{{.State.Health.Status}}|{{range .State.Health.Log}}{{.Output}}{{"\n--\n"}}{{end}}'
 case $(docker inspect "$name" --format "$template") in "true|"*"|tor: "*) ;; *) fail "the watchdog's docker inspect template no longer parses" ;; esac
 [ "$(docker exec "$name" stat -c %a /var/lib/tor/control)" = 700 ] || fail "control directory is not private"
-docker logs "$name" 2>&1 | grep -q 'control connection' && fail "control connections are logged at notice level"
+docker logs "$name" 2>&1 | grep -q 'Bootstrapped 100' || fail "Tor's bootstrap progress is missing from its log"
+logged=$(docker logs "$name" 2>&1 | grep -c 'control connection' || true)
+sleep 11
+[ "$(docker logs "$name" 2>&1 | grep -c 'control connection' || true)" = "$logged" ] || fail "a healthy Tor logs a control connection for each health probe"
 docker exec "$name" test -e /tmp/tor-health.state || fail "the health probe kept no state"
 docker restart -t 30 "$name" >/dev/null
 sleep 2

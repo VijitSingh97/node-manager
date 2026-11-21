@@ -5,4 +5,3 @@ DataDirectory /var/lib/tor
 # Control over a unix socket in the container only, for the circuit health check.
 ControlSocket /var/lib/tor/control/sock
 CookieAuthentication 1
-Log [~control]notice stdout

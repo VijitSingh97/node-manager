@@ -50,7 +50,8 @@ fresh() { rm -f "$tmp/state" "$FAKE_PROBE_LOG"; }
 fresh
 reply 100 up "$connected" >"$FAKE_CTL_REPLY"
 FAKE_NC_OK="www.torproject.org check.torproject.org" check 1000
-expect 0 "ok via www.torproject.org bootstrap=100 liveness=up orconns=3" "first destination reachable"
+expect 0 "ok via www.torproject.org" "first destination reachable"
+[ "$out" = "tor: ok via www.torproject.org" ] || fail "a working Tor was probed through its control socket: $out"
 [ "$(cat "$FAKE_PROBE_LOG")" = "-z -w 20 -X 5 -x 127.0.0.1:9050 www.torproject.org 443" ] || fail "probe is not one SOCKS5 stream to port 443 of the first host: $(cat "$FAKE_PROBE_LOG")"
 
 fresh
@@ -85,7 +86,7 @@ FAKE_NC_OK=www.torproject.org check 1090
 expect 0 "ok" "one success among three failures is below the minimum sample count"
 check 1120; expect 1 "probe-failed for 0s bootstrap=100 liveness=up orconns=3 probes_ok=1/5" "a brown-out of one success in five probes is unhealthy"
 for t in 1150 1180; do FAKE_NC_OK=www.torproject.org check "$t"; done
-expect 1 "probe-failed" "two successes in a row do not clear a brown-out"
+expect 1 "probe-failed for 0s bootstrap=100 liveness=up orconns=3" "two successes in a row do not clear a brown-out"
 FAKE_NC_OK=www.torproject.org check 1210
 expect 0 "ok via www.torproject.org" "three successes in a row clear a brown-out"
 check 1240; expect 0 "probe-failed for 0s" "old failures are dropped once cleared, so one failure is not unhealthy"
@@ -140,15 +141,15 @@ expect 0 "probe-failed for 100s" "a bootstrapped Tor with a failing probe is not
 fresh
 printf '515 Authentication failed\r\n' >"$FAKE_CTL_REPLY"
 FAKE_NC_OK=www.torproject.org check 1000
-expect 0 "ok via www.torproject.org control=unavailable" "a rejected control login never fails a working Tor"
+expect 0 "ok via www.torproject.org" "a rejected control login never fails a working Tor"
 FAKE_NC_OK=www.torproject.org FAKE_CTL_FAIL=1 check 1001
-expect 0 "ok via www.torproject.org control=unavailable" "a dead control socket never fails a working Tor"
+expect 0 "ok via www.torproject.org" "a dead control socket never fails a working Tor"
 printf 'first_seen 1\nfail_since 0\n' >"$tmp/state"
 FAKE_CTL_FAIL=1 check 1002; expect 0 "probe-failed for 0s control=unavailable" "failing probe without control"
 FAKE_CTL_FAIL=1 check 1242; expect 1 "probe-failed for 240s control=unavailable" "failing probe without control exits 1"
 rm -f "$tmp/state"
 TOR_COOKIE=$tmp/missing FAKE_NC_OK=www.torproject.org check 1243
-expect 0 "ok via www.torproject.org control=unavailable" "a missing cookie never fails a working Tor"
+expect 0 "ok via www.torproject.org" "a missing cookie never fails a working Tor"
 
 fresh
 printf 'first_seen abc\nfail_since -5\n' >"$tmp/state"

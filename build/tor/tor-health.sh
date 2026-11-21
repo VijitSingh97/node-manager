@@ -80,7 +80,8 @@ for host in $hosts; do
   fi
 done
 
-ctx=$(context)
+ctx=
+[ -n "$reached" ] || ctx=$(context)
 bad=$was_bad
 uptime=$((now - first_seen))
 case $ctx in *"bootstrap=100"*) bootstrapped=1 ;; *) bootstrapped=0 ;; esac
@@ -122,8 +123,9 @@ else
 fi
 save
 if [ "$bad" = 0 ] && [ -n "$reached" ]; then
-  echo "tor: ok via $reached $ctx"
+  echo "tor: ok via $reached"
   exit 0
 fi
+[ -n "$ctx" ] || ctx=$(context)
 echo "tor: probe-failed for ${run}s $ctx probes_ok=$ok/$samples"
 [ "$bad" = 0 ]
