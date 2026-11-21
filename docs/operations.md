@@ -659,6 +659,10 @@ On APT and Homebrew installs the command is `node-manager utxo-index verify`.
   compares the coin count (`txouts`) and the total amount, and prints both rows. The verdict is `PASS`,
   or `FAIL` with a non-zero exit.
 - If the node moves to a new block before its walk starts, nothing is compared. Run it again.
+- Only `PASS` exits 0. `FAIL`, every refusal and a command timeout exit 1. Refusals print as `refused:`;
+  they include an index that stays behind, a node that moved to another block, and a node call that
+  failed or timed out. If the dashboard stops during the wait, the command also exits 1 at once and says
+  nothing was compared. Run it again once the dashboard is back.
 - Coins a node never keeps are in neither count: OP_RETURN outputs, scripts over 10,000 bytes and the
   genesis coinbase. Litecoin's MWEB outputs are in neither count either.
 - **Node load.** `gettxoutsetinfo` reads the node's whole chainstate, which takes minutes of disk and
@@ -679,7 +683,8 @@ On APT and Homebrew installs the command is `node-manager utxo-index verify`.
   (`cs_main`). The lock is taken only for the flush before the walk and for short lookups, so the
   health probe's `getblockchaininfo` keeps answering. Node-down alerts for that chain are still held
   while the call runs, for at most 30 minutes, in case a CPU-capped node answers too slowly. They
-  resume when the call ends.
+  resume when the call ends. The hold is saved with the index's seed state, so a dashboard restarted
+  during the walk keeps it until the 30 minutes are up.
 - **Index.** The index stays at the compared block until the check ends: its own count is a full read
   of the index, and it then waits for the node. Balances keep answering from that block and catch up
   afterwards.
