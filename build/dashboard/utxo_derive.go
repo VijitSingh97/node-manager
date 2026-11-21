@@ -8,6 +8,7 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"sync"
 )
 
 const (
@@ -127,17 +128,41 @@ func sortedUniqueScripts(scripts [][]byte) [][]byte {
 	return out
 }
 
-const deriveBatchSize = 20
+const (
+	deriveBatchSize     = 20
+	deriveChunkScripts  = 250
+	deriveParallelCalls = 3
+)
 
 func batchChunks(ctx context.Context, rpc *rpcClient, calls []rpcBatchCall) ([]rpcResponse, error) {
+	return batchChunksSized(ctx, rpc, calls, deriveBatchSize)
+}
+
+func batchChunksSized(ctx context.Context, rpc *rpcClient, calls []rpcBatchCall, size int) ([]rpcResponse, error) {
+	var starts []int
+	for start := 0; start < len(calls); start += size {
+		starts = append(starts, start)
+	}
+	parts := make([][]rpcResponse, len(starts))
+	errs := make([]error, len(starts))
+	sem := make(chan struct{}, deriveParallelCalls)
+	var wg sync.WaitGroup
+	for i, start := range starts {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			parts[i], errs[i] = rpc.callBatch(ctx, calls[start:min(start+size, len(calls))])
+		}()
+	}
+	wg.Wait()
 	var out []rpcResponse
-	for start := 0; start < len(calls); start += deriveBatchSize {
-		end := min(start+deriveBatchSize, len(calls))
-		part, err := rpc.callBatch(ctx, calls[start:end])
-		if err != nil {
-			return nil, err
+	for i := range parts {
+		if errs[i] != nil {
+			return nil, errs[i]
 		}
-		out = append(out, part...)
+		out = append(out, parts[i]...)
 	}
 	return out, nil
 }
@@ -193,17 +218,20 @@ func resolveWalletScripts(ctx context.Context, rpc *rpcClient, chain *utxoChainP
 		if *info.HasPrivateKeys {
 			return nil, errors.New("private key material is not allowed")
 		}
-		params := []any{info.Descriptor}
-		want := 1
-		if *info.IsRange {
-			params = append(params, []int{deriveRangeStart, deriveRangeEnd})
-			want = deriveRangeEnd - deriveRangeStart + 1
+		if !*info.IsRange {
+			deriveCalls = append(deriveCalls, rpcBatchCall{"deriveaddresses", []any{info.Descriptor}})
+			deriveOwners = append(deriveOwners, w)
+			deriveWant = append(deriveWant, 1)
+			continue
 		}
-		deriveCalls = append(deriveCalls, rpcBatchCall{"deriveaddresses", params})
-		deriveOwners = append(deriveOwners, w)
-		deriveWant = append(deriveWant, want)
+		for lo := deriveRangeStart; lo <= deriveRangeEnd; lo += deriveChunkScripts {
+			hi := min(lo+deriveChunkScripts-1, deriveRangeEnd)
+			deriveCalls = append(deriveCalls, rpcBatchCall{"deriveaddresses", []any{info.Descriptor, []int{lo, hi}}})
+			deriveOwners = append(deriveOwners, w)
+			deriveWant = append(deriveWant, hi-lo+1)
+		}
 	}
-	derived, err := batchChunks(ctx, rpc, deriveCalls)
+	derived, err := batchChunksSized(ctx, rpc, deriveCalls, max(1, min(deriveBatchSize, (len(deriveCalls)+deriveParallelCalls-1)/deriveParallelCalls)))
 	if err != nil {
 		return nil, err
 	}

@@ -1,13 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestAddressScriptVectors(t *testing.T) {
@@ -47,15 +51,29 @@ func TestAddressScriptRejectsBadInput(t *testing.T) {
 
 type fakeBatch struct {
 	t          *testing.T
-	batches    int
+	batches    atomic.Int32
+	perAddr    time.Duration
+	inflight   atomic.Int32
+	peak       atomic.Int32
+	ranges     [][2]int
+	mu         sync.Mutex
 	deriveFn   func(desc string) (any, string)
 	infoFail   func(desc string) bool
+	addrAt     func(desc string, idx int) string
 	validateFn func(address string) any
 }
 
 func (f *fakeBatch) server() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		f.batches++
+		f.batches.Add(1)
+		n := f.inflight.Add(1)
+		defer f.inflight.Add(-1)
+		for {
+			p := f.peak.Load()
+			if n <= p || f.peak.CompareAndSwap(p, n) {
+				break
+			}
+		}
 		var calls []struct {
 			ID     int
 			Method string
@@ -85,9 +103,24 @@ func (f *fakeBatch) server() *httptest.Server {
 				} else {
 					item["result"] = result
 					if list, ok := result.([]string); ok && strings.Contains(desc, "*") {
-						padded := make([]string, 1000)
+						lo, hi := 0, 999
+						if len(c.Params) > 1 {
+							r, _ := c.Params[1].([]any)
+							lo, hi = int(r[0].(float64)), int(r[1].(float64))
+							f.mu.Lock()
+							f.ranges = append(f.ranges, [2]int{lo, hi})
+							f.mu.Unlock()
+						}
+						time.Sleep(f.perAddr * time.Duration(hi-lo+1))
+						if f.addrAt != nil {
+							time.Sleep(time.Duration(deriveRangeEnd-lo) * 20 * time.Microsecond)
+						}
+						padded := make([]string, hi-lo+1)
 						for k := range padded {
 							padded[k] = list[k%len(list)]
+							if f.addrAt != nil {
+								padded[k] = f.addrAt(desc, lo+k)
+							}
 						}
 						item["result"] = padded
 					}
@@ -118,8 +151,8 @@ func TestResolveWalletScriptsBatchesSortsAndFallsBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.batches != 2 {
-		t.Fatalf("%d HTTP calls for three wallets, want 2", f.batches)
+	if f.batches.Load() != 4 {
+		t.Fatalf("%d HTTP calls for three wallets, want 1 info + 3 derive", f.batches.Load())
 	}
 	if got[0].Fallback || len(got[0].Scripts) != 2 || hex.EncodeToString(got[0].Scripts[0]) != "0014751e76e8199196d454941c45d1b3a323f1433bd6" {
 		t.Fatalf("xpub wallet: %+v", got[0])
@@ -152,9 +185,9 @@ func TestRPCBatchRejectsBadFraming(t *testing.T) {
 }
 
 func TestResolveWalletScriptsFallsBackPerWallet(t *testing.T) {
-	derived := 0
+	var derived atomic.Int32
 	f := &fakeBatch{t: t, deriveFn: func(desc string) (any, string) {
-		derived++
+		derived.Add(1)
 		return []string{"bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080"}, ""
 	}, infoFail: func(desc string) bool { return strings.Contains(desc, "badkey") }}
 	srv := f.server()
@@ -179,8 +212,8 @@ func TestResolveWalletScriptsFallsBackPerWallet(t *testing.T) {
 			t.Fatalf("wallet %d did not fall back: %+v", w, got[w])
 		}
 	}
-	if derived != 2 {
-		t.Fatalf("%d derive calls, want 2 (only the valid wallet)", derived)
+	if derived.Load() != 8 {
+		t.Fatalf("%d derive calls, want 8 (two branches in four chunks, valid wallet only)", derived.Load())
 	}
 }
 
@@ -232,8 +265,149 @@ func TestResolveWalletScriptsChunksLargeSets(t *testing.T) {
 			t.Fatalf("wallet %d: %+v", w, got[w])
 		}
 	}
-	if f.batches != 6 {
-		t.Fatalf("%d HTTP calls for 60 descriptors, want 6", f.batches)
+	if f.batches.Load() != 3+3*4 {
+		t.Fatalf("%d HTTP calls for 60 descriptors, want 15", f.batches.Load())
+	}
+}
+
+func TestResolveWalletScriptsPipelinesWithoutGapsOrDuplicates(t *testing.T) {
+	f := &fakeBatch{t: t, perAddr: 20 * time.Microsecond, deriveFn: func(string) (any, string) {
+		return []string{"bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080"}, ""
+	}}
+	srv := f.server()
+	defer srv.Close()
+	rpc := &rpcClient{url: srv.URL, client: srv.Client()}
+	got, err := resolveWalletScripts(context.Background(), rpc, utxoBitcoin, []string{testXpub})
+	if err != nil || got[0].Fallback {
+		t.Fatalf("%+v, %v", got, err)
+	}
+	covered := make([]int, deriveRangeEnd+1)
+	for _, r := range f.ranges {
+		for i := r[0]; i <= r[1]; i++ {
+			covered[i]++
+		}
+	}
+	for i, n := range covered {
+		if n != 2 {
+			t.Fatalf("index %d requested %d times, want once per branch", i, n)
+		}
+	}
+	if f.peak.Load() < 2 {
+		t.Fatalf("derive requests never overlapped (peak %d)", f.peak.Load())
+	}
+}
+
+func bech32TestAddress(branch, idx int) string {
+	prog := make([]byte, 20)
+	prog[0], prog[1], prog[2] = byte(branch), byte(idx>>8), byte(idx)
+	var data []byte
+	var acc, bits uint32
+	for _, b := range prog {
+		acc = acc<<8 | uint32(b)
+		bits += 8
+		for bits >= 5 {
+			bits -= 5
+			data = append(data, byte(acc>>bits&31))
+		}
+	}
+	if bits > 0 {
+		data = append(data, byte(acc<<(5-bits)&31))
+	}
+	values := []byte{'b' >> 5, 'c' >> 5, 'r' >> 5, 't' >> 5, 0, 'b' & 31, 'c' & 31, 'r' & 31, 't' & 31}
+	values = append(append(values, 0), data...)
+	poly := bech32Polymod(append(values, 0, 0, 0, 0, 0, 0)) ^ 1
+	out := "bcrt1q"
+	for _, d := range data {
+		out += string(bech32Charset[d])
+	}
+	for i := 0; i < 6; i++ {
+		out += string(bech32Charset[poly>>uint(5*(5-i))&31])
+	}
+	return out
+}
+
+func TestResolveWalletScriptsMergesEveryChunkOfEveryBranch(t *testing.T) {
+	f := &fakeBatch{t: t, deriveFn: func(string) (any, string) {
+		return []string{bech32TestAddress(0, 0)}, ""
+	}, addrAt: func(desc string, idx int) string {
+		branch := 0
+		if strings.Contains(desc, "/1/*") {
+			branch = 1
+		}
+		return bech32TestAddress(branch, idx)
+	}}
+	srv := f.server()
+	defer srv.Close()
+	rpc := &rpcClient{url: srv.URL, client: srv.Client()}
+	got, err := resolveWalletScripts(context.Background(), rpc, utxoBitcoin, []string{testXpub})
+	if err != nil || got[0].Fallback {
+		t.Fatalf("%+v, %v", got, err)
+	}
+	want := map[string]bool{}
+	for branch := 0; branch < 2; branch++ {
+		for i := 0; i <= deriveRangeEnd; i++ {
+			script, err := addressScript(bech32TestAddress(branch, i))
+			if err != nil {
+				t.Fatal(err)
+			}
+			want[string(script)] = true
+		}
+	}
+	if len(got[0].Scripts) != len(want) || len(want) != 2*(deriveRangeEnd+1) {
+		t.Fatalf("%d scripts, want %d distinct", len(got[0].Scripts), len(want))
+	}
+	for i, s := range got[0].Scripts {
+		if !want[string(s)] || i > 0 && bytes.Compare(got[0].Scripts[i-1], s) >= 0 {
+			t.Fatalf("script %d unexpected or out of order", i)
+		}
+	}
+}
+
+func TestResolveWalletScriptsKeepsEveryDistinctScriptSorted(t *testing.T) {
+	addrs := []string{"bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080", "2Mww8dCYPUpKHofjgcXcBCEGmniw9CoaiD2", "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", "3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy"}
+	f := &fakeBatch{t: t, deriveFn: func(string) (any, string) { return addrs, "" }}
+	srv := f.server()
+	defer srv.Close()
+	rpc := &rpcClient{url: srv.URL, client: srv.Client()}
+	got, err := resolveWalletScripts(context.Background(), rpc, utxoBitcoin, []string{testXpub})
+	if err != nil || got[0].Fallback || len(got[0].Scripts) != len(addrs) {
+		t.Fatalf("%+v, %v", got, err)
+	}
+	for i := 1; i < len(got[0].Scripts); i++ {
+		if bytes.Compare(got[0].Scripts[i-1], got[0].Scripts[i]) >= 0 {
+			t.Fatal("scripts are not sorted and unique")
+		}
+	}
+}
+
+func TestResolveWalletScriptsFallsBackWhenOneChunkFails(t *testing.T) {
+	var calls atomic.Int32
+	f := &fakeBatch{t: t, deriveFn: func(string) (any, string) {
+		if calls.Add(1) == 3 {
+			return nil, "boom"
+		}
+		return []string{"bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080"}, ""
+	}}
+	srv := f.server()
+	defer srv.Close()
+	rpc := &rpcClient{url: srv.URL, client: srv.Client()}
+	got, err := resolveWalletScripts(context.Background(), rpc, utxoBitcoin, []string{testXpub})
+	if err != nil || !got[0].Fallback || len(got[0].Scripts) != 0 {
+		t.Fatalf("%+v, %v", got, err)
+	}
+}
+
+func BenchmarkResolveWalletScriptsColdAdd(b *testing.B) {
+	f := &fakeBatch{t: &testing.T{}, perAddr: 500 * time.Microsecond, deriveFn: func(string) (any, string) {
+		return []string{"bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080"}, ""
+	}}
+	srv := f.server()
+	defer srv.Close()
+	rpc := &rpcClient{url: srv.URL, client: srv.Client()}
+	for b.Loop() {
+		if _, err := resolveWalletScripts(context.Background(), rpc, utxoBitcoin, []string{testXpub}); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
@@ -275,7 +449,9 @@ func TestResolveWalletScriptsAsksTheNodeForFamilyScripts(t *testing.T) {
 	if got[3].Fallback || len(got[3].Scripts) != 1 {
 		t.Fatalf("address wallet: %+v", got[3])
 	}
-	if want := 2 + (2000+4+deriveBatchSize-1)/deriveBatchSize; f.batches != want {
-		t.Fatalf("%d HTTP calls, want %d: one info and one derive batch, then 2,004 addresses validated %d at a time", f.batches, want, deriveBatchSize)
+	deriveCalls := 2*((deriveRangeEnd-deriveRangeStart+deriveChunkScripts)/deriveChunkScripts) + 3
+	deriveSize := max(1, min(deriveBatchSize, (deriveCalls+deriveParallelCalls-1)/deriveParallelCalls))
+	if want := 1 + (deriveCalls+deriveSize-1)/deriveSize + (2000+4+deriveBatchSize-1)/deriveBatchSize; int(f.batches.Load()) != want {
+		t.Fatalf("%d HTTP calls, want %d: one info batch, %d derive calls in batches of %d, then 2,004 addresses validated %d at a time", f.batches.Load(), want, deriveCalls, deriveSize, deriveBatchSize)
 	}
 }

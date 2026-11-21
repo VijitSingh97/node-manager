@@ -42,6 +42,11 @@ All notable changes to this project are documented here. Format follows
   RSS and 945 MiB, in the same session. Mainnet is not measured. A block over 1.2
   million coin operations still stops the index, because the parsed block stays
   whole while its pieces apply.
+- Adding a Bitcoin watch-only wallet to the balance index derives its 2,000
+  scripts in four chunks per branch, up to three at a time (leaving one of
+  bitcoind's default four RPC threads free), instead of one sequential call per
+  branch, to bring a cold add closer to 1 s. The same scripts are derived. Not
+  yet measured on a real node.
 
 ## [1.39.0] - 2026-11-20
 
