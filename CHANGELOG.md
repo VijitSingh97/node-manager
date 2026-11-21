@@ -148,6 +148,9 @@ All notable changes to this project are documented here. Format follows
   system resolver, which the Tor-only network can never answer. The node config
   now sets `tari_pulse_enabled = false`. Sync is unchanged, and the dashboard
   never read the checkpoint result.
+- Node activate and deactivate rejections now say why, for example "Bitcoin was
+  not changed: review the pending config change first", instead of a generic
+  "state change was rejected". Unknown reasons keep the generic wording.
 
 ## [1.39.0] - 2026-11-20
 
