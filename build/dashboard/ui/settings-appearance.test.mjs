@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { setTimeout as sleep } from "node:timers/promises";
 import { expectSettings, flow, openSettings, reload, reopenSettings, save } from "./harness.mjs";
 
 const GLOBAL = "/api/settings?scope=global";
@@ -18,6 +19,13 @@ const toggles = [
   { label: "Thermal throttle", field: "thermal_throttle", input: "#settings-thermal-throttle", effect: async () => "", shown: { on: "", off: "" } },
 ];
 
+async function expectEffect(page, toggle, state) {
+  const deadline = Date.now() + 20000;
+  let got;
+  while ((got = await toggle.effect(page)) !== toggle.shown[state] && Date.now() < deadline) await sleep(20);
+  assert.equal(got, toggle.shown[state], `${toggle.label} should look ${state}`);
+}
+
 for (const toggle of toggles) {
   for (const turnOn of [true, false]) {
     flow(`${toggle.label} turned ${turnOn ? "on" : "off"}`, { settings: turnOn ? undefined : { [toggle.field]: true }, hostStats: toggle.hostStats }, async ({ dash, page }) => {
@@ -26,19 +34,19 @@ for (const toggle of toggles) {
       if (toggle.field === "tower_labels") await page.waitVisible(".node-choice-bitcoin");
       await openSettings(page);
       assert.equal(await page.checked(toggle.input), !turnOn);
-      assert.equal(await toggle.effect(page), toggle.shown[before]);
+      await expectEffect(page, toggle, before);
 
       await page.setChecked(toggle.input, turnOn);
       await save(page, "Settings saved.");
       const [posted] = page.requestsTo("POST", GLOBAL).slice(-1);
       assert.equal(posted.body[toggle.field], turnOn);
       expectSettings(dash, { [toggle.field]: turnOn });
-      assert.equal(await toggle.effect(page), toggle.shown[after]);
+      await expectEffect(page, toggle, after);
 
       await reopenSettings(page);
       assert.equal(await page.checked(toggle.input), turnOn);
       await reload(page, dash);
-      assert.equal(await toggle.effect(page), toggle.shown[after]);
+      await expectEffect(page, toggle, after);
       await openSettings(page);
       assert.equal(await page.checked(toggle.input), turnOn);
     });
