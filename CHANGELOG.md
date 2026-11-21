@@ -66,6 +66,13 @@ All notable changes to this project are documented here. Format follows
   million coin operations still stops the index, because the parsed block stays
   whole while its pieces apply.
 
+### Fixed
+
+- The Bitcoin node card shows its balance index bar. Since 1.39.0 the page
+  fetched the Bitcoin index status only while the loading screen was up, so a
+  running Bitcoin node never showed the bar. Litecoin, Dogecoin and Bitcoin
+  Cash were not affected.
+
 ## [1.39.0] - 2026-11-20
 
 ### Added
