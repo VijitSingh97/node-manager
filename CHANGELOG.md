@@ -6,6 +6,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.40.0] - 2026-11-21
+
 ### Added
 
 - Automatic recovery when Tor stops completing circuits. The tor container's
@@ -138,7 +140,7 @@ All notable changes to this project are documented here. Format follows
   fetched the Bitcoin index status only while the loading screen was up, so a
   running Bitcoin node never showed the bar. Litecoin, Dogecoin and Bitcoin
   Cash were not affected.
-- The stack also survives the host getting a different LAN address after a
+- The stack survives the host getting a different LAN address after a
   reboot, power cut or network change. With `dashboard.bind_ip` set to `auto`,
   the host helper waits until the old address has been gone for a minute and the
   new one has held for that minute. It then re-renders the last approved
@@ -2123,7 +2125,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.39.0...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.40.0...HEAD
+[1.40.0]: https://github.com/VijitSingh97/node-manager/compare/v1.39.0...v1.40.0
 [1.39.0]: https://github.com/VijitSingh97/node-manager/compare/v1.38.0...v1.39.0
 [1.38.0]: https://github.com/VijitSingh97/node-manager/compare/v1.37.0...v1.38.0
 [1.37.0]: https://github.com/VijitSingh97/node-manager/compare/v1.36.0...v1.37.0
