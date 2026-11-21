@@ -143,6 +143,8 @@ echo "$rendered" | sed -n '/^  dashboard:$/,/^  tor:$/p' | grep -q 'host_ip:' &&
   fail "internal dashboard container still publishes a host port"
 echo "$rendered" | sed -n '/^  tor:$/,/^networks:$/p' | grep -q 'nc -z 127.0.0.1 8000' ||
   fail "Tor healthcheck does not cover the dashboard forwarder"
+echo "$rendered" | sed -n '/^  tor:$/,/^networks:$/p' | grep -q '/usr/local/bin/tor-health' ||
+  fail "Tor healthcheck does not run the tor health probe"
 echo "$rendered" | sed -n '/^  tor:$/,/^  bitcoin:$/p' | grep -q 'pids_limit: 100' ||
   fail "Tor container process limit missing"
 grep -qF 'socat TCP4-LISTEN:8000,reuseaddr,fork,max-children=32 TCP4:172.29.0.27:8000' build/tor/entrypoint.sh ||
@@ -306,6 +308,8 @@ tari_run() { env -i PATH="$tari_dir:$PATH" TARI_PRUNING_HORIZON=10000 "$@" sh "$
 tari_methods() { tari_run "$@" | python3 -c 'import sys, tomllib; print(" ".join(tomllib.load(sys.stdin.buffer)["base_node"]["grpc_server_allow_methods"]))'; }
 tari_default=$(tari_methods) || fail "default Tari config is not valid TOML"
 case "$tari_default" in get_version*" get_mempool_stats") ;; *) fail "default Tari gRPC methods changed: $tari_default" ;; esac
+tari_run | python3 -c 'import sys, tomllib; sys.exit(tomllib.load(sys.stdin.buffer)["base_node"].get("tari_pulse_enabled") is not False)' ||
+  fail "Tari still looks up DNS checkpoints that cannot resolve"
 tari_methods TARI_GRPC_EXTRA_METHODS=list_headers,get_blocks | grep -q ' get_mempool_stats list_headers get_blocks$' ||
   fail "extra Tari gRPC methods were not allowed"
 tari_run TARI_GRPC_EXTRA_METHODS='list_headers"]' >/dev/null 2>&1 && fail "Tari entrypoint accepted a method name that breaks its config"

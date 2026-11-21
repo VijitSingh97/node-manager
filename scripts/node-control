@@ -50,6 +50,183 @@ host_event() {
   printf '%sZ Host: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%S)" "$1" |
     "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c 'cat >> /state/events.log' >/dev/null 2>&1 || true
 }
+tw_gate_secs=30 tw_odd_secs=600 tw_spacing=480 tw_cap=3 tw_window=21600 tw_reset_window=604800 tw_keep_snapshots=5
+tw_get() { sed -n "s/^$1=//p" "$tw_state" 2>/dev/null | head -n 1; }
+tw_getn() {
+  tw_value=$(tw_get "$1")
+  case $tw_value in '' | *[!0-9]*) tw_value=0 ;; esac
+  printf '%s\n' "$tw_value"
+}
+tw_set() {
+  { grep -v "^$1=" "$tw_state" 2>/dev/null || true; [ -z "$2" ] || printf '%s=%s\n' "$1" "$2"; } >"$tw_state.tmp" &&
+    chmod 600 "$tw_state.tmp" && mv -f "$tw_state.tmp" "$tw_state"
+}
+tw_queue() {
+  printf 'pending_event=%sZ Host: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%S)" "$1" >>"$tw_state"
+}
+host_event_line() {
+  printf '%s\n' "$1" | "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c 'cat >> /state/events.log' >/dev/null 2>&1
+}
+tw_flush() {
+  tw_sent=0
+  while [ "$tw_sent" -lt 10 ]; do
+    tw_line=$(sed -n 's/^pending_event=//p' "$tw_state" 2>/dev/null | head -n 1)
+    [ -n "$tw_line" ] || return 0
+    host_event_line "$tw_line" || return 0
+    awk '/^pending_event=/ && !done { done = 1; next } { print }' "$tw_state" >"$tw_state.tmp" &&
+      chmod 600 "$tw_state.tmp" && mv -f "$tw_state.tmp" "$tw_state" || return 0
+    tw_sent=$((tw_sent + 1))
+  done
+}
+tw_recent_restarts() {
+  tw_kept=
+  tw_count=0
+  for tw_t in $(tw_get restart_ts); do
+    case $tw_t in '' | *[!0-9]*) continue ;; esac
+    [ $((now - tw_t)) -lt "$tw_window" ] || continue
+    tw_kept="$tw_kept $tw_t"
+    tw_count=$((tw_count + 1))
+  done
+  tw_kept=${tw_kept# }
+}
+tw_action() {
+  tw_done=$(tw_get actions)
+  tw_set actions "${tw_done:+$tw_done; }$1"
+}
+tw_snapshot() {
+  tw_dir=$state_root/node-control/tor-snapshots
+  mkdir -p "$tw_dir" && chmod 700 "$tw_dir" || return 0
+  (
+    umask 077
+    {
+      printf 'time=%s rung=%s last health output: %s\n' "$now" "$(tw_getn rung)" "$tw_last"
+      "$docker_bin" exec "$tw_id" tor-health snapshot 2>&1 || true
+      printf -- '--- last 40 tor log lines\n'
+      "$docker_bin" logs --tail 40 "$tw_id" 2>&1 || true
+    } | head -c 65536 >"$tw_dir/tor-$now.txt"
+  ) || true
+  printf '%s\n' "$tw_dir"/tor-*.txt | sort -r | tail -n +$((tw_keep_snapshots + 1)) | while read -r tw_old; do rm -f "$tw_old"; done
+}
+tw_restart_tor() {
+  tw_recent_restarts
+  tw_set restart_ts "${tw_kept:+$tw_kept }$now"
+  tw_set last_action "$now"
+  "$docker_bin" restart -t 30 "$tw_id" >/dev/null 2>&1
+}
+tw_cause() {
+  case $tw_last in
+  "tor: "*) ;;
+  *) echo "Tor's own health check fails before the circuit probe runs, so Tor looks stuck"; return 0 ;;
+  esac
+  case $tw_last in
+  *"control=unavailable"*) echo "Tor does not answer on its control socket, so Tor itself looks stuck" ;;
+  *"liveness=down"*) echo "Tor reports the network down, so the host looks offline" ;;
+  *) if [ "${tw_conns:-0}" -eq 0 ]; then echo "Tor holds no connection to any relay, so the host link or a firewall looks like the cause"; elif [ "$tw_rung" = 0 ]; then echo "Tor holds relay connections that may be stale, so the cause is not clear yet"; else echo "Tor is connected to relays but builds no working circuits, so Tor looks stuck"; fi ;;
+  esac
+}
+tw_pause() {
+  tw_queue "$1; automatic recovery is paused until Tor works again"
+  tw_action paused
+  tw_set rung 3
+}
+tw_ladder() {
+  tw_rung=$(tw_getn rung)
+  tw_acted=$(tw_getn last_action)
+  [ "$tw_acted" -le "$now" ] || tw_acted=0
+  tw_conns=$(printf '%s' "$tw_last" | sed -n 's/.* orconns=\([0-9]*\).*/\1/p')
+  tw_recent_restarts
+  case $tw_rung in
+    0)
+      tw_for=$(printf '%s' "$tw_last" | sed -n 's/^tor: [a-z-]* for \([0-9]*\)s.*/\1/p')
+      if [ -n "$tw_for" ]; then tw_set incident_start $((now - tw_for))
+      elif [ "$(tw_getn odd_since)" -ne 0 ]; then tw_set incident_start "$(tw_getn odd_since)"
+      else tw_set incident_start "$now"; fi
+      tw_snapshot
+      if [ "$tw_count" -ge "$tw_cap" ]; then
+        tw_pause "Tor is not working ($tw_cap automatic restarts in the last 6 hours did not hold; $(tw_cause))"
+        return 0
+      fi
+      tw_queue "Tor is not working (probes through Tor failed for several minutes; $(tw_cause)); restarting Tor"
+      tw_action "restarted Tor"
+      tw_set rung 1
+      tw_restart_tor || true
+      ;;
+    1)
+      [ $((now - tw_acted)) -ge "$tw_spacing" ] || return 0
+      tw_snapshot
+      tw_reset=$(tw_getn reset_ts)
+      [ "$tw_reset" -le "$now" ] || tw_reset=0
+      if [ "${tw_conns:-0}" -lt 1 ]; then
+        tw_pause "Tor is still not working after a restart ($(tw_cause))"
+      elif [ "$tw_reset" -ne 0 ] && [ $((now - tw_reset)) -lt "$tw_reset_window" ]; then
+        tw_pause "Tor is still not working after a restart and its guard state was already reset in the last 7 days ($(tw_cause))"
+      elif [ "$tw_count" -ge "$tw_cap" ]; then
+        tw_pause "Tor is still not working ($tw_cap automatic restarts in the last 6 hours did not hold; $(tw_cause))"
+      elif ! "$docker_bin" exec "$tw_id" touch /var/lib/tor/.reset-state >/dev/null 2>&1; then
+        tw_pause "Tor is still not working after a restart and its guard state could not be reset"
+      else
+        tw_queue "Tor is still not working after a restart while the network is up; clearing Tor's saved state (guards and learned circuit timing) and restarting Tor once more"
+        tw_action "reset guard state"
+        tw_set rung 2
+        if tw_restart_tor; then
+          tw_set reset_ts "$now"
+        else
+          "$docker_bin" exec "$tw_id" rm -f /var/lib/tor/.reset-state >/dev/null 2>&1 || true
+        fi
+      fi
+      ;;
+    2)
+      [ $((now - tw_acted)) -ge "$tw_spacing" ] || return 0
+      tw_snapshot
+      tw_pause "Tor is still not working after a restart and a guard state reset ($(tw_cause))"
+      ;;
+  esac
+}
+tw_recovered() {
+  tw_began=$(tw_getn incident_start)
+  [ "$tw_began" -ne 0 ] || return 0
+  tw_queue "Tor working again after $(((now - tw_began) / 60)) min ($(tw_get actions))"
+  tw_set rung ""
+  tw_set incident_start ""
+  tw_set actions ""
+}
+tw_step() {
+  tw_id=$tor_id
+  [ -n "$tw_id" ] || return 0
+  case $tor_status in *"(healthy)"*) if [ "$(tw_getn incident_start)" -eq 0 ] && [ -z "$(tw_get odd_since)" ]; then return 0; fi ;; esac
+  tw_info=$("$docker_bin" inspect "$tw_id" --format '{{.State.Running}}|{{.State.Health.Status}}|{{range .State.Health.Log}}{{.Output}}{{"\n--\n"}}{{end}}' 2>/dev/null) || return 0
+  tw_running=${tw_info%%|*}
+  tw_rest=${tw_info#*|}
+  tw_status=${tw_rest%%|*}
+  tw_log=${tw_rest#*|}
+  [ "$tw_running" = true ] || return 0
+  [ "$tw_status" = unhealthy ] || [ -z "$(tw_get odd_since)" ] || tw_set odd_since ""
+  tw_last=$(printf '%s\n' "$tw_log" | awk '/^--$/ { last = cur; cur = ""; next } NF { cur = $0 } END { print last }')
+  case $tw_status in
+    healthy)
+      case $tw_last in "tor: ok"*) tw_recovered ;; esac
+      ;;
+    unhealthy)
+      case $tw_last in
+        "tor: probe-failed for "* | "tor: offline for "*) tw_set odd_since ""; tw_ladder ;;
+        *)
+          tw_odd=$(tw_getn odd_since)
+          if [ "$tw_odd" -eq 0 ] || [ "$tw_odd" -gt "$now" ]; then tw_set odd_since "$now"; elif [ $((now - tw_odd)) -ge "$tw_odd_secs" ]; then tw_ladder; fi
+          ;;
+      esac
+      ;;
+  esac
+}
+tor_watchdog() {
+  tw_state=$state_root/node-control/tor-watchdog
+  [ ! -e "$tw_state.disabled" ] || return 0
+  tw_gate=$(tw_getn last_gate)
+  if [ "$tw_gate" -ne 0 ] && [ "$now" -ge "$tw_gate" ] && [ $((now - tw_gate)) -lt "$tw_gate_secs" ]; then return 0; fi
+  tw_set last_gate "$now"
+  tw_step
+  tw_flush
+  return 0
+}
 clear_request() { dashboard_exec rm -f /state/node-control.processing >/dev/null 2>&1 || true; }
 write_host_status() {
   jq -nc --arg id "$1" --arg action "$2" --arg state "$3" --arg message "$4" \
@@ -191,16 +368,21 @@ if [ -d "$install_transaction" ]; then
 fi
 [ "${install_recovery_failed:-false}" = true ] || [ -r "$env_file" ] || exit 0
 containers=$("$docker_bin" ps -a --filter "label=com.docker.compose.project=$project_name" \
-  --format '{{.Label "com.docker.compose.service"}} {{.ID}} {{.State}} {{.Label "com.docker.compose.project.config_files"}}' 2>/dev/null) || exit 0
-dashboard_id='' config_files='' stopped_ids=''
-while read -r service id state files; do
+  --format '{{.Label "com.docker.compose.service"}} {{.ID}} {{.State}} {{.Label "com.docker.compose.project.config_files"}} {{.Status}}' 2>/dev/null) || exit 0
+dashboard_id='' config_files='' stopped_ids='' tor_id='' tor_status=''
+while read -r service id state files status; do
   if [ "$service" = dashboard ] && [ -z "$dashboard_id" ]; then dashboard_id=$id config_files=$files; fi
+  if [ "$service" = tor ] && [ -z "$tor_id" ]; then tor_id=$id tor_status=$status; fi
   case "$state" in exited | created) stopped_ids="$stopped_ids $id" ;; esac
 done <<EOF
 $containers
 EOF
 [ -n "$dashboard_id" ] || exit 0
 case ",$config_files," in *",$stack_root/docker-compose.yml,"*) ;; *) exit 0 ;; esac
+(
+  flock -n 8 || exit 0
+  tor_watchdog
+) 8>"$state_root/.config.lock" || true
 if [ -f "$install_recovery_status" ]; then
   $docker_bin exec -i -u 1000 "$dashboard_id" sh -c 'umask 077; cat > /state/.node-control.status.tmp; mv /state/.node-control.status.tmp /state/node-control.status' <"$install_recovery_status" >/dev/null
   rm -f "$install_recovery_status"
@@ -728,11 +910,15 @@ remove_finished_chainstate_copy() {
 }
 # The heartbeat and the request check share one exec because each docker call costs more than the rest of an idle tick.
 publish_heartbeat() {
+  heartbeat_error=$state_root/node-control/heartbeat.err heartbeat_status=0
   request_state=$(host_capability | "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c '
     umask 077
     cat > /state/.node-control.capability.tmp && mv /state/.node-control.capability.tmp /state/node-control.capability || exit 1
-    if [ -f /state/node-control.processing ]; then echo processing; elif [ -f /state/node-control.request ]; then echo request; fi')
+    if [ -f /state/node-control.processing ]; then echo processing; elif [ -f /state/node-control.request ]; then echo request; fi' 2>"$heartbeat_error") || heartbeat_status=$?
+  [ ! -s "$heartbeat_error" ] || cat "$heartbeat_error" >&2
+  return "$heartbeat_status"
 }
+dashboard_not_running() { grep -q -e 'is not running' -e 'is restarting' -e 'No such container' "$heartbeat_error"; }
 heartbeat=0
 publish_heartbeat || heartbeat=$?
 resume_paused_listeners
@@ -742,7 +928,7 @@ remove_finished_chainstate_copy dogecoin
 remove_finished_chainstate_copy bitcoincash
 # The dashboard may still be starting after boot, and the timer would not try again for a minute.
 while [ "$heartbeat" != 0 ]; do
-  [ "$package_managed" = 1 ] && read -r uptime _ 2>/dev/null <"${NODE_CONTROL_UPTIME_FILE:-/proc/uptime}" && [ "${uptime%.*}" -lt 300 ] || exit "$heartbeat"
+  [ "$package_managed" = 1 ] && read -r uptime _ 2>/dev/null <"${NODE_CONTROL_UPTIME_FILE:-/proc/uptime}" && [ "${uptime%.*}" -lt 300 ] || { dashboard_not_running && exit 0; exit "$heartbeat"; }
   sleep 10
   heartbeat=0
   publish_heartbeat || heartbeat=$?

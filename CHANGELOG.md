@@ -8,6 +8,26 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
+- Automatic recovery when Tor stops completing circuits. The tor container's
+  healthcheck opens a real stream through Tor's SocksPort to
+  `www.torproject.org:443`, `check.torproject.org:443` and `api.github.com:443`
+  (the last is already reached through Tor by the dashboard) every 30 seconds
+  and goes unhealthy after 4 minutes of failed probes, or when fewer than half of
+  the probes in the last 10 minutes succeeded, so a brown-out with a few
+  successes is caught too. Three good probes in a row clear it. Time while Tor
+  reports the network down with no relay connection is not counted, so a host
+  outage costs at most one restart, about 6 minutes in, before Tor notices it is
+  offline. Tor's control socket (a unix socket inside the
+  container, no `ControlPort`) is read only for context. `node-control` saves a
+  diagnostic snapshot, restarts Tor once, clears Tor's saved state (guards and learned
+  circuit timing; the whole state file is deleted) once if it still fails while
+  relay connections are up (at most once in 7 days), and otherwise pauses with an event naming the likely cause. A
+  container unhealthy for 10 minutes with no probe result is handled the same
+  way. It resumes by itself when the probe succeeds, logs the recovery, timed from the first failed probe, to the
+  events log (forwarded to Telegram once Tor works again), never restarts more
+  than 3 times in 6 hours, and can be turned off with
+  `node-control/tor-watchdog.disabled` in the state directory.
+
 - `./stack utxo-index verify [--chain bitcoin|litecoin|dogecoin|bitcoincash]`
   (`node-manager utxo-index verify` on package installs) checks a balance index
   against the node's own UTXO set. It is meant for after a seed. The dashboard
@@ -52,6 +72,18 @@ All notable changes to this project are documented here. Format follows
   loop still runs both helpers every 10 seconds, since launchd cannot watch files
   inside Docker Desktop's VM, and gets the cheaper runs.
 
+- APT upgrades survive a transient image pull failure, and a failed activation
+  no longer looks like success. On 2026-11-20 one ghcr.io blob failed through
+  Tor during a 1.39.0 upgrade. Activation gave up after 985 s, apt still
+  reported success, and a manual retry worked in about 5 minutes. Activation now
+  pulls each running service's image on its own, with a 10-minute limit, up to
+  3 tries 15 s and 30 s apart, and logs each try's duration in the APT output.
+  Pulls use the same Docker daemon path as before. If activation still fails,
+  APT keeps the package installed and exits 0, so later APT runs are not
+  blocked. The last line Node Manager prints then starts with
+  `NODE MANAGER ACTIVATION FAILED` and gives the retry command, and
+  `node-manager doctor` repeats it until an activation succeeds.
+
 - The Bitcoin Cash balance index fits the same 1 GiB dashboard limit as the other
   indexes (#363). Its overlay now sets `mem_limit: 1g` and no `GOMEMLIMIT`,
   instead of 2g with `GOMEMLIMIT=1600MiB`. A block of more than 50,000 coin
@@ -65,9 +97,18 @@ All notable changes to this project are documented here. Format follows
   RSS and 945 MiB, in the same session. Mainnet is not measured. A block over 1.2
   million coin operations still stops the index, because the parsed block stays
   whole while its pieces apply.
+- The tor healthcheck runs every 30 seconds with a 75-second timeout, 1 retry
+  and a 2-minute start period (was 60 seconds, 10, 3 and 5 minutes).
+- The health probe opens Tor's control socket only after a failed probe, so a
+  healthy Tor logs no control connections.
 
 ### Fixed
 
+- The host helpers (`node-manager-node-control` and `node-manager-port-control`)
+  no longer fail their systemd unit when the dashboard container is stopped,
+  restarting or being recreated, as it is during a container update. Such a run
+  is skipped and the next timer or path trigger tries again. Other Docker errors
+  still fail the unit.
 - The Bitcoin node card shows its balance index bar. Since 1.39.0 the page
   fetched the Bitcoin index status only while the loading screen was up, so a
   running Bitcoin node never showed the bar. Litecoin, Dogecoin and Bitcoin
@@ -93,6 +134,12 @@ All notable changes to this project are documented here. Format follows
   `./stack doctor` lists every published address the host no longer has and
   every paused listener. `configure.sh --detect-bind-ip` prints the address
   `auto` would pick.
+
+- The Tari node no longer makes Docker log a DNS resolver error every 2
+  minutes. Its Tari Pulse service looked up `checkpoints.tari.com` through the
+  system resolver, which the Tor-only network can never answer. The node config
+  now sets `tari_pulse_enabled = false`. Sync is unchanged, and the dashboard
+  never read the checkpoint result.
 
 ## [1.39.0] - 2026-11-20
 

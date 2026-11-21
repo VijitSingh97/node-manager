@@ -56,6 +56,10 @@ case "${1:-}" in
     case " $* " in
       *' pull '*)
         [ "${FAKE_PULL_FAIL:-0}" != 1 ] || exit 71
+        if [ -n "${FAKE_PULL_FAILURES:-}" ]; then
+          failed=$(cat "$FAKE_DOCKER_LOG.pull-failures" 2>/dev/null || echo 0)
+          if [ "$failed" -lt "$FAKE_PULL_FAILURES" ]; then echo $((failed + 1)) >"$FAKE_DOCKER_LOG.pull-failures"; exit 71; fi
+        fi
         if [ -n "${FAKE_RUNNING_AFTER_PULL:-}" ]; then printf '%s\n' $FAKE_RUNNING_AFTER_PULL >"$FAKE_RUNNING_FILE"; fi
         ;;
       *' up -d '*)
@@ -72,8 +76,24 @@ printf '%s\n' "$*" >>"$FAKE_SYSTEMCTL_LOG"
 case "$*" in 'is-enabled --quiet node-manager-'*'.timer') [ "${FAKE_TIMERS_DISABLED:-0}" != 1 ] ;; esac
 EOF
 chmod +x "$fake/systemctl"
+cat >"$fake/timeout" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >>"$FAKE_TIMEOUT_LOG"
+while [ "${1#-}" != "$1" ]; do shift; done
+shift
+exec "$@"
+EOF
+chmod +x "$fake/timeout"
+cat >"$fake/sleep" <<'EOF'
+#!/bin/sh
+case "$*" in 15 | 30) printf '%s\n' "$*" >>"$FAKE_SLEEP_LOG"; exit 0 ;; esac
+exec /bin/sleep "$@"
+EOF
+chmod +x "$fake/sleep"
+timeout_log=$tmp/timeout.log
+sleep_log=$tmp/sleep.log
 export PATH="$fake:$PATH" FAKE_DOCKER_LOG=$log FAKE_RUNNING_FILE=$running
-export FAKE_SYSTEMCTL_LOG=$systemctl_log
+export FAKE_SYSTEMCTL_LOG=$systemctl_log FAKE_TIMEOUT_LOG=$timeout_log FAKE_SLEEP_LOG=$sleep_log
 export BITCOIN_STACK_ROOT=$PWD BITCOIN_STACK_CONFIG_DIR=$tmp/etc BITCOIN_STACK_STATE_DIR=$tmp/state BITCOIN_STACK_DATA_DIR=$tmp/data
 export BITCOIN_STACK_PACKAGE_MANAGED=apt BITCOIN_STACK_PROJECT_NAME=node-manager-apt
 
@@ -102,7 +122,7 @@ grep -q '^rmi img005$' "$log" && fail "a foreign dangling image was pruned"
 grep -q '^null$' "$tmp/state/.approved-config.json" || fail "package upgrade replaced a legacy approved-config sentinel"
 grep -q "^BITCOIN_DATA_DIR=$custom_data$" "$tmp/state/.env" || fail "package upgrade replaced a custom data path"
 grep -q '^COMPOSE_PROFILES=bitcoin$' "$tmp/state/.env" || fail "package upgrade replaced the approved node selection"
-grep -q 'compose .* pull tor bitcoin dashboard' "$log" || fail "package upgrade did not pull the running subset"
+[ "$(grep -o ' pull [a-z-]*$' "$log" | tr '\n' ' ')" = ' pull tor  pull bitcoin  pull dashboard ' ] || fail "package upgrade did not pull the running subset one image at a time"
 grep -q 'compose .* up -d --pull never --no-build --no-deps tor bitcoin dashboard' "$log" || fail "package upgrade did not recreate the running subset"
 grep -q '^STACK_VERSION=' "$tmp/state/.env" || fail "package upgrade did not render the installed version"
 grep -q '^enable --now node-manager-resource-profile.timer$' "$systemctl_log" || fail "package upgrade did not enable post-sync resource controls"
@@ -137,7 +157,7 @@ grep -q '^enable' "$systemctl_log" && fail "postinst enabled a request watch who
 : >"$log"
 printf '%s\n' tor dashboard >"$running"
 ./stack package-upgrade >/dev/null
-grep -q ' pull tor dashboard' "$log" || fail "package upgrade pulled a stopped node"
+[ "$(grep -o ' pull [a-z-]*$' "$log" | tr '\n' ' ')" = ' pull tor  pull dashboard ' ] || fail "package upgrade pulled a stopped node"
 grep -q ' up -d --pull never --no-build --no-deps tor dashboard' "$log" || fail "package upgrade started a stopped node"
 
 : >"$log"
@@ -150,11 +170,32 @@ before_env=$(cksum "$tmp/state/.env")
 before_approved=$(cksum "$tmp/state/.approved.env")
 : >"$log"
 printf '%s\n' tor bitcoin dashboard >"$running"
-FAKE_PULL_FAIL=1 ./stack package-upgrade >/dev/null 2>&1 && fail "package upgrade accepted a pull failure"
+: >"$sleep_log"
+FAKE_PULL_FAIL=1 ./stack package-upgrade >/dev/null 2>"$tmp/pull-failure.log" && fail "package upgrade accepted a pull failure"
 [ "$(cksum "$tmp/state/.env")" = "$before_env" ] || fail "pull failure changed the runtime environment"
 [ "$(cksum "$tmp/state/.approved.env")" = "$before_approved" ] || fail "pull failure changed the approved environment"
 grep -q ' up -d ' "$log" && fail "pull failure touched running containers"
 [ -f "$tmp/state/.package-upgrade-pending" ] || fail "pull failure did not leave a retry marker"
+[ "$(grep -o ' pull [a-z-]*$' "$log" | tr '\n' ' ')" = ' pull tor  pull tor  pull tor ' ] ||
+  fail "a failing image pull was not tried exactly 3 times before activation stopped"
+[ "$(tr '\n' ' ' <"$sleep_log")" = '15 30 ' ] || fail "image pull retries did not back off 15 s then 30 s"
+[ "$(grep -c '^Pulling the tor image failed after [0-9]* s (attempt [123] of 3)\.$' "$tmp/pull-failure.log")" = 3 ] ||
+  fail "pull failures did not log each attempt's duration"
+./stack doctor >"$tmp/doctor.out" 2>&1 || true
+grep -q "^WARN  Node Manager $FAKE_CURRENT_VERSION is installed, but its containers were not updated; retry with: sudo node-manager package-upgrade\$" "$tmp/doctor.out" ||
+  fail "doctor did not report the pending activation"
+
+: >"$log"
+: >"$timeout_log"
+rm -f "$log.pull-failures"
+FAKE_PULL_FAILURES=2 ./stack package-upgrade >"$tmp/pull-retry.log" 2>&1 || fail "package upgrade gave up on an image pull that succeeded on its third try"
+[ "$(grep -o ' pull [a-z-]*$' "$log" | tr '\n' ' ')" = ' pull tor  pull tor  pull tor  pull bitcoin  pull dashboard ' ] ||
+  fail "a transient pull failure was not retried for that image only"
+grep -q ' up -d --pull never --no-build --no-deps tor bitcoin dashboard' "$log" || fail "package upgrade did not activate after a retried pull"
+[ ! -e "$tmp/state/.package-upgrade-pending" ] || fail "a successful retry left the activation pending"
+grep -q '^Pulled the tor image in [0-9]* s (attempt 3 of 3)\.$' "$tmp/pull-retry.log" || fail "a retried pull did not log its duration"
+grep -q '^Pulled the dashboard image in [0-9]* s (attempt 1 of 3)\.$' "$tmp/pull-retry.log" || fail "a pull did not log its duration"
+[ "$(grep -c '^--foreground --kill-after=30 600 docker compose .* pull [a-z-]*$' "$timeout_log")" = 5 ] || fail "an image pull ran without its 600 s bound"
 
 : >"$log"
 rm -f "$log.up-failed"
@@ -198,6 +239,7 @@ grep -q ' pull ' "$log" && fail "duplicate project identity downloaded images"
 : >"$running"
 ./stack package-upgrade >/dev/null
 grep -q ' pull ' "$log" && fail "stopped stack downloaded images"
+[ ! -e "$tmp/state/.package-upgrade-pending" ] || fail "a stopped stack kept a pending activation that package-upgrade cannot clear"
 grep -q ' up -d ' "$log" && fail "stopped stack was started"
 
 : >"$log"

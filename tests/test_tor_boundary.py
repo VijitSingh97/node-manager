@@ -123,6 +123,36 @@ class TorContainerTest(unittest.TestCase):
             with self.subTest(line=line):
                 self.assertTrue(lib.torrc_violations(read("build/tor/torrc") + line + "\n"))
         self.assertNotIn("ControlPort", read("build/tor/entrypoint.sh"))
+        self.assertIn("ControlSocket /var/lib/tor/control/sock", read("build/tor/torrc"))
+        for line in ("ControlSocket /tmp/tor-control", "ControlSocket /var/lib/tor/c", "ControlSocket 9051", "ControlSocketsGroupWritable 1"):
+            with self.subTest(line=line):
+                self.assertTrue(lib.torrc_violations(read("build/tor/torrc") + line + "\n"))
+
+    def test_the_tor_health_probe_dials_only_listed_hosts_through_tor(self):
+        text = read("build/tor/tor-health.sh")
+        self.assertIn("hosts=${TOR_PROBE_HOSTS:-www.torproject.org check.torproject.org api.github.com}", text)
+        lines = [line.strip() for line in lib.statements(text) if re.search(r"\bnc\s", line)]
+        allowed = ('nc -z -w "$probe_timeout" -X 5 -x 127.0.0.1:9050 "$host" 443 >/dev/null 2>&1', '} | nc -U -w 5 "$sock" 2>/dev/null')
+        for line in lines:
+            with self.subTest(line=line):
+                self.assertTrue(any(a in line for a in allowed), line)
+        self.assertEqual(lib.network_hits(text), [])
+        for hosts in ("www.torproject.org", "check.torproject.org", "api.github.com"):
+            self.assertIn(hosts, read("docs/tor-boundary.md"))
+        for mutated in ('nc -z -w 25 "$host" 443\n', 'nc -z -w 25 -X 5 -x 10.0.0.1:9050 "$host" 443\n', 'nc -z -w 25 -x 127.0.0.1:9050 "$host" 443\n', 'nc -z -w 25 -X 5 -x 127.0.0.1:9051 "$host" 443\n'):
+            with self.subTest(mutated=mutated):
+                self.assertTrue(lib.network_hits(mutated), mutated)
+        self.assertEqual(lib.network_hits('nc -z -w 25 -X 5 -x 127.0.0.1:9050 "$host" 443\n'), [])
+
+    def test_the_tor_service_keeps_its_control_socket_private(self):
+        files = compose_files()
+        self.assertEqual(lib.compose_violations(files), [])
+        base = files["docker-compose.yml"]
+        for old, new in (("      - tor_data:/var/lib/tor\n", "      - tor_data:/var/lib/tor\n      - /srv/x:/tmp\n"),):
+            with self.subTest(new=new):
+                self.assertIn(old, base)
+                changed = dict(files, **{"docker-compose.yml": base.replace(old, new, 1)})
+                self.assertTrue(any("/tmp" in item for item in lib.compose_violations(changed)))
 
     def test_the_dashboard_dials_the_tor_container_address(self):
         monitor = read("build/dashboard/monitor.go")
@@ -271,7 +301,7 @@ class HostScriptTest(unittest.TestCase):
     def test_scanner_allows_loopback_tor_and_offline_forms(self):
         for script in (
             "curl -fsS http://127.0.0.1:8232/\n", 'curl -q --socks5-hostname "$TOR_PROXY" https://x\n', "docker run --rm --network none alpine\n",
-            "compose up -d --pull never --no-build tor\n", "nc -z 127.0.0.1 9050\n", "# curl https://example.com\n", 'echo "use curl later"\n',
+            "compose up -d --pull never --no-build tor\n", "nc -z 127.0.0.1 9050\n", 'nc -U -w 5 "$sock"\n', "# curl https://example.com\n", 'echo "use curl later"\n',
             "cat <<EOF\ncurl https://example.com\nEOF\n", "socat TCP4-LISTEN:1,fork TCP4:172.29.0.27:8000 &\n", "git rev-parse HEAD\n",
             "case x in brew) ;; 1 | apt) ;; esac\n", "brew services start node-manager\n",
             "command -v curl >/dev/null\n", "openssl rand -hex 8\n", "for host in $HOSTS; do echo $host; done\n", "docker exec c ls /data\n",

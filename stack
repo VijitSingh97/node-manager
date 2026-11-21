@@ -202,7 +202,7 @@ compose() {
       echo "Invalid Compose timeout." >&2
       return 1
     }
-    runner=(timeout --foreground "$BITCOIN_STACK_COMPOSE_TIMEOUT_SECONDS" docker compose)
+    runner=(timeout --foreground --kill-after=30 "$BITCOIN_STACK_COMPOSE_TIMEOUT_SECONDS" docker compose)
   fi
   if [ "$state_dir" = "$stack_root" ]; then
     "${runner[@]}" --project-name "$project_name" "$@"
@@ -1378,6 +1378,22 @@ pull_images() {
   compose pull "$@"
 }
 
+pull_package_images() {
+  local service attempt started
+  for service in "$@"; do
+    for attempt in 1 2 3; do
+      started=$SECONDS
+      if BITCOIN_STACK_COMPOSE_TIMEOUT_SECONDS=600 pull_images "$service"; then
+        echo "Pulled the $service image in $((SECONDS - started)) s (attempt $attempt of 3)."
+        continue 2
+      fi
+      echo "Pulling the $service image failed after $((SECONDS - started)) s (attempt $attempt of 3)." >&2
+      [ "$attempt" = 3 ] || sleep $((attempt * 15))
+    done
+    return 1
+  done
+}
+
 running_package_services() {
   local service id running
   for service in tor bitcoin monero monero-wallet tari tari-wallet litecoin dogecoin bitcoincash zcash dashboard; do
@@ -1474,6 +1490,7 @@ package_upgrade() {
   running_before=()
   [ -z "$running_output" ] || mapfile -t running_before <<<"$running_output"
   if [ "${#running_before[@]}" = 0 ]; then
+    rm -f "$state_dir/.package-upgrade-pending"
     unlock_config
     return 0
   fi
@@ -1489,7 +1506,7 @@ package_upgrade() {
   package_upgrade_failed=0
   if ! render_package_upgrade_env; then
     package_upgrade_failed=1
-  elif ! BITCOIN_STACK_COMPOSE_TIMEOUT_SECONDS=1800 pull_images "${running_before[@]}"; then
+  elif ! pull_package_images "${running_before[@]}"; then
     package_upgrade_failed=1
   fi
   if [ "$package_upgrade_failed" = 1 ]; then
@@ -1645,6 +1662,8 @@ doctor() {
   done
 
   echo "== Config"
+  [ ! -e "$state_dir/.package-upgrade-pending" ] ||
+    echo "WARN  Node Manager $(cat "$stack_root/VERSION" 2>/dev/null) is installed, but its containers were not updated; retry with: sudo node-manager package-upgrade"
   if [ ! -f "$config_file" ]; then
     echo "MISS  config.json ($config_file)"
   elif [ ! -f "$env_file" ]; then

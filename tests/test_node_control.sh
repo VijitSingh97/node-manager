@@ -82,7 +82,7 @@ set -eu
 if [ "$1" = ps ]; then
   case "$*" in *'{{.State}}'*)
     [ "${FAKE_PS_FAIL:-0}" != 1 ] || exit 1
-    [ "${FAKE_DASHBOARD_MISSING:-0}" = 1 ] || printf 'dashboard dashboard-id running %s/docker-compose.yml\n' "$BITCOIN_STACK_ROOT"
+    [ "${FAKE_DASHBOARD_MISSING:-0}" = 1 ] || printf 'dashboard dashboard-id %s %s/docker-compose.yml\n' "${FAKE_DASHBOARD_STATE:-running}" "$BITCOIN_STACK_ROOT"
     [ ! -f "${FAKE_SERVICE_IDS:-/nonexistent}" ] || awk -v state="${FAKE_START_STATES:+exited}" '{ print $1, $2, (state == "" ? "running" : state) }' "$FAKE_SERVICE_IDS"
     exit 0 ;;
   esac
@@ -142,6 +142,10 @@ fi
 [ "$1" = exec ] || exit 1
 if [ -n "${FAKE_EXEC_FAIL_ONCE:-}" ] && [ ! -e "$FAKE_EXEC_FAIL_ONCE" ]; then
   : >"$FAKE_EXEC_FAIL_ONCE"
+  exit 1
+fi
+if [ -n "${FAKE_EXEC_ERROR:-}" ]; then
+  printf 'Error response from daemon: %s\n' "$FAKE_EXEC_ERROR" >&2
   exit 1
 fi
 shift
@@ -1247,6 +1251,19 @@ NODE_CONTROL_NOW_EPOCH=1800 NODE_CONTROL_UPTIME_FILE=$tmp/uptime FAKE_EXEC_FAIL_
   fail "a run right after boot gave up while the dashboard was starting"
 [ -e "$tmp/exec-failed-at-boot" ] && [ "$(jq -r .timestamp "$dashboard_state/node-control.capability")" = 1800 ] ||
   fail "a run right after boot did not publish once the dashboard answered"
+printf '900.12 1800.00\n' >"$tmp/uptime"
+dashboard_files() { find "$dashboard_state" -type f -exec cksum {} + | sort; }
+dashboard_before=$(dashboard_files)
+for down in 'exited|container dashboard-id is not running' 'running|container dashboard-id is not running' \
+  'restarting|Container dashboard-id is restarting, wait until the container is running' 'removing|No such container: dashboard-id'; do
+  NODE_CONTROL_NOW_EPOCH=1900 NODE_CONTROL_UPTIME_FILE=$tmp/uptime FAKE_DASHBOARD_STATE=${down%%|*} FAKE_EXEC_ERROR=${down#*|} run_nc 2>"$tmp/stderr" ||
+    fail "a run while the dashboard was ${down%%|*} (${down#*|}) failed its unit"
+  grep -qF "${down#*|}" "$tmp/stderr" || fail "a skipped run hid the Docker error: $(cat "$tmp/stderr")"
+done
+[ "$(dashboard_files)" = "$dashboard_before" ] || fail "a run while the dashboard was down wrote dashboard state"
+if NODE_CONTROL_UPTIME_FILE=$tmp/uptime FAKE_EXEC_ERROR='Container dashboard-id is paused, unpause the container before exec' run_nc 2>/dev/null; then
+  fail "a run that could not reach a paused dashboard reported success"
+fi
 
 jq -S . "$config/config.json" >"$state/.approved-config.json"
 mkdir -p "$tmp/jq-shim"
