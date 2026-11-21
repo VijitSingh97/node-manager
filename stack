@@ -248,19 +248,31 @@ container_id() {
 
 guard_package_containers() {
   [ "$package_managed" != 0 ] || return 0
-  local service id config working_dir
+  local rows service config working_dir seen=' '
+  local guarded=' tor bitcoin monero monero-wallet tari tari-wallet litecoin dogecoin bitcoincash zcash dashboard '
   local legacy_stack_root=${stack_root//node-manager/bitcoin-starter-stack}
   local legacy_state_dir=${state_dir//node-manager/bitcoin-starter-stack}
-  for service in tor bitcoin monero monero-wallet tari tari-wallet litecoin dogecoin bitcoincash zcash dashboard; do
-    if ! id=$(container_id "$service"); then
-      echo "Existing $service container ownership could not be queried; package mode will not replace it." >&2
-      return 1
-    fi
-    [ -n "$id" ] || continue
-    config=$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project.config_files" }}' "$id" 2>/dev/null) || {
+  if ! rows=$(docker ps -a --filter "label=com.docker.compose.project=$project_name" \
+    --format '{{.Label "com.docker.compose.service"}}|{{.ID}}|{{.Label "com.docker.compose.project.config_files"}}|{{.Label "com.docker.compose.project.working_dir"}}'); then
+    echo "Existing container ownership could not be queried; package mode will not replace it." >&2
+    return 1
+  fi
+  while IFS='|' read -r service _ config working_dir; do
+    case "$guarded" in
+      *" $service "*) ;;
+      *) continue ;;
+    esac
+    case "$seen" in
+      *" $service "*)
+        echo "Multiple $service containers use the $project_name project identity." >&2
+        return 1
+        ;;
+    esac
+    seen+="$service "
+    if [ -z "$config" ]; then
       echo "Existing $service container ownership could not be verified; package mode will not replace it." >&2
       return 1
-    }
+    fi
     case ",$config," in
       *",$stack_root/docker-compose.yml,"* | *",$legacy_stack_root/docker-compose.yml,"*) ;;
       *)
@@ -269,12 +281,11 @@ guard_package_containers() {
         return 1
         ;;
     esac
-    working_dir=$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' "$id" 2>/dev/null) || return 1
     if [ "$working_dir" != "$state_dir" ] && [ "$working_dir" != "$legacy_state_dir" ]; then
       echo "Existing $service container belongs to another installation; this installation will not replace it." >&2
       return 1
     fi
-  done
+  done <<<"$rows"
 }
 utxo_select_chain() {
   utxo_chain=$1 utxo_arg='' utxo_prefix='' utxo_overlay=docker-compose.utxo-index.yml utxo_volume=utxo_index

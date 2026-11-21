@@ -359,11 +359,6 @@ func (a *app) nodeControlAvailable() bool {
 	return ok
 }
 
-func (a *app) nodeControlPending() bool {
-	_, pending := a.pendingNodeControlStatus()
-	return pending
-}
-
 func (a *app) pendingNodeControlStatus() (*nodeControlStatus, bool) {
 	for _, name := range []string{"request", "processing"} {
 		b, err := readSmallFile(a.nodeControlPath(name), 4096)
@@ -414,8 +409,22 @@ func (a *app) readNodeControlStatus() *nodeControlStatus {
 	case "failed":
 		status.Message = nodeDisplayName(status.Node) + " state could not be changed."
 	}
-	status.ErrorCode = ""
+	if reason, ok := nodeControlReasons[status.ErrorCode]; ok && status.State != "applied" {
+		status.Message = nodeDisplayName(status.Node) + " " + reason
+	} else {
+		status.ErrorCode = ""
+	}
 	return &status
+}
+
+var nodeControlReasons = map[string]string{
+	"config_pending":      "was not changed: review the pending config change first.",
+	"node_not_configured": "was not changed: it is not configured.",
+	"unchanged":           "was not changed: it is already in that state.",
+	"validation_failed":   "was not changed: its settings did not pass validation.",
+	"replayed":            "was not changed: that request was already processed.",
+	"apply_failed":        "could not be changed; the prior state was restored.",
+	"rollback_failed":     "could not be changed and its prior state could not be fully restored. Check the node.",
 }
 
 func normalizeNodeID(id string) string {

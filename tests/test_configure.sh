@@ -13,6 +13,14 @@ fail() {
   exit 1
 }
 
+# Config values are data: a shell payload in a setting must never run.
+inj=$(mktemp -d "$tmp/inject.XXXXXX")
+cp configure.sh "$inj/"
+# shellcheck disable=SC2016
+printf '{"dashboard":{"password":"configuretest12"},"bitcoin":{"node_username":"u$(touch %s/pwn1)`touch %s/pwn2`","node_password":"p'"'"'$(touch %s/pwn3)"}}\n' "$inj" "$inj" "$inj" >"$inj/config.json"
+(cd "$inj" && ./configure.sh) >/dev/null 2>&1 || true
+[ ! -e "$inj/pwn1" ] && [ ! -e "$inj/pwn2" ] && [ ! -e "$inj/pwn3" ] || fail "configure.sh ran shell code from config.json"
+
 # 1. A baseline dashboard password is required before configure renders defaults.
 (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "configure accepted a missing dashboard password"
 printf '%s\n' '{"dashboard":{"password":"configuretest12"}}' >"$tmp/config.json"

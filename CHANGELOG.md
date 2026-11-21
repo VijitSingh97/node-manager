@@ -54,6 +54,12 @@ All notable changes to this project are documented here. Format follows
 
 ### Changed
 
+- `configure.sh` reads `config.json` with two `jq` runs instead of about 130. On
+  an Apple Silicon Mac a run took about 0.3 s instead of 1.2 s; the Intel mini PC
+  is not measured. A node power change runs it twice, so the container gets its
+  stop or start sooner. The `.env` it writes and its validation messages are
+  unchanged.
+
 - On Debian and Ubuntu a dashboard request now starts its host helper at once.
   New `node-manager-node-control.path` and `node-manager-port-control.path`
   units watch the request files in the dashboard state volume, and upgrades
@@ -109,6 +115,9 @@ All notable changes to this project are documented here. Format follows
   and a 2-minute start period (was 60 seconds, 10, 3 and 5 minutes).
 - The health probe opens Tor's control socket only after a failed probe, so a
   healthy Tor logs no control connections.
+- The package ownership check before every start and stop asks Docker once for
+  all of the project's containers. It used to ask once per service and twice
+  more for each existing container, up to 33 calls.
 
 ### Fixed
 
@@ -156,6 +165,9 @@ All notable changes to this project are documented here. Format follows
   system resolver, which the Tor-only network can never answer. The node config
   now sets `tari_pulse_enabled = false`. Sync is unchanged, and the dashboard
   never read the checkpoint result.
+- Node activate and deactivate rejections now say why, for example "Bitcoin was
+  not changed: review the pending config change first", instead of a generic
+  "state change was rejected". Unknown reasons keep the generic wording.
 
 ## [1.39.0] - 2026-11-20
 
