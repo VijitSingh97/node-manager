@@ -78,8 +78,14 @@ chmod +x "$root/configure.sh" "$root/stack" "$root/scripts/node-control" "$root/
 cat >"$tmp/docker" <<'EOF'
 #!/usr/bin/env bash
 set -eu
+[ -z "${FAKE_CALL_LOG:-}" ] || printf '%s\n' "$*" >>"$FAKE_CALL_LOG"
 if [ "$1" = ps ]; then
-  case "$*" in *status=exited*) [ "${FAKE_PS_FAIL:-0}" != 1 ] || exit 1 ;; esac
+  case "$*" in *'{{.State}}'*)
+    [ "${FAKE_PS_FAIL:-0}" != 1 ] || exit 1
+    [ "${FAKE_DASHBOARD_MISSING:-0}" = 1 ] || printf 'dashboard dashboard-id running %s/docker-compose.yml\n' "$BITCOIN_STACK_ROOT"
+    [ ! -f "${FAKE_SERVICE_IDS:-/nonexistent}" ] || awk -v state="${FAKE_START_STATES:+exited}" '{ print $1, $2, (state == "" ? "running" : state) }' "$FAKE_SERVICE_IDS"
+    exit 0 ;;
+  esac
   case "$*" in *--format*) [ ! -f "${FAKE_SERVICE_IDS:-/nonexistent}" ] || cat "$FAKE_SERVICE_IDS"; exit 0 ;; esac
   case "$*" in *--filter\ volume=*)
     [ "${FAKE_VOLUME_IN_USE:-0}" != 1 ] || printf 'container-using-volume\n'
@@ -98,7 +104,11 @@ fi
 if [ "$1" = inspect ]; then
   case "$3" in
     '{{.Id}}') [ "${FAKE_DASHBOARD_MISSING:-0}" = 1 ] || printf 'dashboard-id\n' ;;
-    *State.Error*) awk -v id="$4" '$1 == id { sub(/^[^ ]+ /, ""); print }' "${FAKE_START_STATES:-/nonexistent}" 2>/dev/null || true ;;
+    '{{.State.Status}}|{{.State.Error}}') awk -v id="$4" '$1 == id { sub(/^[^ ]+ /, ""); print }' "${FAKE_START_STATES:-/nonexistent}" 2>/dev/null || true ;;
+    *State.Error*)
+      for id in "${@:4}"; do
+        awk -v id="$id" '$1 == id { sub(/^[^ ]+ /, ""); print substr(id, 1, length(id) - 4) "|" $0 }' "${FAKE_START_STATES:-/nonexistent}" 2>/dev/null || true
+      done ;;
     *StartedAt*) printf '%s\n' "${FAKE_NODE_STARTED_AT:-}" ;;
     *RestartPolicy*) printf '%s/docker-compose.yml|on-failure|3\n' "$BITCOIN_STACK_ROOT" ;;
     *project.config_files*) printf '%s/docker-compose.yml\n' "$BITCOIN_STACK_ROOT" ;;
@@ -130,6 +140,10 @@ fi
   exit 0
 }
 [ "$1" = exec ] || exit 1
+if [ -n "${FAKE_EXEC_FAIL_ONCE:-}" ] && [ ! -e "$FAKE_EXEC_FAIL_ONCE" ]; then
+  : >"$FAKE_EXEC_FAIL_ONCE"
+  exit 1
+fi
 shift
 [ "${1:-}" != -i ] || shift
 if [ "${1:-}" = -u ]; then shift 2; fi
@@ -1218,6 +1232,56 @@ NODE_CONTROL_NOW_EPOCH=1690 recover_nc
 grep -qx 'up --force-recreate tor' "$tmp/stack.log" || fail "a due recovery was not retried"
 [ ! -s "$state/node-control/recover" ] || fail "a retried recovery did not clear its entry"
 [ "$(grep -c 'recreated it' "$dashboard_state/events.log")" = 2 ] || fail "the retried recovery was not logged"
+: >"$tmp/docker-calls"
+NODE_CONTROL_NOW_EPOCH=1700 FAKE_CALL_LOG=$tmp/docker-calls recover_nc
+heartbeat_line=$(grep -n '^exec -i -u 1000 dashboard-id sh -c' "$tmp/docker-calls" | head -n 1 | cut -d: -f1)
+recover_line=$(grep -n '^inspect --format {{index' "$tmp/docker-calls" | head -n 1 | cut -d: -f1)
+[ -n "$heartbeat_line" ] && [ -n "$recover_line" ] && [ "$heartbeat_line" -lt "$recover_line" ] ||
+  fail "the capability heartbeat waited for container recovery: $(cat "$tmp/docker-calls")"
+printf '900.12 1800.00\n' >"$tmp/uptime"
+if NODE_CONTROL_UPTIME_FILE=$tmp/uptime FAKE_EXEC_FAIL_ONCE=$tmp/exec-failed run_nc; then
+  fail "a run that could not reach the dashboard long after boot reported success"
+fi
+printf '120.50 240.00\n' >"$tmp/uptime"
+NODE_CONTROL_NOW_EPOCH=1800 NODE_CONTROL_UPTIME_FILE=$tmp/uptime FAKE_EXEC_FAIL_ONCE=$tmp/exec-failed-at-boot run_nc ||
+  fail "a run right after boot gave up while the dashboard was starting"
+[ -e "$tmp/exec-failed-at-boot" ] && [ "$(jq -r .timestamp "$dashboard_state/node-control.capability")" = 1800 ] ||
+  fail "a run right after boot did not publish once the dashboard answered"
+
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+mkdir -p "$tmp/jq-shim"
+printf '#!/bin/sh\nprintf x >>"%s"\nexec "%s" "$@"\n' "$tmp/jq-calls" "$(command -v jq)" >"$tmp/jq-shim/jq"
+chmod +x "$tmp/jq-shim/jq"
+: >"$tmp/jq-calls"
+: >"$tmp/docker-calls"
+NODE_CONTROL_NOW_EPOCH=2000 FAKE_CALL_LOG=$tmp/docker-calls PATH="$tmp/jq-shim:$PATH" run_nc
+[ "$(jq -r .timestamp "$dashboard_state/node-control.capability")" = 2000 ] || fail "an idle tick did not refresh the host capability"
+{ [ "$(grep -c '^[a-z]' "$tmp/docker-calls")" = 2 ] && grep -q '^ps -a ' "$tmp/docker-calls" && grep -q '^exec -i -u 1000 dashboard-id sh -c' "$tmp/docker-calls"; } ||
+  fail "an idle tick made more than one listing and one exec: $(cat "$tmp/docker-calls")"
+[ "$(wc -c <"$tmp/jq-calls" | tr -d ' ')" -le 4 ] || fail "an idle tick ran jq $(wc -c <"$tmp/jq-calls" | tr -d ' ') times"
+request '{"id":"7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f","node":"tari","active":true,"confirmation":"","requested_at":2000}'
+NODE_CONTROL_NOW_EPOCH=2000 run_nc
+[ "$(status .id):$(status .state)" = 7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f:applied ] && [ ! -e "$dashboard_state/node-control.request" ] ||
+  fail "a triggered run did not take the waiting request"
+
+timer_seconds() { value=$(sed -n "s/^$1=\([0-9]*\)s$/\1/p" "$2"); printf '%s\n' "${value:-$3}"; }
+timer=packaging/systemd/node-manager-node-control.timer
+age=$(sed -n 's/^const nodeControlCapabilityAge = \([0-9]*\) \* time.Second$/\1/p' build/dashboard/node_control.go)
+interval=$(timer_seconds OnUnitActiveSec "$timer" '')
+slack=$(($(timer_seconds AccuracySec "$timer" 60) + $(timer_seconds RandomizedDelaySec "$timer" 0)))
+[ -n "$age" ] && [ -n "$interval" ] && [ $((interval + slack + 20)) -le "$age" ] ||
+  fail "the node-control heartbeat (${interval:-?} s plus ${slack} s of timer slack) does not refresh the capability 20 s inside the dashboard's ${age:-?} s limit"
+[ "$interval" -ge 60 ] || fail "the node-control timer runs more often than its heartbeat needs"
+unit=packaging/systemd/node-manager-node-control.path
+grep -qx 'Unit=node-manager-node-control.service' "$unit" || fail "the request watch does not start node-control"
+grep -qx 'StartLimitBurst=30' packaging/systemd/node-manager-node-control.service || fail "a burst of requests would trip the start limit and stop the request watch"
+! grep -q '^PathExists' "$unit" || fail "a level-triggered watch would loop on a request the helper leaves in place"
+for project in node-manager-apt bitcoin-starter-stack-apt; do
+  grep -qx "PathChanged=/var/lib/docker/volumes/${project}_dashboard_state/_data/node-control.request" "$unit" ||
+    fail "the request watch misses the $project dashboard volume"
+done
+{ grep -qx '      - dashboard_state:/state' docker-compose.yml && grep -q "fresh_project='node-manager-apt'" stack &&
+  grep -q 'legacy_project=bitcoin-starter-stack-apt' stack; } || fail "the dashboard volume or APT project name changed; update the request watch"
 
 
 rm -f "$state/node-control/recover" "$dashboard_state/events.log"
@@ -1368,6 +1432,6 @@ drift_nc 4120 "127.0.0.1 192.168.1.30" 192.168.1.30
 [ "$(grep -c 'Host: dashboard.bind_ip 192.168.1.20 is not on this host' "$dashboard_state/events.log")" = 1 ] || fail "a missing fixed address was not warned about once"
 cmp -s "$config/config.json" "$tmp/drift-pending.json" || fail "a missing fixed address touched the config"
 drift_nc 4130 "127.0.0.1 192.168.1.20" 192.168.1.20
-[ ! -e "$state/node-control/bind-address" ] || fail "a returned fixed address kept its warning record"
+[ "$(drift_state)" = 192.168.1.20 ] || fail "a returned fixed address kept its warning record"
 
 echo "PASS: test_node_control.sh"

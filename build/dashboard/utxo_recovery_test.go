@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -88,10 +89,10 @@ func utxoRecoveryPrefixStates(t *testing.T) map[string]bool {
 	return states
 }
 
-func utxoRecoveryKill(t *testing.T, dir, mode, stop string) {
+func utxoRecoveryKill(t *testing.T, dir, mode, stop string, env ...string) {
 	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=^TestUtxoRecoveryHelper$")
-	cmd.Env = append(os.Environ(), "UTXO_RECOVERY_DIR="+dir, "UTXO_RECOVERY_MODE="+mode, "UTXO_RECOVERY_STOP="+stop)
+	cmd.Env = append(append(os.Environ(), "UTXO_RECOVERY_DIR="+dir, "UTXO_RECOVERY_MODE="+mode, "UTXO_RECOVERY_STOP="+stop), env...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.StdoutPipe()
@@ -125,6 +126,9 @@ func TestUtxoRecoveryHelper(t *testing.T) {
 	fail := func(code int, err error) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(code)
+	}
+	if n, _ := strconv.Atoi(os.Getenv("UTXO_PIECE_OPS")); n > 0 {
+		utxoBlockPieceOps = n
 	}
 	s, err := openUtxoStore(dir)
 	if err != nil {
@@ -238,6 +242,46 @@ func TestUtxoRecoveryKillLoopRollbacks(t *testing.T) {
 		}
 		if s.Valid() && !states[utxoRecoveryPrint(t, s)] {
 			t.Fatalf("kill %d: reopened store is not a prefix of either branch:\n%s", k, utxoRecoveryPrint(t, s))
+		}
+		_ = s.Close()
+	}
+}
+
+func TestUtxoRecoveryKillLoopPiecedReorg(t *testing.T) {
+	if testing.Short() {
+		t.Skip("kill loop skipped in short mode")
+	}
+	pieces := utxoBlockPieceOps
+	utxoBlockPieceOps = 1
+	t.Cleanup(func() { utxoBlockPieceOps = pieces })
+	states := utxoRecoveryPrefixStates(t)
+	s := openFollowStore(t)
+	rpc := &utxoRecoveryRPC{cur: utxoRecoveryChain("a", 6)}
+	f := newUtxoFollower(s, rpc)
+	stepOK(t, f)
+	commits := 0
+	s.beforeCommit = func() error { commits++; return nil }
+	rpc.cur = utxoRecoveryChain("b", 8)
+	stepOK(t, f)
+	want := utxoRecoveryPrint(t, s)
+	t.Logf("the pieced reorg takes %d commits", commits)
+	if commits < 30 {
+		t.Fatalf("the pieced reorg took only %d commits", commits)
+	}
+	// Each block here takes three commits, so a stride of 4 still reaches every kind of boundary.
+	for k := 1; k <= commits; k += 4 {
+		dir := t.TempDir()
+		utxoRecoveryKill(t, dir, "reorg", fmt.Sprint(k), "UTXO_PIECE_OPS=1")
+		s, err := openUtxoStore(dir)
+		if err != nil {
+			t.Fatalf("kill %d: reopen: %v", k, err)
+		}
+		if !s.Valid() || !states[utxoRecoveryPrint(t, s)] {
+			t.Fatalf("kill %d: reopened store is not a prefix of either branch:\n%s", k, utxoRecoveryPrint(t, s))
+		}
+		stepOK(t, newUtxoFollower(s, &utxoRecoveryRPC{cur: utxoRecoveryChain("b", 8)}))
+		if got := utxoRecoveryPrint(t, s); got != want {
+			t.Fatalf("kill %d: resumed store differs from branch b:\n%s", k, got)
 		}
 		_ = s.Close()
 	}

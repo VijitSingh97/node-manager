@@ -56,14 +56,15 @@ type utxoSeedResult struct {
 }
 
 type utxoSeedState struct {
-	RequestID   string          `json:"request_id,omitempty"`
-	SeedState   string          `json:"seed_state,omitempty"`
-	Phase       string          `json:"phase,omitempty"`
-	Progress    *float64        `json:"progress,omitempty"`
-	Refusals    []seedRefusal   `json:"refusals,omitempty"`
-	StartedAt   time.Time       `json:"started_at"`
-	AlertsUntil time.Time       `json:"alerts_suppressed_until"`
-	Last        *utxoSeedResult `json:"last_seed"`
+	RequestID         string          `json:"request_id,omitempty"`
+	SeedState         string          `json:"seed_state,omitempty"`
+	Phase             string          `json:"phase,omitempty"`
+	Progress          *float64        `json:"progress,omitempty"`
+	Refusals          []seedRefusal   `json:"refusals,omitempty"`
+	StartedAt         time.Time       `json:"started_at"`
+	AlertsUntil       time.Time       `json:"alerts_suppressed_until"`
+	VerifyAlertsUntil time.Time       `json:"verify_alerts_suppressed_until"`
+	Last              *utxoSeedResult `json:"last_seed"`
 
 	AutoRequestID string `json:"auto_request_id,omitempty"`
 	AutoFailures  int    `json:"auto_failures,omitempty"`
@@ -362,6 +363,9 @@ func (m *utxoManager) run(ctx context.Context) {
 			case <-poll:
 				m.pollSeed(ctx)
 				m.maybeAutoSeed(ctx)
+				if m.bench != nil {
+					m.pollVerify(ctx)
+				}
 			}
 		}
 	}
@@ -618,7 +622,7 @@ func (m *utxoManager) AlertsSuppressed() bool {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.alertsSuppressedLocked()
+	return m.alertsSuppressedLocked() || m.now().Before(m.seed.VerifyAlertsUntil)
 }
 
 func (m *utxoManager) tick(ctx context.Context) {
@@ -826,7 +830,7 @@ func pathsOverlap(a, b string) bool {
 
 // newChainUtxo builds the index for a chain other than Bitcoin; its seed holds that chain's watch scan.
 func (a *app) newChainUtxo(node nodeConfig, chain *utxoChainParams, logger *log.Logger) *utxoManager {
-	// shortcut: 64 MiB holds a 32 MB Bitcoin Cash block as hex; raise it, and the 2 GiB cap, if Bitcoin Cash blocks grow past 32 MB.
+	// shortcut: 64 MiB holds a 32 MB Bitcoin Cash block as hex; raise it, and utxoBlockOpsCap, if Bitcoin Cash blocks grow past 32 MB.
 	rpc := &rpcClient{url: node.RPCURL, user: node.RPCUser, password: node.RPCPassword, client: newInternalHTTPClient(2 * time.Minute), maxBody: 64 << 20}
 	m := newUtxoManager(node.UTXOIndexDir, nil, rpc, logger, chain)
 	m.blockWait = rpc

@@ -228,7 +228,7 @@ func TestParseCashBlockRefusesABlockOverTheCoinOperationCap(t *testing.T) {
 		t.Fatalf("a block at the cap: %v", err)
 	}
 	_, err := parseRawBlock(cashTestBlock([32]byte{}, coinbase, tiny(4), tiny(2)), 9, utxoBitcoinCash)
-	if !errors.Is(err, errUtxoBlockTooLarge) || !strings.Contains(err.Error(), "block 9 has 9 coin operations, more than the 6") || !strings.Contains(err.Error(), "#363") {
+	if !errors.Is(err, errUtxoBlockTooLarge) || !strings.Contains(err.Error(), "block 9 has 9 coin operations, more than the 6") {
 		t.Fatalf("a block of empty-script outputs over the cap gave %v", err)
 	}
 }

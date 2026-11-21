@@ -205,18 +205,27 @@ func TestUtxoStoreDisconnectRestoresPreviousCoins(t *testing.T) {
 }
 
 func TestUtxoStoreJournalDepth(t *testing.T) {
-	s := utxoTestOpen(t, t.TempDir())
-	utxoTestApply(t, s, 1, 200)
-	for i := 0; i < utxoJournalDepth; i++ {
-		if err := s.DisconnectTip(); err != nil {
-			t.Fatalf("disconnect %d: %v", i, err)
+	for _, pieces := range []int{utxoBlockPieceOps, 1} {
+		s := utxoTestOpen(t, t.TempDir())
+		withPieceOps(pieces, func() { utxoTestApply(t, s, 1, 200) })
+		// Blocks after the first have four operations, so in 1-op pieces each keeps three piece records.
+		if got, want := utxoTestPieceKeys(utxoTestDump(t, s)), map[int]int{1: 3 * utxoJournalDepth}[pieces]; got != want {
+			t.Fatalf("pieces of %d: %d piece records in the journal, want %d", pieces, got, want)
+		}
+		for i := 0; i < utxoJournalDepth; i++ {
+			if err := s.DisconnectTip(); err != nil {
+				t.Fatalf("disconnect %d: %v", i, err)
+			}
+		}
+		utxoTestExpectTip(t, s, 200-utxoJournalDepth)
+		if err := s.DisconnectTip(); !errors.Is(err, errUtxoNoUndo) {
+			t.Fatalf("disconnect past the journal: %v", err)
+		}
+		utxoTestExpectTip(t, s, 200-utxoJournalDepth)
+		if n := utxoTestPieceKeys(utxoTestDump(t, s)); n != 0 {
+			t.Fatalf("pieces of %d: %d piece records left after undoing the journal", pieces, n)
 		}
 	}
-	utxoTestExpectTip(t, s, 200-utxoJournalDepth)
-	if err := s.DisconnectTip(); !errors.Is(err, errUtxoNoUndo) {
-		t.Fatalf("disconnect past the journal: %v", err)
-	}
-	utxoTestExpectTip(t, s, 200-utxoJournalDepth)
 }
 
 func TestUtxoStoreIntraBlockSpendAndOverwriteUndo(t *testing.T) {
@@ -488,6 +497,16 @@ func utxoTestCheckConsistent(t *testing.T, dir string, minTip uint32, label stri
 			closer.Close()
 		}
 	}
+	it, err := s.db.NewIter(&pebble.IterOptions{LowerBound: utxoUndoKey(tip + 1), UpperBound: []byte("undp")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer it.Close()
+	for valid := it.First(); valid; valid = it.Next() {
+		if n := len(it.Key()); n == 8 || n == len(utxoPieceKey(0, 0)) {
+			t.Fatalf("%s: undo record %x above tip %d survived the reopen", label, it.Key(), tip)
+		}
+	}
 	return tip
 }
 
@@ -496,17 +515,30 @@ func TestUtxoStoreCrashAtEveryWALWrite(t *testing.T) {
 		t.Skip("crash points skipped in short mode")
 	}
 	crashed := 0
-	for k := 1; k <= 40; k++ {
-		dir := t.TempDir()
-		cmd := exec.Command(os.Args[0], "-test.run=^TestUtxoStoreKillHelper$")
-		cmd.Env = append(os.Environ(), "UTXO_KILL_DIR="+dir, fmt.Sprintf("UTXO_CRASH_AT=%d", k))
-		if err := cmd.Run(); err == nil {
-			t.Fatalf("crash point %d: helper exited cleanly", k)
-		} else if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != utxoTestCrashExit {
-			t.Fatalf("crash point %d: helper failed: %v", k, err)
+	// A piece size of 1 applies every block in pieces, so the crash points fall between pieces too.
+	for _, pieces := range []string{"", "1"} {
+		for k := 1; k <= 40; k++ {
+			dir := t.TempDir()
+			cmd := exec.Command(os.Args[0], "-test.run=^TestUtxoStoreKillHelper$")
+			cmd.Env = append(os.Environ(), "UTXO_KILL_DIR="+dir, fmt.Sprintf("UTXO_CRASH_AT=%d", k), "UTXO_PIECE_OPS="+pieces)
+			label := fmt.Sprintf("pieces %q crash point %d", pieces, k)
+			if err := cmd.Run(); err == nil {
+				t.Fatalf("%s: helper exited cleanly", label)
+			} else if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != utxoTestCrashExit {
+				t.Fatalf("%s: helper failed: %v", label, err)
+			}
+			crashed++
+			tip := utxoTestCheckConsistent(t, dir, 0, label)
+			s, err := openUtxoStore(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			withPieceOps(1, func() { err = s.ApplyBlock(utxoTestBlock(tip + 1)) })
+			if cerr := s.Close(); err != nil || cerr != nil {
+				t.Fatalf("%s: resuming at %d: %v %v", label, tip+1, err, cerr)
+			}
+			utxoTestCheckConsistent(t, dir, tip+1, label+" resumed")
 		}
-		crashed++
-		utxoTestCheckConsistent(t, dir, 0, fmt.Sprintf("crash point %d", k))
 	}
 	if crashed == 0 {
 		t.Fatal("no crash points ran")
@@ -530,6 +562,9 @@ func TestUtxoStoreKillHelper(t *testing.T) {
 			}
 			return nil
 		}))
+	}
+	if n, _ := strconv.Atoi(os.Getenv("UTXO_PIECE_OPS")); n > 0 {
+		utxoBlockPieceOps = n
 	}
 	s, err := openUtxoStoreFS(dir, fs, false)
 	if err != nil {

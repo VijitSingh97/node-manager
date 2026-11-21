@@ -39,6 +39,10 @@ if [ "$1" = inspect ]; then
   esac
   exit 0
 fi
+if [ "$1" = ps ] && [ "$2" = -a ]; then
+  [ "${FAKE_DASHBOARD_MISSING:-0}" = 1 ] || printf '%s %s\n' "$(dash_id)" "${FAKE_CONFIG_FILES:-$BITCOIN_STACK_ROOT/docker-compose.yml}"
+  exit 0
+fi
 if [ "$1" = ps ] && [ "$2" = -aq ]; then
   case "$*" in
     *com.docker.compose.service=dashboard*) [ "${FAKE_DASHBOARD_MISSING:-0}" = 1 ] || dash_id ;;
@@ -64,6 +68,10 @@ if [ "$1" = update ]; then
   exit 0
 fi
 [ "$1" = exec ] || exit 1
+if [ -n "${FAKE_EXEC_FAIL_ONCE:-}" ] && [ ! -e "$FAKE_EXEC_FAIL_ONCE" ]; then
+  : >"$FAKE_EXEC_FAIL_ONCE"
+  exit 1
+fi
 shift
 if [ "${1:-}" = -i ]; then shift; fi
 if [ "${1:-}" = -u ]; then shift 2; fi
@@ -311,6 +319,24 @@ unset FAKE_DASH_RECREATED
 new_case idle-run-resolves-dashboard-once
 scripts/node-port-control || fail "idle port-control run failed"
 [ "$(grep -c 'com.docker.compose.service=dashboard' "$FAKE_DOCKER_LOG")" = 1 ] || fail "an idle run resolved the dashboard container more than once: $(cat "$FAKE_DOCKER_LOG")"
+{ [ "$(grep -c '^[a-z]' "$FAKE_DOCKER_LOG")" = 2 ] && grep -q '^exec -i -u 1000 dashboard-id sh -c' "$FAKE_DOCKER_LOG"; } ||
+  fail "an idle run made more than one listing and one exec: $(cat "$FAKE_DOCKER_LOG")"
+[ "$(cat "$FAKE_DASH_STATE/port-control.capability")" = ready ] || fail "an idle run did not refresh the port capability"
+[ "$(jq -r .timestamp "$FAKE_DASH_STATE/credential-control.capability")" = 1000 ] || fail "an idle run did not refresh the credential capability"
+printf '900.12 1800.00\n' >"$case_root/uptime"
+if BITCOIN_STACK_PACKAGE_MANAGED=1 PORT_CONTROL_UPTIME_FILE=$case_root/uptime FAKE_EXEC_FAIL_ONCE=$case_root/exec-failed scripts/node-port-control; then
+  fail "a run that could not reach the dashboard long after boot reported success"
+fi
+printf '120.50 240.00\n' >"$case_root/uptime"
+rm -f "$FAKE_DASH_STATE/port-control.capability"
+BITCOIN_STACK_PACKAGE_MANAGED=1 PORT_CONTROL_UPTIME_FILE=$case_root/uptime FAKE_EXEC_FAIL_ONCE=$case_root/exec-failed-at-boot scripts/node-port-control ||
+  fail "a run right after boot gave up while the dashboard was starting"
+[ -e "$case_root/exec-failed-at-boot" ] && [ "$(cat "$FAKE_DASH_STATE/port-control.capability")" = ready ] ||
+  fail "a run right after boot did not publish once the dashboard answered"
+request '{"id":"12121212121212121212121212121212","changes":[{"port":"bitcoin_rpc","enabled":false}],"requested_at":1000}'
+scripts/node-port-control
+[ "$(status .id):$(status .state)" = 12121212121212121212121212121212:applied ] && [ ! -e "$FAKE_DASH_STATE/port-control.request" ] ||
+  fail "a triggered run did not take the waiting request"
 
 new_case change-open-port
 request '{"id":"11111111111111111111111111111112","changes":[{"port":"bitcoin_rpc","enabled":true,"bind_ip":"172.16.1.20","host_port":38332}],"requested_at":1000}'
@@ -952,5 +978,23 @@ grep -q '^ProtectSystem=strict$' packaging/systemd/node-manager-port-control.ser
 grep -q '^RestrictAddressFamilies=AF_UNIX AF_NETLINK$' packaging/systemd/node-manager-port-control.service ||
   fail "systemd service lacks its restricted Unix and socket-diagnostic families"
 grep -q '^Persistent=true$' packaging/systemd/node-manager-port-control.timer || fail "systemd timer does not catch up after reboot"
+timer_seconds() { value=$(sed -n "s/^$1=\([0-9]*\)s$/\1/p" "$2"); printf '%s\n' "${value:-$3}"; }
+timer=packaging/systemd/node-manager-port-control.timer
+age=$(sed -n 's/^\tportControlCapabilityAge = \([0-9]*\) \* time.Second$/\1/p' build/dashboard/port_control.go)
+interval=$(timer_seconds OnUnitActiveSec "$timer" '')
+slack=$(($(timer_seconds AccuracySec "$timer" 60) + $(timer_seconds RandomizedDelaySec "$timer" 0)))
+[ -n "$age" ] && [ -n "$interval" ] && [ $((interval + slack + 20)) -le "$age" ] ||
+  fail "the port-control heartbeat (${interval:-?} s plus ${slack} s of timer slack) does not refresh the capabilities 20 s inside the dashboard's ${age:-?} s limit"
+[ "$interval" -ge 60 ] || fail "the port-control timer runs more often than its heartbeat needs"
+unit=packaging/systemd/node-manager-port-control.path
+grep -qx 'Unit=node-manager-port-control.service' "$unit" || fail "the request watch does not start port-control"
+grep -qx 'StartLimitBurst=30' packaging/systemd/node-manager-port-control.service || fail "a burst of requests would trip the start limit and stop the request watch"
+! grep -q '^PathExists' "$unit" || fail "a level-triggered watch would loop on a request the helper leaves in place"
+for project in node-manager-apt bitcoin-starter-stack-apt; do
+  for name in port-control credential-control; do
+    grep -qx "PathChanged=/var/lib/docker/volumes/${project}_dashboard_state/_data/$name.request" "$unit" ||
+      fail "the request watch misses $name requests in the $project dashboard volume"
+  done
+done
 
 echo "PASS: test_port_control.sh"

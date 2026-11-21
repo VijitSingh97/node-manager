@@ -227,6 +227,7 @@ node_expose() { jq -r --arg node "$1" 'if .[$node].rpc_expose == true then 1 els
 tari_grpc_expose=$(jq -r 'if .tari.grpc_expose == true then 1 else 0 end' <<<"$config")
 tari_grpc_bind_ip=$(get '.tari.grpc_bind_ip')
 tari_grpc_port=$(jq -r '.tari.grpc_port // 18142' <<<"$config")
+tari_grpc_extra_methods=$(jq -r '.tari.grpc_extra_methods // [] | if type == "array" and all(.[]; type == "string" and test("^[a-z][a-z_]*$")) then join(",") else "!" end' <<<"$config")
 litecoin_rpc_expose=$(node_expose litecoin)
 litecoin_rpc_bind_ip=$(get '.litecoin.rpc_bind_ip')
 litecoin_rpc_port=$(jq -r '.litecoin.rpc_port // 9332' <<<"$config")
@@ -588,6 +589,7 @@ register_listener zcash.rpc_port "$zcash_rpc_expose" "$zcash_rpc_bind_ip" "$zcas
 enabled_total=$((bitcoin_enabled + monero_enabled + tari_enabled + litecoin_enabled + dogecoin_enabled + bitcoincash_enabled + zcash_enabled))
 [ "$enabled_total" -gt 0 ] || { echo "At least one node must be enabled."; exit 1; }
 case "$tari_pruning_horizon" in '' | 0 | *[!0-9]*) echo "tari.pruning_horizon must be a positive whole number."; exit 1 ;; esac
+[ "$tari_grpc_extra_methods" != "!" ] || { echo 'tari.grpc_extra_methods must be a list of Tari gRPC method names in snake_case, such as ["list_headers"].'; exit 1; }
 for prune_config in "litecoin:$litecoin_prune:550" "dogecoin:$dogecoin_prune:2200" "bitcoincash:$bitcoincash_prune:550"; do
   IFS=: read -r node value minimum <<<"$prune_config"
   case "$value" in '' | *[!0-9]*) echo "$node.prune_mb must be a whole number of at least $minimum."; exit 1 ;; esac
@@ -682,10 +684,9 @@ if [ "$dogecoin_utxo_index" = "1" ]; then
   compose_file=$compose_file:docker-compose.dogecoin-utxo-index.yml
   echo "dogecoin.utxo_index is on: ./stack apply recreates the dashboard with a utxo_index_dogecoin volume, a 1g memory limit and 0.5 CPU. To seed it, the Dogecoin node stops while its chainstate is copied, which works on a pruned node too. Its seed time and size on mainnet are not measured yet."
 fi
-# Compose keeps the last file's mem_limit, so the Bitcoin Cash overlay's 2g must come after the 1g overlays.
 if [ "$bitcoincash_utxo_index" = "1" ]; then
   compose_file=$compose_file:docker-compose.bitcoincash-utxo-index.yml
-  echo "bitcoincash.utxo_index is on: ./stack apply recreates the dashboard with a utxo_index_bitcoincash volume, a 2g memory limit with GOMEMLIMIT 1600MiB, and 0.5 CPU. To seed it, the Bitcoin Cash node stops while its chainstate is copied, which works on a pruned node too; without the host helper, an archival node replays every block from genesis instead. Its seed time and size on mainnet are not measured yet."
+  echo "bitcoincash.utxo_index is on: ./stack apply recreates the dashboard with a utxo_index_bitcoincash volume, a 1g memory limit and 0.5 CPU. To seed it, the Bitcoin Cash node stops while its chainstate is copied, which works on a pruned node too; without the host helper, an archival node replays every block from genesis instead. Its seed time and size on mainnet are not measured yet."
 fi
 compose_profiles=
 append_profile() { [ -z "$compose_profiles" ] || compose_profiles=$compose_profiles,; compose_profiles=${compose_profiles}$1; }
@@ -956,6 +957,7 @@ TARI_PRUNING_HORIZON=$tari_pruning_horizon
 TARI_GRPC_EXPOSE=$tari_grpc_expose
 TARI_GRPC_BIND_IP=$tari_grpc_bind_ip
 TARI_GRPC_PORT=$tari_grpc_port
+TARI_GRPC_EXTRA_METHODS=$tari_grpc_extra_methods
 TARI_RESOURCE_PROFILE=$tari_resource_profile
 TARI_STEADY_CPUS=$tari_steady_cpus
 TARI_STEADY_MEM_LIMIT_MB=$tari_steady_mem_limit_mb

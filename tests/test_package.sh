@@ -104,8 +104,10 @@ for required in \
   ./usr/lib/systemd/system/node-manager-resource-profile.timer \
   ./usr/lib/systemd/system/node-manager-port-control.service \
   ./usr/lib/systemd/system/node-manager-port-control.timer \
+  ./usr/lib/systemd/system/node-manager-port-control.path \
   ./usr/lib/systemd/system/node-manager-node-control.service \
   ./usr/lib/systemd/system/node-manager-node-control.timer \
+  ./usr/lib/systemd/system/node-manager-node-control.path \
   ./usr/share/doc/node-manager/README.md \
   ./usr/share/doc/node-manager/docs/Caddyfile.example \
   ./usr/share/doc/node-manager/docs/nodes.md \
@@ -341,8 +343,8 @@ printf '%s' "$init_out" | grep -qE 'Dashboard password \(|Nodes to run \(|data d
 grep -q -- 'compose .* pull' "$log" || fail "package init did not pull missing images"
 grep -q -- 'compose .* up -d --pull never --no-build' "$log" || fail "package init start allows implicit pulls or builds"
 grep -q 'systemctl enable --now node-manager-resource-profile.timer' "$log" || fail "package init did not start the resource profile timer"
-grep -q 'systemctl enable --now node-manager-port-control.timer' "$log" || fail "package init did not start the LAN port-control timer"
-grep -q 'systemctl enable --now node-manager-node-control.timer' "$log" || fail "package init did not start the node-control timer"
+grep -q 'systemctl enable --now node-manager-port-control.timer node-manager-port-control.path' "$log" || fail "package init did not start the LAN port-control timer and request watch"
+grep -q 'systemctl enable --now node-manager-node-control.timer node-manager-node-control.path' "$log" || fail "package init did not start the node-control timer and request watch"
 
 env_file=$state_dir/.env
 [ -f "$env_file" ] || fail "generated state is outside the package state directory"

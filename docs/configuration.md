@@ -119,7 +119,8 @@ shows the overridable settings with their defaults:
         "cpus": 0,
         "grpc_expose": false,
         "grpc_bind_ip": "",
-        "grpc_port": 18142
+        "grpc_port": 18142,
+        "grpc_extra_methods": []
     },
     "litecoin": {
         "enabled": false,
@@ -255,11 +256,12 @@ shows the overridable settings with their defaults:
 | `<node>.data_dir` | `./data/<node>` (source), managed data directory for APT/Homebrew | Host directory for that chain's data. APT uses `/var/lib/node-manager/data/<node>`; Homebrew uses its platform data path above. |
 | `<node>.resource_profile` | `off`; `compact` for APT/Homebrew default setup selections or dashboard installs | Syncs uncapped, then applies that node's steady ceiling after repeated healthy sync checks. |
 | `litecoin.utxo_index` | `false`; `true` for Litecoin installed from the dashboard, pruned or archival, unless the key is already set | Unlike `bitcoin.utxo_index`, it is on for archival nodes too: an archival Bitcoin node keeps the Core-wallet path, but the Litecoin watch scans with `scantxoutset` either way, so the index helps every Litecoin node. `true` adds the `docker-compose.litecoin-utxo-index.yml` overlay: a `utxo_index_litecoin` volume, `LITECOIN_UTXO_INDEX_ENABLED` and `LITECOIN_UTXO_INDEX_DIR` on the dashboard, and the same 1g memory and 0.5 CPU dashboard limits as the Bitcoin index. Requires `litecoin.enabled`. Settings → Balance index → "Instant Litecoin balances" switches it. The index seeds itself once the node has synced; `./stack utxo-seed litecoin` seeds it by hand, and `./stack utxo-index remove litecoin` deletes the volume once the key is off and applied. Balances cover transparent outputs only; funds inside MWEB are not counted. The dashboard install dialog offers the index next to the data folder, ticked by default, and writes the key you choose; a host that never set the key keeps it off on upgrade, so nothing seeds or restarts until you turn it on in Settings. |
-| `bitcoincash.utxo_index` | `false`; `true` for Bitcoin Cash installed from the dashboard, unless the key is already set | Works on a pruned or an archival node. A dashboard install with no `prune_mb` set is pruned (10,000 MiB of block files) with the index on. `true` adds the `docker-compose.bitcoincash-utxo-index.yml` overlay: a `utxo_index_bitcoincash` volume, `BITCOINCASH_UTXO_INDEX_ENABLED` and `BITCOINCASH_UTXO_INDEX_DIR` on the dashboard, and a 2g memory limit with `GOMEMLIMIT=1600MiB` and 0.5 CPU on the dashboard. `configure.sh` lists this overlay after the Bitcoin and Litecoin index overlays, so with Bitcoin Cash on the dashboard's limit is 2g whatever else is on. The 2g is a cap, not memory set aside; plan for it on top of the node's own memory. [Watch-only balances](watch-only.md#litecoin-and-bitcoin-cash-addresses) gives the measured peaks and the largest block the index applies. Bitcoin Cash Node has no coin-set export, so a seed stops the node while its chainstate is copied, which works on a pruned node too, and builds the index from the copy (without the host helper, an archival node replays every block from genesis instead, resuming from its tip after any stop); `./stack utxo-seed bitcoincash [--replay]` starts it by hand and `./stack utxo-index remove bitcoincash` deletes the volume once the key is off and applied. The dashboard install dialog offers the index next to the data folder, ticked by default, and writes the key you choose; a host that never set the key keeps it off on upgrade, so nothing seeds or restarts until you turn it on in Settings. |
+| `bitcoincash.utxo_index` | `false`; `true` for Bitcoin Cash installed from the dashboard, unless the key is already set | Works on a pruned or an archival node. A dashboard install with no `prune_mb` set is pruned (10,000 MiB of block files) with the index on. `true` adds the `docker-compose.bitcoincash-utxo-index.yml` overlay: a `utxo_index_bitcoincash` volume, `BITCOINCASH_UTXO_INDEX_ENABLED` and `BITCOINCASH_UTXO_INDEX_DIR` on the dashboard, and a 1g memory limit and 0.5 CPU on the dashboard, the same as the other index overlays. [Watch-only balances](watch-only.md#litecoin-and-bitcoin-cash-addresses) gives the measured peaks and the largest block the index applies. Bitcoin Cash Node has no coin-set export, so a seed stops the node while its chainstate is copied, which works on a pruned node too, and builds the index from the copy (without the host helper, an archival node replays every block from genesis instead, resuming from its tip after any stop); `./stack utxo-seed bitcoincash [--replay]` starts it by hand and `./stack utxo-index remove bitcoincash` deletes the volume once the key is off and applied. The dashboard install dialog offers the index next to the data folder, ticked by default, and writes the key you choose; a host that never set the key keeps it off on upgrade, so nothing seeds or restarts until you turn it on in Settings. |
 | `<node>.cpus` | `0` (unlimited) | Hard CPU cap for Tari, Litecoin, Dogecoin, Bitcoin Cash, or Zcash; same semantics as `bitcoin.cpus`. |
 | `<node>.steady_cpus` | `1` | Independent post-sync CPU ceiling for Tari, Litecoin, Dogecoin, Bitcoin Cash, or Zcash. |
 | `<node>.steady_mem_limit_mb` | `2048` for Litecoin, Dogecoin, and Bitcoin Cash; `4096` for Tari and Zcash | Independent post-sync memory-plus-swap ceiling for those base nodes. Tari's separate wallet sidecar is not included. This is a budget, not a qualified minimum. |
 | `tari.pruning_horizon` | `10000` | Positive retained-block horizon for Minotari's pruned state. |
+| `tari.grpc_extra_methods` | `[]` | Tari gRPC methods to allow on top of the built-in list, in snake_case, for example `["list_headers"]`. The built-in list covers the dashboard and mining. Anything that reaches Tari's gRPC can call the added methods: containers on the stack network, and a LAN client when `grpc_expose` is on. Tari refuses to start with a name it does not know and logs it (`node-manager logs tari`). `node-manager apply` restarts Tari with the new list. |
 | `tari.grpc_expose`, `grpc_bind_ip`, `grpc_port` | `false`, `""`, `18142` | Optional unauthenticated Tari mining gRPC for a mining client on a trusted private LAN or WireGuard link. It is separate from the internal authenticated view-only wallet service. |
 | `litecoin.prune_mb`, `dogecoin.prune_mb`, `bitcoincash.prune_mb` | `10000` | Recent block-file target in MiB. Chainstate and other state are additional. Dogecoin and Bitcoin Cash also accept `0` (archival, required by `dogecoin.watch_wallet`); `0` is refused on a data directory that already holds a pruned chain. |
 | `litecoin.rpc_port`, `dogecoin.rpc_port`, `bitcoincash.rpc_port` | `9332`, `22555`, `8332` | Default host port for each opt-in authenticated private-LAN RPC proxy. Each also has `rpc_expose` and `rpc_bind_ip`. |
@@ -471,10 +473,16 @@ restarts the affected services. Reveal the new login and update every external
 client. Reset is unavailable when the node is inactive. Tari gRPC and Monero
 ZMQ do not display made-up credentials.
 
-For APT installs, `node-manager init`, `up`, and `apply` enable
-`node-manager-port-control.timer`. On APT the helper timers poll for dashboard
-requests: node-control every 10 seconds and port-control every 30 seconds, so a
-save can take up to that long to start. Source installs reuse the host
+For APT installs, `node-manager init`, `up`, and `apply` enable the
+node-control and port-control timers and their `.path` units. A save starts its
+helper at once: the `.path` units watch the request files in the dashboard
+state volume under `/var/lib/docker/volumes/`. The timers also run each helper
+every 60 seconds to keep its capability inside the dashboard's 90-second limit
+and to pick up a request written while the helper was finishing a run. When
+Docker keeps its data outside `/var/lib/docker`, or the project has another
+name, `init`, `up`, and `apply` add the volume's real path to the watch in a
+`volume.conf` drop-in. Right after boot each helper retries every 10 seconds
+until the dashboard answers. Source installs reuse the host
 agent for authenticated trusted-LAN controls. On
 macOS source installs, setup starts a session helper with a private
 `host-service.log`; Homebrew registers the user service automatically. No host

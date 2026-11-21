@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { flow, nodeIDs, openHostSettings, save, waitSaved, withoutIdentity } from "./harness.mjs";
+import { flow, nodeIDs, openHostSettings, reload, save, waitSaved, withoutIdentity } from "./harness.mjs";
 
 const row = (node) => `#settings-host-nodes .settings-host-node:nth-child(${nodeIDs.indexOf(node) + 1})`;
 const rowButton = (node) => `${row(node)} button`;
@@ -57,4 +57,16 @@ flow("Each node card carries a bar that goes from waiting to building to ready a
   assert.equal(got.label, "catching up 12 blocks");
   got = await drive("dogecoin", { enabled: false, state: "off" });
   assert.equal(got.hidden, true);
+});
+
+flow("Bitcoin's card shows its balance index bar from the dashboard's own status", { utxoIndex: true }, async ({ page, dash }) => {
+  await reload(page, dash);
+  assert.equal(await page.evaluate(() => !!document.querySelector("#live #index-bar-bitcoin") && !document.getElementById("utxo-index")), true, "the running layout has the bar and no index card");
+  await page.waitFor(() => document.getElementById("index-bar-bitcoin")?.hidden === false, { timeout: 40000, description: "Bitcoin's index bar to be shown" });
+  const { label, status } = await page.evaluate(async () => ({
+    label: document.querySelector("#index-bar-bitcoin .index-bar-label").textContent,
+    status: await (await fetch("/api/utxo-index", { headers: { "X-Requested-With": "fetch" } })).json(),
+  }));
+  assert.equal(status.enabled, true);
+  assert.notEqual(label, "");
 });

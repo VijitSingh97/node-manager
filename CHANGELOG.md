@@ -6,8 +6,72 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- `./stack utxo-index verify [--chain bitcoin|litecoin|dogecoin|bitcoincash]`
+  (`node-manager utxo-index verify` on package installs) checks a balance index
+  against the node's own UTXO set. It is meant for after a seed. The dashboard
+  waits up to 10 minutes for the index to reach the node tip. It then counts the
+  index and calls the node's `gettxoutsetinfo` at that same block, and prints
+  both coin counts and totals. The verdict is PASS, or FAIL with a non-zero exit.
+  Only PASS exits 0. FAIL, every refusal (printed as `refused:`) and a command
+  timeout exit 1. The refusals cover an index behind the tip, a tip that moved, and
+  a node call that failed or timed out. If the dashboard stops mid-wait, the command
+  says so and exits 1 at once.
+  The call uses `hash_type none` on Bitcoin Core 32.1, Litecoin 0.21.5.8 and
+  Bitcoin Cash Node 29.2.0. Dogecoin Core 1.14.9 takes no argument and always
+  hashes. The walk takes no `cs_main` in any of these versions, but node-down
+  alerts are still held while it runs, for at most 30 minutes. The hold is saved
+  with the seed state, so a dashboard restarted during the node's walk keeps
+  holding alerts until that deadline. The command
+  confirms first, or takes `-y`. Regtest runs on all four nodes matched.
+  Mainnet timing is not measured.
+
+- `tari.grpc_extra_methods` allows more Tari gRPC methods on top of the built-in
+  list, for example `["list_headers"]`. `configure.sh` accepts only lowercase
+  snake_case names and passes them to the node, which adds them to its
+  `grpc_server_allow_methods`.
+
+### Changed
+
+- On Debian and Ubuntu a dashboard request now starts its host helper at once.
+  New `node-manager-node-control.path` and `node-manager-port-control.path`
+  units watch the request files in the dashboard state volume, and upgrades
+  enable them. The helper timers now run once a minute (were every 10 seconds for
+  node control and 30 seconds for LAN port control). That is the slowest rate
+  that keeps each host capability inside the dashboard's 90-second limit. An
+  idle run also costs less. Node control makes 2 Docker calls instead of 6 and
+  4 jq calls instead of 18. Port control makes 2 or 3 Docker calls instead of 9.
+  Measured in docker-in-docker on an Apple M5 (median of 6 interleaved rounds of
+  20 idle runs, Docker daemon included): node control fell from 398 to 123 ms of
+  CPU per run and port control from 299 to 102 ms. At the new rates that is
+  about 14 CPU-seconds an hour instead of 179. A Docker data root outside
+  `/var/lib/docker`, or another project name, is added to the watch when Node
+  Manager starts. In the first 5 minutes after boot a helper that cannot reach
+  the dashboard retries every 10 seconds. Homebrew's host
+  loop still runs both helpers every 10 seconds, since launchd cannot watch files
+  inside Docker Desktop's VM, and gets the cheaper runs.
+
+- The Bitcoin Cash balance index fits the same 1 GiB dashboard limit as the other
+  indexes (#363). Its overlay now sets `mem_limit: 1g` and no `GOMEMLIMIT`,
+  instead of 2g with `GOMEMLIMIT=1600MiB`. A block of more than 50,000 coin
+  operations is applied in pieces of 50,000, each committed on its own, so no
+  database batch or undo record holds a whole 32 MB block. Only the last piece
+  moves the index's tip. Pieces left by a stop or crash are rolled back when the
+  index reopens, and a reorg undoes such a block piece by piece. On the regtest
+  replay of four 31 MB blocks at 0.5 CPU, the dashboard under 1 GiB finished in 78
+  to 109 s and peaked at 0.69 to 0.77 GiB RSS and 296 MiB of live heap. The same
+  replay with whole blocks under the 2 GiB cap took 966 s and peaked at 1.57 GiB
+  RSS and 945 MiB, in the same session. Mainnet is not measured. A block over 1.2
+  million coin operations still stops the index, because the parsed block stays
+  whole while its pieces apply.
+
 ### Fixed
 
+- The Bitcoin node card shows its balance index bar. Since 1.39.0 the page
+  fetched the Bitcoin index status only while the loading screen was up, so a
+  running Bitcoin node never showed the bar. Litecoin, Dogecoin and Bitcoin
+  Cash were not affected.
 - The stack also survives the host getting a different LAN address after a
   reboot, power cut or network change. With `dashboard.bind_ip` set to `auto`,
   the host helper waits until the old address has been gone for a minute and the
