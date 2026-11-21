@@ -581,6 +581,7 @@ case "$args" in
     [ -f "$FAKE_UTXO/verify-request.json" ] || exit 1
     case "${FAKE_VERIFY_SCENARIO:-ok}" in
       none) echo '{"id":"someone-else"}' ;;
+      dies) : >"$FAKE_UTXO/stopped" ;;
       refused) jq -n --slurpfile req "$FAKE_UTXO/verify-request.json" '{id: $req[0].id, chain: $req[0].chain, hash_type: "none", refusals: ["the index is not_seeded; verify needs a seeded index that follows the node"]}' ;;
       ok | mismatch)
         jq -n --slurpfile req "$FAKE_UTXO/verify-request.json" --arg scenario "${FAKE_VERIFY_SCENARIO:-ok}" '($scenario == "ok") as $ok |
@@ -1006,6 +1007,13 @@ export FAKE_VERIFY_SCENARIO=none
 VERIFY_TIMEOUT=2 uverify utxo-index verify -y >"$tmp/uverify.out" 2>&1 && fail "a verify with no result exited 0"
 grep -q 'returned no result' "$tmp/uverify.out" || fail "utxo-index verify did not explain the timeout"
 grep -q ' dashboard rm -f /state/utxo-verify.request' "$FAKE_LOG" || fail "the verify timeout left the request behind"
+reset_uverify
+export FAKE_VERIFY_SCENARIO=dies
+started=$SECONDS
+rc=0
+VERIFY_TIMEOUT=60 uverify utxo-index verify -y >"$tmp/uverify.out" 2>&1 || rc=$?
+[ "$rc" = 1 ] && [ $((SECONDS - started)) -lt 30 ] || fail "a verify whose dashboard stopped exited $rc after $((SECONDS - started)) s instead of failing fast"
+grep -q 'The dashboard stopped before the check finished, so nothing was compared' "$tmp/uverify.out" || fail "utxo-index verify did not say the dashboard stopped"
 reset_uverify
 
 # measure-block-latency.sh: blocks match the first refresh at that height or higher, split by index and block update.

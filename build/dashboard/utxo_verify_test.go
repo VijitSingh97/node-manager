@@ -33,6 +33,7 @@ type verifyFakeNode struct {
 	params []any
 	calls  int
 	held   bool
+	during func()
 }
 
 func (n *verifyFakeNode) serve(w http.ResponseWriter, r *http.Request) {
@@ -49,8 +50,11 @@ func (n *verifyFakeNode) serve(w http.ResponseWriter, r *http.Request) {
 	n.mu.Lock()
 	n.params, n.held = req.Params, n.m.AlertsSuppressed()
 	n.calls++
-	result := maps.Clone(n.reply)
+	result, during := maps.Clone(n.reply), n.during
 	n.mu.Unlock()
+	if during != nil {
+		during()
+	}
 	writeJSON(w, map[string]any{"id": req.ID, "result": result, "error": nil})
 }
 
@@ -244,6 +248,35 @@ func TestVerifyRefusesAnIndexThatIsNotSeeded(t *testing.T) {
 	m.configureBench(a.chainBenchHost(nodeLitecoin, &rpcClient{url: "http://127.0.0.1:1", client: http.DefaultClient}, utxoLitecoin, func() bool { return true }, func() {}))
 	if res := runVerify(t, m, nodeLitecoin, 1); len(res.Refusals) != 1 || res.Refusals[0] != "the index is not_seeded; verify needs a seeded index that follows the node" {
 		t.Fatalf("result = %+v", res)
+	}
+}
+
+func TestVerifyAlertHoldSurvivesADashboardRestart(t *testing.T) {
+	m, _, node := verifyFixture(t, nodeBitcoin, utxoBitcoin)
+	seedState := filepath.Join(t.TempDir(), "utxo-seed.json")
+	m.setSeedStatePath(seedState)
+	midCall := filepath.Join(t.TempDir(), "mid-call.json")
+	node.during = func() {
+		raw, _ := os.ReadFile(seedState)
+		_ = os.WriteFile(midCall, raw, 0o600)
+	}
+	if res := runVerify(t, m, nodeBitcoin, 1); res.Match == nil || !*res.Match {
+		t.Fatalf("result = %+v", res)
+	}
+	held := func(path string, at time.Time) bool {
+		r := utxoMgrNew(t, t.TempDir(), nil, newFakeUtxoNode(newFakeUtxoChain()), io.Discard)
+		r.now = func() time.Time { return at }
+		r.setSeedStatePath(path)
+		return r.AlertsSuppressed()
+	}
+	if !held(midCall, time.Now()) {
+		t.Fatal("a dashboard restarted during the node's walk dropped the alert hold")
+	}
+	if held(midCall, time.Now().Add(verifyCallLimit+time.Minute)) {
+		t.Fatal("the restored alert hold outlived its deadline")
+	}
+	if held(seedState, time.Now()) {
+		t.Fatal("a finished check left the alert hold persisted")
 	}
 }
 
