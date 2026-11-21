@@ -702,9 +702,10 @@ Docker does not retry a container it could not start. After a power cut the
 host can boot before the router hands out its LAN address, so a container that
 publishes a port on that address fails with `cannot assign requested address`
 and stays down. With launch at boot/login enabled, the host helper
-(`node-control`, every 10 s) recreates any stack container that Docker could
-not start because it could not bind a published port. It retries after 30 s,
-then less often, at most every 10 minutes, until the container starts, and logs
+(`node-control`, every 60 s on APT and every 10 s under Homebrew's host
+service) recreates any stack container that Docker could not start because it
+could not bind a published port. It retries on its first run at least 30 s
+later, then less often, at most every 10 minutes, until the container starts, and logs
 the first failure and the recovery as `Host:` lines in `./stack events`. Other
 start errors, such as a data disk that is not mounted, are left for you, and so
 are containers you stopped and deactivated nodes. `./stack up --force-recreate

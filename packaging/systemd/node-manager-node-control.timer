@@ -1,9 +1,10 @@
 [Unit]
-Description=Watch Node Manager node state requests
+Description=Refresh Node Manager node controls
 
 [Timer]
 OnBootSec=30s
-OnUnitActiveSec=10s
+# The dashboard ignores a host capability older than 90 s; requests start from node-manager-node-control.path.
+OnUnitActiveSec=60s
 AccuracySec=1s
 
 [Install]

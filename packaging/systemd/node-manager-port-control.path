@@ -1,0 +1,13 @@
+[Unit]
+Description=Start Node Manager LAN port control when the dashboard writes a request
+
+[Path]
+# Fresh installs use the node-manager-apt project; installs from before the rename keep bitcoin-starter-stack-apt.
+PathChanged=/var/lib/docker/volumes/node-manager-apt_dashboard_state/_data/port-control.request
+PathChanged=/var/lib/docker/volumes/node-manager-apt_dashboard_state/_data/credential-control.request
+PathChanged=/var/lib/docker/volumes/bitcoin-starter-stack-apt_dashboard_state/_data/port-control.request
+PathChanged=/var/lib/docker/volumes/bitcoin-starter-stack-apt_dashboard_state/_data/credential-control.request
+Unit=node-manager-port-control.service
+
+[Install]
+WantedBy=paths.target

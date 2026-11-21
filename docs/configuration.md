@@ -473,10 +473,16 @@ restarts the affected services. Reveal the new login and update every external
 client. Reset is unavailable when the node is inactive. Tari gRPC and Monero
 ZMQ do not display made-up credentials.
 
-For APT installs, `node-manager init`, `up`, and `apply` enable
-`node-manager-port-control.timer`. On APT the helper timers poll for dashboard
-requests: node-control every 10 seconds and port-control every 30 seconds, so a
-save can take up to that long to start. Source installs reuse the host
+For APT installs, `node-manager init`, `up`, and `apply` enable the
+node-control and port-control timers and their `.path` units. A save starts its
+helper at once: the `.path` units watch the request files in the dashboard
+state volume under `/var/lib/docker/volumes/`. The timers also run each helper
+every 60 seconds to keep its capability inside the dashboard's 90-second limit
+and to pick up a request written while the helper was finishing a run. When
+Docker keeps its data outside `/var/lib/docker`, or the project has another
+name, `init`, `up`, and `apply` add the volume's real path to the watch in a
+`volume.conf` drop-in. Right after boot each helper retries every 10 seconds
+until the dashboard answers. Source installs reuse the host
 agent for authenticated trusted-LAN controls. On
 macOS source installs, setup starts a session helper with a private
 `host-service.log`; Homebrew registers the user service automatically. No host

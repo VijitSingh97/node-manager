@@ -1,0 +1,11 @@
+[Unit]
+Description=Start Node Manager node control when the dashboard writes a request
+
+[Path]
+# Fresh installs use the node-manager-apt project; installs from before the rename keep bitcoin-starter-stack-apt.
+PathChanged=/var/lib/docker/volumes/node-manager-apt_dashboard_state/_data/node-control.request
+PathChanged=/var/lib/docker/volumes/bitcoin-starter-stack-apt_dashboard_state/_data/node-control.request
+Unit=node-manager-node-control.service
+
+[Install]
+WantedBy=paths.target
