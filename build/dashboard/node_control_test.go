@@ -157,6 +157,19 @@ func TestNodeControlStatusCanonicalizesHostMessage(t *testing.T) {
 	}
 }
 
+func TestNodeControlStatusUsesDashboardWordingForKnownCode(t *testing.T) {
+	dir := t.TempDir()
+	a := &app{cfg: config{stateDir: dir, nodes: map[string]nodeConfig{nodeDogecoin: {ID: nodeDogecoin, Enabled: true, Supported: true}}}}
+	status := `{"id":"11111111111111111111111111111111","node":"dogecoin","active":true,"state":"rejected","message":"private host path","error_code":"config_pending"}`
+	if err := os.WriteFile(a.nodeControlPath("status"), []byte(status), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := a.readNodeControlStatus()
+	if got == nil || got.Message != "Dogecoin was not changed: review the pending config change first." || got.ErrorCode != "config_pending" {
+		t.Fatalf("status = %#v", got)
+	}
+}
+
 func TestNodesReportsMalformedPrivateRequestAsPendingWithoutExposingIt(t *testing.T) {
 	dir := t.TempDir()
 	a := &app{cfg: config{bitcoinDisabled: true, dashboardPassword: "secret", stateDir: dir, nodes: map[string]nodeConfig{nodeDogecoin: {ID: nodeDogecoin, Enabled: true, Supported: true}}}}

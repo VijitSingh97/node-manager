@@ -1653,11 +1653,11 @@ mv "$next" "$config_file"
 restore_services() {
   if [ "$old_active" = true ]; then
     if [ "$node" = monero ]; then
-      "$stack_root/stack" up monero monero-wallet >/dev/null 2>&1
+      BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" up monero monero-wallet >/dev/null 2>&1
     elif [ "$node" = tari ]; then
-      "$stack_root/stack" up tari tari-wallet >/dev/null 2>&1
+      BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" up tari tari-wallet >/dev/null 2>&1
     else
-      "$stack_root/stack" up "$node" >/dev/null 2>&1
+      BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" up "$node" >/dev/null 2>&1
     fi
   elif [ "$node" = monero ]; then
     "$stack_root/stack" stop monero-wallet monero >/dev/null 2>&1
@@ -1672,6 +1672,8 @@ rollback() {
   rollback_failed=0
   mv "$backup" "$config_file" || rollback_failed=1
   if ! BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root" BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/configure.sh" >/dev/null 2>&1; then
+    rollback_failed=1
+  elif ! approve_config; then
     rollback_failed=1
   fi
   if [ "$attempted_services" = 1 ] && ! restore_services; then
@@ -1697,7 +1699,11 @@ if [ "$active" = true ]; then
   [ "$node" = monero ] && set -- monero monero-wallet
   [ "$node" = tari ] && set -- tari tari-wallet
 else action="stop"; fi
-if ! "$stack_root/stack" $action "$@" >/dev/null 2>&1; then
+# stack up starts from the approved config, so approve an activation before it runs.
+if [ "$action" = up ]; then
+  approve_config || rollback 0
+fi
+if ! BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" $action "$@" >/dev/null 2>&1; then
   rollback 1
 fi
 if ! runtime=$(jq -c '
@@ -1716,7 +1722,9 @@ fi
 if ! printf '%s\n' "$runtime" | $docker_bin exec -i -u 1000 "$dashboard_id" sh -c 'umask 077; cat > /state/.node-runtime.json.tmp; mv /state/.node-runtime.json.tmp /state/node-runtime.json' >/dev/null; then
   rollback 1
 fi
-approve_config || rollback 1
+if [ "$action" = stop ]; then
+  approve_config || rollback 1
+fi
 rm -f "$backup"
 write_status "$id" "$node" "$active" applied "Node state applied."
 remember_seen

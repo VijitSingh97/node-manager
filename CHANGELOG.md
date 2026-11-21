@@ -56,6 +56,12 @@ All notable changes to this project are documented here. Format follows
 
 ### Changed
 
+- `configure.sh` reads `config.json` with two `jq` runs instead of about 130. On
+  an Apple Silicon Mac a run took about 0.3 s instead of 1.2 s; the Intel mini PC
+  is not measured. A node power change runs it twice, so the container gets its
+  stop or start sooner. The `.env` it writes and its validation messages are
+  unchanged.
+
 - On Debian and Ubuntu a dashboard request now starts its host helper at once.
   New `node-manager-node-control.path` and `node-manager-port-control.path`
   units watch the request files in the dashboard state volume, and upgrades
@@ -103,9 +109,20 @@ All notable changes to this project are documented here. Format follows
   and a 2-minute start period (was 60 seconds, 10, 3 and 5 minutes).
 - The health probe opens Tor's control socket only after a failed probe, so a
   healthy Tor logs no control connections.
+- The package ownership check before every start and stop asks Docker once for
+  all of the project's containers. It used to ask once per service and twice
+  more for each existing container, up to 33 calls.
 
 ### Fixed
 
+- Activating a node from the dashboard no longer hangs the host helper. The
+  helper held the config lock and then ran `stack up` without saying so, and
+  `stack up` waited for that same lock, so the request could not finish and the
+  dashboard soon reported the host helper missing. The helper also approved the
+  change only after starting, so `stack up` would have started the node from the
+  old approved config. It now approves an activation before starting the node,
+  passes the lock it holds, and after a failed change re-approves the restored
+  config before bringing services back. Deactivating was not affected.
 - The host helpers (`node-manager-node-control` and `node-manager-port-control`)
   no longer fail their systemd unit when the dashboard container is stopped,
   restarting or being recreated, as it is during a container update. Such a run
@@ -142,6 +159,9 @@ All notable changes to this project are documented here. Format follows
   system resolver, which the Tor-only network can never answer. The node config
   now sets `tari_pulse_enabled = false`. Sync is unchanged, and the dashboard
   never read the checkpoint result.
+- Node activate and deactivate rejections now say why, for example "Bitcoin was
+  not changed: review the pending config change first", instead of a generic
+  "state change was rejected". Unknown reasons keep the generic wording.
 
 ## [1.39.0] - 2026-11-20
 

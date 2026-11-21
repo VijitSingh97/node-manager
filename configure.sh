@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2154 # settings are assigned by eval of the jq output
 # Render private runtime settings after init has configured authentication.
 set -euo pipefail
 stack_root=${BITCOIN_STACK_ROOT:-$(cd "$(dirname "$0")" && pwd)}
@@ -67,49 +68,133 @@ done
 config='{}'
 [ -f "$config_file" ] && config=$(cat "$config_file")
 
-get() { jq -r "$1 // \"${2:-}\"" <<<"$config"; }
-flag() { jq -r "if $1 == true then 1 else 0 end" <<<"$config"; }
+settings=$(jq -r '
+  def s: if type == "string" then sub("\\n+\\z"; "") else tojson end;
+  def o($name; value): "\($name)=\(value | s | @sh)";
+  def fl(v): if v == true then 1 else 0 end;
+  def act($n): if ((.[$n] // {}) | has("active")) then fl(.[$n].active) else 1 end;
+  def en($n): if ((.[$n] // {}) | has("enabled")) then fl(.[$n].enabled) else "" end;
+  (.network | type) as $net_type | (if $net_type == "object" then .network else {} end) as $net |
+  o("rpc_user"; (.bitcoin.node_username // "")),
+  o("rpc_password"; (.bitcoin.node_password // "")),
+  o("bitcoin_enabled"; en("bitcoin")),
+  o("monero_enabled"; en("monero")),
+  o("bitcoin_active"; act("bitcoin")),
+  o("monero_active"; act("monero")),
+  o("tari_enabled"; fl(.tari.enabled)),
+  o("tari_active"; act("tari")),
+  o("litecoin_enabled"; fl(.litecoin.enabled)),
+  o("litecoin_active"; act("litecoin")),
+  o("dogecoin_enabled"; fl(.dogecoin.enabled)),
+  o("dogecoin_active"; act("dogecoin")),
+  o("dogecoin_watch_wallet"; fl(.dogecoin.watch_wallet)),
+  o("bitcoincash_enabled"; fl(.bitcoincash.enabled)),
+  o("bitcoincash_active"; act("bitcoincash")),
+  o("zcash_enabled"; fl(.zcash.enabled)),
+  o("zcash_address_index"; fl(.zcash.address_index)),
+  o("zcash_active"; act("zcash")),
+  o("monero_rpc_user"; (.monero.node_username // "")),
+  o("monero_rpc_password"; (.monero.node_password // "")),
+  o("litecoin_rpc_user"; (.litecoin.node_username // "admin")),
+  o("litecoin_rpc_password"; (.litecoin.node_password // "")),
+  o("dogecoin_rpc_user"; (.dogecoin.node_username // "admin")),
+  o("dogecoin_rpc_password"; (.dogecoin.node_password // "")),
+  o("bitcoincash_rpc_user"; (.bitcoincash.node_username // "admin")),
+  o("bitcoincash_rpc_password"; (.bitcoincash.node_password // "")),
+  o("zcash_rpc_user"; (.zcash.node_username // "admin")),
+  o("zcash_rpc_password"; (.zcash.node_password // "")),
+  o("dashboard_password"; (.dashboard.password // "")),
+  o("dashboard_password_set"; if ((.dashboard // {}) | has("password")) then 1 else 0 end),
+  o("launch_at_boot"; if ((.dashboard // {}) | has("launch_at_boot")) then if .dashboard.launch_at_boot == true then "true" else "false" end else "missing" end),
+  o("data_dir"; (.bitcoin.data_dir // "")),
+  o("monero_data_dir"; (.monero.data_dir // "")),
+  o("dbcache"; .bitcoin.dbcache_mb // ""),
+  o("prune"; .bitcoin.prune_mb // ""),
+  o("mem_limit_mb"; .bitcoin.mem_limit_mb // 0),
+  o("bitcoin_cpus"; .bitcoin.cpus // 0),
+  o("monero_cpus"; .monero.cpus // 0),
+  o("monero_mem_limit_mb"; .monero.mem_limit_mb // 0),
+  o("thermal_limit_c"; .host.thermal_limit_c // 0),
+  o("thermal_resume_c"; .host.thermal_resume_c // 0),
+  o("tor_clearnet"; if $net.clearnet_over_tor == false then 0 else 1 end),
+  o("tor_inbound"; if $net.inbound_connections == false then 0 else 1 end),
+  o("blockfilterindex"; fl(.bitcoin.blockfilterindex)),
+  o("utxo_index"; fl(.bitcoin.utxo_index)),
+  o("litecoin_utxo_index"; fl(.litecoin.utxo_index)),
+  o("bitcoincash_utxo_index"; fl(.bitcoincash.utxo_index)),
+  o("dogecoin_utxo_index"; fl(.dogecoin.utxo_index)),
+  o("rpc_expose"; fl(.bitcoin.rpc_expose)),
+  o("rpc_bind_ip"; (.bitcoin.rpc_bind_ip // "")),
+  o("rpc_port"; .bitcoin.rpc_port // 8332),
+  o("monero_rpc_expose"; fl(.monero.rpc_expose)),
+  o("monero_rpc_bind_ip"; (.monero.rpc_bind_ip // "")),
+  o("monero_rpc_port"; .monero.rpc_port // 18081),
+  o("monero_zmq_expose"; fl(.monero.zmq_expose)),
+  o("monero_zmq_bind_ip"; (.monero.zmq_bind_ip // "")),
+  o("monero_zmq_port"; .monero.zmq_port // 18083),
+  o("litecoin_prune"; (.litecoin.prune_mb // 10000)),
+  o("dogecoin_prune"; (.dogecoin.prune_mb // 10000)),
+  o("bitcoincash_prune"; (.bitcoincash.prune_mb // 10000)),
+  o("tari_pruning_horizon"; .tari.pruning_horizon // 10000),
+  o("tari_grpc_expose"; if .tari.grpc_expose == true then 1 else 0 end),
+  o("tari_grpc_bind_ip"; (.tari.grpc_bind_ip // "")),
+  o("tari_grpc_port"; .tari.grpc_port // 18142),
+  o("tari_grpc_extra_methods"; .tari.grpc_extra_methods // [] | if type == "array" and all(.[]; type == "string" and test("^[a-z][a-z_]*$")) then join(",") else "!" end),
+  o("litecoin_rpc_expose"; fl(.litecoin.rpc_expose)),
+  o("litecoin_rpc_bind_ip"; (.litecoin.rpc_bind_ip // "")),
+  o("litecoin_rpc_port"; .litecoin.rpc_port // 9332),
+  o("dogecoin_rpc_expose"; fl(.dogecoin.rpc_expose)),
+  o("dogecoin_rpc_bind_ip"; (.dogecoin.rpc_bind_ip // "")),
+  o("dogecoin_rpc_port"; .dogecoin.rpc_port // 22555),
+  o("bitcoincash_rpc_expose"; fl(.bitcoincash.rpc_expose)),
+  o("bitcoincash_rpc_bind_ip"; (.bitcoincash.rpc_bind_ip // "")),
+  o("bitcoincash_rpc_port"; .bitcoincash.rpc_port // 8332),
+  o("zcash_rpc_expose"; fl(.zcash.rpc_expose)),
+  o("zcash_rpc_bind_ip"; (.zcash.rpc_bind_ip // "")),
+  o("zcash_rpc_port"; .zcash.rpc_port // 8232),
+  o("bitcoin_resource_profile"; (.bitcoin.resource_profile // "")),
+  o("monero_resource_profile"; (.monero.resource_profile // "")),
+  o("bitcoin_steady_cpus"; .bitcoin.steady_cpus // ""),
+  o("bitcoin_steady_mem_limit_mb"; .bitcoin.steady_mem_limit_mb // ""),
+  o("monero_steady_cpus"; .monero.steady_cpus // ""),
+  o("monero_steady_mem_limit_mb"; .monero.steady_mem_limit_mb // ""),
+  o("dashboard_onion"; if ((.dashboard // {}) | has("onion")) then if .dashboard.onion == true then 1 else 0 end else "" end),
+  o("dashboard_bind_setting"; (.dashboard.bind_ip // "")),
+  o("dashboard_port"; .dashboard.port // ""),
+  o("telegram_bot_token"; (.notifications.telegram_bot_token // "")),
+  o("telegram_chat_id"; (.notifications.telegram_chat_id // "")),
+  o("healthchecks_url"; (.notifications.healthchecks_url // "")),
+  o("alert_new_block"; fl(.notifications.alert_new_block)),
+  o("alert_new_block_monero"; fl(.notifications.alert_new_block_monero)),
+  o("alert_new_block_tari"; fl(.notifications.alert_new_block_tari)),
+  o("alert_new_block_litecoin"; fl(.notifications.alert_new_block_litecoin)),
+  o("alert_new_block_dogecoin"; fl(.notifications.alert_new_block_dogecoin)),
+  o("alert_new_block_bitcoincash"; fl(.notifications.alert_new_block_bitcoincash)),
+  o("alert_new_block_zcash"; fl(.notifications.alert_new_block_zcash)),
+  (("tari","litecoin","dogecoin","bitcoincash","zcash") as $n | o("cfg_\($n)_data_dir"; .[$n].data_dir // "")),
+  (("tari","litecoin","dogecoin","bitcoincash","zcash") as $n | o("\($n)_resource_profile"; .[$n].resource_profile // "off")),
+  (("tari","litecoin","dogecoin","bitcoincash","zcash") as $n | o("\($n)_steady_cpus"; .[$n].steady_cpus // 1)),
+  (("tari","litecoin","dogecoin","bitcoincash","zcash") as $n | o("\($n)_steady_mem_limit_mb"; .[$n].steady_mem_limit_mb // (if $n == "tari" or $n == "zcash" then 4096 else 2048 end))),
+  (("tari","litecoin","dogecoin","bitcoincash","zcash") as $n | o("\($n)_cpus"; .[$n].cpus // 0)),
+  (("bitcoin","monero","tari","litecoin","dogecoin","bitcoincash","zcash") as $n | o("steady_limits_ok_\($n)"; fl((.[$n] // {}) as $settings | (($settings | has("steady_cpus") | not) or ($settings.steady_cpus | type == "number")) and (($settings | has("steady_mem_limit_mb") | not) or ($settings.steady_mem_limit_mb | type == "number" and floor == .))))),
+  (("bitcoin","litecoin","bitcoincash","dogecoin") as $n | o("\($n)_utxo_index_invalid"; fl((.[$n] // {}) | has("utxo_index") and (.utxo_index | type) != "boolean"))),
+  o("network_ok"; fl(if $net_type == "null" or $net_type == "object" then all(.network.clearnet_over_tor, .network.inbound_connections; . == null or type == "boolean") else false end)),
+  o("sync_over_clearnet"; fl(.bitcoin.sync_over_clearnet)),
+  o("dashboard_public_url_invalid"; fl((.dashboard // {}) | has("public_url") and (.public_url == null or (.public_url | type != "string")))),
+  o("dashboard_public_url_set"; fl((.dashboard // {}) | has("public_url"))),
+  o("dashboard_public_url_config"; .dashboard.public_url // "")
+' <<<"$config")
+eval "$settings"
 
 # Fresh installs generate separate passwords; upgrades reuse each existing value.
-rpc_user=$(get '.bitcoin.node_username')
-rpc_password=$(get '.bitcoin.node_password')
-bitcoin_enabled=$(jq -r 'if ((.bitcoin // {}) | has("enabled")) then if .bitcoin.enabled == true then 1 else 0 end else empty end' <<<"$config")
-monero_enabled=$(jq -r 'if ((.monero // {}) | has("enabled")) then if .monero.enabled == true then 1 else 0 end else empty end' <<<"$config")
-bitcoin_active=$(jq -r 'if ((.bitcoin // {}) | has("active")) then if .bitcoin.active == true then 1 else 0 end else 1 end' <<<"$config")
-monero_active=$(jq -r 'if ((.monero // {}) | has("active")) then if .monero.active == true then 1 else 0 end else 1 end' <<<"$config")
-tari_enabled=$(flag '.tari.enabled')
-tari_active=$(jq -r 'if ((.tari // {}) | has("active")) then if .tari.active == true then 1 else 0 end else 1 end' <<<"$config")
-litecoin_enabled=$(flag '.litecoin.enabled')
-litecoin_active=$(jq -r 'if ((.litecoin // {}) | has("active")) then if .litecoin.active == true then 1 else 0 end else 1 end' <<<"$config")
-dogecoin_enabled=$(flag '.dogecoin.enabled')
-dogecoin_active=$(jq -r 'if ((.dogecoin // {}) | has("active")) then if .dogecoin.active == true then 1 else 0 end else 1 end' <<<"$config")
-dogecoin_watch_wallet=$(flag '.dogecoin.watch_wallet')
-bitcoincash_enabled=$(flag '.bitcoincash.enabled')
-bitcoincash_active=$(jq -r 'if ((.bitcoincash // {}) | has("active")) then if .bitcoincash.active == true then 1 else 0 end else 1 end' <<<"$config")
-zcash_enabled=$(flag '.zcash.enabled')
-zcash_address_index=$(flag '.zcash.address_index')
 zcash_toml=zakurad.toml
 if [ "$zcash_address_index" = 1 ]; then zcash_toml=zakurad-address-index.toml; fi
-zcash_active=$(jq -r 'if ((.zcash // {}) | has("active")) then if .zcash.active == true then 1 else 0 end else 1 end' <<<"$config")
-monero_rpc_user=$(get '.monero.node_username')
-monero_rpc_password=$(get '.monero.node_password')
-litecoin_rpc_user=$(get '.litecoin.node_username' 'admin')
-litecoin_rpc_password=$(get '.litecoin.node_password')
-dogecoin_rpc_user=$(get '.dogecoin.node_username' 'admin')
-dogecoin_rpc_password=$(get '.dogecoin.node_password')
-bitcoincash_rpc_user=$(get '.bitcoincash.node_username' 'admin')
-bitcoincash_rpc_password=$(get '.bitcoincash.node_password')
-zcash_rpc_user=$(get '.zcash.node_username' 'admin')
-zcash_rpc_password=$(get '.zcash.node_password')
 monero_wallet_rpc_user=$(sed -n 's/^MONERO_WALLET_RPC_USER=//p' "$env_file" 2>/dev/null || true)
 monero_wallet_rpc_password=$(sed -n 's/^MONERO_WALLET_RPC_PASSWORD=//p' "$env_file" 2>/dev/null || true)
 monero_wallet_password=$(sed -n 's/^MONERO_WALLET_PASSWORD=//p' "$env_file" 2>/dev/null || true)
 tari_wallet_rpc_user=$(sed -n 's/^TARI_WALLET_RPC_USER=//p' "$env_file" 2>/dev/null || true)
 tari_wallet_rpc_password=$(sed -n 's/^TARI_WALLET_RPC_PASSWORD=//p' "$env_file" 2>/dev/null || true)
 tari_wallet_password=$(sed -n 's/^TARI_WALLET_PASSWORD=//p' "$env_file" 2>/dev/null || true)
-dashboard_password=$(get '.dashboard.password')
-dashboard_password_set=$(jq -r 'if ((.dashboard // {}) | has("password")) then 1 else 0 end' <<<"$config")
-launch_at_boot=$(jq -r 'if ((.dashboard // {}) | has("launch_at_boot")) then if .dashboard.launch_at_boot == true then "true" else "false" end else "missing" end' <<<"$config")
 had_env=0
 [ -f "$env_file" ] && had_env=1
 restart_policy=on-failure:5
@@ -151,7 +236,6 @@ fi
 [ -n "$monero_wallet_password" ] || monero_wallet_password=$(openssl rand -hex 24)
 [ -n "$tari_wallet_rpc_password" ] || tari_wallet_rpc_password=$(openssl rand -hex 24)
 [ -n "$tari_wallet_password" ] || tari_wallet_password=$(openssl rand -hex 24)
-data_dir=$(get '.bitcoin.data_dir')
 if [ -z "$data_dir" ]; then
   if [ -n "${BITCOIN_STACK_DATA_DIR:-}" ]; then
     data_dir=$BITCOIN_STACK_DATA_DIR/bitcoin
@@ -159,7 +243,6 @@ if [ -z "$data_dir" ]; then
     data_dir=./data/bitcoin
   fi
 fi
-monero_data_dir=$(get '.monero.data_dir')
 if [ -z "$monero_data_dir" ]; then
   if [ -n "${BITCOIN_STACK_DATA_DIR:-}" ]; then
     monero_data_dir=$BITCOIN_STACK_DATA_DIR/monero
@@ -169,7 +252,8 @@ if [ -z "$monero_data_dir" ]; then
 fi
 node_data_dir() {
   local node=$1 configured
-  configured=$(jq -r --arg node "$node" '.[$node].data_dir // empty' <<<"$config")
+  configured=cfg_${node}_data_dir
+  configured=${!configured}
   if [ -n "$configured" ]; then printf '%s\n' "$configured"
   elif [ -n "${BITCOIN_STACK_DATA_DIR:-}" ]; then printf '%s/%s\n' "$BITCOIN_STACK_DATA_DIR" "$node"
   else printf './data/%s\n' "$node"
@@ -180,66 +264,20 @@ litecoin_data_dir=$(node_data_dir litecoin)
 dogecoin_data_dir=$(node_data_dir dogecoin)
 bitcoincash_data_dir=$(node_data_dir bitcoincash)
 zcash_data_dir=$(node_data_dir zcash)
-dbcache=$(jq -r '.bitcoin.dbcache_mb // empty' <<<"$config")
 [ -n "$dbcache" ] || {
   dbcache=$(sed -n 's/^BITCOIN_DBCACHE=//p' "$env_file" 2>/dev/null || true)
   [ -n "$dbcache" ] || [ ! -f "$env_file" ] || dbcache=3000
 }
 [ -n "$dbcache" ] || dbcache=128
-prune=$(jq -r '.bitcoin.prune_mb // empty' <<<"$config")
 [ -n "$prune" ] || {
   prune=$(sed -n 's/^BITCOIN_PRUNE=//p' "$env_file" 2>/dev/null || true)
   [ -n "$prune" ] || [ ! -f "$env_file" ] || prune=0
 }
 [ -n "$prune" ] || prune=10000
-mem_limit_mb=$(jq -r '.bitcoin.mem_limit_mb // 0' <<<"$config")
-bitcoin_cpus=$(jq -r '.bitcoin.cpus // 0' <<<"$config")
-monero_cpus=$(jq -r '.monero.cpus // 0' <<<"$config")
-monero_mem_limit_mb=$(jq -r '.monero.mem_limit_mb // 0' <<<"$config")
-thermal_limit_c=$(jq -r '.host.thermal_limit_c // 0' <<<"$config")
-thermal_resume_c=$(jq -r '.host.thermal_resume_c // 0' <<<"$config")
-jq -e '(.network == null or (.network | type == "object")) and all(.network.clearnet_over_tor, .network.inbound_connections; . == null or type == "boolean")' <<<"$config" >/dev/null || {
+[ "$network_ok" = 1 ] || {
   echo "network.clearnet_over_tor and network.inbound_connections must be true or false."
   exit 1
 }
-tor_clearnet=$(jq -r 'if .network.clearnet_over_tor == false then 0 else 1 end' <<<"$config")
-tor_inbound=$(jq -r 'if .network.inbound_connections == false then 0 else 1 end' <<<"$config")
-blockfilterindex=$(flag '.bitcoin.blockfilterindex')
-utxo_index=$(flag '.bitcoin.utxo_index')
-litecoin_utxo_index=$(flag '.litecoin.utxo_index')
-bitcoincash_utxo_index=$(flag '.bitcoincash.utxo_index')
-dogecoin_utxo_index=$(flag '.dogecoin.utxo_index')
-rpc_expose=$(flag '.bitcoin.rpc_expose')
-rpc_bind_ip=$(get '.bitcoin.rpc_bind_ip')
-rpc_port=$(jq -r '.bitcoin.rpc_port // 8332' <<<"$config")
-monero_rpc_expose=$(flag '.monero.rpc_expose')
-monero_rpc_bind_ip=$(get '.monero.rpc_bind_ip')
-monero_rpc_port=$(jq -r '.monero.rpc_port // 18081' <<<"$config")
-monero_zmq_expose=$(flag '.monero.zmq_expose')
-monero_zmq_bind_ip=$(get '.monero.zmq_bind_ip')
-monero_zmq_port=$(jq -r '.monero.zmq_port // 18083' <<<"$config")
-node_prune() { jq -r --arg node "$1" '.[$node].prune_mb // 10000' <<<"$config"; }
-litecoin_prune=$(node_prune litecoin)
-dogecoin_prune=$(node_prune dogecoin)
-bitcoincash_prune=$(node_prune bitcoincash)
-tari_pruning_horizon=$(jq -r '.tari.pruning_horizon // 10000' <<<"$config")
-node_expose() { jq -r --arg node "$1" 'if .[$node].rpc_expose == true then 1 else 0 end' <<<"$config"; }
-tari_grpc_expose=$(jq -r 'if .tari.grpc_expose == true then 1 else 0 end' <<<"$config")
-tari_grpc_bind_ip=$(get '.tari.grpc_bind_ip')
-tari_grpc_port=$(jq -r '.tari.grpc_port // 18142' <<<"$config")
-tari_grpc_extra_methods=$(jq -r '.tari.grpc_extra_methods // [] | if type == "array" and all(.[]; type == "string" and test("^[a-z][a-z_]*$")) then join(",") else "!" end' <<<"$config")
-litecoin_rpc_expose=$(node_expose litecoin)
-litecoin_rpc_bind_ip=$(get '.litecoin.rpc_bind_ip')
-litecoin_rpc_port=$(jq -r '.litecoin.rpc_port // 9332' <<<"$config")
-dogecoin_rpc_expose=$(node_expose dogecoin)
-dogecoin_rpc_bind_ip=$(get '.dogecoin.rpc_bind_ip')
-dogecoin_rpc_port=$(jq -r '.dogecoin.rpc_port // 22555' <<<"$config")
-bitcoincash_rpc_expose=$(node_expose bitcoincash)
-bitcoincash_rpc_bind_ip=$(get '.bitcoincash.rpc_bind_ip')
-bitcoincash_rpc_port=$(jq -r '.bitcoincash.rpc_port // 8332' <<<"$config")
-zcash_rpc_expose=$(node_expose zcash)
-zcash_rpc_bind_ip=$(get '.zcash.rpc_bind_ip')
-zcash_rpc_port=$(jq -r '.zcash.rpc_port // 8232' <<<"$config")
 [ "$bitcoin_enabled" = "1" ] || rpc_expose=0
 [ "$monero_enabled" = "1" ] || { monero_rpc_expose=0; monero_zmq_expose=0; }
 [ "$tari_enabled" = "1" ] || tari_grpc_expose=0
@@ -252,26 +290,10 @@ for listener in rpc monero_rpc monero_zmq tari_grpc litecoin_rpc dogecoin_rpc bi
   bind_ip_var=${listener}_bind_ip
   [ -z "${!bind_ip_var}" ] || ! grep -Fxq -- "${!bind_ip_var}" <<<"$paused_listeners" || printf -v "${listener}_expose" 0
 done
-bitcoin_resource_profile=$(get '.bitcoin.resource_profile')
-monero_resource_profile=$(get '.monero.resource_profile')
 [ -n "$bitcoin_resource_profile" ] || bitcoin_resource_profile=$(sed -n 's/^BITCOIN_RESOURCE_PROFILE=//p' "$env_file" 2>/dev/null || true)
 [ -n "$monero_resource_profile" ] || monero_resource_profile=$(sed -n 's/^MONERO_RESOURCE_PROFILE=//p' "$env_file" 2>/dev/null || true)
 [ -n "$bitcoin_resource_profile" ] || bitcoin_resource_profile=off
 [ -n "$monero_resource_profile" ] || monero_resource_profile=off
-for node in tari litecoin dogecoin bitcoincash zcash; do
-  value=$(jq -r --arg node "$node" '.[$node].resource_profile // "off"' <<<"$config")
-  case "$node" in
-    tari) tari_resource_profile=$value ;;
-    litecoin) litecoin_resource_profile=$value ;;
-    dogecoin) dogecoin_resource_profile=$value ;;
-    bitcoincash) bitcoincash_resource_profile=$value ;;
-    zcash) zcash_resource_profile=$value ;;
-  esac
-done
-bitcoin_steady_cpus=$(jq -r '.bitcoin.steady_cpus // empty' <<<"$config")
-bitcoin_steady_mem_limit_mb=$(jq -r '.bitcoin.steady_mem_limit_mb // empty' <<<"$config")
-monero_steady_cpus=$(jq -r '.monero.steady_cpus // empty' <<<"$config")
-monero_steady_mem_limit_mb=$(jq -r '.monero.steady_mem_limit_mb // empty' <<<"$config")
 [ -n "$bitcoin_steady_cpus" ] || bitcoin_steady_cpus=$(sed -n 's/^BITCOIN_STEADY_CPUS=//p' "$env_file" 2>/dev/null || true)
 [ -n "$bitcoin_steady_mem_limit_mb" ] || bitcoin_steady_mem_limit_mb=$(sed -n 's/^BITCOIN_STEADY_MEM_LIMIT_MB=//p' "$env_file" 2>/dev/null || true)
 [ -n "$monero_steady_cpus" ] || monero_steady_cpus=$(sed -n 's/^MONERO_STEADY_CPUS=//p' "$env_file" 2>/dev/null || true)
@@ -280,35 +302,17 @@ monero_steady_mem_limit_mb=$(jq -r '.monero.steady_mem_limit_mb // empty' <<<"$c
 [ -n "$bitcoin_steady_mem_limit_mb" ] || bitcoin_steady_mem_limit_mb=2048
 [ -n "$monero_steady_cpus" ] || monero_steady_cpus=1
 [ -n "$monero_steady_mem_limit_mb" ] || monero_steady_mem_limit_mb=2048
-for node in tari litecoin dogecoin bitcoincash zcash; do
-  case "$node" in
-    litecoin | dogecoin | bitcoincash) default_steady_mem=2048 ;;
-    *) default_steady_mem=4096 ;;
-  esac
-  cpus=$(jq -r --arg node "$node" '.[$node].steady_cpus // 1' <<<"$config")
-  memory=$(jq -r --arg node "$node" --argjson default "$default_steady_mem" '.[$node].steady_mem_limit_mb // $default' <<<"$config")
-  hard_cpus=$(jq -r --arg node "$node" '.[$node].cpus // 0' <<<"$config")
-  case "$node" in
-    tari) tari_steady_cpus=$cpus; tari_steady_mem_limit_mb=$memory; tari_cpus=$hard_cpus ;;
-    litecoin) litecoin_steady_cpus=$cpus; litecoin_steady_mem_limit_mb=$memory; litecoin_cpus=$hard_cpus ;;
-    dogecoin) dogecoin_steady_cpus=$cpus; dogecoin_steady_mem_limit_mb=$memory; dogecoin_cpus=$hard_cpus ;;
-    bitcoincash) bitcoincash_steady_cpus=$cpus; bitcoincash_steady_mem_limit_mb=$memory; bitcoincash_cpus=$hard_cpus ;;
-    zcash) zcash_steady_cpus=$cpus; zcash_steady_mem_limit_mb=$memory; zcash_cpus=$hard_cpus ;;
-  esac
-done
-dashboard_onion=$(jq -r 'if ((.dashboard // {}) | has("onion")) then if .dashboard.onion == true then 1 else 0 end else empty end' <<<"$config")
 [ -n "$dashboard_onion" ] || dashboard_onion=$(sed -n 's/^DASHBOARD_ONION=//p' "$env_file" 2>/dev/null || true)
 [ -n "$dashboard_onion" ] || dashboard_onion=0
-if jq -e '(.dashboard // {}) | has("public_url") and (.public_url == null or (.public_url | type != "string"))' >/dev/null <<<"$config"; then
+if [ "$dashboard_public_url_invalid" = 1 ]; then
   echo "dashboard.public_url must be a string when set."
   exit 1
 fi
-if jq -e '(.dashboard // {}) | has("public_url")' >/dev/null <<<"$config"; then
-  dashboard_public_url=$(jq -r '.dashboard.public_url' <<<"$config")
+if [ "$dashboard_public_url_set" = 1 ]; then
+  dashboard_public_url=$dashboard_public_url_config
 else
   dashboard_public_url=$(sed -n 's/^DASHBOARD_PUBLIC_URL=//p' "$env_file" 2>/dev/null || true)
 fi
-dashboard_bind_setting=$(get '.dashboard.bind_ip')
 if [ "$dashboard_bind_setting" = auto ]; then
   dashboard_bind_ip=$(detect_dashboard_bind_ip)
 elif [ -n "$dashboard_bind_setting" ]; then
@@ -319,19 +323,8 @@ else
 fi
 dashboard_default_port=80
 [ "$package_managed" != brew ] || dashboard_default_port=8080
-dashboard_port=$(jq -r '.dashboard.port // empty' <<<"$config")
 [ -n "$dashboard_port" ] || dashboard_port=$(sed -n 's/^DASHBOARD_PORT=//p' "$env_file" 2>/dev/null || true)
 [ -n "$dashboard_port" ] || dashboard_port=$dashboard_default_port
-telegram_bot_token=$(get '.notifications.telegram_bot_token')
-telegram_chat_id=$(get '.notifications.telegram_chat_id')
-healthchecks_url=$(get '.notifications.healthchecks_url')
-alert_new_block=$(flag '.notifications.alert_new_block')
-alert_new_block_monero=$(flag '.notifications.alert_new_block_monero')
-alert_new_block_tari=$(flag '.notifications.alert_new_block_tari')
-alert_new_block_litecoin=$(flag '.notifications.alert_new_block_litecoin')
-alert_new_block_dogecoin=$(flag '.notifications.alert_new_block_dogecoin')
-alert_new_block_bitcoincash=$(flag '.notifications.alert_new_block_bitcoincash')
-alert_new_block_zcash=$(flag '.notifications.alert_new_block_zcash')
 # Watch-only public keys travel as a base64 JSON blob so xpubs/descriptors
 # pass through .env untouched (no quoting or $-expansion footguns).
 default_wallets='[{"name":"Binance (public)","key":"34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo","birthday":""}]'
@@ -529,12 +522,8 @@ validate_steady_limits() {
   fi
 }
 for node in bitcoin monero tari litecoin dogecoin bitcoincash zcash; do
-  if ! jq -e --arg node "$node" '
-    (.[$node] // {}) as $settings |
-    (($settings | has("steady_cpus") | not) or ($settings.steady_cpus | type == "number")) and
-    (($settings | has("steady_mem_limit_mb") | not) or
-      ($settings.steady_mem_limit_mb | type == "number" and floor == .))
-  ' >/dev/null <<<"$config"; then
+  steady_ok=steady_limits_ok_$node
+  if [ "${!steady_ok}" != 1 ]; then
     echo "$node steady resource limits must be JSON numbers."
     exit 1
   fi
@@ -629,7 +618,7 @@ if [ "$rpc_expose" = "1" ] && [ "$monero_zmq_expose" = "1" ] && [ "$rpc_bind_ip:
   exit 1
 fi
 
-if jq -e '(.bitcoin // {}) | has("utxo_index") and (.utxo_index | type) != "boolean"' >/dev/null <<<"$config"; then
+if [ "$bitcoin_utxo_index_invalid" = 1 ]; then
   echo "bitcoin.utxo_index must be true or false."
   exit 1
 fi
@@ -637,7 +626,7 @@ if [ "$utxo_index" = "1" ] && [ "$bitcoin_enabled" != "1" ]; then
   echo "bitcoin.utxo_index requires bitcoin.enabled."
   exit 1
 fi
-if jq -e '(.litecoin // {}) | has("utxo_index") and (.utxo_index | type) != "boolean"' >/dev/null <<<"$config"; then
+if [ "$litecoin_utxo_index_invalid" = 1 ]; then
   echo "litecoin.utxo_index must be true or false."
   exit 1
 fi
@@ -645,7 +634,7 @@ if [ "$litecoin_utxo_index" = "1" ] && [ "$litecoin_enabled" != "1" ]; then
   echo "litecoin.utxo_index requires litecoin.enabled."
   exit 1
 fi
-if jq -e '(.bitcoincash // {}) | has("utxo_index") and (.utxo_index | type) != "boolean"' >/dev/null <<<"$config"; then
+if [ "$bitcoincash_utxo_index_invalid" = 1 ]; then
   echo "bitcoincash.utxo_index must be true or false."
   exit 1
 fi
@@ -653,7 +642,7 @@ if [ "$bitcoincash_utxo_index" = "1" ] && [ "$bitcoincash_enabled" != "1" ]; the
   echo "bitcoincash.utxo_index requires bitcoincash.enabled."
   exit 1
 fi
-if jq -e '(.dogecoin // {}) | has("utxo_index") and (.utxo_index | type) != "boolean"' >/dev/null <<<"$config"; then
+if [ "$dogecoin_utxo_index_invalid" = 1 ]; then
   echo "dogecoin.utxo_index must be true or false."
   exit 1
 fi
@@ -704,7 +693,7 @@ if [ "$tor_inbound" = "1" ]; then
   done
 fi
 
-if jq -e '.bitcoin.sync_over_clearnet == true' >/dev/null <<<"$config"; then
+if [ "$sync_over_clearnet" = 1 ]; then
   echo "bitcoin.sync_over_clearnet is no longer supported; all public internet traffic must use Tor."
   exit 1
 fi
