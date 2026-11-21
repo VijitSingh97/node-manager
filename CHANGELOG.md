@@ -27,6 +27,11 @@ All notable changes to this project are documented here. Format follows
   confirms first, or takes `-y`. Regtest runs on all four nodes matched.
   Mainnet timing is not measured.
 
+- `tari.grpc_extra_methods` allows more Tari gRPC methods on top of the built-in
+  list, for example `["list_headers"]`. `configure.sh` accepts only lowercase
+  snake_case names and passes them to the node, which adds them to its
+  `grpc_server_allow_methods`.
+
 ### Changed
 
 - The Bitcoin Cash balance index fits the same 1 GiB dashboard limit as the other
