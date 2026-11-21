@@ -293,6 +293,21 @@ grep -q '^BITCOIN_RPC_EXPOSE=1$' "$tmp/.env" || fail "rpc_expose=true not render
 grep -q '^BITCOIN_RPC_BIND_IP=192.168.1.118$' "$tmp/.env" || fail "RPC LAN bind not rendered"
 grep -q '^BITCOIN_RPC_PORT=18332$' "$tmp/.env" || fail "RPC host port not rendered"
 grep -q '^COMPOSE_FILE=docker-compose.yml:docker-compose.rpc.yml$' "$tmp/.env" || fail "RPC compose override not enabled"
+cp "$tmp/config.json" "$tmp/config.before-pause"
+printf '192.168.1.118 1000\n' >"$tmp/.paused-listeners"
+(cd "$tmp" && ./configure.sh) >/dev/null
+grep -q '^COMPOSE_FILE=docker-compose.yml$' "$tmp/.env" || fail "a paused LAN listener was still published"
+grep -q '^BITCOIN_RPC_EXPOSE=0$' "$tmp/.env" || fail "a paused LAN listener was rendered as exposed"
+cmp -s "$tmp/config.json" "$tmp/config.before-pause" || fail "pausing a LAN listener changed config.json"
+cp "$tmp/config.json" "$tmp/config.custom.json"
+printf '%s\n' '{"bitcoin":{"enabled":false},"monero":{"enabled":true,"zmq_expose":true,"zmq_bind_ip":"192.168.1.118"},"tari":{"enabled":true,"grpc_expose":true,"grpc_bind_ip":"192.168.1.118"},"dashboard":{"password":"dashpassword12","bind_ip":"127.0.0.1"}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null
+grep -q '^COMPOSE_FILE=docker-compose.yml:docker-compose.tari-wallet.yml$' "$tmp/.env" || fail "paused gRPC and ZMQ listeners were still published"
+grep -q '^MONERO_ZMQ_EXPOSE=0$' "$tmp/.env" || fail "a paused ZMQ listener was rendered as exposed"
+grep -q '^TARI_GRPC_EXPOSE=0$' "$tmp/.env" || fail "a paused gRPC listener was rendered as exposed"
+mv "$tmp/config.custom.json" "$tmp/config.json"
+rm -f "$tmp/.paused-listeners" "$tmp/config.before-pause"
+(cd "$tmp" && ./configure.sh) >/dev/null
 grep -q '^DASHBOARD_PASSWORD=dashpassword12$' "$tmp/.env" || fail "dashboard password not rendered"
 grep -q '^DASHBOARD_ONION=1$' "$tmp/.env" || fail "dashboard onion not rendered"
 grep -q '^DASHBOARD_BIND_IP=192.168.1.117$' "$tmp/.env" || fail "dashboard LAN bind not rendered"
@@ -442,6 +457,10 @@ grep -q '^DASHBOARD_BIND_IP=192.168.50.41$' "$tmp/.env" || fail "auto dashboard 
 (cd "$tmp" && BITCOIN_STACK_DEFAULT_BIND_IP=8.8.8.8 ./configure.sh) >"$tmp/auto-bind.out" 2>&1
 grep -q '^DASHBOARD_BIND_IP=127.0.0.1$' "$tmp/.env" || fail "auto dashboard bind did not fall back to loopback"
 grep -q 'No private LAN address detected' "$tmp/auto-bind.out" || fail "loopback fallback was not reported"
+cp "$tmp/.env" "$tmp/env.before"
+[ "$(cd "$tmp" && BITCOIN_STACK_DEFAULT_BIND_IP=192.168.50.44 ./configure.sh --detect-bind-ip)" = 192.168.50.44 ] || fail "bind detection did not print the LAN address"
+[ "$(cd "$tmp" && BITCOIN_STACK_DEFAULT_BIND_IP=8.8.8.8 ./configure.sh --detect-bind-ip 2>/dev/null)" = 127.0.0.1 ] || fail "bind detection did not fall back to loopback"
+cmp -s "$tmp/.env" "$tmp/env.before" || fail "bind detection rendered .env"
 echo '{"dashboard":{"bind_ip":"192.168.50.42"}}' >"$tmp/config.json"
 (cd "$tmp" && BITCOIN_STACK_DEFAULT_BIND_IP=192.168.50.43 ./configure.sh) >/dev/null
 grep -q '^DASHBOARD_BIND_IP=192.168.50.42$' "$tmp/.env" || fail "explicit dashboard bind was replaced by auto detection"

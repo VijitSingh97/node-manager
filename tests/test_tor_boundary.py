@@ -292,6 +292,8 @@ class HostScriptTest(unittest.TestCase):
             "docker exec -it -u root c curl https://x\n", "\"$docker_bin\" exec c wget https://x\n", "docker compose exec tor wget x\n",
             "openssl s_client -connect x:443\n", "lynx x\n", "python3 -c \"import urllib.request as u;u.urlopen('http://x')\"\n",
             "python3 -c 'import socket'\n", "tailscale up\n", "nmap -sn 10.0.0.0/24\n",
+            "n=$((1 << 24))\ncurl https://x\n", "m=$(((a << bits) + (1 << (32 - b))))\ncurl https://x\n", "(( c <<= d ))\ncurl https://x\n",
+            "cat <<<word\ncurl https://x\n",
         ):
             with self.subTest(script=script):
                 self.assertTrue(lib.network_hits(script), script)

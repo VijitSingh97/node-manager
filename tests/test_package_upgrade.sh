@@ -269,4 +269,22 @@ head -c 2097152 /dev/zero >"$tmp/state/data/bitcoin-old/blk00000.dat"
 ./stack doctor >"$tmp/doctor.out" 2>&1 || true
 grep -q 'WARN  orphaned data directory .*bitcoin-old (2 MiB)' "$tmp/doctor.out" || fail "doctor missed the orphaned data directory"
 
+cat >"$fake/ifaddrs" <<'EOF'
+#!/bin/sh
+for address in $FAKE_HOST_ADDRESSES; do printf '2: eth0    inet %s/24 brd 192.168.1.255 scope global eth0\n' "$address"; done
+EOF
+chmod +x "$fake/ifaddrs"
+sed -i.bak -e 's/^DASHBOARD_BIND_IP=.*/DASHBOARD_BIND_IP=192.168.1.20/' -e 's/^BITCOIN_RPC_EXPOSE=.*/BITCOIN_RPC_EXPOSE=1/' \
+  -e 's/^BITCOIN_RPC_BIND_IP=.*/BITCOIN_RPC_BIND_IP=192.168.1.21/' "$tmp/state/.env"
+rm -f "$tmp/state/.env.bak"
+FAKE_HOST_ADDRESSES="127.0.0.1 192.168.1.20 192.168.1.21" IP_BIN=$fake/ifaddrs IFCONFIG_BIN=$fake/ifaddrs ./stack doctor >"$tmp/doctor.out" 2>&1 || true
+! grep -q 'is not on this host' "$tmp/doctor.out" || fail "doctor flagged addresses the host still has"
+FAKE_HOST_ADDRESSES="127.0.0.1 192.168.1.30" IP_BIN=$fake/ifaddrs IFCONFIG_BIN=$fake/ifaddrs ./stack doctor >"$tmp/doctor.out" 2>&1 || true
+grep -q '^WARN  DASHBOARD_BIND_IP 192.168.1.20 is not on this host' "$tmp/doctor.out" || fail "doctor missed a dashboard address the host lost"
+grep -q '^WARN  BITCOIN_RPC_BIND_IP 192.168.1.21 is not on this host' "$tmp/doctor.out" || fail "doctor missed a LAN listener address the host lost"
+printf '192.168.1.22\n' >"$tmp/state/.paused-listeners"
+FAKE_HOST_ADDRESSES="127.0.0.1 192.168.1.20 192.168.1.21" IP_BIN=$fake/ifaddrs IFCONFIG_BIN=$fake/ifaddrs ./stack doctor >"$tmp/doctor.out" 2>&1 || true
+grep -q '^WARN  LAN listeners on 192.168.1.22 are paused' "$tmp/doctor.out" || fail "doctor did not report paused LAN listeners"
+rm -f "$tmp/state/.paused-listeners"
+
 echo "PASS: test_package_upgrade.sh"
