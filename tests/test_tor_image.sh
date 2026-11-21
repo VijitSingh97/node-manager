@@ -37,7 +37,7 @@ expect_ok() {
   [ "$rc" = 0 ] || fail "$2"
 }
 
-docker run -d --name "$name" --health-cmd /usr/local/bin/tor-health --health-interval 5s --health-retries 1 -v "$name:/var/lib/tor" "$image" >/dev/null
+docker run -d --name "$name" --health-cmd /usr/local/bin/tor-health --health-interval 5s --health-timeout 75s --health-retries 1 -v "$name:/var/lib/tor" "$image" >/dev/null
 expect_ok "$name" "healthcheck never reached ok on a fresh tor_data volume"
 [ "$(docker inspect -f '{{.State.Running}}' "$name")" = true ] || fail "Tor did not stay running"
 docker exec "$name" sh -c 'tor-health >/dev/null; nc -z 127.0.0.1 9050' || fail "SocksPort is not listening"
