@@ -97,6 +97,14 @@ All notable changes to this project are documented here. Format follows
   RSS and 945 MiB, in the same session. Mainnet is not measured. A block over 1.2
   million coin operations still stops the index, because the parsed block stays
   whole while its pieces apply.
+- The host helper does less work per power request. It reads a request in one
+  dashboard call instead of four and its fields with one `jq` call. Its own
+  `stack up` no longer renders the config a third time or re-registers the host
+  timers and agent. It refreshes its heartbeat when a request finishes, so after
+  a stop that took longer than 90 seconds the dashboard shows node controls
+  again at once instead of at the next timer run. A request read that fails
+  partway is retried instead of rejected. The node and wallet service lists and
+  the runtime state expression are each written once.
 - The tor healthcheck runs every 30 seconds with a 75-second timeout, 1 retry
   and a 2-minute start period (was 60 seconds, 10, 3 and 5 minutes).
 - The health probe opens Tor's control socket only after a failed probe, so a

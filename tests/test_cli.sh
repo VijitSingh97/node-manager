@@ -298,6 +298,14 @@ printf '1.2.3\n' >"$pending/VERSION"
 (cd "$pending" && BITCOIN_STACK_DEFAULT_BIND_IP=192.168.1.116 HOME="$tmp" PATH="$stub:$PATH" ./stack init >/dev/null)
 (cd "$pending" && BITCOIN_STACK_DEFAULT_BIND_IP=192.168.1.117 HOME="$tmp" PATH="$stub:$PATH" ./stack up >/dev/null)
 grep -q '^DASHBOARD_BIND_IP=192.168.1.117$' "$pending/.env" || fail "start did not refresh an automatic LAN bind"
+printf 'HELPER_SENTINEL=1\n' >>"$pending/.env"
+rm -f "$FAKE_CRON"
+(cd "$pending" && BITCOIN_STACK_HELPER_START=1 HOME="$tmp" PATH="$stub:$PATH" ./stack up >/dev/null)
+grep -q '^HELPER_SENTINEL=1$' "$pending/.env" || fail "helper start re-rendered an approved config"
+[ ! -e "$FAKE_CRON" ] || fail "helper start ran the host timer and agent setup"
+(cd "$pending" && BITCOIN_STACK_DEFAULT_BIND_IP=192.168.1.117 HOME="$tmp" PATH="$stub:$PATH" ./stack up >/dev/null)
+! grep -q '^HELPER_SENTINEL=1$' "$pending/.env" || fail "plain start skipped the config render"
+[ -e "$FAKE_CRON" ] || fail "plain start skipped the host timer and agent setup"
 jq '.dashboard.port=8088' "$pending/config.json" >"$pending/config.next"
 mv "$pending/config.next" "$pending/config.json"
 (cd "$pending" && BITCOIN_STACK_DEFAULT_BIND_IP=192.168.1.117 ./configure.sh >/dev/null)
