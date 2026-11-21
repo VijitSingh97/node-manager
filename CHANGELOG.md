@@ -97,6 +97,12 @@ All notable changes to this project are documented here. Format follows
   running Bitcoin node never showed the bar. Litecoin, Dogecoin and Bitcoin
   Cash were not affected.
 
+- The Tari node no longer makes Docker log a DNS resolver error every 2
+  minutes. Its Tari Pulse service looked up `checkpoints.tari.com` through the
+  system resolver, which the Tor-only network can never answer. The node config
+  now sets `tari_pulse_enabled = false`. Sync is unchanged, and the dashboard
+  never read the checkpoint result.
+
 ## [1.39.0] - 2026-11-20
 
 ### Added
