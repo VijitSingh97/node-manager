@@ -8,6 +8,50 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
+- `./stack utxo-index verify [--chain bitcoin|litecoin|dogecoin|bitcoincash]`
+  (`node-manager utxo-index verify` on package installs) checks a balance index
+  against the node's own UTXO set. It is meant for after a seed. The dashboard
+  waits up to 10 minutes for the index to reach the node tip. It then counts the
+  index and calls the node's `gettxoutsetinfo` at that same block, and prints
+  both coin counts and totals. The verdict is PASS, or FAIL with a non-zero exit.
+  Only PASS exits 0. FAIL, every refusal (printed as `refused:`) and a command
+  timeout exit 1. The refusals cover an index behind the tip, a tip that moved, and
+  a node call that failed or timed out. If the dashboard stops mid-wait, the command
+  says so and exits 1 at once.
+  The call uses `hash_type none` on Bitcoin Core 32.1, Litecoin 0.21.5.8 and
+  Bitcoin Cash Node 29.2.0. Dogecoin Core 1.14.9 takes no argument and always
+  hashes. The walk takes no `cs_main` in any of these versions, but node-down
+  alerts are still held while it runs, for at most 30 minutes. The hold is saved
+  with the seed state, so a dashboard restarted during the node's walk keeps
+  holding alerts until that deadline. The command
+  confirms first, or takes `-y`. Regtest runs on all four nodes matched.
+  Mainnet timing is not measured.
+
+### Changed
+
+- The Bitcoin Cash balance index fits the same 1 GiB dashboard limit as the other
+  indexes (#363). Its overlay now sets `mem_limit: 1g` and no `GOMEMLIMIT`,
+  instead of 2g with `GOMEMLIMIT=1600MiB`. A block of more than 50,000 coin
+  operations is applied in pieces of 50,000, each committed on its own, so no
+  database batch or undo record holds a whole 32 MB block. Only the last piece
+  moves the index's tip. Pieces left by a stop or crash are rolled back when the
+  index reopens, and a reorg undoes such a block piece by piece. On the regtest
+  replay of four 31 MB blocks at 0.5 CPU, the dashboard under 1 GiB finished in 78
+  to 109 s and peaked at 0.69 to 0.77 GiB RSS and 296 MiB of live heap. The same
+  replay with whole blocks under the 2 GiB cap took 966 s and peaked at 1.57 GiB
+  RSS and 945 MiB, in the same session. Mainnet is not measured. A block over 1.2
+  million coin operations still stops the index, because the parsed block stays
+  whole while its pieces apply.
+- Adding a Bitcoin watch-only wallet to the balance index derives its 2,000
+  scripts in four chunks per branch, up to three at a time (leaving one of
+  bitcoind's default four RPC threads free), instead of one sequential call per
+  branch, to bring a cold add closer to 1 s. The same scripts are derived. Not
+  yet measured on a real node.
+
+## [1.39.0] - 2026-11-20
+
+### Added
+
 - Bitcoin Cash's balance index (`bitcoincash.utxo_index`) works on a pruned node.
   Bitcoin Cash Node 29.2.0 has no coin-set export, so a seed now works like
   Dogecoin's: the node stops briefly while its chainstate is copied, then the
@@ -77,11 +121,7 @@ All notable changes to this project are documented here. Format follows
   restarts on upgrade.
 - A seed request may name its `mode` (`chainstate` or `replay`); a request with
   no mode behaves as before.
-- Adding a Bitcoin watch-only wallet to the balance index derives its 2,000
-  scripts in four chunks per branch, up to three at a time (leaving one of
-  bitcoind's default four RPC threads free), instead of one sequential call per
-  branch, to bring a cold add closer to 1 s. The same scripts are derived. Not
-  yet measured on a real node.
+- Zcash runs Zakura 1.8.9 (from 1.8.8).
 
 ### Fixed
 
@@ -96,6 +136,31 @@ All notable changes to this project are documented here. Format follows
 - The Bitcoin card shows a dash for Connections when `getpeerinfo` fails instead
   of `0 in · 0 out`.
 - The Bitcoin and Monero cards no longer show an empty Open ports row.
+- A node that is down, starting or not answering keeps its tower in the skyline
+  view. It is drawn greyed out at the last height and sync progress the dashboard
+  saw, with no "loading block" label, and the coin's name on its card turns red
+  (the card shows even with tower labels off). The tower returns to its colours
+  and label as soon as a status poll gets a height again. A node counts as
+  unreachable when it is switched on but stopped, restarting, or without a
+  successful health probe in the last 2 minutes, and its latest status poll gave
+  no height. The height and progress come from `monitor_state.json`
+  (`last_block` and the new `sync_percent`), so they survive dashboard restarts,
+  and `/api/nodes` now returns `last_height` and `last_sync_percent`. A node that
+  has never reported a height draws no tower, only its card with the red name.
+  A deactivated node also keeps its greyed tower, but its name stays grey.
+- Tari no longer reports height 0 while it starts up. Its sync progress call
+  returns zero heights then, so the dashboard keeps the stored tip height. This
+  caused the "loading block 1" label with no tower after a power cut.
+- The stack comes back after a power cut or reboot even when the host gets its
+  LAN address late. Docker gives up on a container it cannot start: when the
+  host booted before DHCP assigned the address Tor publishes the dashboard on,
+  Tor stayed down, taking the dashboard, node peers and alerts with it until
+  someone recreated it by hand. With Launch at boot on, the host helper now
+  recreates any stack container that Docker could not start because a published
+  port could not be bound, retrying after 30 s and then less often (at most every
+  10 minutes) until it starts, and records it in `./stack events`. Other start
+  errors, containers you stopped and deactivated nodes are left alone.
+  `up --force-recreate <service>` recreates a service by hand.
 
 ## [1.38.0] - 2026-11-17
 
@@ -1937,7 +2002,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.38.0...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.39.0...HEAD
+[1.39.0]: https://github.com/VijitSingh97/node-manager/compare/v1.38.0...v1.39.0
 [1.38.0]: https://github.com/VijitSingh97/node-manager/compare/v1.37.0...v1.38.0
 [1.37.0]: https://github.com/VijitSingh97/node-manager/compare/v1.36.0...v1.37.0
 [1.36.0]: https://github.com/VijitSingh97/node-manager/compare/v1.35.1...v1.36.0

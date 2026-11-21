@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/bits"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -25,12 +28,16 @@ const (
 	utxoValueLen        = 12
 	utxoRevTag          = 'o'
 	utxoRevKeyLen       = 1 + 32 + 4
+	utxoPiecesTag       = 2
 	utxoMaxScriptLen    = 10000
 	utxoBlockCacheBytes = 64 << 20
 	utxoMemTableBytes   = 16 << 20
 	utxoCompactions     = 1
 	utxoIngestTmpDir    = "ingest-tmp"
 )
+
+// A block with more coin operations than this commits in pieces of about 9 MB of batch each, so a 32 MB Bitcoin Cash block fits the 1 GiB cap.
+var utxoBlockPieceOps = 50_000
 
 var (
 	utxoMetaKey = []byte("meta")
@@ -171,6 +178,11 @@ func utxoUndoKey(height uint32) []byte {
 	return binary.BigEndian.AppendUint32([]byte("undo"), height)
 }
 
+// A piece key extends its block's undo key, so the pieces of a block sort right after its record.
+func utxoPieceKey(height, piece uint32) []byte {
+	return binary.BigEndian.AppendUint32(utxoUndoKey(height), piece)
+}
+
 func openUtxoStore(dir string) (*utxoStore, error) {
 	return openUtxoStoreFS(dir, nil, false)
 }
@@ -209,6 +221,10 @@ func openUtxoStoreFS(dir string, fs vfs.FS, reverse bool) (*utxoStore, error) {
 		_ = db.Close()
 		s.db = nil
 		return s, nil
+	}
+	if err := s.rollBackPartialBlock(); err != nil {
+		_ = s.Close()
+		return nil, fmt.Errorf("roll back a partly applied block: %w", err)
 	}
 	if err := fs.RemoveAll(fs.PathJoin(dir, utxoIngestTmpDir)); err != nil {
 		_ = db.Close()
@@ -347,13 +363,40 @@ func (s *utxoStore) ApplyBlock(blk utxoBlock) error {
 	return s.ApplyBlocks([]utxoBlock{blk})
 }
 
-// ApplyBlocks writes contiguous blocks in one batch with one sync and one meta write.
+// ApplyBlocks writes contiguous blocks in one batch with one sync and one meta write; a block over utxoBlockPieceOps commits on its own, in pieces.
 func (s *utxoStore) ApplyBlocks(blks []utxoBlock) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.usable(); err != nil {
 		return err
 	}
+	start := 0
+	for i, blk := range blks {
+		if len(blk.Creates)+len(blk.Spends) <= utxoBlockPieceOps {
+			continue
+		}
+		if err := s.applyBatchLocked(blks[start:i]); err != nil {
+			return err
+		}
+		if err := s.applyPiecesLocked(blk); err != nil {
+			return err
+		}
+		start = i + 1
+	}
+	return s.applyBatchLocked(blks[start:])
+}
+
+func extendsUtxoTip(m utxoMeta, blk utxoBlock) bool {
+	tip, _ := decodeUtxoTip(m)
+	return !m.HasTip || blk.Height == m.TipHeight+1 && blk.PrevHash == tip
+}
+
+func withUtxoTip(m utxoMeta, blk utxoBlock) utxoMeta {
+	m.HasTip, m.TipHeight, m.TipHash = true, blk.Height, hex.EncodeToString(blk.Hash[:])
+	return m
+}
+
+func (s *utxoStore) applyBatchLocked(blks []utxoBlock) error {
 	if len(blks) == 0 {
 		return nil
 	}
@@ -361,19 +404,66 @@ func (s *utxoStore) ApplyBlocks(blks []utxoBlock) error {
 	defer b.Close()
 	meta := s.meta
 	for _, blk := range blks {
-		if meta.HasTip {
-			tip, _ := decodeUtxoTip(meta)
-			if blk.Height != meta.TipHeight+1 || blk.PrevHash != tip {
-				return errUtxoNotContiguous
-			}
+		if !extendsUtxoTip(meta, blk) {
+			return errUtxoNotContiguous
 		}
-		if err := s.writeBlockLocked(b, blk); err != nil {
+		inverse, err := s.writeCoinsLocked(b, blk.Height, blk.Creates, blk.Spends)
+		if err != nil {
 			return err
 		}
-		meta.HasTip, meta.TipHeight, meta.TipHash = true, blk.Height, hex.EncodeToString(blk.Hash[:])
+		if err := writeUtxoUndoHead(b, blk, 0, inverse); err != nil {
+			return err
+		}
+		meta = withUtxoTip(meta, blk)
 	}
-	if err := b.Set(utxoMetaKey, mustMarshalUtxoMeta(meta), nil); err != nil {
+	return s.commitLocked(b, &meta)
+}
+
+// applyPiecesLocked commits a large block in pieces so no batch or undo record holds the whole block; only the last piece moves the tip.
+func (s *utxoStore) applyPiecesLocked(blk utxoBlock) error {
+	if !extendsUtxoTip(s.meta, blk) {
+		return errUtxoNotContiguous
+	}
+	creates, spends := blk.Creates, blk.Spends
+	for piece := uint32(0); ; piece++ {
+		nc := min(len(creates), utxoBlockPieceOps)
+		ns := min(len(spends), utxoBlockPieceOps-nc)
+		last := nc == len(creates) && ns == len(spends)
+		if err := s.applyPieceLocked(blk, piece, creates[:nc], spends[:ns], last); err != nil {
+			return errors.Join(err, s.rollBackPiecesLocked(blk.Height, piece))
+		}
+		if last {
+			return nil
+		}
+		creates, spends = creates[nc:], spends[ns:]
+	}
+}
+
+func (s *utxoStore) applyPieceLocked(blk utxoBlock, piece uint32, creates []utxoCreate, spends []utxoSpend, last bool) error {
+	b := s.db.NewIndexedBatch()
+	defer b.Close()
+	inverse, err := s.writeCoinsLocked(b, blk.Height, creates, spends)
+	if err != nil {
 		return err
+	}
+	if !last {
+		if err := b.Set(utxoPieceKey(blk.Height, piece), appendReversedUtxoOps(nil, inverse), nil); err != nil {
+			return err
+		}
+		return s.commitLocked(b, nil)
+	}
+	if err := writeUtxoUndoHead(b, blk, piece, inverse); err != nil {
+		return err
+	}
+	meta := withUtxoTip(s.meta, blk)
+	return s.commitLocked(b, &meta)
+}
+
+func (s *utxoStore) commitLocked(b *pebble.Batch, meta *utxoMeta) error {
+	if meta != nil {
+		if err := b.Set(utxoMetaKey, mustMarshalUtxoMeta(*meta), nil); err != nil {
+			return err
+		}
 	}
 	if s.beforeCommit != nil {
 		if err := s.beforeCommit(); err != nil {
@@ -383,17 +473,25 @@ func (s *utxoStore) ApplyBlocks(blks []utxoBlock) error {
 	if err := s.commit(b); err != nil {
 		return err
 	}
-	s.meta = meta
+	if meta != nil {
+		s.meta = *meta
+	}
 	return nil
 }
 
-func (s *utxoStore) writeBlockLocked(b *pebble.Batch, blk utxoBlock) error {
-	inverse := make([]byte, 0, (len(blk.Creates)+len(blk.Spends))*(1+utxoKeyLen+utxoValueLen))
-	for _, c := range blk.Creates {
-		if !utxoSpendable(c.Script) {
-			continue
+// writeCoinsLocked applies creates before spends, since a block's transactions can spend outputs of later ones, and returns the inverse ops.
+func (s *utxoStore) writeCoinsLocked(b *pebble.Batch, height uint32, creates []utxoCreate, spends []utxoSpend) ([]byte, error) {
+	inverse := make([]byte, 0, (len(creates)+len(spends))*(1+utxoKeyLen+utxoValueLen))
+	keys, order := make([][]byte, len(creates)), make([]int, 0, len(creates))
+	for i, c := range creates {
+		if utxoSpendable(c.Script) {
+			keys[i], order = utxoCoinKey(utxoScriptHash(c.Script), c.utxoOutpoint), append(order, i)
 		}
-		key := utxoCoinKey(utxoScriptHash(c.Script), c.utxoOutpoint)
+	}
+	// Reading in key order lets neighbouring lookups share cached blocks once a large block's earlier pieces are on disk.
+	slices.SortStableFunc(order, func(a, b int) int { return bytes.Compare(keys[a], keys[b]) })
+	for _, i := range order {
+		c, key := creates[i], keys[i]
 		old, closer, err := b.Get(key)
 		if err == nil {
 			inverse = appendUtxoSet(inverse, key, old)
@@ -401,50 +499,91 @@ func (s *utxoStore) writeBlockLocked(b *pebble.Batch, blk utxoBlock) error {
 		} else if errors.Is(err, pebble.ErrNotFound) {
 			inverse = appendUtxoDelete(inverse, key)
 		} else {
-			return err
+			return nil, err
 		}
-		if err := b.Set(key, utxoCoinValue(c.Amount, blk.Height), nil); err != nil {
-			return err
+		if err := b.Set(key, utxoCoinValue(c.Amount, height), nil); err != nil {
+			return nil, err
 		}
 		if s.reverse {
 			if err := b.Set(utxoRevKey(key), key[:utxoPrefixLen], nil); err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}
-	for _, sp := range blk.Spends {
+	for _, sp := range spends {
 		key := utxoCoinKey(utxoScriptHash(sp.Script), sp.utxoOutpoint)
 		if s.reverse {
 			if err := takeUtxoRev(b, key); err != nil {
-				return err
+				return nil, err
 			}
 		}
 		val, closer, err := b.Get(key)
 		if errors.Is(err, pebble.ErrNotFound) {
-			return errUtxoMissingCoin
+			return nil, errUtxoMissingCoin
 		}
 		if err != nil {
-			return err
+			return nil, err
 		}
 		inverse = appendUtxoSet(inverse, key, val)
 		closer.Close()
 		if err := b.Delete(key, nil); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	undo := make([]byte, 0, 64+len(inverse))
+	return inverse, nil
+}
+
+// writeUtxoUndoHead writes the block's undo record; a block applied in pieces marks how many earlier pieces its record leaves out.
+func writeUtxoUndoHead(b *pebble.Batch, blk utxoBlock, pieces uint32, inverse []byte) error {
+	undo := make([]byte, 0, 64+5+len(inverse))
 	undo = append(undo, blk.Hash[:]...)
 	undo = append(undo, blk.PrevHash[:]...)
+	if pieces > 0 {
+		undo = binary.BigEndian.AppendUint32(append(undo, utxoPiecesTag), pieces)
+	}
 	undo = appendReversedUtxoOps(undo, inverse)
 	if err := b.Set(utxoUndoKey(blk.Height), undo, nil); err != nil {
 		return err
 	}
-	if blk.Height > utxoJournalDepth {
-		if err := b.Delete(utxoUndoKey(blk.Height-utxoJournalDepth), nil); err != nil {
+	if blk.Height <= utxoJournalDepth {
+		return nil
+	}
+	return deleteUtxoUndo(b, blk.Height-utxoJournalDepth)
+}
+
+func deleteUtxoUndo(b *pebble.Batch, height uint32) error {
+	var pieces uint32
+	head, closer, err := b.Get(utxoUndoKey(height))
+	if err == nil {
+		_, pieces, err = splitUtxoUndoHead(head)
+		closer.Close()
+	} else if errors.Is(err, pebble.ErrNotFound) {
+		err = nil
+	}
+	if err != nil {
+		return err
+	}
+	for p := range pieces {
+		if err := b.Delete(utxoPieceKey(height, p), nil); err != nil {
 			return err
 		}
 	}
-	return nil
+	return b.Delete(utxoUndoKey(height), nil)
+}
+
+// splitUtxoUndoHead returns the head record's own ops and how many earlier pieces the block has.
+func splitUtxoUndoHead(undo []byte) (ops []byte, pieces uint32, err error) {
+	if len(undo) < 64 {
+		return nil, 0, errors.New("corrupt undo record")
+	}
+	ops = undo[64:]
+	if len(ops) > 0 && ops[0] == utxoPiecesTag {
+		if len(ops) < 5 {
+			return nil, 0, errors.New("corrupt undo record")
+		}
+		pieces, ops = binary.BigEndian.Uint32(ops[1:5]), ops[5:]
+	}
+	return ops, pieces, nil
 }
 
 // takeUtxoRev deletes the spent outpoint's reverse key and writes its script hash into key.
@@ -554,15 +693,34 @@ func (s *utxoStore) DisconnectTip() error {
 	}
 	raw := bytes.Clone(undo)
 	closer.Close()
-	if len(raw) < 64 {
-		return errors.New("corrupt undo record")
-	}
-	ops, err := splitUtxoOps(raw[64:])
+	ops, pieces, err := splitUtxoUndoHead(raw)
 	if err != nil {
 		return err
 	}
 	b := s.db.NewBatch()
 	defer b.Close()
+	if err := s.writeUndoOpsLocked(b, ops); err != nil {
+		return err
+	}
+	if err := b.Delete(utxoUndoKey(height), nil); err != nil {
+		return err
+	}
+	meta := s.meta
+	meta.HasTip, meta.TipHeight, meta.TipHash = false, 0, ""
+	if height > 0 {
+		meta.HasTip, meta.TipHeight, meta.TipHash = true, height-1, hex.EncodeToString(raw[32:64])
+	}
+	if err := s.commitLocked(b, &meta); err != nil {
+		return err
+	}
+	return s.rollBackPiecesLocked(height, pieces)
+}
+
+func (s *utxoStore) writeUndoOpsLocked(b *pebble.Batch, raw []byte) error {
+	ops, err := splitUtxoOps(raw)
+	if err != nil {
+		return err
+	}
 	for _, op := range ops {
 		key := op[1 : 1+utxoKeyLen]
 		if op[0] == 1 {
@@ -581,27 +739,66 @@ func (s *utxoStore) DisconnectTip() error {
 			return err
 		}
 	}
-	if err := b.Delete(utxoUndoKey(height), nil); err != nil {
+	return nil
+}
+
+// rollBackPartialBlock undoes the pieces a crash left above the tip, before anything reads the store.
+func (s *utxoStore) rollBackPartialBlock() error {
+	// A store with no tip takes its first block at any height.
+	bounds := &pebble.IterOptions{LowerBound: utxoUndoKey(0), UpperBound: []byte("undp")}
+	if s.meta.HasTip {
+		bounds = &pebble.IterOptions{LowerBound: utxoPieceKey(s.meta.TipHeight+1, 0), UpperBound: utxoUndoKey(s.meta.TipHeight + 2)}
+	}
+	it, err := s.db.NewIter(bounds)
+	if err != nil {
 		return err
 	}
-	meta := s.meta
-	meta.HasTip, meta.TipHeight, meta.TipHash = false, 0, ""
-	if height > 0 {
-		meta.HasTip, meta.TipHeight, meta.TipHash = true, height-1, hex.EncodeToString(raw[32:64])
-	}
-	if err := b.Set(utxoMetaKey, mustMarshalUtxoMeta(meta), nil); err != nil {
-		return err
-	}
-	if s.beforeCommit != nil {
-		if err := s.beforeCommit(); err != nil {
-			return err
+	var height, pieces uint32
+	for ok := it.First(); ok; ok = it.Next() {
+		if k := it.Key(); len(k) == len(utxoPieceKey(0, 0)) {
+			height, pieces = binary.BigEndian.Uint32(k[4:8]), pieces+1
 		}
 	}
-	if err := s.commit(b); err != nil {
+	if err := it.Close(); err != nil {
 		return err
 	}
-	s.meta = meta
+	return s.rollBackPiecesLocked(height, pieces)
+}
+
+// rollBackPiecesLocked undoes a block's first n pieces, last first, one batch each; if that fails the store stops serving, and a reopen finishes it.
+func (s *utxoStore) rollBackPiecesLocked(height, n uint32) error {
+	if n == 0 || s.usable() != nil {
+		return nil
+	}
+	for n > 0 {
+		n--
+		if err := s.rollBackPieceLocked(height, n); err != nil {
+			msg := fmt.Sprintf("block %d is partly applied: %v", height, err)
+			s.fatal.CompareAndSwap(nil, &msg)
+			s.abandon()
+			return s.brokenError()
+		}
+	}
 	return nil
+}
+
+func (s *utxoStore) rollBackPieceLocked(height, piece uint32) error {
+	key := utxoPieceKey(height, piece)
+	rec, closer, err := s.db.Get(key)
+	if err != nil {
+		return err
+	}
+	ops := bytes.Clone(rec)
+	closer.Close()
+	b := s.db.NewBatch()
+	defer b.Close()
+	if err := s.writeUndoOpsLocked(b, ops); err != nil {
+		return err
+	}
+	if err := b.Delete(key, nil); err != nil {
+		return err
+	}
+	return s.commitLocked(b, nil)
 }
 
 func (s *utxoStore) Lookup(scripts [][]byte) ([]utxoCoin, error) {
@@ -655,6 +852,38 @@ func (s *utxoStore) scanPrefix(h [utxoPrefixLen]byte) ([]utxoCoin, error) {
 		out = append(out, c)
 	}
 	return out, it.Close()
+}
+
+// Totals counts every coin and sums its amount at the tip; the caller keeps the follower out so the tip cannot move.
+func (s *utxoStore) Totals(ctx context.Context) (coins, sats uint64, err error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := s.usable(); err != nil {
+		return 0, 0, err
+	}
+	it, err := s.db.NewIter(nil)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer it.Close()
+	for ok := it.First(); ok; ok = it.Next() {
+		if len(it.Key()) != utxoKeyLen {
+			continue
+		}
+		v := it.Value()
+		if len(v) != utxoValueLen {
+			return 0, 0, errors.New("corrupt coin record")
+		}
+		// shortcut: uint64 holds 184.4 billion coins of 10^8 units, which Dogecoin reaches around 2032; sum in big.Int before then.
+		var carry uint64
+		if sats, carry = bits.Add64(sats, binary.BigEndian.Uint64(v), 0); carry != 0 {
+			return 0, 0, errors.New("the coin total overflows 64 bits")
+		}
+		if coins++; coins%(1<<16) == 0 && ctx.Err() != nil {
+			return 0, 0, ctx.Err()
+		}
+	}
+	return coins, sats, it.Error()
 }
 
 func (s *utxoStore) emptyLocked() error {

@@ -446,6 +446,10 @@ awk '/^flock 8$/ { lock=NR } /docker compose .* up -d --pull never --no-build/ {
 HOME="$tmp" PATH="$stub:$PATH" ./stack up tari-wallet >/dev/null
 grep -q 'docker compose .* up -d --pull never --no-build tari-wallet' "$FAKE_LOG" || fail "up rejected the Tari wallet service"
 HOME="$tmp" PATH="$stub:$PATH" ./stack up --build >/dev/null 2>&1 && fail "up allows an implicit build"
+: >"$FAKE_LOG"
+HOME="$tmp" PATH="$stub:$PATH" ./stack up --force-recreate tor >/dev/null
+grep -q 'docker compose .* up -d --pull never --no-build --force-recreate --no-deps tor$' "$FAKE_LOG" || fail "up --force-recreate did not recreate only the named service"
+HOME="$tmp" PATH="$stub:$PATH" ./stack up tor --force-recreate >/dev/null 2>&1 && fail "up accepted a flag after a service name"
 
 # Explicit pulls use the host Docker configuration and report pull failures.
 rm -f "$FAKE_LOG"
@@ -572,6 +576,21 @@ case "$args" in
     fi
     ;;
   *'/state/utxo-seed.cancel'* | *'/state/litecoin-utxo-seed.cancel'* | *'/state/bitcoincash-utxo-seed.cancel'* | *'/state/dogecoin-utxo-seed.cancel'*) : >"$FAKE_UTXO/cancelled" ;;
+  *'utxo-verify.request.tmp'*) cat >"$FAKE_UTXO/verify-request.json" ;;
+  *' exec -T -u 1000 dashboard cat /state/'*'utxo-verify.result '*)
+    [ -f "$FAKE_UTXO/verify-request.json" ] || exit 1
+    case "${FAKE_VERIFY_SCENARIO:-ok}" in
+      none) echo '{"id":"someone-else"}' ;;
+      dies) : >"$FAKE_UTXO/stopped" ;;
+      refused) jq -n --slurpfile req "$FAKE_UTXO/verify-request.json" '{id: $req[0].id, chain: $req[0].chain, hash_type: "none", refusals: ["the index is not_seeded; verify needs a seeded index that follows the node"]}' ;;
+      ok | mismatch)
+        jq -n --slurpfile req "$FAKE_UTXO/verify-request.json" --arg scenario "${FAKE_VERIFY_SCENARIO:-ok}" '($scenario == "ok") as $ok |
+          {id: $req[0].id, chain: $req[0].chain, hash_type: (if $req[0].chain == "dogecoin" then "hash_serialized" else "none" end), height: 900, best_block: "00ab",
+           index: {coins: 165000000, amount: "19912345.12345678", seconds: 61.24}, node: {coins: (if $ok then 165000000 else 165000001 end), amount: "19912345.12345678", seconds: 172.46}, match: $ok} +
+          (if $ok then {} else {failures: ["the index and the node'"'"'s UTXO set differ at height 900"]} end)'
+        ;;
+    esac
+    ;;
   *'.utxo-bench.request.tmp'* | *'.litecoin-utxo-bench.request.tmp'*) cat >"$FAKE_UTXO/bench-request.json" ;;
   *' exec -T -u 1000 dashboard cat /state/utxo-bench.result '* | *' exec -T -u 1000 dashboard cat /state/litecoin-utxo-bench.result '*)
     [ -f "$FAKE_UTXO/bench-request.json" ] || exit 1
@@ -927,6 +946,76 @@ grep -q ' dashboard rm -f /state/utxo-bench.request' "$FAKE_LOG" || fail "a sign
 reset_ubench
 rm -f "$utxo_dir"/utxo-bench-*.json
 
+# utxo-index verify: the index against the node's own gettxoutsetinfo, confirmed before anything is written.
+uverify() { (cd "$utxo_dir" && HOME="$tmp" BITCOIN_STACK_UTXO_VERIFY_POLL_SECONDS=1 BITCOIN_STACK_UTXO_VERIFY_TIMEOUT_SECONDS="${VERIFY_TIMEOUT:-5}" PATH="$utxo_stub:$stub:$PATH" ./stack "$@"); }
+verify_written() { grep -q 'utxo-verify.request.tmp' "$FAKE_LOG" 2>/dev/null; }
+reset_uverify() {
+  reset_useed
+  rm -f "$FAKE_UTXO/verify-request.json"
+  unset FAKE_VERIFY_SCENARIO
+}
+
+reset_uverify
+uverify utxo-index verify </dev/null >"$tmp/uverify.out" 2>&1 && fail "utxo-index verify ran without a terminal or -y"
+grep -q 'Run this on a terminal, or pass -y' "$tmp/uverify.out" || fail "utxo-index verify did not ask for -y"
+grep -q 'bitcoind gettxoutsetinfo with hash_type none' "$tmp/uverify.out" || fail "utxo-index verify did not name the call and its hash_type before asking"
+grep -q 'Node-down alerts for Bitcoin are still held while it runs, for at most 30 minutes' "$tmp/uverify.out" || fail "utxo-index verify did not warn about the alert hold"
+verify_written && fail "utxo-index verify wrote a request without confirmation"
+echo n | BITCOIN_STACK_INTERACTIVE=1 uverify utxo-index verify >"$tmp/uverify.out" 2>&1 && fail "utxo-index verify ran after the answer n"
+grep -q 'Not started' "$tmp/uverify.out" || fail "utxo-index verify did not report the declined check"
+verify_written && fail "utxo-index verify wrote a request after the answer n"
+for args in "--chain" "--chain monero" "--bogus" "extra"; do
+  reset_uverify
+  # shellcheck disable=SC2086
+  uverify utxo-index verify $args -y >/dev/null 2>&1 && fail "utxo-index verify accepted arguments '$args'"
+  verify_written && fail "utxo-index verify wrote a request for arguments '$args'"
+done
+reset_uverify
+uverify utxo-index verify --chain litecoin -y >"$tmp/uverify.out" 2>&1 && fail "utxo-index verify --chain litecoin ran without the Litecoin overlay"
+grep -q 'The Litecoin balance index is not enabled' "$tmp/uverify.out" || fail "utxo-index verify --chain litecoin did not name the Litecoin setting"
+verify_written && fail "utxo-index verify --chain litecoin wrote a request without the overlay"
+
+reset_uverify
+FAKE_BITCOIN_DOWN=1 uverify utxo-index verify -y >"$tmp/uverify.out" 2>&1 && fail "utxo-index verify ran with the bitcoin container down"
+grep -q 'The bitcoin container is not running' "$tmp/uverify.out" || fail "utxo-index verify did not name the stopped node container"
+verify_written && fail "utxo-index verify wrote a request with the node container down"
+
+reset_uverify
+echo y | BITCOIN_STACK_INTERACTIVE=1 uverify utxo-index verify >"$tmp/uverify.out" 2>&1 || fail "utxo-index verify failed on the happy path"
+grep -q ' -u 1000 dashboard sh -c umask 077; cat > /state/.utxo-verify.request.tmp' "$FAKE_LOG" || fail "utxo-index verify did not write the request privately as the dashboard user"
+jq -e '(.id | test("^[0-9a-f]{32}$")) and .chain == "bitcoin" and (.requested_at | . > 1e9 and . <= now + 5) and (keys | length == 3)' "$FAKE_UTXO/verify-request.json" >/dev/null || fail "utxo-index verify request is not {id, chain, requested_at}"
+grep -q 'At height 900 (block 00ab), gettxoutsetinfo hash_type none' "$tmp/uverify.out" || fail "utxo-index verify did not print the height, block and hash_type"
+grep -Eq '^index  *165000000  *19912345.12345678  *61.2$' "$tmp/uverify.out" || fail "utxo-index verify did not print the index row"
+grep -Eq '^node  *165000000  *19912345.12345678  *172.5$' "$tmp/uverify.out" || fail "utxo-index verify did not print the node row"
+grep -q "^PASS: the index matches the node's UTXO set.$" "$tmp/uverify.out" || fail "utxo-index verify did not print PASS"
+
+reset_uverify
+export FAKE_VERIFY_SCENARIO=mismatch
+uverify utxo-index verify -y >"$tmp/uverify.out" 2>&1 && fail "a verify whose index and node differ exited 0"
+grep -q "^FAIL: the index and the node's UTXO set differ at height 900$" "$tmp/uverify.out" || fail "utxo-index verify did not print FAIL"
+grep -Eq '^node  *165000001 ' "$tmp/uverify.out" || fail "utxo-index verify did not print the node's count on a mismatch"
+grep -q '^PASS' "$tmp/uverify.out" && fail "utxo-index verify printed PASS on a mismatch"
+
+reset_uverify
+export FAKE_VERIFY_SCENARIO=refused
+uverify utxo-index verify -y >"$tmp/uverify.out" 2>&1 && fail "a refused verify exited 0"
+grep -q '^refused: the index is not_seeded' "$tmp/uverify.out" || fail "utxo-index verify did not print the refusal"
+grep -Eq '^(index|PASS|FAIL)' "$tmp/uverify.out" && fail "utxo-index verify printed totals or a verdict for a refused run"
+
+reset_uverify
+export FAKE_VERIFY_SCENARIO=none
+VERIFY_TIMEOUT=2 uverify utxo-index verify -y >"$tmp/uverify.out" 2>&1 && fail "a verify with no result exited 0"
+grep -q 'returned no result' "$tmp/uverify.out" || fail "utxo-index verify did not explain the timeout"
+grep -q ' dashboard rm -f /state/utxo-verify.request' "$FAKE_LOG" || fail "the verify timeout left the request behind"
+reset_uverify
+export FAKE_VERIFY_SCENARIO=dies
+started=$SECONDS
+rc=0
+VERIFY_TIMEOUT=60 uverify utxo-index verify -y >"$tmp/uverify.out" 2>&1 || rc=$?
+[ "$rc" = 1 ] && [ $((SECONDS - started)) -lt 30 ] || fail "a verify whose dashboard stopped exited $rc after $((SECONDS - started)) s instead of failing fast"
+grep -q 'The dashboard stopped before the check finished, so nothing was compared' "$tmp/uverify.out" || fail "utxo-index verify did not say the dashboard stopped"
+reset_uverify
+
 # measure-block-latency.sh: blocks match the first refresh at that height or higher, split by index and block update.
 cat >"$tmp/block.log" <<'EOF'
 2026-11-15T06:30:00Z UpdateTip: new best=aa height=100 version=0x1 log2_work=1 tx=1 date='x' progress=1.0 cache=1.0MiB(1txo)
@@ -1166,6 +1255,13 @@ FAKE_CP_INTERRUPT=HUP dseed utxo-chainstate-copy dogecoin </dev/null >"$tmp/dsee
   fail "the host helper's copy, hung up, exited $dseed_status and left the node stopped or a partial copy"
 dseed utxo-index bench "$tmp/wallets.json" --chain dogecoin >"$tmp/dbench.out" 2>&1 && fail "utxo-index bench took --chain dogecoin"
 grep -q 'Dogecoin is not in utxo-index bench' "$tmp/dbench.out" || fail "utxo-index bench --chain dogecoin did not say why"
+reset_uverify
+(cd "$doge_dir" && HOME="$tmp" BITCOIN_STACK_UTXO_VERIFY_POLL_SECONDS=1 BITCOIN_STACK_UTXO_VERIFY_TIMEOUT_SECONDS=5 PATH="$utxo_stub:$stub:$PATH" ./stack utxo-index verify --chain dogecoin -y) >"$tmp/dverify.out" 2>&1 || fail "utxo-index verify --chain dogecoin failed"
+grep -q 'cat > /state/.dogecoin-utxo-verify.request.tmp' "$FAKE_LOG" || fail "utxo-index verify --chain dogecoin did not write the Dogecoin request"
+jq -e '.chain == "dogecoin"' "$FAKE_UTXO/verify-request.json" >/dev/null || fail "utxo-index verify --chain dogecoin did not name the chain"
+grep -q 'dogecoind gettxoutsetinfo with no arguments: Dogecoin Core 1.14.9 has no hash_type' "$tmp/dverify.out" || fail "utxo-index verify --chain dogecoin did not say the call hashes the whole set"
+grep -q 'gettxoutsetinfo hash_type hash_serialized' "$tmp/dverify.out" || fail "utxo-index verify --chain dogecoin did not print the hash_type it ran with"
+reset_uverify
 reset_useed
 FAKE_DF_FULL=1 dseed utxo-seed dogecoin -y </dev/null >"$tmp/dseed.out" 2>&1 && fail "utxo-seed dogecoin copied onto a full disk"
 grep -q 'Not enough free space' "$tmp/dseed.out" || fail "utxo-seed dogecoin did not say the disk was too full"

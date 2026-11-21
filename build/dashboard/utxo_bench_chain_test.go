@@ -338,7 +338,7 @@ func TestEveryIndexedChainStartsItsBench(t *testing.T) {
 		a := &app{cfg: config{stateDir: t.TempDir()}, familyWatch: &familyWatchManager{stores: map[string]*familyWatchStore{}}}
 		m := a.newChainUtxo(nodeConfig{ID: id, RPCURL: "http://127.0.0.1:1", DataDir: t.TempDir(), UTXOIndexDir: t.TempDir()}, chain, log.New(io.Discard, "", 0))
 		t.Cleanup(func() { _ = m.store.Close() })
-		if h := m.bench; h == nil || h.chain != id || h.prefix != id+"-" || h.stateDir != a.cfg.stateDir || h.validate == nil || h.resolve == nil || h.scan == nil {
+		if h := m.bench; h == nil || h.chain != id || h.prefix != id+"-" || h.stateDir != a.cfg.stateDir || h.validate == nil || h.resolve == nil || h.scan == nil || h.txOutSet == nil {
 			t.Fatalf("%s bench host = %+v", id, h)
 		}
 	}

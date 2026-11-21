@@ -110,4 +110,5 @@ func TestUtxoLitecoinMWEBRegtestLive(t *testing.T) {
 	if got, want := utxoTestKeys(t, index), utxoTestKeys(t, n.reseed(t, fmt.Sprintf("reorg-%d.dat", n.height()))); !maps.Equal(got, want) {
 		t.Fatalf("after the reorg the index differs from a reseed: %s", recordDiff(got, want))
 	}
+	verifyLiveStore(t, n, nodeLitecoin, utxoLitecoin, index)
 }

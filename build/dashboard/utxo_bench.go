@@ -35,6 +35,7 @@ type utxoBenchHost struct {
 	resolve    func(context.Context, []string) ([]walletScripts, error)
 	cachedRead func(context.Context) (func(), int, error)
 	scan       func(context.Context, []string) (benchScanRun, error)
+	txOutSet   func(context.Context) (txOutSetInfo, error)
 	hold       func() bool
 	release    func()
 }
@@ -434,6 +435,17 @@ func (a *app) chainBenchHost(id string, rpc *rpcClient, chain *utxoChainParams, 
 				return benchScanRun{}, context.Canceled
 			}
 			return benchScanRPC(ctx, &scanRPC, keys)
+		},
+		txOutSet: func(ctx context.Context) (txOutSetInfo, error) {
+			var info txOutSetInfo
+			if !a.nodeWorkerRunnable(id, true) {
+				return info, context.Canceled
+			}
+			args := []any{}
+			if chain.TxOutSetNone {
+				args = append(args, "none")
+			}
+			return info, scanRPC.call(ctx, "gettxoutsetinfo", args, &info)
 		},
 		hold:    hold,
 		release: release,

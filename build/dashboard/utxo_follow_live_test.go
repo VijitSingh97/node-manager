@@ -261,6 +261,7 @@ func TestUtxoFollowerRegtestLive(t *testing.T) {
 	}
 	t.Logf("compared %d coins over %d scripts; %d blocks, fetch %v total, apply %v total",
 		checked, len(scripts), f.Status().Blocks, f.Status().FetchDur, f.Status().ApplyDur)
+	verifyLiveStore(t, n, nodeBitcoin, utxoBitcoin, store)
 }
 
 func TestUtxoFollowerRegtestPerBlockCost(t *testing.T) {

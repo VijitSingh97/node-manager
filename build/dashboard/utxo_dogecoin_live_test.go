@@ -265,4 +265,5 @@ func TestUtxoDogecoinChainstateSeedRegtestLive(t *testing.T) {
 		}
 	}
 	t.Logf("followed to height %d: %d coins match gettxout, and the watched addresses match listunspent", n.height(), coins)
+	verifyLiveStore(t, n, nodeDogecoin, utxoDogecoin, m.currentStore())
 }

@@ -49,6 +49,16 @@ flow("Run new config shows only while a change is pending and runs on Save", { c
   assert.equal(await page.disabled("#settings-launch-at-start"), false);
 });
 
+flow("Run new config hides after a helper that takes longer than a poll to apply it", { capability: { config_pending: true, config_revision: revision } }, async ({ page, helper }) => {
+  // Blocks the helper between taking the request and reporting it, like the real helper restarting containers.
+  helper.outcome = () => (Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 3000), "applied");
+  await openHostSettings(page);
+  await page.click("#settings-apply-config");
+  await save(page);
+  await savedAndSettled(page);
+  await page.waitFor(() => document.getElementById("settings-config-change").hidden, { description: "Run new config to hide" });
+});
+
 flow("Run new config is hidden when nothing is pending", async ({ page }) => {
   await openHostSettings(page);
   assert.equal(await page.visible("#settings-config-change"), false);

@@ -63,7 +63,7 @@ fi
   fi
 }
 [ "${FAKE_STACK_FAIL_APPLY:-0}" != 1 ] || [ "${1:-}" != apply ] || exit 1
-[ "${FAKE_STACK_FAIL:-0}" != 1 ]
+[ "${FAKE_STACK_FAIL:-0}" != 1 ] || exit 1
 [ "${1:-}" != apply ] || [ ! -f "${FAKE_RECREATE_TO:-/nonexistent}" ] || cp "$FAKE_RECREATE_TO" "$FAKE_SERVICE_IDS"
 if [ "${1:-}" = apply ] || [ "${1:-}" = approve-rendered-config ]; then
   jq -S . "$BITCOIN_STACK_CONFIG_DIR/config.json" >"$BITCOIN_STACK_STATE_DIR/.approved-config.tmp"
@@ -78,6 +78,7 @@ cat >"$tmp/docker" <<'EOF'
 #!/usr/bin/env bash
 set -eu
 if [ "$1" = ps ]; then
+  case "$*" in *status=exited*) [ "${FAKE_PS_FAIL:-0}" != 1 ] || exit 1 ;; esac
   case "$*" in *--format*) [ ! -f "${FAKE_SERVICE_IDS:-/nonexistent}" ] || cat "$FAKE_SERVICE_IDS"; exit 0 ;; esac
   case "$*" in *--filter\ volume=*)
     [ "${FAKE_VOLUME_IN_USE:-0}" != 1 ] || printf 'container-using-volume\n'
@@ -96,6 +97,7 @@ fi
 if [ "$1" = inspect ]; then
   case "$3" in
     '{{.Id}}') [ "${FAKE_DASHBOARD_MISSING:-0}" = 1 ] || printf 'dashboard-id\n' ;;
+    *State.Error*) awk -v id="$4" '$1 == id { sub(/^[^ ]+ /, ""); print }' "${FAKE_START_STATES:-/nonexistent}" 2>/dev/null || true ;;
     *StartedAt*) printf '%s\n' "${FAKE_NODE_STARTED_AT:-}" ;;
     *RestartPolicy*) printf '%s/docker-compose.yml|on-failure|3\n' "$BITCOIN_STACK_ROOT" ;;
     *project.config_files*) printf '%s/docker-compose.yml\n' "$BITCOIN_STACK_ROOT" ;;
@@ -1168,5 +1170,42 @@ FAKE_HANDOFF_FAIL=1 FAKE_CONTAINERS=litecoin run_nc
 FAKE_CONTAINERS=litecoin run_nc
 [ "$(status .state)" = applied ] && [ -e "$dashboard_state/node-delete.litecoin" ] && [ ! -e "$state/node-control/delete-pending.json" ] || fail "the wallet handoff was not retried: $(cat "$dashboard_state/node-control.status")"
 unset BITCOIN_STACK_PROJECT_NAME
+
+jq '.tari.active=false | .bitcoin.active=true' "$config/config.json" >"$tmp/recover-config.json"
+mv "$tmp/recover-config.json" "$config/config.json"
+rm -f "$state/node-control/recover" "$dashboard_state/events.log" "$dashboard_state/node-control.request" "$dashboard_state/node-control.processing"
+printf 'tor tor-ctr\ntari tari-ctr\ntari-wallet tari-wallet-ctr\nbitcoin bitcoin-ctr\nlitecoin litecoin-ctr\ndogecoin dogecoin-ctr\n' >"$tmp/recover-ids"
+cat >"$tmp/start-states" <<'EOF'
+tor-ctr unless-stopped|false|failed to set up container networking: driver failed programming external connectivity on endpoint tor (1a56a25): failed to bind host port 192.168.1.20:80/tcp: cannot assign requested address
+tari-ctr unless-stopped|false|failed to bind host port 192.168.1.20:18142/tcp: cannot assign requested address
+tari-wallet-ctr unless-stopped|false|failed to bind host port 192.168.1.20:18143/tcp: cannot assign requested address
+bitcoin-ctr unless-stopped|false|
+litecoin-ctr on-failure|false|failed to bind host port 192.168.1.20:9332/tcp: cannot assign requested address
+dogecoin-ctr unless-stopped|false|error while creating mount source path '/mnt/chain/dogecoin': mkdir /mnt/chain: read-only file system
+EOF
+recover_nc() { : >"$tmp/stack.log"; FAKE_SERVICE_IDS=$tmp/recover-ids FAKE_START_STATES=$tmp/start-states run_nc; }
+recover_nc
+[ "$(grep -c -- '--force-recreate' "$tmp/stack.log")" = 1 ] || fail "only Tor should be recreated after its start failed: $(cat "$tmp/stack.log")"
+grep -qx 'up --force-recreate tor' "$tmp/stack.log" || fail "Tor was not recreated after its start failed"
+grep -q 'Host: tor failed to start (cannot assign requested address); recreated it.$' "$dashboard_state/events.log" || fail "the recovered start was not logged"
+[ ! -s "$state/node-control/recover" ] || fail "a recovered start left a retry entry"
+FAKE_STACK_FAIL=1 recover_nc
+grep -qx 'tor 1030 30' "$state/node-control/recover" || fail "a failed recovery was not scheduled for a retry"
+[ "$(grep -c 'retrying until it starts' "$dashboard_state/events.log")" = 1 ] || fail "a failed recovery was not logged once"
+NODE_CONTROL_NOW_EPOCH=1029 FAKE_STACK_FAIL=1 recover_nc
+! grep -q -- '--force-recreate' "$tmp/stack.log" || fail "a recovery retried before its backoff"
+grep -qx 'tor 1030 30' "$state/node-control/recover" || fail "a waiting recovery lost its retry time"
+NODE_CONTROL_NOW_EPOCH=1029 FAKE_PS_FAIL=1 recover_nc
+grep -qx 'tor 1030 30' "$state/node-control/recover" || fail "a Docker listing failure dropped the retry schedule"
+NODE_CONTROL_NOW_EPOCH=1030 FAKE_STACK_FAIL=1 recover_nc
+grep -qx 'tor 1090 60' "$state/node-control/recover" || fail "a repeated recovery failure did not back off"
+[ "$(grep -c 'retrying until it starts' "$dashboard_state/events.log")" = 1 ] || fail "a repeated recovery failure was logged again"
+printf 'tor 1090 600\n' >"$state/node-control/recover"
+NODE_CONTROL_NOW_EPOCH=1090 FAKE_STACK_FAIL=1 recover_nc
+grep -qx 'tor 1690 600' "$state/node-control/recover" || fail "the recovery backoff was not capped at 10 minutes"
+NODE_CONTROL_NOW_EPOCH=1690 recover_nc
+grep -qx 'up --force-recreate tor' "$tmp/stack.log" || fail "a due recovery was not retried"
+[ ! -s "$state/node-control/recover" ] || fail "a retried recovery did not clear its entry"
+[ "$(grep -c 'recreated it' "$dashboard_state/events.log")" = 2 ] || fail "the retried recovery was not logged"
 
 echo "PASS: test_node_control.sh"

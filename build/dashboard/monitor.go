@@ -42,6 +42,7 @@ type monitorState struct {
 	syncPending   bool
 	lastBlock     int64
 	hasLastBlock  bool
+	syncPercent   float64
 	pendingBlock  int64
 	diskAlerted   bool
 	ticks         int
@@ -58,17 +59,18 @@ type persistedMonitorState struct {
 }
 
 type persistedNodeState struct {
-	Fails        int   `json:"fails"`
-	DownAlerted  bool  `json:"down_alerted"`
-	ChainKnown   bool  `json:"chain_known"`
-	IBD          bool  `json:"initial_block_download"`
-	IBDTicks     int   `json:"ibd_ticks,omitempty"`
-	Synced       bool  `json:"synced,omitempty"`
-	SyncPending  bool  `json:"sync_pending"`
-	LastBlock    int64 `json:"last_block"`
-	HasLastBlock bool  `json:"has_last_block"`
-	PendingBlock int64 `json:"pending_block"`
-	DiskAlerted  bool  `json:"disk_alerted"`
+	Fails        int     `json:"fails"`
+	DownAlerted  bool    `json:"down_alerted"`
+	ChainKnown   bool    `json:"chain_known"`
+	IBD          bool    `json:"initial_block_download"`
+	IBDTicks     int     `json:"ibd_ticks,omitempty"`
+	Synced       bool    `json:"synced,omitempty"`
+	SyncPending  bool    `json:"sync_pending"`
+	LastBlock    int64   `json:"last_block"`
+	HasLastBlock bool    `json:"has_last_block"`
+	SyncPercent  float64 `json:"sync_percent,omitempty"`
+	PendingBlock int64   `json:"pending_block"`
+	DiskAlerted  bool    `json:"disk_alerted"`
 }
 
 type Monitor struct {
@@ -107,6 +109,7 @@ type Monitor struct {
 
 	mu               sync.RWMutex
 	updateNote       string
+	saved            persistedMonitorState
 	logMu            sync.Mutex
 	hostEventsOffset int64
 }
@@ -528,6 +531,7 @@ func (m *Monitor) tickNode(ctx context.Context, state *monitorState, chain, data
 			}
 			state.lastBlock = blocks
 			state.hasLastBlock = true
+			state.syncPercent = syncPercent(info, hasIBD, ibd)
 		}
 		if !alertNewBlock || (hasIBD && ibd) {
 			state.pendingBlock = 0
@@ -555,6 +559,18 @@ func (m *Monitor) tickNode(ctx context.Context, state *monitorState, chain, data
 		}
 	}
 	return healthy, hasIBD, ibd
+}
+
+func syncPercent(info map[string]any, hasIBD, ibd bool) float64 {
+	if hasIBD && !ibd {
+		return 100
+	}
+	for _, key := range []string{"verificationprogress", "sync_progress"} {
+		if progress, ok := info[key].(float64); ok {
+			return min(100, max(0, progress*100))
+		}
+	}
+	return 0
 }
 
 func chainAlert(chain, message string) string {

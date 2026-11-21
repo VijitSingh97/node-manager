@@ -54,14 +54,38 @@ func (m *Monitor) loadState() {
 			}
 			applyPersistedNodeState(m.extraStates[id], saved)
 		}
+		m.publishState(m.persistedState())
 	}
 }
 
 func (m *Monitor) saveState() {
-	b, err := json.Marshal(m.persistedState())
+	state := m.persistedState()
+	m.publishState(state)
+	b, err := json.Marshal(state)
 	if err != nil || writePrivateFileAtomic(m.statePath, append(b, '\n')) != nil {
 		m.writeOutput("Monitor state write failed")
 	}
+}
+
+func (m *Monitor) publishState(state persistedMonitorState) {
+	m.mu.Lock()
+	m.saved = state
+	m.mu.Unlock()
+}
+
+func (m *Monitor) LastSeen(id string) persistedNodeState {
+	if m == nil {
+		return persistedNodeState{}
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	switch id {
+	case nodeBitcoin:
+		return m.saved.Bitcoin
+	case nodeMonero:
+		return m.saved.Monero
+	}
+	return m.saved.Nodes[id]
 }
 
 func (m *Monitor) persistedState() persistedMonitorState {
@@ -82,7 +106,7 @@ func persistedNodeFromState(state monitorState) persistedNodeState {
 	return persistedNodeState{
 		Fails: state.fails, DownAlerted: state.downAlerted, ChainKnown: state.chainKnown,
 		IBD: state.ibd, IBDTicks: state.ibdTicks, Synced: state.synced, SyncPending: state.syncPending, LastBlock: state.lastBlock,
-		HasLastBlock: state.hasLastBlock, PendingBlock: state.pendingBlock, DiskAlerted: state.diskAlerted,
+		HasLastBlock: state.hasLastBlock, SyncPercent: state.syncPercent, PendingBlock: state.pendingBlock, DiskAlerted: state.diskAlerted,
 	}
 }
 
@@ -91,6 +115,7 @@ func applyPersistedNodeState(state *monitorState, saved persistedNodeState) {
 	state.ibd, state.ibdTicks, state.syncPending = saved.IBD, saved.IBDTicks, saved.SyncPending
 	state.synced = saved.Synced || (saved.ChainKnown && !saved.IBD && !saved.SyncPending)
 	state.lastBlock, state.hasLastBlock, state.pendingBlock = saved.LastBlock, saved.HasLastBlock, saved.PendingBlock
+	state.syncPercent = saved.SyncPercent
 	state.diskAlerted = saved.DiskAlerted
 }
 
