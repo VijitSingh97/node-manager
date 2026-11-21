@@ -302,6 +302,14 @@ migrate_rollback_from_meta() {
   return 0
 }
 
+up_service_names() {
+  case "$1" in
+    monero) printf '%s\n' monero monero-wallet ;;
+    tari) printf '%s\n' tari tari-wallet ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+delete_service_names() { up_service_names "$1" | sed '1!G;h;$!d'; }
 restore_install_transaction() {
   [ -d "$install_transaction" ] || return 0
   transaction_meta=$install_transaction/meta.json
@@ -333,13 +341,8 @@ restore_install_transaction() {
   restore_transaction_file "$install_transaction/env.before" "$env_file" "$(jq -r .had_env "$transaction_meta")" || return 1
   restore_transaction_file "$install_transaction/approved-config.before" "$approved_config" "$(jq -r .had_approved_config "$transaction_meta")" || return 1
   restore_transaction_file "$install_transaction/approved-env.before" "$state_root/.approved.env" "$(jq -r .had_approved_env "$transaction_meta")" || return 1
-  if [ "$transaction_node" = monero ]; then
-    "$stack_root/stack" stop monero-wallet monero >/dev/null 2>&1 || true
-  elif [ "$transaction_node" = tari ]; then
-    "$stack_root/stack" stop tari-wallet tari >/dev/null 2>&1 || true
-  else
-    "$stack_root/stack" stop "$transaction_node" >/dev/null 2>&1 || true
-  fi
+  # shellcheck disable=SC2046
+  "$stack_root/stack" stop $(delete_service_names "$transaction_node") >/dev/null 2>&1 || true
   BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root" \
     BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" up >/dev/null 2>&1 || return 1
   rm -rf "$install_transaction"
@@ -695,13 +698,6 @@ prepare_install_data_dir() {
   fi
   printf '%s\n' "$prepare_canonical"
 }
-delete_service_names() {
-  case "$1" in
-    monero) printf '%s\n' monero-wallet monero ;;
-    tari) printf '%s\n' tari-wallet tari ;;
-    *) printf '%s\n' "$1" ;;
-  esac
-}
 delete_volume_names() {
   case "$1" in
     bitcoin) printf '%s\n' utxo_index ;;
@@ -934,22 +930,27 @@ while [ "$heartbeat" != 0 ]; do
   publish_heartbeat || heartbeat=$?
 done
 delete_marker=$state_root/node-control/delete-pending.json
-size=0
+request=
 case "$request_state" in
-  processing) ;;
-  request) dashboard_exec mv /state/node-control.request /state/node-control.processing >/dev/null 2>&1 || exit 0 ;;
+  processing | request) ;;
   *) [ -f "$delete_marker" ] || exit 0 ;;
 esac
-if dashboard_exec test -f /state/node-control.processing >/dev/null 2>&1; then
-  size=$(dashboard_exec sh -c 'wc -c < /state/node-control.processing' 2>/dev/null | tr -d ' ' || true)
-  case "$size" in '' | *[!0-9]*) size=4097 ;; esac
+if [ -n "$request_state" ]; then
+  # Exit 4 is an oversized request, which is never read; any other failure retries next run.
+  read_status=0
+  # shellcheck disable=SC2016
+  request=$(dashboard_exec sh -c "state=$request_state"'
+    [ "$state" != request ] || mv /state/node-control.request /state/node-control.processing || exit 3
+    [ -f /state/node-control.processing ] || exit 0
+    size=$(wc -c < /state/node-control.processing) && [ $size -le 4096 ] || exit 4
+    cat /state/node-control.processing' 2>/dev/null) || read_status=$?
+  if [ "$read_status" = 4 ]; then
+    write_status "" "" false rejected "Invalid request." invalid_request
+    clear_request
+    exit 0
+  fi
+  [ "$read_status" = 0 ] || exit 0
 fi
-if [ "$size" -gt 4096 ]; then
-  write_status "" "" false rejected "Invalid request." invalid_request
-  clear_request
-  exit 0
-fi
-request=$(dashboard_exec cat /state/node-control.processing 2>/dev/null || true)
 host_seen_file=$state_root/node-control/seen
 host_remember_seen() {
   printf '%s\n' "$host_id" >>"$host_seen_file"
@@ -1285,13 +1286,8 @@ if [ "$host_request" = true ]; then
     node=$host_node
     old_active=false
     [ -z "$(container_id "$host_node")" ] || old_active=true
-    if [ "$host_node" = monero ]; then
-      "$stack_root/stack" stop monero-wallet monero >/dev/null 2>&1 || true
-    elif [ "$host_node" = tari ]; then
-      "$stack_root/stack" stop tari-wallet tari >/dev/null 2>&1 || true
-    else
-      "$stack_root/stack" stop "$host_node" >/dev/null 2>&1 || true
-    fi
+    # shellcheck disable=SC2046
+    "$stack_root/stack" stop $(delete_service_names "$host_node") >/dev/null 2>&1 || true
     if [ "$migrate_mode" = rename ]; then
       if ! rmdir "$migrate_target" || ! mv "$migrate_source" "$migrate_target"; then
         mkdir -p "$migrate_target" 2>/dev/null || true
@@ -1594,9 +1590,9 @@ if ! printf '%s' "$request" | jq -e --argjson now "$now" '
   clear_request
   exit 0
 fi
-id=$(printf '%s' "$request" | jq -r .id)
-node=$(printf '%s' "$request" | jq -r .node)
-active=$(printf '%s' "$request" | jq -r .active)
+# shellcheck disable=SC2046
+set -- $(printf '%s' "$request" | jq -r '[.id,.node,.active] | join(" ")')
+id=$1 node=$2 active=$3
 seen_file=$state_root/node-control/seen
 if [ -r "$seen_file" ] && grep -Fxq "$id" "$seen_file"; then
   write_status "$id" "$node" "$active" rejected "Request already processed." replayed
@@ -1652,19 +1648,11 @@ chmod 600 "$next" "$backup"
 mv "$next" "$config_file"
 restore_services() {
   if [ "$old_active" = true ]; then
-    if [ "$node" = monero ]; then
-      BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" up monero monero-wallet >/dev/null 2>&1
-    elif [ "$node" = tari ]; then
-      BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" up tari tari-wallet >/dev/null 2>&1
-    else
-      BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" up "$node" >/dev/null 2>&1
-    fi
-  elif [ "$node" = monero ]; then
-    "$stack_root/stack" stop monero-wallet monero >/dev/null 2>&1
-  elif [ "$node" = tari ]; then
-    "$stack_root/stack" stop tari-wallet tari >/dev/null 2>&1
+    # shellcheck disable=SC2046
+    BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" up $(up_service_names "$node") >/dev/null 2>&1
   else
-    "$stack_root/stack" stop "$node" >/dev/null 2>&1
+    # shellcheck disable=SC2046
+    "$stack_root/stack" stop $(delete_service_names "$node") >/dev/null 2>&1
   fi
 }
 rollback() {
@@ -1679,6 +1667,7 @@ rollback() {
   if [ "$attempted_services" = 1 ] && ! restore_services; then
     rollback_failed=1
   fi
+  publish_heartbeat || true
   if [ "$rollback_failed" = 1 ]; then
     write_status "$id" "$node" "$active" failed "Node state failed and its prior state could not be fully restored." rollback_failed
   else
@@ -1691,31 +1680,29 @@ rollback() {
 if ! BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root" BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/configure.sh" >/dev/null; then
   rollback 0
 fi
-set -- "$node"
-[ "$node" = monero ] && set -- monero-wallet monero
-[ "$node" = tari ] && set -- tari-wallet tari
 if [ "$active" = true ]; then
   action="up"
-  [ "$node" = monero ] && set -- monero monero-wallet
-  [ "$node" = tari ] && set -- tari tari-wallet
-else action="stop"; fi
+  # shellcheck disable=SC2046
+  set -- $(up_service_names "$node")
+else
+  action="stop"
+  # shellcheck disable=SC2046
+  set -- $(delete_service_names "$node")
+fi
 # stack up starts from the approved config, so approve an activation before it runs.
 if [ "$action" = up ]; then
   approve_config || rollback 0
 fi
-if ! BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" $action "$@" >/dev/null 2>&1; then
+if ! BITCOIN_STACK_HELPER_START=1 BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" $action "$@" >/dev/null 2>&1; then
   rollback 1
 fi
 if ! runtime=$(jq -c '
-  {
-    bitcoin:{enabled:(if (.bitcoin//{}|has("enabled")) then .bitcoin.enabled else true end),active:(if (.bitcoin//{}|has("active")) then .bitcoin.active else true end)},
-    monero:{enabled:(.monero.enabled==true),active:(if (.monero//{}|has("active")) then .monero.active else true end)},
-    tari:{enabled:(.tari.enabled==true),active:(if (.tari//{}|has("active")) then .tari.active else true end)},
-    litecoin:{enabled:(.litecoin.enabled==true),active:(if (.litecoin//{}|has("active")) then .litecoin.active else true end)},
-    dogecoin:{enabled:(.dogecoin.enabled==true),active:(if (.dogecoin//{}|has("active")) then .dogecoin.active else true end)},
-    bitcoincash:{enabled:(.bitcoincash.enabled==true),active:(if (.bitcoincash//{}|has("active")) then .bitcoincash.active else true end)},
-    zcash:{enabled:(.zcash.enabled==true),active:(if (.zcash//{}|has("active")) then .zcash.active else true end)}
-  } | with_entries(select(.value.enabled) | .value=.value.active)
+  . as $c |
+  [("bitcoin","monero","tari","litecoin","dogecoin","bitcoincash","zcash") as $n |
+    {key:$n,value:{
+      enabled:(if $n=="bitcoin" then (if ($c.bitcoin//{}|has("enabled")) then $c.bitcoin.enabled else true end) else $c[$n].enabled==true end),
+      active:(if ($c[$n]//{}|has("active")) then $c[$n].active else true end)}}] |
+  from_entries | with_entries(select(.value.enabled) | .value=.value.active)
 ' "$config_file"); then
   rollback 1
 fi
@@ -1726,6 +1713,7 @@ if [ "$action" = stop ]; then
   approve_config || rollback 1
 fi
 rm -f "$backup"
+publish_heartbeat || true
 write_status "$id" "$node" "$active" applied "Node state applied."
 remember_seen
 clear_request

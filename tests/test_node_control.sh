@@ -41,6 +41,7 @@ EOF
 cat >"$root/stack" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$*" >>"$FAKE_STACK_LOG"
+[ "${1:-}" != up ] || [ "${BITCOIN_STACK_HELPER_START:-}" != 1 ] || printf 'helper-start\n' >>"$FAKE_STACK_LOG"
 if [ "${1:-}" = up ] && [ "${BITCOIN_STACK_CONFIG_LOCK_HELD:-0}" != 1 ]; then
   exec 9>"$BITCOIN_STACK_STATE_DIR/.config.lock"
   flock -n 9 || {
@@ -173,6 +174,13 @@ fi
 shift
 if [ "$1" = sh ] && [ "$2" = -c ]; then
   case "$3" in *node-delete.*) [ "${FAKE_HANDOFF_FAIL:-0}" != 1 ] || exit 1 ;; esac
+  case "$3" in *'wc -c < /state/node-control.processing'*)
+    if [ "${FAKE_INTAKE_EXEC_FAIL:-0}" = 1 ]; then
+      mv "$FAKE_DASH_STATE/node-control.request" "$FAKE_DASH_STATE/node-control.processing" 2>/dev/null || true
+      head -c 20 "$FAKE_DASH_STATE/node-control.processing"
+      exit 125
+    fi ;;
+  esac
   command=${3//\/state/$FAKE_DASH_STATE}
   exec sh -c "$command"
 fi
@@ -235,6 +243,7 @@ request '{"id":"22222222222222222222222222222222","node":"tari","active":true,"c
 "$root/scripts/node-control"
 [ "$(jq -r .tari.active "$config/config.json")" = true ] || fail "Tari was not reactivated"
 grep -qx 'up tari tari-wallet' "$tmp/stack.log" || fail "Tari node was not started before its wallet"
+grep -qx helper-start "$tmp/stack.log" || fail "activation did not mark its start as the helper's"
 [ "$(jq -r .tari.active "$state/.approved-config.json")" = true ] || fail "node state did not advance approved config"
 ! grep -qx up-blocked-on-config-lock "$tmp/stack.log" || fail "activation waited on the config lock it already holds"
 ! grep -qx up-with-unapproved-config "$tmp/stack.log" || fail "activation started the node from the old approved config"
@@ -258,6 +267,13 @@ printf '%4097s' x >"$dashboard_state/node-control.request"
 "$root/scripts/node-control"
 [ "$(status .error_code)" = invalid_request ] || fail "oversized request was not rejected"
 [ ! -e "$dashboard_state/node-control.processing" ] || fail "oversized request remained stuck"
+
+request '{"id":"5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a","node":"bitcoin","active":true,"confirmation":"","requested_at":1000}'
+FAKE_INTAKE_EXEC_FAIL=1 "$root/scripts/node-control"
+[ -f "$dashboard_state/node-control.processing" ] || fail "a request read cut off partway lost the request"
+[ "$(status .id)" != 5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a ] || fail "a failed request read rejected the request"
+"$root/scripts/node-control"
+[ "$(status .id):$(status .state)" = 5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a:applied ] || fail "a request was not applied after a failed read"
 
 request '{"id":"44444444444444444444444444444444","node":"monero","active":false,"confirmation":"deactivate","requested_at":1000}'
 FAKE_STACK_FAIL_ONCE=1 "$root/scripts/node-control"

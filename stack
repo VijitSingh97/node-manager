@@ -161,7 +161,9 @@ prepare_config_for_start() {
     fi
   fi
   if config_matches_approved; then
-    if [ -f "$config_file" ]; then
+    if [ -f "$config_file" ] && [ "${BITCOIN_STACK_HELPER_START:-}" = 1 ] && [ -f "$env_file" ]; then
+      return
+    elif [ -f "$config_file" ]; then
       render_current_config
       approve_current_config
     else
@@ -2039,11 +2041,13 @@ case "$cmd" in
     prepare_config_for_start
     offline_up "$@"
     unlock_config
-    ensure_resource_profile_timer
-    ensure_port_control_timer
-    ensure_node_control_timer
-    ensure_host_stats_timer
-    ensure_agent
+    if [ "${BITCOIN_STACK_HELPER_START:-}" != 1 ]; then
+      ensure_resource_profile_timer
+      ensure_port_control_timer
+      ensure_node_control_timer
+      ensure_host_stats_timer
+      ensure_agent
+    fi
     ;;
   init) init ;;
   down) guard_package_containers && utxo_unpark_dump "$@" && compose down "$@" ;;
