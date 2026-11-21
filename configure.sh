@@ -10,27 +10,6 @@ env_file=$state_dir/.env
 stack_command=${BITCOIN_STACK_COMMAND:-./stack}
 package_managed=${BITCOIN_STACK_PACKAGE_MANAGED:-0}
 BITCOIN_STACK_DATA_DIR=${BITCOIN_STACK_DATA_DIR:-}
-umask 077
-mkdir -p "$state_dir" "$config_dir"
-if [ "${BITCOIN_STACK_CONFIG_LOCK_HELD:-0}" != 1 ]; then
-  exec 8>"$state_dir/.config.lock"
-  flock 8
-fi
-cd "$state_dir"
-
-for tool in jq openssl; do
-  command -v "$tool" >/dev/null || {
-    echo "$tool is required; install it with your host package manager."
-    exit 1
-  }
-done
-
-config='{}'
-[ -f "$config_file" ] && config=$(cat "$config_file")
-
-get() { jq -r "$1 // \"${2:-}\"" <<<"$config"; }
-flag() { jq -r "if $1 == true then 1 else 0 end" <<<"$config"; }
-
 private_ipv4() {
   local ip=$1 a b c d
   [[ "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || return 1
@@ -68,6 +47,28 @@ detect_dashboard_bind_ip() {
     printf '%s\n' 127.0.0.1
   fi
 }
+
+[ "${1:-}" != --detect-bind-ip ] || { detect_dashboard_bind_ip; exit 0; }
+umask 077
+mkdir -p "$state_dir" "$config_dir"
+if [ "${BITCOIN_STACK_CONFIG_LOCK_HELD:-0}" != 1 ]; then
+  exec 8>"$state_dir/.config.lock"
+  flock 8
+fi
+cd "$state_dir"
+
+for tool in jq openssl; do
+  command -v "$tool" >/dev/null || {
+    echo "$tool is required; install it with your host package manager."
+    exit 1
+  }
+done
+
+config='{}'
+[ -f "$config_file" ] && config=$(cat "$config_file")
+
+get() { jq -r "$1 // \"${2:-}\"" <<<"$config"; }
+flag() { jq -r "if $1 == true then 1 else 0 end" <<<"$config"; }
 
 # Fresh installs generate separate passwords; upgrades reuse each existing value.
 rpc_user=$(get '.bitcoin.node_username')
@@ -246,6 +247,11 @@ zcash_rpc_port=$(jq -r '.zcash.rpc_port // 8232' <<<"$config")
 [ "$dogecoin_enabled" = "1" ] || dogecoin_rpc_expose=0
 [ "$bitcoincash_enabled" = "1" ] || bitcoincash_rpc_expose=0
 [ "$zcash_enabled" = "1" ] || zcash_rpc_expose=0
+paused_listeners=$(awk '{print $1}' "$state_dir/.paused-listeners" 2>/dev/null || true)
+for listener in rpc monero_rpc monero_zmq tari_grpc litecoin_rpc dogecoin_rpc bitcoincash_rpc zcash_rpc; do
+  bind_ip_var=${listener}_bind_ip
+  [ -z "${!bind_ip_var}" ] || ! grep -Fxq -- "${!bind_ip_var}" <<<"$paused_listeners" || printf -v "${listener}_expose" 0
+done
 bitcoin_resource_profile=$(get '.bitcoin.resource_profile')
 monero_resource_profile=$(get '.monero.resource_profile')
 [ -n "$bitcoin_resource_profile" ] || bitcoin_resource_profile=$(sed -n 's/^BITCOIN_RESOURCE_PROFILE=//p' "$env_file" 2>/dev/null || true)

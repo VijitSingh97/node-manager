@@ -1629,6 +1629,15 @@ status() {
   return "$bad"
 }
 
+host_has_ipv4() {
+  local addresses
+  case "$(uname -s)" in
+    Darwin) addresses=$("${IFCONFIG_BIN:-/sbin/ifconfig}" -a 2>/dev/null) ;;
+    *) addresses=$("${IP_BIN:-ip}" -o -4 addr show 2>/dev/null) ;;
+  esac || return 0
+  grep -Fq -e "inet $1/" -e "inet $1 " <<<"$addresses"
+}
+
 doctor() {
   echo "== Dependencies"
   for tool in docker jq openssl; do
@@ -1645,6 +1654,15 @@ doctor() {
   else
     echo "OK    config.json rendered into .env"
   fi
+  for listener in DASHBOARD BITCOIN_RPC MONERO_RPC MONERO_ZMQ TARI_GRPC LITECOIN_RPC DOGECOIN_RPC BITCOINCASH_RPC ZCASH_RPC; do
+    [ "$listener" = DASHBOARD ] || [ "$(env_get "${listener}_EXPOSE")" = 1 ] || continue
+    address=$(env_get "${listener}_BIND_IP")
+    case "$address" in '' | 127.* | ::1) continue ;; esac
+    host_has_ipv4 "$address" ||
+      echo "WARN  ${listener}_BIND_IP $address is not on this host; Tor cannot publish it until the address returns or config.json changes (an auto dashboard moves within a minute)"
+  done
+  [ ! -s "$state_dir/.paused-listeners" ] ||
+    awk '{print "WARN  LAN listeners on " $1 " are paused until that address is back on this host; re-point them from Settings"}' "$state_dir/.paused-listeners"
 
   echo "== Leftovers"
   found_orphan=0

@@ -449,6 +449,19 @@ VERBS = [
 URL = re.compile(r"https?://([^/\s\"'?:]+)")
 
 
+def without_arithmetic(line):
+    out, i = "", 0
+    while (start := line.find("((", i)) != -1:
+        depth, j = 0, start
+        while j < len(line):
+            depth += {"(": 1, ")": -1}.get(line[j], 0)
+            j += 1
+            if depth == 0:
+                break
+        out, i = out + line[i:start], j
+    return out + line[i:]
+
+
 def statements(text):
     """Yield command statements with comments and line continuations removed."""
     joined = re.sub(r"\\\n\s*", " ", text)
@@ -459,7 +472,7 @@ def statements(text):
             continue
         if not line.strip().startswith("#"):
             yield line
-        here = re.search(r"<<-?\s*[\"']?(\w+)[\"']?", line)
+        here = re.search(r"(?<!<)<<-?\s*[\"']?(\w+)[\"']?", without_arithmetic(line))
         if here:
             terminator = here.group(1)
 

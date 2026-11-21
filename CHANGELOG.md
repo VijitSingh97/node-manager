@@ -72,6 +72,27 @@ All notable changes to this project are documented here. Format follows
   fetched the Bitcoin index status only while the loading screen was up, so a
   running Bitcoin node never showed the bar. Litecoin, Dogecoin and Bitcoin
   Cash were not affected.
+- The stack also survives the host getting a different LAN address after a
+  reboot, power cut or network change. With `dashboard.bind_ip` set to `auto`,
+  the host helper waits until the old address has been gone for a minute and the
+  new one has held for that minute. It then re-renders the last approved
+  configuration and recreates only Tor and the dashboard on the new address. A
+  pending `config.json` change stays pending. LAN RPC, ZMQ and gRPC listeners
+  follow only onto the same network, because Tari gRPC and Monero ZMQ have no
+  password. When the old address is inside the new address's subnet, listeners
+  on it move in both `config.json` and the
+  approved snapshot, even when the 1.39.0 failed-start recovery re-rendered the
+  dashboard first. On any other network, or next to a `/32`, point-to-point or
+  unreadable subnet, listeners whose address is gone are paused: rendered
+  unpublished with the configuration unchanged, so Tor still starts. They are
+  published again once their address has been back for a minute. It also moves
+  the dashboard off the `127.0.0.1` fallback left by a start before the network
+  came up, and recreates a dashboard that kept the old address, both of which
+  the 1.39.0 failed-start recovery could cause. A fixed `dashboard.bind_ip` that
+  disappears is reported once in `./stack events` and left unchanged.
+  `./stack doctor` lists every published address the host no longer has and
+  every paused listener. `configure.sh --detect-bind-ip` prints the address
+  `auto` would pick.
 
 ## [1.39.0] - 2026-11-20
 

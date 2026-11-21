@@ -710,6 +710,51 @@ the first failure and the recovery as `Host:` lines in `./stack events`. Other
 start errors, such as a data disk that is not mounted, are left for you, and so
 are containers you stopped and deactivated nodes. `./stack up --force-recreate
 <svc>` recreates a service by hand.
+
+The router can also hand the host a different LAN address after a power cut, or
+a laptop can join another network. Docker cannot bind the old address again, so
+recreating Tor alone does not help. With `dashboard.bind_ip` set to `auto`, the
+host helper remembers the last LAN address the dashboard was reachable on. Once
+that address has been gone from every host interface for a minute, and this
+host's detected LAN address has stayed the same different private address for
+that minute, it acts. A DHCP renewal or a Wi-Fi reconnect is shorter and changes
+nothing. The dashboard always follows `auto` to the new address. It re-renders
+the last approved configuration, so a pending `config.json` change stays
+pending, and recreates only Tor and the dashboard.
+
+Tor publishes every LAN RPC, ZMQ and gRPC listener and cannot start while one
+names a missing address. Listeners follow the host only onto the same network,
+because Tari gRPC and Monero ZMQ have no password. The same subnet counts as the
+same network:
+
+- If the old address is inside the new address's interface subnet (the router
+  just handed out a new lease), listeners on the old address move to the new
+  one, identically in `config.json` and the approved snapshot. They move even
+  when another start, such as the failed-start recovery above, already
+  re-rendered the dashboard. A `/32` or point-to-point address, or a subnet the
+  helper cannot read, never counts as the same LAN.
+- Otherwise the host is on a network you did not choose, so listeners never
+  follow it there; unauthenticated Tari gRPC and Monero ZMQ stay off it. Any
+  listener whose address is gone is paused instead: it is listed in
+  `.paused-listeners` in the state directory and rendered unpublished, while
+  `config.json` and the approved snapshot stay unchanged. Tor then starts, so
+  the dashboard, node peers and alerts keep working. Once a paused listener's
+  address has been back for a minute, the helper publishes it again. To use the
+  new network instead, re-point the listener from Settings.
+
+The helper also moves the dashboard off the `127.0.0.1` fallback that a start
+before the network came up leaves behind, and recreates a dashboard that still
+holds the old address after the failed-start recovery recreated only Tor. Each
+step logs one `Host:` line naming the listeners it moved, paused or published
+again. It does nothing while the network has no private address, and it leaves
+a stack you stopped alone. With a fixed `dashboard.bind_ip`, it changes nothing
+and logs one warning instead. `./stack doctor` lists every published address
+the host no longer has and every paused listener.
+
+On Homebrew the same check runs from the host service. Docker Desktop records
+no start error when a port cannot be bound, so the failed-start recovery above
+never applies there. The host service re-renders and starts the stack at login
+instead.
 The remaining case — running but unhealthy — would need something with
 Docker-socket access to act on, and a socket proxy is a bigger attack
 surface than the failure it heals on a single-node stack. So: unhealthy

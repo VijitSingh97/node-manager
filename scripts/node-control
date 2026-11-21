@@ -7,6 +7,8 @@ env_file=$state_root/.env
 config_file=$config_root/config.json
 approved_config=$state_root/.approved-config.json
 docker_bin=${DOCKER_BIN:-docker}
+ip_bin=${IP_BIN:-ip}
+ifconfig_bin=${IFCONFIG_BIN:-/sbin/ifconfig}
 now=${NODE_CONTROL_NOW_EPOCH:-$(date +%s)}
 package_managed=${BITCOIN_STACK_PACKAGE_MANAGED:-0}
 host_os=${NODE_CONTROL_OS:-$(uname -s)}
@@ -258,6 +260,161 @@ recover_failed_starts() {
   else
     rm -f "$recover_next"
   fi
+}
+host_addresses() {
+  case "$host_os" in
+    Darwin) "$ifconfig_bin" -a 2>/dev/null ;;
+    *) "$ip_bin" -o -4 addr show 2>/dev/null ;;
+  esac
+}
+host_has_ipv4() {
+  addresses=$(host_addresses) || return 0
+  printf '%s\n' "$addresses" | grep -Fq -e "inet $1/" -e "inet $1 "
+}
+ipv4_number() {
+  IFS=. read -r a b c d <<EOF
+$1
+EOF
+  echo $(((a << 24) + (b << 16) + (c << 8) + d))
+}
+same_lan() {
+  line=$(host_addresses | grep -F -e "inet $2/" -e "inet $2 " | head -n 1)
+  case "$line" in
+    *"inet $2/"[0-9]*)
+      bits=${line#*"inet $2/"}
+      bits=${bits%%[!0-9]*}
+      mask=$(((0xffffffff << (32 - bits)) & 0xffffffff))
+      ;;
+    *" netmask 0x"[0-9a-f]*)
+      mask=${line#*" netmask 0x"}
+      mask=$((0x${mask%%[!0-9a-f]*}))
+      ;;
+    *) return 1 ;;
+  esac
+  [ $(($(ipv4_number "$1") & mask)) = $(($(ipv4_number "$2") & mask)) ]
+}
+exposed_listeners() {
+  jq -r 'to_entries[] | select(.value | type == "object") | .key as $node | .value as $section | $section | to_entries[] |
+    select(.key | endswith("_bind_ip")) | (.key | sub("_bind_ip$"; "")) as $kind | select($section[$kind + "_expose"] == true) |
+    "\(.value) \($node) \(if $kind == "grpc" then "gRPC" else ($kind | ascii_upcase) end)"' "$approved_config" 2>/dev/null || true
+}
+listener_names() { exposed_listeners | awk -v address="$1" '$1 == address { names = names (names ? ", " : "") $2 " " $3 } END { print names }'; }
+tor_can_restart() {
+  tor_state=$("$docker_bin" inspect --format '{{.State.Status}}|{{.State.Error}}' "$(container_id tor)" 2>/dev/null) || return 1
+  case "$tor_state" in running\|* | created\|* | *"failed to bind host port"*) return 0 ;; esac
+  return 1
+}
+paused_file=$state_root/.paused-listeners
+resume_paused_listeners() {
+  [ -s "$paused_file" ] || return 0
+  resumed=$(mktemp "$state_root/.paused-listeners.XXXXXX")
+  back=
+  while read -r address present_since; do
+    case "${present_since:-}" in *[!0-9]*) present_since= ;; esac
+    names=$(listener_names "$address")
+    if [ -z "$names" ]; then
+      continue
+    elif ! host_has_ipv4 "$address"; then
+      printf '%s\n' "$address" >>"$resumed"
+    elif [ -z "$present_since" ] || [ $((now - present_since)) -lt 60 ]; then
+      printf '%s %s\n' "$address" "${present_since:-$now}" >>"$resumed"
+    else
+      back="${back:+$back, }$names"
+    fi
+  done <"$paused_file"
+  if cmp -s "$resumed" "$paused_file"; then
+    rm -f "$resumed"
+    return 0
+  fi
+  chmod 600 "$resumed"
+  if [ -s "$resumed" ]; then mv "$resumed" "$paused_file"; else rm -f "$resumed" "$paused_file"; fi
+  [ -n "$back" ] && tor_can_restart || return 0
+  if "$stack_root/stack" up tor dashboard >/dev/null 2>&1; then
+    refresh_dashboard_id
+    host_event "Published LAN listeners again now that their address is back: $back."
+  else
+    refresh_dashboard_id
+    host_event "LAN listeners have their address back, but Tor and the dashboard could not restart yet: $back."
+  fi
+}
+remember_bind_address() {
+  [ "$(cat "$bind_state" 2>/dev/null)" != "$*" ] || return 0
+  printf '%s\n' "$*" >"$bind_state.tmp"
+  mv "$bind_state.tmp" "$bind_state"
+}
+check_bind_address() {
+  bind_state=$state_root/node-control/bind-address
+  bound=$(sed -n 's/^DASHBOARD_BIND_IP=//p' "$env_file" 2>/dev/null | tail -n 1)
+  read -r last pending since acted_on 2>/dev/null <"$bind_state" || true
+  case "$bound" in '' | ::1) rm -f "$bind_state"; return 0 ;; esac
+  case "$bound" in 127.*) ;; *) if [ -z "${pending:-}" ] && [ "${last:-}" = "$bound" ] && host_has_ipv4 "$bound"; then return 0; fi ;; esac
+  setting=$(jq -r '.dashboard.bind_ip // ""' "$approved_config" 2>/dev/null) || setting=
+  if [ "$setting" != auto ]; then
+    case "$bound" in 127.*) rm -f "$bind_state"; return 0 ;; esac
+    if host_has_ipv4 "$bound"; then remember_bind_address "$bound"; return 0; fi
+    old=$bound new=fixed
+  else
+    old=${last:-$bound} new=
+    case "$bound" in 127.*) ;; *) ! host_has_ipv4 "$bound" || new=$bound ;; esac
+    [ -n "$new" ] || new=$("$stack_root/configure.sh" --detect-bind-ip 2>/dev/null) || new=
+    case "$new" in '' | 127.*) remember_bind_address "$old"; return 0 ;; esac
+    if [ "$new" = "$bound" ] && { [ "$old" = "$new" ] || host_has_ipv4 "$old"; }; then
+      remember_bind_address "$bound"
+      return 0
+    fi
+  fi
+  case "${since:-}" in '' | *[!0-9]*) pending= ;; esac
+  if [ "${last:-} ${pending:-}" != "$old $new" ]; then
+    remember_bind_address "$old" "$new" "$now"
+    return 0
+  fi
+  # A DHCP renewal or Wi-Fi reconnect drops the address for seconds; act only on a lasting change.
+  [ $((now - since)) -ge 60 ] && [ "${acted_on:-}" != "$bound" ] || return 0
+  if [ "$new" = fixed ]; then
+    remember_bind_address "$old" "$new" "$since" "$bound"
+    host_event "dashboard.bind_ip $bound is not on this host; the dashboard and LAN listeners on it stay down until the address returns or dashboard.bind_ip changes."
+    return 0
+  fi
+  tor_can_restart || { remember_bind_address "$old"; return 0; }
+  exec 8>"$state_root/.config.lock"
+  flock 8
+  moved=
+  if [ "$old" != "$new" ] && ! host_has_ipv4 "$old" && same_lan "$old" "$new"; then
+    moved=$(listener_names "$old")
+    for listener_config in "$config_file" "$approved_config"; do
+      [ -f "$listener_config" ] || continue
+      moved_config=$(mktemp "${listener_config%/*}/.bind-config.XXXXXX")
+      jq --arg old "$old" --arg new "$new" 'if type == "object" then with_entries(if .key != "dashboard" and (.value | type) == "object" then .value |= with_entries(if (.key | endswith("bind_ip")) and .value == $old then .value = $new else . end) else . end) else . end' \
+        "$listener_config" >"$moved_config" 2>/dev/null || { rm -f "$moved_config"; continue; }
+      if [ "$(jq -S -c . "$listener_config")" = "$(jq -S -c . "$moved_config")" ]; then
+        rm -f "$moved_config"
+      else
+        chmod 600 "$moved_config"
+        mv "$moved_config" "$listener_config"
+      fi
+    done
+  fi
+  paused=
+  for address in $(exposed_listeners | awk '{print $1}' | sort -u); do
+    ! host_has_ipv4 "$address" || continue
+    awk -v address="$address" '$1 == address { found = 1 } END { exit !found }' "$paused_file" 2>/dev/null ||
+      printf '%s\n' "$address" >>"$paused_file"
+    paused="${paused:+$paused, }$(listener_names "$address")"
+  done
+  remember_bind_address "$new" "$new" "$since" "$bound"
+  from=$bound
+  [ "$bound" != "$new" ] || from=$old
+  message="Moved the dashboard from $from to $new, this host's current LAN address."
+  [ -z "$moved" ] || message="$message Moved LAN listeners on the same LAN with it: $moved."
+  [ -z "$paused" ] || message="$message Paused LAN listeners whose address is not on this network: $paused. Re-point them from Settings to use this network."
+  if BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" up tor dashboard >/dev/null 2>&1; then
+    refresh_dashboard_id
+    host_event "$message"
+  else
+    refresh_dashboard_id
+    host_event "$message Tor and the dashboard could not restart yet."
+  fi
+  exec 8>&-
 }
 restore_approved_runtime() {
   [ -f "$approved_config" ] && [ -f "$state_root/.approved.env" ] || return 1
@@ -578,6 +735,8 @@ publish_heartbeat() {
 }
 heartbeat=0
 publish_heartbeat || heartbeat=$?
+resume_paused_listeners
+check_bind_address
 recover_failed_starts
 remove_finished_chainstate_copy dogecoin
 remove_finished_chainstate_copy bitcoincash
