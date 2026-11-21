@@ -57,6 +57,7 @@ grep -q '^LITECOIN_STEADY_MEM_LIMIT_MB=2048$' "$tmp/.env" || fail "Litecoin stea
 grep -q '^DOGECOIN_STEADY_MEM_LIMIT_MB=2048$' "$tmp/.env" || fail "Dogecoin steady memory default is not 2048 MB"
 grep -q '^BITCOINCASH_STEADY_MEM_LIMIT_MB=2048$' "$tmp/.env" || fail "Bitcoin Cash steady memory default is not 2048 MB"
 grep -q '^TARI_STEADY_MEM_LIMIT_MB=4096$' "$tmp/.env" || fail "Tari steady memory default is not 4096 MB"
+grep -q '^TARI_GRPC_EXTRA_METHODS=$' "$tmp/.env" || fail "Tari allows extra gRPC methods by default"
 grep -q '^DASHBOARD_ONION=0$' "$tmp/.env" || fail "fresh install dashboard onion default is not off"
 grep -q '^DASHBOARD_PUBLIC_URL=$' "$tmp/.env" || fail "fresh install dashboard public URL default is not empty"
 grep -q '^STACK_RESTART_POLICY=on-failure:5$' "$tmp/.env" || fail "fresh install restart policy is not crash-only"
@@ -541,6 +542,13 @@ echo '{"host": {"thermal_limit_c": 50, "thermal_resume_c": 1}}' >"$tmp/config.js
 (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "thermal resume 1 was accepted"
 echo '{"monero": {"mem_limit_mb": 5}}' >"$tmp/config.json"
 (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "monero mem_limit_mb 5 was accepted"
+echo '{"tari": {"grpc_extra_methods": ["list_headers", "get_blocks"]}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null
+grep -q '^TARI_GRPC_EXTRA_METHODS=list_headers,get_blocks$' "$tmp/.env" || fail "tari grpc_extra_methods should render"
+for bad in '["ListHeaders"]' '"list_headers"' '["list_headers\"]"]' '[1]'; do
+  printf '{"tari": {"grpc_extra_methods": %s}}\n' "$bad" >"$tmp/config.json"
+  (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "tari grpc_extra_methods $bad was accepted"
+done
 rm -f "$tmp/config.json"
 
 # 12. Passwordless and mixed protected ingress dashboards are rejected.

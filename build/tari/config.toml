@@ -19,7 +19,7 @@ grpc_address = "/ip4/0.0.0.0/tcp/18142"
 grpc_server_allow_methods = [
   "get_version", "get_sync_info", "get_sync_progress", "get_tip_info",
   "identify", "get_network_status", "get_new_block_template_with_coinbases",
-  "submit_block", "get_peers", "list_connected_peers", "get_mempool_stats"
+  "submit_block", "get_peers", "list_connected_peers", "get_mempool_stats"__GRPC_EXTRA_METHODS__
 ]
 
 [base_node.storage]

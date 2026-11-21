@@ -483,7 +483,8 @@ test("Reset to default sends one reset, plus the edited values when the form cha
 test("host switch defaults match the host helper and the configuration reference", async () => {
   const helper = await readFile(new URL("../../../scripts/node-control", import.meta.url), "utf8");
   const reference = await readFile(new URL("../../../docs/configuration.md", import.meta.url), "utf8");
-  assert.match(helper, new RegExp(`clearnet_over_tor=${hostToggleDefaults.clearnet_over_tor}\\n\\s*inbound_connections=${hostToggleDefaults.inbound_connections}\\n\\s*utxo_index=${hostToggleDefaults.utxo_index}\\n`));
+  const jqToggle = (key, path) => `${key}:setting\\(\\.${path.replaceAll(".", "\\.")} ${hostToggleDefaults[key] ? "!= false; true" : "== true; false"}\\)`;
+  assert.match(helper, new RegExp(`${jqToggle("clearnet_over_tor", "network.clearnet_over_tor")},${jqToggle("inbound_connections", "network.inbound_connections")},\\s*${jqToggle("utxo_index", "bitcoin.utxo_index")},`));
   assert.match(reference, new RegExp(`\\| \`dashboard\\.launch_at_boot\` \\| \`${hostToggleDefaults.launch_at_boot}\` \\|`));
   assert.deepEqual(Object.keys(hostToggleDefaults).sort(), ["clearnet_over_tor", "inbound_connections", "launch_at_boot", "utxo_index", "utxo_index_bitcoincash", "utxo_index_dogecoin", "utxo_index_litecoin"]);
 });

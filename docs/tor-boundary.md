@@ -14,7 +14,7 @@ Evidence below is `file:line` as of the last change to this page; line numbers d
 ## How the boundary is enforced
 
 1. Every service except `tor` joins only `btc_net`, which is `internal: true`
-   (`docker-compose.yml:532-535`). Docker gives an internal network no gateway, so
+   (`docker-compose.yml:533-536`). Docker gives an internal network no gateway, so
    a direct TCP, UDP or ICMP packet to a public address has no route.
 2. `tor` is the only service on `tor_egress`, the only network with an external
    route (`docker-compose.yml:43-48`, `539-540`).
@@ -33,7 +33,7 @@ Layers 1 and 3 are the hard boundary. Layer 4 is why nothing is even attempted.
 
 | Path | Mechanism | Verdict |
 |---|---|---|
-| Compose networks | Two networks only, `btc_net` internal, `tor_egress` external (`docker-compose.yml:532-540`). | Tor only |
+| Compose networks | Two networks only, `btc_net` internal, `tor_egress` external (`docker-compose.yml:533-541`). | Tor only |
 | Published host ports | Base file publishes only the Tor relay to the dashboard on `DASHBOARD_BIND_IP`, loopback by default (`docker-compose.yml:49-52`). Eight overlays add one LAN listener each on `tor`, each with a required bind IP and no default (`docker-compose.rpc.yml:4`, `monero-rpc.yml:4`, `monero-zmq.yml:4`, `tari-grpc.yml:4`, `litecoin-rpc.yml:4`, `dogecoin-rpc.yml:4`, `bitcoincash-rpc.yml:4`, `zcash-rpc.yml:4`). No node publishes a port. | Inbound opt-ins only |
 | `extra_hosts`, `network_mode`, `privileged`, host `pid`/`ipc`, Docker socket | None in any compose file. | None |
 | Proxy environment variables | None. The only proxy variable is `TOR_PROXY`, always `172.29.0.25:9050` (`docker-compose.yml:141`, `259`, `297`, `344`). | Tor only |

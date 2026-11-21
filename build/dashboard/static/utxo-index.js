@@ -163,11 +163,11 @@ function wire(chain) {
       badge.className = `index-badge index-badge-${view.tone}`;
     };
   }
-  if (!card) return;
   const render = (status) => {
     lastStatus = status;
     renderBar();
     renderBadge(status);
+    if (!card) return;
     const view = indexView(status, chain);
     const hint = chain === "bitcoin" ? offHint(status) : "";
     card.hidden = !view && !hint;

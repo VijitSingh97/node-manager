@@ -47,7 +47,30 @@ All notable changes to this project are documented here. Format follows
   confirms first, or takes `-y`. Regtest runs on all four nodes matched.
   Mainnet timing is not measured.
 
+- `tari.grpc_extra_methods` allows more Tari gRPC methods on top of the built-in
+  list, for example `["list_headers"]`. `configure.sh` accepts only lowercase
+  snake_case names and passes them to the node, which adds them to its
+  `grpc_server_allow_methods`.
+
 ### Changed
+
+- On Debian and Ubuntu a dashboard request now starts its host helper at once.
+  New `node-manager-node-control.path` and `node-manager-port-control.path`
+  units watch the request files in the dashboard state volume, and upgrades
+  enable them. The helper timers now run once a minute (were every 10 seconds for
+  node control and 30 seconds for LAN port control). That is the slowest rate
+  that keeps each host capability inside the dashboard's 90-second limit. An
+  idle run also costs less. Node control makes 2 Docker calls instead of 6 and
+  4 jq calls instead of 18. Port control makes 2 or 3 Docker calls instead of 9.
+  Measured in docker-in-docker on an Apple M5 (median of 6 interleaved rounds of
+  20 idle runs, Docker daemon included): node control fell from 398 to 123 ms of
+  CPU per run and port control from 299 to 102 ms. At the new rates that is
+  about 14 CPU-seconds an hour instead of 179. A Docker data root outside
+  `/var/lib/docker`, or another project name, is added to the watch when Node
+  Manager starts. In the first 5 minutes after boot a helper that cannot reach
+  the dashboard retries every 10 seconds. Homebrew's host
+  loop still runs both helpers every 10 seconds, since launchd cannot watch files
+  inside Docker Desktop's VM, and gets the cheaper runs.
 
 - The Bitcoin Cash balance index fits the same 1 GiB dashboard limit as the other
   indexes (#363). Its overlay now sets `mem_limit: 1g` and no `GOMEMLIMIT`,
@@ -66,6 +89,13 @@ All notable changes to this project are documented here. Format follows
   and a 2-minute start period (was 60 seconds, 10, 3 and 5 minutes).
 - The health probe opens Tor's control socket only after a failed probe, so a
   healthy Tor logs no control connections.
+
+### Fixed
+
+- The Bitcoin node card shows its balance index bar. Since 1.39.0 the page
+  fetched the Bitcoin index status only while the loading screen was up, so a
+  running Bitcoin node never showed the bar. Litecoin, Dogecoin and Bitcoin
+  Cash were not affected.
 
 ## [1.39.0] - 2026-11-20
 

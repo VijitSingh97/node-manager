@@ -156,8 +156,10 @@ class Helper {
   }
 }
 
-export async function startDashboard({ nodes = [], settings, capability = {}, host = true, hostStats = false, password = PASSWORD, state = {}, rpcDown = false } = {}) {
+export async function startDashboard({ nodes = [], settings, capability = {}, host = true, hostStats = false, password = PASSWORD, state = {}, rpcDown = false, utxoIndex = false } = {}) {
   const stateDir = mkdtempSync(join(tmpdir(), "ui-state-"));
+  const utxoDir = utxoIndex ? mkdtempSync(join(tmpdir(), "ui-utxo-")) : "";
+  const removeDirs = () => { for (const dir of [stateDir, utxoDir].filter(Boolean)) rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); };
   const rpc = await startRPC();
   rpc.down = rpcDown;
   const rpcURL = `http://127.0.0.1:${rpc.address().port}`;
@@ -173,6 +175,7 @@ export async function startDashboard({ nodes = [], settings, capability = {}, ho
     env[`${prefix}_RPC_USER`] = "uiuser";
     env[`${prefix}_RPC_PASSWORD`] = "uirpc";
   }
+  if (utxoDir) Object.assign(env, { UTXO_INDEX_ENABLED: "1", UTXO_INDEX_DIR: utxoDir });
   if (settings) writeFileSync(join(stateDir, "notification_settings.json"), JSON.stringify({ ...defaultSettings, ...settings }), { mode: 0o600 });
   for (const [name, value] of Object.entries(state)) writeFileSync(join(stateDir, name), JSON.stringify(value), { mode: 0o600 });
   let child, url;
@@ -202,7 +205,7 @@ export async function startDashboard({ nodes = [], settings, capability = {}, ho
       if (attempt < 3 && /address already in use/i.test(log.join(""))) continue;
       rpc.close();
       rpc.closeAllConnections();
-      rmSync(stateDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      removeDirs();
       throw error;
     }
   }
@@ -224,7 +227,7 @@ export async function startDashboard({ nodes = [], settings, capability = {}, ho
         child.kill("SIGTERM");
         await Promise.race([exited, sleep(5000).then(() => child.kill("SIGKILL"))]);
       }
-      rmSync(stateDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      removeDirs();
     },
   };
   if (hostStats) dash.writeHostStats(hostStats === true ? {} : hostStats);

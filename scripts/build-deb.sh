@@ -42,7 +42,8 @@ install -m 755 scripts/node-control "$root/node-control"
 install -d "$package/usr/lib/systemd/system"
 install -m 644 packaging/systemd/node-manager-resource-profile.service packaging/systemd/node-manager-resource-profile.timer \
   packaging/systemd/node-manager-port-control.service packaging/systemd/node-manager-port-control.timer \
-  packaging/systemd/node-manager-node-control.service packaging/systemd/node-manager-node-control.timer \
+  packaging/systemd/node-manager-port-control.path packaging/systemd/node-manager-node-control.service \
+  packaging/systemd/node-manager-node-control.timer packaging/systemd/node-manager-node-control.path \
   "$package/usr/lib/systemd/system/"
 install -m 644 docker-compose.yml docker-compose.rpc.yml docker-compose.monero-rpc.yml docker-compose.monero-zmq.yml \
   docker-compose.tari-wallet.yml docker-compose.tari-grpc.yml docker-compose.litecoin-rpc.yml docker-compose.dogecoin-rpc.yml docker-compose.bitcoincash-rpc.yml \

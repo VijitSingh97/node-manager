@@ -119,7 +119,8 @@ shows the overridable settings with their defaults:
         "cpus": 0,
         "grpc_expose": false,
         "grpc_bind_ip": "",
-        "grpc_port": 18142
+        "grpc_port": 18142,
+        "grpc_extra_methods": []
     },
     "litecoin": {
         "enabled": false,
@@ -260,6 +261,7 @@ shows the overridable settings with their defaults:
 | `<node>.steady_cpus` | `1` | Independent post-sync CPU ceiling for Tari, Litecoin, Dogecoin, Bitcoin Cash, or Zcash. |
 | `<node>.steady_mem_limit_mb` | `2048` for Litecoin, Dogecoin, and Bitcoin Cash; `4096` for Tari and Zcash | Independent post-sync memory-plus-swap ceiling for those base nodes. Tari's separate wallet sidecar is not included. This is a budget, not a qualified minimum. |
 | `tari.pruning_horizon` | `10000` | Positive retained-block horizon for Minotari's pruned state. |
+| `tari.grpc_extra_methods` | `[]` | Tari gRPC methods to allow on top of the built-in list, in snake_case, for example `["list_headers"]`. The built-in list covers the dashboard and mining. Anything that reaches Tari's gRPC can call the added methods: containers on the stack network, and a LAN client when `grpc_expose` is on. Tari refuses to start with a name it does not know and logs it (`node-manager logs tari`). `node-manager apply` restarts Tari with the new list. |
 | `tari.grpc_expose`, `grpc_bind_ip`, `grpc_port` | `false`, `""`, `18142` | Optional unauthenticated Tari mining gRPC for a mining client on a trusted private LAN or WireGuard link. It is separate from the internal authenticated view-only wallet service. |
 | `litecoin.prune_mb`, `dogecoin.prune_mb`, `bitcoincash.prune_mb` | `10000` | Recent block-file target in MiB. Chainstate and other state are additional. Dogecoin and Bitcoin Cash also accept `0` (archival, required by `dogecoin.watch_wallet`); `0` is refused on a data directory that already holds a pruned chain. |
 | `litecoin.rpc_port`, `dogecoin.rpc_port`, `bitcoincash.rpc_port` | `9332`, `22555`, `8332` | Default host port for each opt-in authenticated private-LAN RPC proxy. Each also has `rpc_expose` and `rpc_bind_ip`. |
@@ -471,10 +473,16 @@ restarts the affected services. Reveal the new login and update every external
 client. Reset is unavailable when the node is inactive. Tari gRPC and Monero
 ZMQ do not display made-up credentials.
 
-For APT installs, `node-manager init`, `up`, and `apply` enable
-`node-manager-port-control.timer`. On APT the helper timers poll for dashboard
-requests: node-control every 10 seconds and port-control every 30 seconds, so a
-save can take up to that long to start. Source installs reuse the host
+For APT installs, `node-manager init`, `up`, and `apply` enable the
+node-control and port-control timers and their `.path` units. A save starts its
+helper at once: the `.path` units watch the request files in the dashboard
+state volume under `/var/lib/docker/volumes/`. The timers also run each helper
+every 60 seconds to keep its capability inside the dashboard's 90-second limit
+and to pick up a request written while the helper was finishing a run. When
+Docker keeps its data outside `/var/lib/docker`, or the project has another
+name, `init`, `up`, and `apply` add the volume's real path to the watch in a
+`volume.conf` drop-in. Right after boot each helper retries every 10 seconds
+until the dashboard answers. Source installs reuse the host
 agent for authenticated trusted-LAN controls. On
 macOS source installs, setup starts a session helper with a private
 `host-service.log`; Homebrew registers the user service automatically. No host

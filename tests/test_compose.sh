@@ -294,6 +294,24 @@ for service in litecoin bitcoincash; do
   echo "$all_nodes" | sed -n "/^  $service:\$/,/^  [a-z][a-z-]*:\$/p" | grep -q 'SEED_DOH_HOSTS' && fail "$service looks up seed peers it does not need"
 done
 grep -qx 'type = "__TRANSPORT__"' build/tari/config.toml || fail "Tari transport is not chosen at runtime"
+COMPOSE_PROFILES=tari TARI_GRPC_EXTRA_METHODS=list_headers docker compose --env-file /dev/null -f docker-compose.yml config |
+  sed -n '/^  tari:$/,/^  [a-z][a-z-]*:$/p' | grep -q 'TARI_GRPC_EXTRA_METHODS: list_headers' || fail "Tari does not receive its extra gRPC methods"
+tari_dir=$(mktemp -d)
+cat >"$tari_dir/start_tari_app.sh" <<'STUB'
+#!/bin/sh
+cat "$TARI_CONFIG"
+STUB
+chmod +x "$tari_dir/start_tari_app.sh"
+cp build/tari/config.toml "$tari_dir/"
+sed "s#/var/tari/[a-z]*/#$tari_dir/#g" build/tari/entrypoint.sh >"$tari_dir/entrypoint.sh"
+tari_run() { env -i PATH="$tari_dir:$PATH" TARI_PRUNING_HORIZON=10000 "$@" sh "$tari_dir/entrypoint.sh"; }
+tari_methods() { tari_run "$@" | python3 -c 'import sys, tomllib; print(" ".join(tomllib.load(sys.stdin.buffer)["base_node"]["grpc_server_allow_methods"]))'; }
+tari_default=$(tari_methods) || fail "default Tari config is not valid TOML"
+case "$tari_default" in get_version*" get_mempool_stats") ;; *) fail "default Tari gRPC methods changed: $tari_default" ;; esac
+tari_methods TARI_GRPC_EXTRA_METHODS=list_headers,get_blocks | grep -q ' get_mempool_stats list_headers get_blocks$' ||
+  fail "extra Tari gRPC methods were not allowed"
+tari_run TARI_GRPC_EXTRA_METHODS='list_headers"]' >/dev/null 2>&1 && fail "Tari entrypoint accepted a method name that breaks its config"
+rm -rf "$tari_dir"
 echo "$all_nodes" | sed -n '/^  bitcoincash:$/,/^  dashboard:$/p' | grep -q '^    command:' && fail "Bitcoin Cash command bypasses its private runtime config"
 
 echo "$all_nodes" | grep -q 'build/zcash/zakurad.toml' || fail "Zcash default config file changed"

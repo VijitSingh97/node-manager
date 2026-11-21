@@ -45,7 +45,8 @@
         "cpus": 0,
         "grpc_expose": false,
         "grpc_bind_ip": "",
-        "grpc_port": 18142
+        "grpc_port": 18142,
+        "grpc_extra_methods": []
     },
     "litecoin": {
         "enabled": false,
