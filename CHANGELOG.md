@@ -54,6 +54,12 @@ All notable changes to this project are documented here. Format follows
 
 ### Changed
 
+- `configure.sh` reads `config.json` with two `jq` runs instead of about 130. On
+  an Apple Silicon Mac a run took about 0.3 s instead of 1.2 s; the Intel mini PC
+  is not measured. A node power change runs it twice, so the container gets its
+  stop or start sooner. The `.env` it writes and its validation messages are
+  unchanged.
+
 - On Debian and Ubuntu a dashboard request now starts its host helper at once.
   New `node-manager-node-control.path` and `node-manager-port-control.path`
   units watch the request files in the dashboard state volume, and upgrades
