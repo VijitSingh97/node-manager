@@ -6,6 +6,9 @@
 set -eu
 
 cat /etc/tor/torrc >/tmp/torrc
+rm -f /tmp/tor-health.state /tmp/tor-health.state.tmp
+mkdir -p /var/lib/tor/control
+chmod 700 /var/lib/tor/control
 
 if [ "${DASHBOARD_ONION:-0}" = "1" ]; then
   cat >>/tmp/torrc <<EOF
@@ -30,6 +33,11 @@ for node in $onion_nodes; do
   printf '\nHiddenServiceDir /var/lib/tor/%s_onion/\nHiddenServicePort %s\n' "$node" "$service" >>/tmp/torrc
 done
 rm -f /var/lib/tor-onions/*
+
+if [ -e /var/lib/tor/.reset-state ]; then
+  rm -f /var/lib/tor/state /var/lib/tor/state.reset
+  rm -f /var/lib/tor/.reset-state
+fi
 
 tor -f /tmp/torrc &
 tor_pid=$!
