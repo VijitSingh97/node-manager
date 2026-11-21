@@ -187,8 +187,29 @@ stays stopped, and configuration edits still awaiting approval are not applied.
 Upgrades also install newly recommended packages such as `node-manager-hostd`.
 If it is missing (for example after `--no-install-recommends`), run
 `sudo apt install node-manager-hostd` (see [Host readings](#host-readings)).
-If Docker or the registry is unavailable, APT keeps the package installed and
-reports activation as pending. After correcting the problem, retry with
+Activation pulls the images of the running services one at a time, through the
+host's Docker daemon as before (no new network path). Each pull may take up to
+10 minutes and is tried up to 3 times, 15 s and then 30 s apart, so a transient
+registry or Tor failure costs a retry instead of the activation. The APT output
+records every try, for example `Pulled the dashboard image in 42 s (attempt 1 of
+3).` or `Pulling the dashboard image failed after 610 s (attempt 2 of 3).` An
+image that fails all 3 tries stops activation before any running service is
+changed. An image whose pull hangs every time gives up after about 31 minutes.
+
+If an image still fails, or Docker is unavailable, APT keeps the new package
+installed and exits successfully: a failing package script would leave the
+package half-configured and make every later APT run fail until it is fixed.
+Instead, the last line Node Manager prints in the APT output is:
+
+```text
+NODE MANAGER ACTIVATION FAILED: 1.39.0 is installed, but the running containers were not updated; retry with: sudo node-manager package-upgrade
+```
+
+Until an activation succeeds, `sudo node-manager doctor` repeats this under
+`== Config` as `WARN  Node Manager 1.39.0 is installed, but its containers were
+not updated; retry with: sudo node-manager package-upgrade`. The warning also
+clears when `package-upgrade` finds no service running, since a stopped stack
+starts on the new images. After correcting the problem, retry with
 `sudo node-manager package-upgrade`. Inspect `sudo node-manager status` and
 `sudo node-manager doctor` if activation reports a failure. If activation partly
 started and left a service stopped, use the specific `node-manager up` command

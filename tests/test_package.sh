@@ -224,8 +224,10 @@ grep -q 'command=package-upgrade docker_host=unset compose_file=unset stack_root
   fail "postinst did not sanitize its activation environment"
 : >"$postinst_log"
 touch "$tmp/postinst-fail"
-"$postinst_fixture" configure 1.0.0 || fail "postinst failure blocked package configuration"
+"$postinst_fixture" configure 1.0.0 2>"$tmp/postinst.err" || fail "postinst failure blocked package configuration"
 grep -q 'command=package-upgrade' "$postinst_log" || fail "postinst did not invoke activation on upgrade"
+[ "$(tail -n 1 "$tmp/postinst.err")" = "NODE MANAGER ACTIVATION FAILED: $PACKAGE_VERSION is installed, but the running containers were not updated; retry with: sudo node-manager package-upgrade" ] ||
+  fail "a failed activation did not end the APT output with a one-line marker"
 
 printf 'STACK_ROOT=/usr/lib/bitcoin-starter-stack\nSTACK_ASSET_ROOT=/usr/lib/bitcoin-starter-stack\n' >"$postinst_state/.env"
 printf 'STACK_ROOT=/usr/lib/bitcoin-starter-stack\nREADY=1\n' >"$postinst_state/.approved.env"
