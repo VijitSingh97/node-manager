@@ -753,11 +753,15 @@ remove_finished_chainstate_copy() {
 }
 # The heartbeat and the request check share one exec because each docker call costs more than the rest of an idle tick.
 publish_heartbeat() {
+  heartbeat_error=$state_root/node-control/heartbeat.err heartbeat_status=0
   request_state=$(host_capability | "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c '
     umask 077
     cat > /state/.node-control.capability.tmp && mv /state/.node-control.capability.tmp /state/node-control.capability || exit 1
-    if [ -f /state/node-control.processing ]; then echo processing; elif [ -f /state/node-control.request ]; then echo request; fi')
+    if [ -f /state/node-control.processing ]; then echo processing; elif [ -f /state/node-control.request ]; then echo request; fi' 2>"$heartbeat_error") || heartbeat_status=$?
+  [ ! -s "$heartbeat_error" ] || cat "$heartbeat_error" >&2
+  return "$heartbeat_status"
 }
+dashboard_not_running() { grep -q -e 'is not running' -e 'is restarting' -e 'No such container' "$heartbeat_error"; }
 heartbeat=0
 publish_heartbeat || heartbeat=$?
 recover_failed_starts
@@ -765,7 +769,7 @@ remove_finished_chainstate_copy dogecoin
 remove_finished_chainstate_copy bitcoincash
 # The dashboard may still be starting after boot, and the timer would not try again for a minute.
 while [ "$heartbeat" != 0 ]; do
-  [ "$package_managed" = 1 ] && read -r uptime _ 2>/dev/null <"${NODE_CONTROL_UPTIME_FILE:-/proc/uptime}" && [ "${uptime%.*}" -lt 300 ] || exit "$heartbeat"
+  [ "$package_managed" = 1 ] && read -r uptime _ 2>/dev/null <"${NODE_CONTROL_UPTIME_FILE:-/proc/uptime}" && [ "${uptime%.*}" -lt 300 ] || { dashboard_not_running && exit 0; exit "$heartbeat"; }
   sleep 10
   heartbeat=0
   publish_heartbeat || heartbeat=$?

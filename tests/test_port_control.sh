@@ -72,6 +72,10 @@ if [ -n "${FAKE_EXEC_FAIL_ONCE:-}" ] && [ ! -e "$FAKE_EXEC_FAIL_ONCE" ]; then
   : >"$FAKE_EXEC_FAIL_ONCE"
   exit 1
 fi
+if [ -n "${FAKE_EXEC_ERROR:-}" ]; then
+  printf 'Error response from daemon: %s\n' "$FAKE_EXEC_ERROR" >&2
+  exit 1
+fi
 shift
 if [ "${1:-}" = -i ]; then shift; fi
 if [ "${1:-}" = -u ]; then shift 2; fi
@@ -333,6 +337,18 @@ BITCOIN_STACK_PACKAGE_MANAGED=1 PORT_CONTROL_UPTIME_FILE=$case_root/uptime FAKE_
   fail "a run right after boot gave up while the dashboard was starting"
 [ -e "$case_root/exec-failed-at-boot" ] && [ "$(cat "$FAKE_DASH_STATE/port-control.capability")" = ready ] ||
   fail "a run right after boot did not publish once the dashboard answered"
+printf '900.12 1800.00\n' >"$case_root/uptime"
+dashboard_files() { find "$FAKE_DASH_STATE" -type f -exec cksum {} + | sort; }
+dashboard_before=$(dashboard_files)
+for down in 'container dashboard-id is not running' 'Container dashboard-id is restarting, wait until the container is running' 'No such container: dashboard-id'; do
+  BITCOIN_STACK_PACKAGE_MANAGED=1 PORT_CONTROL_UPTIME_FILE=$case_root/uptime FAKE_EXEC_ERROR=$down scripts/node-port-control 2>"$case_root/stderr" ||
+    fail "a run while the dashboard was down ($down) failed its unit"
+  grep -qF "$down" "$case_root/stderr" || fail "a skipped run hid the Docker error: $(cat "$case_root/stderr")"
+done
+[ "$(dashboard_files)" = "$dashboard_before" ] || fail "a run while the dashboard was down wrote dashboard state"
+if BITCOIN_STACK_PACKAGE_MANAGED=1 PORT_CONTROL_UPTIME_FILE=$case_root/uptime FAKE_EXEC_ERROR='Container dashboard-id is paused, unpause the container before exec' scripts/node-port-control 2>/dev/null; then
+  fail "a run that could not reach a paused dashboard reported success"
+fi
 request '{"id":"12121212121212121212121212121212","changes":[{"port":"bitcoin_rpc","enabled":false}],"requested_at":1000}'
 scripts/node-port-control
 [ "$(status .id):$(status .state)" = 12121212121212121212121212121212:applied ] && [ ! -e "$FAKE_DASH_STATE/port-control.request" ] ||

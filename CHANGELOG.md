@@ -104,6 +104,11 @@ All notable changes to this project are documented here. Format follows
 
 ### Fixed
 
+- The host helpers (`node-manager-node-control` and `node-manager-port-control`)
+  no longer fail their systemd unit when the dashboard container is stopped,
+  restarting or being recreated, as it is during a container update. Such a run
+  is skipped and the next timer or path trigger tries again. Other Docker errors
+  still fail the unit.
 - The Bitcoin node card shows its balance index bar. Since 1.39.0 the page
   fetched the Bitcoin index status only while the loading screen was up, so a
   running Bitcoin node never showed the bar. Litecoin, Dogecoin and Bitcoin
