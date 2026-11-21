@@ -104,6 +104,14 @@ All notable changes to this project are documented here. Format follows
 
 ### Fixed
 
+- Activating a node from the dashboard no longer hangs the host helper. The
+  helper held the config lock and then ran `stack up` without saying so, and
+  `stack up` waited for that same lock, so the request could not finish and the
+  dashboard soon reported the host helper missing. The helper also approved the
+  change only after starting, so `stack up` would have started the node from the
+  old approved config. It now approves an activation before starting the node,
+  passes the lock it holds, and after a failed change re-approves the restored
+  config before bringing services back. Deactivating was not affected.
 - The host helpers (`node-manager-node-control` and `node-manager-port-control`)
   no longer fail their systemd unit when the dashboard container is stopped,
   restarting or being recreated, as it is during a container update. Such a run
