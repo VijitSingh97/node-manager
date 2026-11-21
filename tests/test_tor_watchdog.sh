@@ -137,13 +137,13 @@ grep -qx 'restart restart -t 30 tor-id' "$FAKE_ACTIONS" || fail "restart is not 
 [ "$(events)" = 1 ] || fail "first step wrote $(events) events"
 grep -Eq '^[0-9T:-]+Z Host: Tor is not working \(probes through Tor failed for several minutes; Tor holds relay connections that may be stale, so the cause is not clear yet\); restarting Tor$' "$dash/events.log" || fail "first event text or shape is wrong: $(cat "$dash/events.log")"
 [ "$(snapshots)" = 1 ] || fail "no snapshot before the restart"
-[ "$(stat -f %Lp "$snaps"/* 2>/dev/null || stat -c %a "$snaps"/*)" = 600 ] || fail "snapshot is not root-only"
-[ "$(stat -f %Lp "$snaps" 2>/dev/null || stat -c %a "$snaps")" = 700 ] || fail "snapshot directory is not private"
+[ "$(stat -c %a "$snaps"/* 2>/dev/null || stat -f %Lp "$snaps"/*)" = 600 ] || fail "snapshot is not root-only"
+[ "$(stat -c %a "$snaps" 2>/dev/null || stat -f %Lp "$snaps")" = 700 ] || fail "snapshot directory is not private"
 snapfile=$(find "$snaps" -type f | head -n 1)
 grep -q 'fake-snapshot-body' "$snapfile" || fail "snapshot lacks control data"
 grep -q 'fake tor log line' "$snapfile" || fail "snapshot lacks log lines"
 grep -qF "$fail_up" "$snapfile" || fail "snapshot lacks control data, log lines or the last health output"
-[ "$(stat -f %Lp "$wd" 2>/dev/null || stat -c %a "$wd")" = 600 ] || fail "watchdog state is not private"
+[ "$(stat -c %a "$wd" 2>/dev/null || stat -f %Lp "$wd")" = 600 ] || fail "watchdog state is not private"
 KEEP_GATE=1
 tick $((T0 + 10))
 [ "$(restarts)" = 1 ] || fail "poll inside the 30 s gate acted"
