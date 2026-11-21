@@ -671,6 +671,7 @@ dashboard_auth_configured() {
 # Both heartbeats and the request checks share one exec because each docker call costs more than the rest of an idle tick.
 publish_heartbeat() {
   credential_capability=
+  heartbeat_status=0
   ! dashboard_auth_configured || credential_capability=$(printf '{"timestamp":%s}' "$now")
   # shellcheck disable=SC2016
   pending=$(printf '%s\n' "$credential_capability" | "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c '
@@ -685,11 +686,14 @@ publish_heartbeat() {
   fi
   for name in credential-control.processing credential-control.request port-control.processing port-control.request; do
     [ ! -f "/state/$name" ] || printf "%s " "$name"
-  done')
+  done' 2>"$control_state/heartbeat.err") || heartbeat_status=$?
+  [ ! -s "$control_state/heartbeat.err" ] || cat "$control_state/heartbeat.err" >&2
+  return "$heartbeat_status"
 }
+dashboard_not_running() { grep -q -e 'is not running' -e 'is restarting' -e 'No such container' "$control_state/heartbeat.err"; }
 # The dashboard may still be starting after boot, and the timer would not try again for a minute.
 until publish_heartbeat; do
-  [ "${BITCOIN_STACK_PACKAGE_MANAGED:-0}" = 1 ] && read -r uptime _ 2>/dev/null <"${PORT_CONTROL_UPTIME_FILE:-/proc/uptime}" && [ "${uptime%.*}" -lt 300 ] || exit 1
+  [ "${BITCOIN_STACK_PACKAGE_MANAGED:-0}" = 1 ] && read -r uptime _ 2>/dev/null <"${PORT_CONTROL_UPTIME_FILE:-/proc/uptime}" && [ "${uptime%.*}" -lt 300 ] || { dashboard_not_running && exit 0; exit 1; }
   sleep 10
 done
 if [ -n "$credential_capability" ] && process_credential_request; then
