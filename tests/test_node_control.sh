@@ -41,6 +41,21 @@ EOF
 cat >"$root/stack" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$*" >>"$FAKE_STACK_LOG"
+if [ "${1:-}" = up ] && [ "${BITCOIN_STACK_CONFIG_LOCK_HELD:-0}" != 1 ]; then
+  exec 9>"$BITCOIN_STACK_STATE_DIR/.config.lock"
+  flock -n 9 || {
+    printf 'up-blocked-on-config-lock\n' >>"$FAKE_STACK_LOG"
+    exit 75
+  }
+fi
+if [ "${1:-}" = up ] && [ -f "$BITCOIN_STACK_STATE_DIR/.approved-config.json" ] && [ -f "$BITCOIN_STACK_CONFIG_DIR/config.json" ] &&
+  ! jq -S . "$BITCOIN_STACK_CONFIG_DIR/config.json" | cmp -s - "$BITCOIN_STACK_STATE_DIR/.approved-config.json"; then
+  printf 'up-with-unapproved-config\n' >>"$FAKE_STACK_LOG"
+fi
+if [ "${1:-}" = stop ] && [ -f "$BITCOIN_STACK_STATE_DIR/.approved-config.json" ] && [ -f "$BITCOIN_STACK_CONFIG_DIR/config.json" ] &&
+  jq -S . "$BITCOIN_STACK_CONFIG_DIR/config.json" | cmp -s - "$BITCOIN_STACK_STATE_DIR/.approved-config.json"; then
+  printf 'stop-with-change-already-approved\n' >>"$FAKE_STACK_LOG"
+fi
 if [ "${1:-}" = utxo-chainstate-copy ]; then
   [ -z "${FAKE_CLOCK:-}" ] || echo $(($(cat "$FAKE_CLOCK") + 300)) >"$FAKE_CLOCK"
   [ "${FAKE_COPY_STATUS:-0}" = 0 ] || exit "$FAKE_COPY_STATUS"
@@ -49,7 +64,7 @@ fi
   kill -KILL "$PPID"
   exit 1
 }
-[ "${FAKE_STACK_FAIL_ONCE:-0}" != 1 ] || {
+[ "${FAKE_STACK_FAIL_ONCE:-0}" != 1 ] || [ "${1:-}" = approve-rendered-config ] || {
   if [ ! -e "$FAKE_STACK_FAIL_MARKER" ]; then
     : >"$FAKE_STACK_FAIL_MARKER"
     [ -z "${FAKE_STACK_STDERR:-}" ] || printf '%s\n' "$FAKE_STACK_STDERR" >&2
@@ -205,6 +220,7 @@ jq -e --arg config_path "$config_real/config.json" --arg bitcoin_path "$root/dat
 ' "$dashboard_state/node-control.capability" >/dev/null || fail "host catalog paths were not published"
 [ "$(jq -r .tari.active "$config/config.json")" = false ] || fail "Tari was not deactivated"
 grep -qx 'stop tari-wallet tari' "$tmp/stack.log" || fail "Tari wallet was not stopped before its node"
+! grep -qx stop-with-change-already-approved "$tmp/stack.log" || fail "deactivation was approved before the node stopped"
 [ "$(status .state)" = applied ] || fail "deactivation status was not applied"
 [ -s "$state/.approved.env" ] || fail "deactivation did not approve its rendered environment"
 [ "$(jq -r '.bitcoin,.monero,.tari' "$dashboard_state/node-runtime.json" | tr '\n' ' ')" = 'true true false ' ] || fail "runtime state map is wrong"
@@ -220,6 +236,8 @@ request '{"id":"22222222222222222222222222222222","node":"tari","active":true,"c
 [ "$(jq -r .tari.active "$config/config.json")" = true ] || fail "Tari was not reactivated"
 grep -qx 'up tari tari-wallet' "$tmp/stack.log" || fail "Tari node was not started before its wallet"
 [ "$(jq -r .tari.active "$state/.approved-config.json")" = true ] || fail "node state did not advance approved config"
+! grep -qx up-blocked-on-config-lock "$tmp/stack.log" || fail "activation waited on the config lock it already holds"
+! grep -qx up-with-unapproved-config "$tmp/stack.log" || fail "activation started the node from the old approved config"
 
 : >"$tmp/stack.log"
 request '{"id":"2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a","node":"tari","active":true,"confirmation":"","requested_at":1000}'
@@ -245,8 +263,10 @@ request '{"id":"44444444444444444444444444444444","node":"monero","active":false
 FAKE_STACK_FAIL_ONCE=1 "$root/scripts/node-control"
 [ "$(jq -r .monero.active "$config/config.json")" = true ] || fail "failed apply did not restore config"
 [ "$(status .error_code)" = apply_failed ] || fail "failed apply lacked typed status"
-tail -n 2 "$tmp/stack.log" | grep -qx 'stop monero-wallet monero' || fail "failed Monero apply was not attempted"
-tail -n 2 "$tmp/stack.log" | grep -qx 'up monero monero-wallet' || fail "partial Monero stop was not restored"
+! grep -qx up-with-unapproved-config "$tmp/stack.log" || fail "rollback restarted the node from the failed change"
+grep -vx approve-rendered-config "$tmp/stack.log" | tail -n 2 | head -n 1 | grep -qx 'stop monero-wallet monero' || fail "failed Monero apply was not attempted"
+grep -vx approve-rendered-config "$tmp/stack.log" | tail -n 1 | grep -qx 'up monero monero-wallet' || fail "partial Monero stop was not restored"
+[ "$(jq -r .monero.active "$state/.approved-config.json")" = true ] || fail "failed apply left the change approved"
 
 request '{"id":"45454545454545454545454545454545","node":"bitcoin","active":false,"confirmation":"deactivate","requested_at":1000}'
 FAKE_CONFIGURE_FAIL_ONCE=1 "$root/scripts/node-control"
