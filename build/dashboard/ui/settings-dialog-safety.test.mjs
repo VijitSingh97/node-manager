@@ -61,6 +61,17 @@ flow("A forced close then an unrelated Save sends no staged delete", { nodes: ["
   assert.equal(helper.requests.length, 0);
 });
 
+flow("Declining the discard prompt after Reset to default keeps the reset filled in", { settings: { low_disk_gib: 77 } }, async ({ page }) => {
+  await openHostSettings(page);
+  await page.click("#settings-reset");
+  const lowDisk = await page.evaluate(() => document.getElementById("settings-low-disk-gib").value);
+  assert.notEqual(lowDisk, "77");
+  await page.click("#settings-cancel");
+  await answerConfirm(page, false);
+  assert.equal(await settingsOpen(page), true);
+  assert.equal(await page.evaluate(() => document.getElementById("settings-low-disk-gib").value), lowDisk);
+});
+
 flow("A forced close after Reset to default discards the reset and says so", { settings: { low_disk_gib: 77 } }, async ({ page }) => {
   await openHostSettings(page);
   await page.click("#settings-reset");

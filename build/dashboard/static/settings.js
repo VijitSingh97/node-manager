@@ -1104,7 +1104,7 @@ if (typeof document !== "undefined") {
     }
     resetStaged = false;
     dialog.showModal();
-    load().then(() => { if (discardedNotice) status.textContent = "Settings closed before you confirmed, so the staged changes were discarded."; discardedNotice = false; });
+    load().then(() => { if (discardedNotice && !status.textContent) status.textContent = "Settings closed before you confirmed, so the staged changes were discarded."; discardedNotice = false; });
     loadHost();
   });
   let closeAsking = false;

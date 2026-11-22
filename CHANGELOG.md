@@ -18,8 +18,8 @@ All notable changes to this project are documented here. Format follows
   focus on the price currency menu (#433).
 - Closing Settings asks before discarding staged installs, moves, deletes,
   config runs and Reset to default. If the browser closes Settings without
-  letting it ask, the staged changes are discarded and Settings says so when
-  it opens again. Saving block alerts with Telegram off says no alert will be
+  letting it ask, staged changes that were not saved yet are discarded and
+  Settings says so when it opens again; a save already running carries on. Saving block alerts with Telegram off says no alert will be
   sent. Escape closes only the open dialog, not the node panel behind it.
   Turning off an index and removing a wallet use the dashboard's own confirm
   dialog (#434).
