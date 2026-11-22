@@ -189,7 +189,7 @@ flow("Install and Move data stay locked while the host is busy", { nodes: ["lite
   await page.waitFor((selector) => !document.querySelector(selector).disabled, { args: [rowButton("monero")] });
 });
 
-flow("Disabled Delete shows its reason and the thermal throttle sits with the host controls on a phone", { capability: { config_pending: true, config_revision: revision } }, async ({ page }) => {
+flow("Disabled Delete shows its reason and the thermal throttle sits with the host controls on a phone", { capability: { config_pending: true, config_revision: revision, delete_supported: true } }, async ({ page }) => {
   await page.send("Emulation.setDeviceMetricsOverride", { width: 375, height: 812, deviceScaleFactor: 1, mobile: true });
   await openHostSettings(page);
   const shown = await page.evaluate((selector) => {
@@ -198,7 +198,7 @@ flow("Disabled Delete shows its reason and the thermal throttle sits with the ho
     const box = reason.getBoundingClientRect();
     return { disabled: button.disabled, text: reason.textContent, visible: box.width > 0 && box.height > 0 && box.right <= innerWidth, throttleGroup: document.getElementById("settings-thermal-throttle").closest("fieldset").id };
   }, "#settings-host-nodes .settings-delete-button");
-  assert.deepEqual(shown, { disabled: true, text: "Deleting needs the installed host helper.", visible: true, throttleGroup: "settings-host" });
+  assert.deepEqual(shown, { disabled: true, text: "Run the new config first.", visible: true, throttleGroup: "settings-host" });
 });
 
 flow("A refused balance index shows its reason beside the disabled switch on a phone", { nodes: ["bitcoin"], capability: { utxo_index_blocked: { bitcoin: "The balance index requires Bitcoin to be enabled." } } }, async ({ page }) => {

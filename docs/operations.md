@@ -358,7 +358,8 @@ first — a live copy of `chainstate/` is corrupt by construction.
     is `DEGRADED`, otherwise `UP`.
   - `GET /actuator/info` returns:
     - `app`: `name`, `version`, and `install_kind` (`apt`, `homebrew`,
-      `source`, or `unknown` without the host helper).
+      `source`, or `unknown` until the host helper has reported the install
+      type).
     - `chains`: one entry per installed node, with `name`, `active` and
       `status` (`UP`, `DEGRADED`, `DOWN`, or `OFF` when deactivated). While
       the node answers, the entry also carries `network`, `height`,

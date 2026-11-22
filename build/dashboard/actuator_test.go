@@ -729,6 +729,17 @@ func TestCommandNameFollowsInstallKind(t *testing.T) {
 	if got := a.commandName(); got != "sudo node-manager" {
 		t.Fatalf("stale capability command = %q", got)
 	}
+	if _, refusal := a.queueSeedHostAction(nodeBitcoin); !strings.Contains(refusal, "start the seed with sudo node-manager utxo-seed") {
+		t.Fatalf("seed refusal = %q", refusal)
+	}
+	for _, body := range []string{`{}`, `{"boot_kind":null}`, `{"boot_kind":"other"}`} {
+		if err := os.WriteFile(a.nodeControlPath("capability"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if kind, command := a.installKind(), a.commandName(); kind != "unknown" || command != "./stack" {
+			t.Fatalf("%s: kind %q command %q", body, kind, command)
+		}
+	}
 }
 
 func TestRenderedPagesUseInstallCommand(t *testing.T) {

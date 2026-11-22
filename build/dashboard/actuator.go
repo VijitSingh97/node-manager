@@ -268,8 +268,10 @@ func (a *app) installKind() string {
 		return "apt"
 	case "login":
 		return "homebrew"
+	case "unsupported":
+		return "source"
 	}
-	return "source"
+	return "unknown"
 }
 
 func (a *app) commandName() string {

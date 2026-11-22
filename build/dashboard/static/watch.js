@@ -222,7 +222,7 @@ if (typeof document !== "undefined") {
       const res = await fetch(`/api/watch/${encodeURIComponent(walletName)}`,
                              { method: "DELETE", headers: CSRF });
       if (res.ok) setMsg(WATCH_COPY.removed);
-      else setMsg(await res.text(), true);
+      else setMsg((await res.text()).trim() || WATCH_COPY.removeFailed, true);
     } catch { setMsg("Network error.", true); }
     refresh();
   }
@@ -244,7 +244,7 @@ if (typeof document !== "undefined") {
         scriptType.disabled = true;
         setMsg(WATCH_COPY.added);
       } else {
-        setMsg(await res.text(), true);
+        setMsg((await res.text()).trim() || WATCH_COPY.addFailed, true);
       }
     } catch { setMsg("Network error.", true); }
     add.disabled = !editingEnabled;
