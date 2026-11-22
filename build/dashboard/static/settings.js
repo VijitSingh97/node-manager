@@ -1118,7 +1118,7 @@ if (typeof document !== "undefined") {
     dialog.close();
   };
   for (const id of ["close", "cancel"]) byId(id).addEventListener("click", closeSettings);
-  dialog.addEventListener("cancel", (event) => { if (!event.cancelable) { discardedNotice = Object.keys(hostStaged).length > 0 || resetStaged; return; } event.preventDefault(); closeSettings(); });
+  dialog.addEventListener("cancel", (event) => { if (!event.cancelable) { discardedNotice = !saving() && (Object.keys(hostStaged).length > 0 || resetStaged); return; } event.preventDefault(); closeSettings(); });
   document.getElementById("account-open").addEventListener("click", () => { accountDialog.showModal(); credentialSettings.openPassword(); });
   document.getElementById("account-close").addEventListener("click", () => accountDialog.close());
   accountDialog.addEventListener("close", () => credentialSettings.closePassword());
