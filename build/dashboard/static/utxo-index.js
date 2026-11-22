@@ -28,16 +28,16 @@ export const STATE_LABEL = {
 };
 
 const GUARD_TEXT = {
-  state: "Not allowed in this state",
-  node: "Node not ready",
-  thermal: "Too hot",
-  cpu_cap: "CPU limit",
-  free_space: "Disk space",
-  rpc_idle: "Node is busy",
-  fifo: "Host helper",
-  request: "Seed request",
-  lock: "Another index is seeding",
-  scanner: "Watch scan running",
+  state: "Index state",
+  node: "Node",
+  thermal: "Temperature",
+  cpu_cap: "CPU cap",
+  free_space: "Disk",
+  rpc_idle: "Node commands",
+  fifo: "Seed pipe",
+  request: "Request",
+  lock: "Seed slot",
+  scanner: "Scanner",
   host: "Host helper",
 };
 
@@ -216,5 +216,7 @@ function wire(chain) {
 }
 
 if (typeof document !== "undefined") {
-  for (const chain of Object.keys(CHAINS)) wire(chain);
+  for (const chain of Object.keys(CHAINS)) {
+    if (document.getElementById(CHAINS[chain].card) || document.getElementById(`index-bar-${chain}`)) wire(chain);
+  }
 }

@@ -156,9 +156,9 @@ class Helper {
   }
 }
 
-export async function startDashboard({ nodes = [], settings, capability = {}, host = true, hostStats = false, password = PASSWORD, state = {}, rpcDown = false, utxoIndex = false, bitcoin = true } = {}) {
+export async function startDashboard({ nodes = [], settings, capability = {}, host = true, hostStats = false, password = PASSWORD, state = {}, rpcDown = false, utxoIndex = false, utxoChains = [], bitcoin = true } = {}) {
   const stateDir = mkdtempSync(join(tmpdir(), "ui-state-"));
-  const utxoDir = utxoIndex ? mkdtempSync(join(tmpdir(), "ui-utxo-")) : "";
+  const utxoDir = utxoIndex || utxoChains.length ? mkdtempSync(join(tmpdir(), "ui-utxo-")) : "";
   const removeDirs = () => { for (const dir of [stateDir, utxoDir].filter(Boolean)) rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); };
   const rpc = await startRPC();
   rpc.down = rpcDown;
@@ -176,7 +176,8 @@ export async function startDashboard({ nodes = [], settings, capability = {}, ho
     env[`${prefix}_RPC_USER`] = "uiuser";
     env[`${prefix}_RPC_PASSWORD`] = "uirpc";
   }
-  if (utxoDir) Object.assign(env, { UTXO_INDEX_ENABLED: "1", UTXO_INDEX_DIR: utxoDir });
+  if (utxoIndex) Object.assign(env, { UTXO_INDEX_ENABLED: "1", UTXO_INDEX_DIR: utxoDir });
+  for (const id of utxoChains) Object.assign(env, { [`${id.toUpperCase()}_UTXO_INDEX_ENABLED`]: "1", [`${id.toUpperCase()}_UTXO_INDEX_DIR`]: utxoDir });
   if (settings) writeFileSync(join(stateDir, "notification_settings.json"), JSON.stringify({ ...defaultSettings, ...settings }), { mode: 0o600 });
   for (const [name, value] of Object.entries(state)) writeFileSync(join(stateDir, name), JSON.stringify(value), { mode: 0o600 });
   let child, url;

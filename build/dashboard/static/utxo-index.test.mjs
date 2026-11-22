@@ -38,7 +38,7 @@ test("an unseeded index shows every refusal, and the host command only when no h
   const view = indexView(status);
   assert.equal(view.command, "");
   assert.equal(view.warning, undefined);
-  assert.deepEqual(view.refusals, ["Too hot: hottest zone 80 C is above 75 C", "Disk space: 3.0 GB free, 27 GB needed"]);
+  assert.deepEqual(view.refusals, ["Temperature: hottest zone 80 C is above 75 C", "Disk: 3.0 GB free, 27 GB needed"]);
   assert.equal(view.progress, null);
   assert.equal(indexView({ ...status, needs_host: true }).command, SEED_COMMANDS.bitcoin);
   assert.equal(indexView({ ...status, needs_host: true }, "bitcoincash").command, "./stack utxo-seed bitcoincash");
@@ -175,6 +175,9 @@ test("one label per state is shared by badge and card, and no guard id reaches u
   assert.ok(ids.includes("host"));
   for (const guard of ids) assert.doesNotMatch(guardText({ guard, detail: "x" }), /_|^[a-z]+:|^Blocked/, guard);
   assert.equal(guardText({ guard: "mystery", detail: "x" }), "Blocked: x");
+  assert.equal(guardText({ guard: "thermal", detail: "temperature sensor unreadable" }), "Temperature: temperature sensor unreadable");
+  assert.equal(guardText({ guard: "rpc_idle", detail: "active commands unreadable" }), "Node commands: active commands unreadable");
+  assert.equal(guardText({ guard: "lock", detail: "another balance index is seeding" }), "Seed slot: another balance index is seeding");
 });
 
 test("blocked bars are static and the chain card does not override tones", async () => {
