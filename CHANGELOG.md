@@ -16,10 +16,12 @@ All notable changes to this project are documented here. Format follows
 - The wallet list refresh no longer collapses an expanded address or moves
   keyboard focus, and waits while a dialog is open. The 30 s live refresh keeps
   focus on the price currency menu (#433).
-- Closing Settings asks before discarding staged changes. Saving block alerts
-  with Telegram off says no alert will be sent. Escape closes only the open
-  dialog, not the node panel behind it. Turning off an index and removing a
-  wallet use the dashboard's own confirm dialog (#434).
+- Closing Settings asks before discarding staged installs, moves, deletes,
+  config runs and Reset to default, and a close the browser will not let it
+  stop keeps them staged instead of dropping them. Saving block alerts with
+  Telegram off says no alert will be sent. Escape closes only the open dialog,
+  not the node panel behind it. Turning off an index and removing a wallet use
+  the dashboard's own confirm dialog (#434).
 
 ## [1.40.1] - 2026-11-21
 
