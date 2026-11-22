@@ -293,7 +293,7 @@ recreates changed services using local images. If you manually enable a new
 node in the file, download its images first with `pull`.
 
 If the file changed while the application was stopped, a manual `up` or
-`restart` asks **Config change detected. Run the new config?** Declining keeps the
+`restart` asks **Config change detected. Run new config?** Declining keeps the
 last approved settings and retains your edit for later review. An unattended
 boot does the same without waiting for terminal input; global Settings shows
 the pending change and lets you approve it (Run new config, then Save). A private approved snapshot makes

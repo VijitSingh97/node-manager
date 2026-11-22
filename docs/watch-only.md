@@ -13,7 +13,7 @@ your balance and derive your addresses, but it has no private keys and
 
 ## Add a wallet from the dashboard
 
-The dashboard has a **Watch-only balances** card with an add form:
+The dashboard has a **Watch-only wallets** card with an add form:
 
 1. **Label** (optional) — any name you like; the dashboard picks the first free
    `Wallet N` name when omitted.
