@@ -18,7 +18,7 @@
   <div id="tower-overview-label-dogecoin" class="tower-overview-label tower-overview-label-dogecoin" style="--node-accent:#b88746" hidden>loading block <b></b></div>
   <div id="tower-overview-label-bitcoincash" class="tower-overview-label tower-overview-label-bitcoincash" style="--node-accent:#36a852" hidden>loading block <b></b></div>
   <div id="tower-overview-label-zcash" class="tower-overview-label tower-overview-label-zcash" style="--node-accent:#d69c35" hidden>loading block <b></b></div>
-  <button id="theme-toggle" class="theme-toggle" title="Toggle light / dark theme" aria-label="Toggle theme">Auto</button>
+  <button id="theme-toggle" class="theme-toggle" title="Toggle light / dark theme" aria-label="Theme: Auto">Auto</button>
   <aside id="update-notice" class="update-notice update-notice-global" role="status"{{if not .UpdateNote}} hidden{{end}}>{{if .UpdateNote}}<strong>🆕 {{.UpdateNote}}</strong> <a href="https://github.com/VijitSingh97/node-manager#updating" target="_blank" rel="noopener noreferrer">How to update</a>{{end}}</aside>
   <main id="node-overview" class="node-overview" aria-label="Choose a node">
     <div id="host-stats" class="host-stats" hidden>
@@ -85,7 +85,7 @@
   <div id="tower-overview-label-dogecoin" class="tower-overview-label tower-overview-label-dogecoin" style="--node-accent:#b88746" hidden>loading block <b></b></div>
   <div id="tower-overview-label-bitcoincash" class="tower-overview-label tower-overview-label-bitcoincash" style="--node-accent:#36a852" hidden>loading block <b></b></div>
   <div id="tower-overview-label-zcash" class="tower-overview-label tower-overview-label-zcash" style="--node-accent:#d69c35" hidden>loading block <b></b></div>
-  <button id="theme-toggle" class="theme-toggle" title="Toggle light / dark theme" aria-label="Toggle theme">Auto</button>
+  <button id="theme-toggle" class="theme-toggle" title="Toggle light / dark theme" aria-label="Theme: Auto">Auto</button>
   <aside id="update-notice" class="update-notice update-notice-global" role="status"{{if not .UpdateNote}} hidden{{end}}>{{if .UpdateNote}}<strong>🆕 {{.UpdateNote}}</strong> <a href="https://github.com/VijitSingh97/node-manager#updating" target="_blank" rel="noopener noreferrer">How to update</a>{{end}}</aside>
   <main id="node-overview" class="node-overview" aria-label="Choose a node">
     <div id="host-stats" class="host-stats" hidden>
@@ -156,7 +156,7 @@
     <button class="node-panel-close" type="button" data-close-node aria-label="Close Monero status">✕</button>
     <section class="card node-inactive-state"><h2>Monero</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>
     <div id="monero-tower-stats" class="tower-stats monero-wallets" hidden></div>
-    <section id="monero-live" class="card monero-card" aria-live="polite">
+    <section id="monero-live" class="card monero-card">
       <h2>Monero Node Status<span id="monero-badge" class="badge monero-badge">Loading</span></h2>
       <p id="monero-state" class="node-state">Connecting...</p>
       <div id="monero-details" hidden>
@@ -202,7 +202,7 @@
     <button class="node-panel-close" type="button" data-close-node aria-label="Close Tari status">✕</button>
     <section class="card node-inactive-state"><h2>Tari</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>
     <div class="tower-stats" data-wallet-tower="tari" hidden></div>
-    <section id="tari-live" class="card chain-card" aria-live="polite">
+    <section id="tari-live" class="card chain-card">
       <h2>Tari Node Status<span id="tari-badge" class="badge">Loading</span></h2>
       <p id="tari-state" class="node-state">Connecting...</p>
       <div id="tari-details" hidden>
@@ -235,7 +235,7 @@
     <button class="node-panel-close" type="button" data-close-node aria-label="Close Litecoin status">✕</button>
     <section class="card node-inactive-state"><h2>Litecoin</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>
     <div class="tower-stats" data-wallet-tower="litecoin" hidden></div>
-    <section id="litecoin-live" class="card chain-card" aria-live="polite">
+    <section id="litecoin-live" class="card chain-card">
       <h2>Litecoin Node Status<span id="litecoin-badge" class="badge">Loading</span></h2>
       <p id="litecoin-state" class="node-state">Connecting...</p>
       <div id="litecoin-details" hidden>
@@ -271,7 +271,7 @@
     <button class="node-panel-close" type="button" data-close-node aria-label="Close Dogecoin status">✕</button>
     <section class="card node-inactive-state"><h2>Dogecoin</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>
     <div class="tower-stats" data-wallet-tower="dogecoin" hidden></div>
-    <section id="dogecoin-live" class="card chain-card" aria-live="polite">
+    <section id="dogecoin-live" class="card chain-card">
       <h2>Dogecoin Node Status<span id="dogecoin-badge" class="badge">Loading</span></h2>
       <p id="dogecoin-state" class="node-state">Connecting...</p>
       <div id="dogecoin-details" hidden>
@@ -307,7 +307,7 @@
     <button class="node-panel-close" type="button" data-close-node aria-label="Close Bitcoin Cash status">✕</button>
     <section class="card node-inactive-state"><h2>Bitcoin Cash</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>
     <div class="tower-stats" data-wallet-tower="bitcoincash" hidden></div>
-    <section id="bitcoincash-live" class="card chain-card" aria-live="polite">
+    <section id="bitcoincash-live" class="card chain-card">
       <h2>Bitcoin Cash Node Status<span id="bitcoincash-badge" class="badge">Loading</span></h2>
       <p id="bitcoincash-state" class="node-state">Connecting...</p>
       <div id="bitcoincash-details" hidden>
@@ -343,7 +343,7 @@
     <button class="node-panel-close" type="button" data-close-node aria-label="Close Zcash status">✕</button>
     <section class="card node-inactive-state"><h2>Zcash</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>
     <div class="tower-stats" data-wallet-tower="zcash" hidden></div>
-    <section id="zcash-live" class="card chain-card" aria-live="polite">
+    <section id="zcash-live" class="card chain-card">
       <h2>Zcash Node Status<span id="zcash-badge" class="badge">Loading</span></h2>
       <p id="zcash-state" class="node-state">Connecting...</p>
       <div id="zcash-details" hidden>

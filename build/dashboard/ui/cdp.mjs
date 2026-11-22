@@ -19,6 +19,8 @@ export function findChrome(env = process.env) {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const KEYS = {
   Enter: { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, text: "\r" },
+  Tab: { key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 },
+  Space: { key: " ", code: "Space", windowsVirtualKeyCode: 32, text: " " },
   Escape: { key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 },
   Backspace: { key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8 },
 };

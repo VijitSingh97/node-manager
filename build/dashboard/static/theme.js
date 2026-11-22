@@ -28,15 +28,15 @@ if (typeof document !== "undefined") {
 
   const apply = (mode) => {
     document.documentElement.setAttribute("data-theme", mode);
-    const btn = document.getElementById("theme-toggle");
-    if (btn) btn.textContent = label(mode);
+    document.querySelectorAll(".theme-toggle").forEach((btn) => {
+      btn.textContent = label(mode);
+      btn.setAttribute("aria-label", `Theme: ${label(mode)}`);
+    });
   };
 
   const wire = () => {
     apply(read());
-    const btn = document.getElementById("theme-toggle");
-    if (!btn) return;
-    btn.addEventListener("click", () => {
+    document.querySelectorAll(".theme-toggle").forEach((btn) => btn.addEventListener("click", () => {
       const mode = nextTheme(read());
       try {
         localStorage.setItem(STORAGE_KEY, mode);
@@ -44,7 +44,7 @@ if (typeof document !== "undefined") {
         /* storage blocked; the choice just won't persist */
       }
       apply(mode);
-    });
+    }));
   };
 
   if (document.readyState === "loading") {

@@ -252,7 +252,22 @@ export function arcPath(startFrac, endFrac) {
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-function buildPie(slices, label, labelTitle, zoomedFlag, onToggle) {
+function operable(node, id, name, pressed, onToggle) {
+  node.setAttribute("role", "button");
+  node.tabIndex = 0;
+  node.dataset.zoom = id;
+  node.setAttribute("aria-label", name);
+  node.setAttribute("aria-pressed", String(pressed));
+  node.addEventListener("click", onToggle);
+  node.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onToggle();
+    document.querySelector(`#host-stats [data-zoom="${id}"]`)?.focus();
+  });
+}
+
+function buildPie(slices, label, labelTitle, zoomedFlag, onToggle, id) {
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("viewBox", "-1.15 -1.15 2.3 2.3");
   let at = 0;
@@ -285,7 +300,7 @@ function buildPie(slices, label, labelTitle, zoomedFlag, onToggle) {
     legend.appendChild(item);
   }
   figure.appendChild(legend);
-  figure.addEventListener("click", onToggle);
+  operable(figure, id, `${label} (${slices.map((slice) => slice.title).join(", ")}): zoom to Node Manager usage`, zoomedFlag, onToggle);
   return figure;
 }
 
@@ -301,11 +316,11 @@ function renderPies(stats) {
   wrap.appendChild(buildPie(cpuSlices, cpuLabel, view.cpuLabelTitle, cpuZoomed, () => {
     cpuZoomed = !cpuZoomed;
     render();
-  }));
+  }, "cpu"));
   wrap.appendChild(buildPie(memSlices, memLabel, view.memLabelTitle, memZoomed, () => {
     memZoomed = !memZoomed;
     render();
-  }));
+  }, "mem"));
   wrap.hidden = false;
 }
 
@@ -433,7 +448,7 @@ function render() {
       part.title = slice.title;
       row.appendChild(part);
     }
-    row.addEventListener("click", () => {
+    operable(row, `disk-${bar.index}`, `${bar.label}: ${bar.title}. Zoom to Node Manager usage`, bar.zoomed, () => {
       if (zoomedDisks.has(bar.index)) zoomedDisks.delete(bar.index);
       else zoomedDisks.add(bar.index);
       render();
