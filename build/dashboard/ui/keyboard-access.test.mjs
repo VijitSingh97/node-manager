@@ -27,6 +27,13 @@ flow("The shortened wallet address is a button that Enter and Space expand and c
     replaceIfChanged(list, "k2", () => [managerRow({ label: "Main", keyText: `bc1q${"x".repeat(60)}`, canRemove: true, onRemove() {} })]);
   });
   assert.equal((await state())[3], true);
+  await page.press("Enter");
+  assert.deepEqual(await state(), ["BUTTON", "true", true, true]);
+  await page.evaluate(async () => {
+    const { replaceIfChanged, managerRow } = await import("/static/wallet-ui.js");
+    replaceIfChanged(document.getElementById("kb-list"), "k3", () => [managerRow({ label: "Main", keyText: `bc1q${"x".repeat(60)}`, canRemove: false, onRemove() {} })]);
+  });
+  assert.deepEqual(await state(), ["BUTTON", "true", true, true]);
 });
 
 flow("Host pies and disk bars are keyboard buttons that zoom and keep focus", { settings: { computer_stats: true }, hostStats: true }, async ({ dash, page }) => {
@@ -56,15 +63,23 @@ flow("Host pies and disk bars are keyboard buttons that zoom and keep focus", { 
   await page.evaluate(() => document.querySelector("#host-stats [data-zoom=cpu]").focus());
   await page.evaluate(() => window.dispatchEvent(new CustomEvent("host-stats-data", { detail: { disk_available: true, disk_total_bytes: 1000, disk_free_bytes: 400, stats: { cpus: 4, mem_total_bytes: 2 ** 33, nodes: {}, other: { cpu_pct: 1, mem_bytes: 1 } } } })));
   assert.equal(await page.evaluate(() => document.activeElement?.dataset?.zoom), "cpu");
+  const panelTop = () => page.evaluate(() => {
+    const panel = document.getElementById("host-stats");
+    panel.style.maxHeight = "120px";
+    panel.scrollTop = 0;
+    window.dispatchEvent(new CustomEvent("host-stats-data", { detail: { disk_available: true, disk_total_bytes: 1000, disk_free_bytes: 400, stats: { cpus: 4, mem_total_bytes: 2 ** 33, nodes: {}, other: { cpu_pct: 1, mem_bytes: 1 } } } }));
+    return [panel.scrollHeight > panel.clientHeight, panel.scrollTop, document.activeElement?.dataset?.zoom];
+  });
+  assert.deepEqual(await panelTop(), [true, 0, "cpu"]);
 });
 
 flow("The theme toggles announce the current mode", async ({ page }) => {
   const names = () => page.evaluate(() => Array.from(document.querySelectorAll(".theme-toggle"), (b) => b.getAttribute("aria-label")));
-  assert.deepEqual(new Set(await names()), new Set(["Theme: Auto"]));
+  assert.deepEqual(new Set(await names()), new Set(["Switch theme, now Auto"]));
   await page.click(".theme-toggle");
-  assert.deepEqual(new Set(await names()), new Set(["Theme: Light"]));
+  assert.deepEqual(new Set(await names()), new Set(["Switch theme, now Light"]));
   await page.click(".theme-toggle");
-  assert.deepEqual(new Set(await names()), new Set(["Theme: Dark"]));
+  assert.deepEqual(new Set(await names()), new Set(["Switch theme, now Dark"]));
 });
 
 flow("The chain sections are not live regions", async ({ page }) => {

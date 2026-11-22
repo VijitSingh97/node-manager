@@ -30,7 +30,7 @@ if (typeof document !== "undefined") {
     document.documentElement.setAttribute("data-theme", mode);
     document.querySelectorAll(".theme-toggle").forEach((btn) => {
       btn.textContent = label(mode);
-      btn.setAttribute("aria-label", `Theme: ${label(mode)}`);
+      btn.setAttribute("aria-label", `Switch theme, now ${label(mode)}`);
     });
   };
 

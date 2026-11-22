@@ -423,7 +423,7 @@ function render() {
   if (!panel) return;
   const focusedZoom = panel.contains(document.activeElement) ? document.activeElement.dataset?.zoom : null;
   renderPanel(panel);
-  if (focusedZoom) panel.querySelector(`[data-zoom="${focusedZoom}"]`)?.focus();
+  if (focusedZoom) panel.querySelector(`[data-zoom="${focusedZoom}"]`)?.focus({ preventScroll: true });
 }
 
 function renderPanel(panel) {
