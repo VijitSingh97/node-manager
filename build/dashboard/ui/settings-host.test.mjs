@@ -67,7 +67,8 @@ for (const index of indexes) {
     await page.setChecked(index.selector, true);
     await save(page);
     await savedAndSettled(page);
-    assert.equal(await page.visible("#confirm-dialog"), false);
+    assert.equal(await page.confirmOpens(), 0);
+    assert.equal(page.dialogs.length, 0);
     assert.deepEqual(helper.requests.map(withoutIdentity), [{ ...index.request, enabled: true }]);
     assert.equal(helper.capability[index.field], true);
     await reopen(page);
@@ -83,6 +84,8 @@ for (const index of indexes) {
     assert.match(await page.text("#confirm-dialog-message"), index.prompt);
     await answerConfirm(page, true);
     await savedAndSettled(page);
+    assert.equal(await page.confirmOpens(), 1);
+    assert.equal(page.dialogs.length, 0);
     assert.deepEqual(helper.requests.map(withoutIdentity), [{ ...index.request, enabled: false }]);
     assert.equal(helper.capability[index.field], false);
     await reopen(page);
@@ -95,6 +98,8 @@ for (const index of indexes) {
     await save(page);
     await answerConfirm(page, false);
     await page.waitFor((selector) => document.querySelector(selector).checked, { args: [index.selector], description: `${index.name} switch to snap back on` });
+    assert.equal(await page.confirmOpens(), 1);
+    assert.equal(page.dialogs.length, 0);
     assert.equal(helper.requests.length, 0);
     assert.equal(page.requestsTo("POST", "/api/settings/host").length, 0);
     assert.equal(helper.capability[index.field], true);
@@ -123,6 +128,8 @@ flow("Reset to default then Save sends every host switch back to its default in 
   await answerConfirm(page, true);
   await answerConfirm(page, true);
   await savedAndSettled(page);
+  assert.equal(await page.confirmOpens(), 2);
+  assert.equal(page.dialogs.length, 0);
   assert.deepEqual(helper.requests.map(withoutIdentity), [
     { action: "launch_at_boot", enabled: false }, { action: "clearnet_over_tor", enabled: true }, { action: "inbound_connections", enabled: true },
     { action: "utxo_index", enabled: false }, { action: "utxo_index", node: "litecoin", enabled: false },

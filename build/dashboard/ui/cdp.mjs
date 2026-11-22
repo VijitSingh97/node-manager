@@ -96,7 +96,12 @@ export class Page {
 
   async init() {
     await Promise.all(["Page.enable", "Runtime.enable", "Network.enable", "DOM.enable"].map((method) => this.send(method)));
+    await this.send("Page.addScriptToEvaluateOnNewDocument", { source: "window.confirmOpens = 0; const show = HTMLDialogElement.prototype.showModal; HTMLDialogElement.prototype.showModal = function () { if (this.id === 'confirm-dialog') window.confirmOpens++; return show.call(this); };" });
     await this.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 1000, deviceScaleFactor: 1, mobile: false });
+  }
+
+  confirmOpens() {
+    return this.evaluate(() => window.confirmOpens);
   }
 
   async goto(url) {

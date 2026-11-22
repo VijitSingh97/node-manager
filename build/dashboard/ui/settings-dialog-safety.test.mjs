@@ -25,6 +25,16 @@ for (const [name, close] of [["Cancel", (page) => page.click("#settings-cancel")
   });
 }
 
+flow("Closing Settings with only a staged Run new config asks before discarding it", { capability: { config_pending: true, config_revision: "ab12".repeat(16) } }, async ({ page }) => {
+  await openHostSettings(page);
+  await page.click("#settings-apply-config");
+  await page.click("#settings-cancel");
+  await page.waitFor(() => document.getElementById("confirm-dialog").open, { description: "confirm dialog to open" });
+  assert.equal(await page.text("#confirm-dialog-message"), "Discard the staged changes?");
+  await answerConfirm(page, true);
+  await page.waitFor(() => !document.getElementById("settings-dialog").open, { description: "settings dialog to close" });
+});
+
 flow("Closing Settings with nothing staged asks nothing", async ({ page }) => {
   await openHostSettings(page);
   await page.press("Escape");

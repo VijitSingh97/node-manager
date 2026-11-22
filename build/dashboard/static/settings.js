@@ -1108,7 +1108,7 @@ if (typeof document !== "undefined") {
   const closeSettings = async () => {
     if (closeAsking) return;
     closeAsking = true;
-    const discard = saving() || !Object.keys(hostStaged).length || await askConfirm("Discard the staged installs, moves and deletes?", "Discard");
+    const discard = saving() || !Object.keys(hostStaged).length || await askConfirm("Discard the staged changes?", "Discard");
     closeAsking = false;
     if (discard) dialog.close();
   };
