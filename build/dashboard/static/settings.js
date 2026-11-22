@@ -1,6 +1,6 @@
 import { actuatorCurlController } from "./actuator-curl.js";
 import { credentialSettingsController } from "./credentials.js";
-import { dashboardFetch as fetch } from "./session.js";
+import { commandName, dashboardFetch as fetch } from "./session.js";
 import { askConfirm } from "./confirm-dialog.js";
 
 const extraNodes = ["tari", "litecoin", "dogecoin", "bitcoincash", "zcash"];
@@ -68,18 +68,18 @@ export function configurationAccess(data) {
 
 const networkActions = ["clearnet_over_tor", "inbound_connections"];
 const balanceActions = ["utxo_index", "utxo_seed"];
-export const UTXO_INDEX_LITECOIN_OFF_PROMPT = "Turn off instant Litecoin balances? Wallets go back to the slower scan. The index volume stays on disk until you run utxo-index remove litecoin.";
-export const UTXO_INDEX_DOGECOIN_OFF_PROMPT = "Turn off instant Dogecoin balances? Wallets go back to the archival watch wallet if it is on, otherwise they wait. The index volume stays on disk until you run utxo-index remove dogecoin.";
-export const UTXO_INDEX_BITCOINCASH_OFF_PROMPT = "Turn off instant Bitcoin Cash balances? Wallets go back to the slower scan. The index volume stays on disk until you run utxo-index remove bitcoincash.";
+export const UTXO_INDEX_LITECOIN_OFF_PROMPT = () => `Turn off instant Litecoin balances? Wallets go back to the slower scan. The index volume stays on disk until you run ${commandName()} utxo-index remove litecoin.`;
+export const UTXO_INDEX_DOGECOIN_OFF_PROMPT = () => `Turn off instant Dogecoin balances? Wallets go back to the archival watch wallet if it is on, otherwise they wait. The index volume stays on disk until you run ${commandName()} utxo-index remove dogecoin.`;
+export const UTXO_INDEX_BITCOINCASH_OFF_PROMPT = () => `Turn off instant Bitcoin Cash balances? Wallets go back to the slower scan. The index volume stays on disk until you run ${commandName()} utxo-index remove bitcoincash.`;
 const chainIndexOffPrompts = { litecoin: UTXO_INDEX_LITECOIN_OFF_PROMPT, bitcoincash: UTXO_INDEX_BITCOINCASH_OFF_PROMPT, dogecoin: UTXO_INDEX_DOGECOIN_OFF_PROMPT };
 const chainIndexNode = (action) => String(action || "").startsWith("utxo_index_") && chainIndexOffPrompts[action.slice(11)] ? action.slice(11) : "";
 const toggleKey = (change) => change?.action === "utxo_index" && chainIndexOffPrompts[change?.node] ? `utxo_index_${change.node}` : change?.action;
 const toggleFields = { launch_at_boot: "boot_enabled", clearnet_over_tor: "clearnet_over_tor", inbound_connections: "inbound_connections", utxo_index: "utxo_index", utxo_index_litecoin: "utxo_index_litecoin", utxo_index_bitcoincash: "utxo_index_bitcoincash", utxo_index_dogecoin: "utxo_index_dogecoin" };
 export const hostToggleDefaults = { launch_at_boot: false, clearnet_over_tor: true, inbound_connections: true, utxo_index: false, utxo_index_litecoin: false, utxo_index_bitcoincash: false, utxo_index_dogecoin: false };
-export const UTXO_INDEX_OFF_PROMPT = "Turn off instant Bitcoin balances? Wallets go back to the slower scan. The index volume stays on disk until you run utxo-index remove.";
+export const UTXO_INDEX_OFF_PROMPT = () => `Turn off instant Bitcoin balances? Wallets go back to the slower scan. The index volume stays on disk until you run ${commandName()} utxo-index remove.`;
 
 export async function balanceIndexPayload(enabled, confirmFn) {
-  if (enabled === false && !(await confirmFn(UTXO_INDEX_OFF_PROMPT))) return undefined;
+  if (enabled === false && !(await confirmFn(UTXO_INDEX_OFF_PROMPT()))) return undefined;
   return hostActionPayload("utxo_index", enabled);
 }
 
@@ -99,7 +99,7 @@ export async function confirmedHostChanges(changes, confirmFn) {
   for (const change of changes) {
     const prompt = change.action === "utxo_index" && chainIndexOffPrompts[change.node];
     const kept = change.action !== "utxo_index" ? change
-      : prompt ? (change.enabled === false && !(await confirmFn(prompt)) ? undefined : change)
+      : prompt ? (change.enabled === false && !(await confirmFn(prompt())) ? undefined : change)
       : await balanceIndexPayload(change.enabled, confirmFn);
     if (kept) confirmed.push(kept);
   }
@@ -113,10 +113,10 @@ export function hostQueueSettled(view, change) {
   return sameHostChange(view?.status, change) && ["rejected", "failed"].includes(view.status.state) ? "failed" : "applied";
 }
 
-export function hostChangeLabel(change, nodes = {}) {
+export function hostChangeLabel(change, nodes = {}, bootKind) {
   const name = (id) => nodes[id]?.name || id || "Bitcoin";
   const labels = { install: `Install ${name(change?.node)}`, migrate: `Move ${name(change?.node)} data`, delete: `Delete ${name(change?.node)}`, utxo_index: `${name(change?.node)} balance index`,
-    launch_at_boot: "Launch at start", apply_config: "New configuration", clearnet_over_tor: "Reach clearnet through Tor", inbound_connections: "Incoming connections" };
+    launch_at_boot: bootControlLabel(bootKind), apply_config: "New configuration", clearnet_over_tor: "Reach clearnet through Tor", inbound_connections: "Incoming connections" };
   return labels[change?.action] || "Host change";
 }
 
@@ -150,7 +150,7 @@ export function deleteControl(view, node, staged = {}) {
     : view.config_pending ? "Run the new config first."
     : view.status?.state === "pending" ? "Another host change is running."
     : !node?.installed ? "This node is not installed."
-    : node.active ? "Deactivate the node first (node settings)."
+    : node.active ? "Deactivate the node first (Node controls)."
     : node.last_enabled || Object.values(view.nodes).filter((other) => other.installed && !staged[`delete:${other.id}`]).length <= 1 ? "At least one node must stay installed."
     : !node.data_dir ? "The data folder is not known yet."
     : staged[`migrate:${node.id}`] ? "Undo the staged data move first."
@@ -723,9 +723,9 @@ if (typeof document !== "undefined") {
     }
     const queueResult = hostQueueSettled(nextHostView, hostQueueChange);
     if (queueResult === "failed") {
-      hostFailures.push({ label: hostChangeLabel(hostQueueChange, nextHostView.nodes), message: nextHostView.status.message || "The host change failed." });
+      hostFailures.push({ label: hostChangeLabel(hostQueueChange, nextHostView.nodes, nextHostView.boot_kind), message: nextHostView.status.message || "The host change failed." });
       const { rest, skipped } = splitDependentChanges(hostQueue, hostQueueChange);
-      hostSkipped.push(...skipped.map((change) => hostChangeLabel(change, nextHostView.nodes)));
+      hostSkipped.push(...skipped.map((change) => hostChangeLabel(change, nextHostView.nodes, nextHostView.boot_kind)));
       hostQueue = rest;
     }
     if (queueResult && !hostQueue.length) {
@@ -958,9 +958,9 @@ if (typeof document !== "undefined") {
       await loadHost();
     } catch (error) {
       pendingToggle = undefined;
-      hostFailures.push({ label: hostChangeLabel(payload, hostView.nodes), message: error.message });
+      hostFailures.push({ label: hostChangeLabel(payload, hostView.nodes, hostView.boot_kind), message: error.message });
       const { rest, skipped } = splitDependentChanges(hostQueue, payload);
-      hostSkipped.push(...skipped.map((change) => hostChangeLabel(change, hostView.nodes)));
+      hostSkipped.push(...skipped.map((change) => hostChangeLabel(change, hostView.nodes, hostView.boot_kind)));
       hostQueue = rest;
       hostQueueAction = "";
       hostQueueChange = null;

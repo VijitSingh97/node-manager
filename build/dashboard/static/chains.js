@@ -21,7 +21,7 @@ export function powerView(node) {
     return { active: false, stopped: true, disabled: false, button: "Start node", status };
   }
   if (node.active) return { active: true, disabled: false, button: "Deactivate node", status: "Deactivate this node to free its CPU and memory. Stored blockchain data is kept." };
-  return { active: false, disabled: false, button: "Activate node", status: "Node is inactive" };
+  return { active: false, disabled: false, button: "Activate node", status: "Node is inactive." };
 }
 
 export function nodePollDelay(pending, nodes) {

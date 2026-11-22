@@ -238,10 +238,10 @@ dashboard_headers=""
 body=""
 for _ in 1 2 3 4 5 6; do
   body=$(curl --noproxy '*' -sf -u admin:e2eDashboardSharedPassword123 "$dashboard_url" || true)
-  grep -q "Sync Progress" <<<"$body" && break
+  grep -q "Sync progress" <<<"$body" && break
   sleep 5
 done
-grep -q "Sync Progress" <<<"$body" || fail "dashboard never rendered live stats"
+grep -q "Sync progress" <<<"$body" || fail "dashboard never rendered live stats"
 grep -q "Pruned" <<<"$body" || fail "dashboard missing pruned badge on a pruned node"
 dashboard_monero=$(curl --noproxy '*' -sf -u admin:e2eDashboardSharedPassword123 "$dashboard_url/api/monero") ||
   fail "dashboard Monero health API was unavailable"

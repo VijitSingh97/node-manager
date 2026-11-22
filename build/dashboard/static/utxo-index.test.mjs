@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
-import { STATE_LABEL, guardText, badgeClickTarget, indexBadge, indexView, indexBarView, applyIndexBar, offHint, OFF_HINT, OFF_HINT_DOCS, SEED_COMMANDS, CONFIRMED_ONLY } from "./utxo-index.js";
+import { STATE_LABEL, guardText, badgeClickTarget, indexBadge, indexView, indexBarView, applyIndexBar, offHint, OFF_HINT, OFF_HINT_DOCS, seedCommand, CONFIRMED_ONLY } from "./utxo-index.js";
 
 test("every endpoint state renders its label, and the confirmed-only row is always present", () => {
   const cases = [
@@ -40,7 +40,7 @@ test("an unseeded index shows every refusal, and the host command only when no h
   assert.equal(view.warning, undefined);
   assert.deepEqual(view.refusals, ["Temperature: hottest zone 80 C is above 75 C", "Disk: 3.0 GB free, 27 GB needed"]);
   assert.equal(view.progress, null);
-  assert.equal(indexView({ ...status, needs_host: true }).command, SEED_COMMANDS.bitcoin);
+  assert.equal(indexView({ ...status, needs_host: true }).command, seedCommand("bitcoin"));
   assert.equal(indexView({ ...status, needs_host: true }, "bitcoincash").command, "./stack utxo-seed bitcoincash");
   assert.equal(indexView({ ...status, state: "seeding", needs_host: true }).command, "");
 });

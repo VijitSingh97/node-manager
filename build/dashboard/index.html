@@ -9,7 +9,7 @@
   <script src="/static/theme-init.js"></script>
 </head>
 {{if or .Loading (not .BitcoinEnabled)}}
-<body class="center-screen" data-node="">
+<body class="center-screen" data-node="" data-command="{{.Command}}">
   <canvas id="tower"></canvas><div id="tower-label"></div>
   <div id="tower-overview-label-bitcoin" class="tower-overview-label tower-overview-label-bitcoin" style="--node-accent:#f2a900;--node-text:var(--nt-bitcoin)" hidden>loading block <b></b></div>
   <div id="tower-overview-label-monero" class="tower-overview-label tower-overview-label-monero" style="--node-accent:#ff6600;--node-text:var(--nt-monero)" hidden>loading block <b></b></div>
@@ -48,14 +48,14 @@
     <p>Enable Bitcoin in config.json to start this node.</p>
     {{else if .LastKnownSync}}
     <h2>Bitcoin Node Syncing</h2><div class="spinner"></div>
-    <p>Waiting for a fresh response from Bitcoin Core...</p>
+    <p>Waiting for a fresh response from Bitcoin Core…</p>
     <p class="sync-percentage" role="status">Last known: {{printf "%.2f" .Progress}}% synced</p>
     <p>Last confirmed {{.LastSyncTime}} · block {{.Blocks}} of {{.Headers}}</p>
     {{else}}
     <h2>Bitcoin Node Initializing</h2><div class="spinner"></div>
-    <p>Connecting to the Bitcoin node...</p>
+    <p>Connecting to the Bitcoin node…</p>
     {{end}}
-    {{if .BitcoinEnabled}}<p style="color: var(--muted); font-size: 0.8rem;">The dashboard will load automatically when the node is ready. Still stuck? Run ./stack doctor.</p>{{end}}
+    {{if .BitcoinEnabled}}<p style="color: var(--muted); font-size: 0.8rem;">The dashboard will load automatically when the node is ready. Still stuck? Run {{.Command}} doctor.</p>{{end}}
     {{if .BitcoinEnabled}}<section id="btc-price" data-price-asset="bitcoin" hidden>
       <hr>
       <div class="price-row">
@@ -76,7 +76,7 @@
     </section>
   </div>
 {{else}}
-<body class="center" data-node="">
+<body class="center" data-node="" data-command="{{.Command}}">
   <canvas id="tower"></canvas><div id="tower-label"></div>
   <div id="tower-overview-label-bitcoin" class="tower-overview-label tower-overview-label-bitcoin" style="--node-accent:#f2a900;--node-text:var(--nt-bitcoin)" hidden>loading block <b></b></div>
   <div id="tower-overview-label-monero" class="tower-overview-label tower-overview-label-monero" style="--node-accent:#ff6600;--node-text:var(--nt-monero)" hidden>loading block <b></b></div>
@@ -122,9 +122,9 @@
         <hr>
         <div class="row"><span class="label">Blocks:</span> <span>{{.Blocks}} / {{.Headers}}</span></div>
         <div class="progress-bg"><div class="progress-fill" style="width: {{printf "%.4f" .Progress}}%"></div></div>
-        <div class="row"><span class="label">Sync Progress:</span> <span>{{printf "%.4f" .Progress}}%</span></div>
+        <div class="row"><span class="label">Sync progress:</span> <span>{{printf "%.4f" .Progress}}%</span></div>
         <div id="index-bar-bitcoin" class="index-bar" hidden><div class="row"><span class="label">Balance index:</span><span class="index-bar-label"></span></div><div class="progress-bg" role="progressbar" aria-label="Balance index" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill index-bar-fill" style="width:0%"></div></div></div>
-        <div class="row"><span class="label">Node Data Size:</span> <span>{{if .NodeSizeBytes}}{{printf "%.2f" .NodeGB}} GiB{{else}}—{{end}}</span></div>
+        <div class="row"><span class="label">Node data size:</span> <span>{{if .NodeSizeBytes}}{{printf "%.2f" .NodeGB}} GiB{{else}}—{{end}}</span></div>
         {{if .ShowMempool}}<hr>
         <div class="row"><span class="label">Mempool:</span> <span>{{.MempoolTxs}} tx · {{printf "%.1f" .MempoolMB}} MiB</span></div>
         <div class="row"><span class="label">Fee sat/vB (next/30m/1h):</span> <span>{{.FeeNext}} / {{.Fee30m}} / {{.FeeHour}}</span></div>
@@ -140,7 +140,7 @@
         </section>
         <hr>
         <div class="row"><span class="label">RPC:</span> <span>{{if .BitcoinRPCEndpoint}}{{.BitcoinRPCEndpoint}} · LAN{{else}}Disabled{{end}}</span></div>
-        <p class="node-state">Configured LAN access. Use your Bitcoin RPC login.</p>
+        <p class="node-state">{{if .BitcoinRPCEndpoint}}LAN access is on. Use your Bitcoin RPC login.{{else}}LAN access is off.{{end}}</p>
         <div class="footer"><span>Updated: {{.LastUpdate}}</span><span>{{.Version}}</span><span>Auto-refresh: 30s</span></div>
       </div>
     </div>
@@ -158,7 +158,7 @@
     <div id="monero-tower-stats" class="tower-stats monero-wallets" hidden></div>
     <section id="monero-live" class="card monero-card">
       <h2>Monero Node Status<span id="monero-badge" class="badge monero-badge">Loading</span></h2>
-      <p id="monero-state" class="node-state">Connecting...</p>
+      <p id="monero-state" class="node-state">Connecting to Monero… Still stuck? Run {{.Command}} doctor.</p>
       <div id="monero-details" hidden>
         <div class="row"><span class="label">Version:</span> <span id="monero-version">—</span></div>
         <div class="row"><span class="label">Uptime:</span> <span id="monero-uptime">—</span></div>
@@ -166,13 +166,13 @@
         <hr>
         <div class="row"><span class="label">Blocks:</span> <span id="monero-blocks">—</span></div>
         <div class="progress-bg"><div id="monero-progress" class="progress-fill monero-progress" style="width: 0%"></div></div>
-        <div class="row"><span class="label">Sync Progress:</span> <span id="monero-sync">—</span></div>
-        <div class="row"><span class="label">Node Data Size:</span> <span id="monero-size">—</span></div>
+        <div class="row"><span class="label">Sync progress:</span> <span id="monero-sync">—</span></div>
+        <div class="row"><span class="label">Node data size:</span> <span id="monero-size">—</span></div>
         <hr>
         <div class="row"><span class="label">Mempool:</span> <span id="monero-mempool">—</span></div>
         <div class="row"><span class="label">Difficulty:</span> <span id="monero-difficulty">—</span></div>
-        <div class="row"><span class="label">Network Hashrate:</span> <span id="monero-hashrate">—</span></div>
-        <div class="row"><span class="label">Latest Block:</span> <span id="monero-last-block">—</span></div>
+        <div class="row"><span class="label">Network hashrate:</span> <span id="monero-hashrate">—</span></div>
+        <div class="row"><span class="label">Latest block:</span> <span id="monero-last-block">—</span></div>
         <div class="row"><span class="label">Fee (XMR/kB):</span> <span id="monero-fees">—</span></div>
         <div class="spark-row"><span class="label">Normal fee XMR/kB (24h)</span><canvas class="spark" id="spark-monero-fee"></canvas></div>
         <section id="monero-price" data-price-asset="monero" hidden>
@@ -187,7 +187,7 @@
         <hr>
         <div class="row"><span class="label">RPC:</span> <span id="monero-rpc-exposure">Disabled</span></div>
         <div class="row"><span class="label">ZMQ:</span> <span id="monero-zmq-exposure">Disabled</span></div>
-        <p class="node-state">Configured LAN access. RPC is restricted and requires your Monero login. ZMQ is for a trusted LAN.</p>
+        <p id="monero-lan-note" class="node-state">LAN access is off.</p>
         <div class="footer"><span id="monero-updated">Updated: —</span><span>{{.Version}}</span><span>Auto-refresh: 30s</span></div>
       </div>
     </section>
@@ -204,7 +204,7 @@
     <div class="tower-stats" data-wallet-tower="tari" hidden></div>
     <section id="tari-live" class="card chain-card">
       <h2>Tari Node Status<span id="tari-badge" class="badge">Loading</span></h2>
-      <p id="tari-state" class="node-state">Connecting...</p>
+      <p id="tari-state" class="node-state">Connecting to Tari… Still stuck? Run {{.Command}} doctor.</p>
       <div id="tari-details" hidden>
         <div class="row"><span class="label">Version:</span><span id="tari-version">—</span></div>
         <div class="row"><span class="label">Uptime:</span><span id="tari-uptime">—</span></div>
@@ -212,11 +212,11 @@
         <hr>
         <div class="row"><span class="label">Blocks:</span><span id="tari-blocks">—</span></div>
         <div class="progress-bg"><div id="tari-progress" class="progress-fill" style="width:0%"></div></div>
-        <div class="row"><span class="label">Sync Progress:</span><span id="tari-sync">—</span></div>
-        <div class="row"><span class="label">Node Data Size:</span><span id="tari-size">—</span></div>
+        <div class="row"><span class="label">Sync progress:</span><span id="tari-sync">—</span></div>
+        <div class="row"><span class="label">Node data size:</span><span id="tari-size">—</span></div>
         <hr>
         <div class="row"><span class="label">Mempool:</span><span id="tari-mempool">—</span></div>
-        <div class="row"><span class="label">Latest Block:</span><span id="tari-last-block">—</span></div>
+        <div class="row"><span class="label">Latest block:</span><span id="tari-last-block">—</span></div>
         <div id="tari-fee-section" hidden><div class="row"><span id="tari-fee-unit" class="label">Fee estimates:</span><span id="tari-fees">—</span></div><div class="spark-row"><span class="label">Fee (24h)</span><canvas class="spark" id="spark-tari-fee"></canvas></div></div>
         <section data-price-asset="tari" hidden><hr><div class="price-row"><span class="price-label">Tari price</span><strong class="price-value" data-price-value>—</strong><select class="price-currency" data-price-currency aria-label="Tari price currency"></select><span class="price-status" data-price-status>Price unavailable</span></div></section>
         <hr>
@@ -237,7 +237,7 @@
     <div class="tower-stats" data-wallet-tower="litecoin" hidden></div>
     <section id="litecoin-live" class="card chain-card">
       <h2>Litecoin Node Status<span id="litecoin-badge" class="badge">Loading</span></h2>
-      <p id="litecoin-state" class="node-state">Connecting...</p>
+      <p id="litecoin-state" class="node-state">Connecting to Litecoin… Still stuck? Run {{.Command}} doctor.</p>
       <div id="litecoin-details" hidden>
         <div class="row"><span class="label">Version:</span><span id="litecoin-version">—</span></div>
         <div class="row"><span class="label">Uptime:</span><span id="litecoin-uptime">—</span></div>
@@ -245,12 +245,12 @@
         <hr>
         <div class="row"><span class="label">Blocks:</span><span id="litecoin-blocks">—</span></div>
         <div class="progress-bg"><div id="litecoin-progress" class="progress-fill" style="width:0%"></div></div>
-        <div class="row"><span class="label">Sync Progress:</span><span id="litecoin-sync">—</span></div>
+        <div class="row"><span class="label">Sync progress:</span><span id="litecoin-sync">—</span></div>
         <div id="index-bar-litecoin" class="index-bar" hidden><div class="row"><span class="label">Balance index:</span><span class="index-bar-label"></span></div><div class="progress-bg" role="progressbar" aria-label="Balance index" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill index-bar-fill" style="width:0%"></div></div></div>
-        <div class="row"><span class="label">Node Data Size:</span><span id="litecoin-size">—</span></div>
+        <div class="row"><span class="label">Node data size:</span><span id="litecoin-size">—</span></div>
         <hr>
         <div class="row"><span class="label">Mempool:</span><span id="litecoin-mempool">—</span></div>
-        <div class="row"><span class="label">Latest Block:</span><span id="litecoin-last-block">—</span></div>
+        <div class="row"><span class="label">Latest block:</span><span id="litecoin-last-block">—</span></div>
         <div id="litecoin-fee-section" hidden><div class="row"><span id="litecoin-fee-unit" class="label">Fee estimates:</span><span id="litecoin-fees">—</span></div><div class="spark-row"><span class="label">Fee (24h)</span><canvas class="spark" id="spark-litecoin-fee"></canvas></div></div>
         <section data-price-asset="litecoin" hidden><hr><div class="price-row"><span class="price-label">Litecoin price</span><strong class="price-value" data-price-value>—</strong><select class="price-currency" data-price-currency aria-label="Litecoin price currency"></select><span class="price-status" data-price-status>Price unavailable</span></div></section>
         <hr>
@@ -273,7 +273,7 @@
     <div class="tower-stats" data-wallet-tower="dogecoin" hidden></div>
     <section id="dogecoin-live" class="card chain-card">
       <h2>Dogecoin Node Status<span id="dogecoin-badge" class="badge">Loading</span></h2>
-      <p id="dogecoin-state" class="node-state">Connecting...</p>
+      <p id="dogecoin-state" class="node-state">Connecting to Dogecoin… Still stuck? Run {{.Command}} doctor.</p>
       <div id="dogecoin-details" hidden>
         <div class="row"><span class="label">Version:</span><span id="dogecoin-version">—</span></div>
         <div class="row"><span class="label">Uptime:</span><span id="dogecoin-uptime">—</span></div>
@@ -281,12 +281,12 @@
         <hr>
         <div class="row"><span class="label">Blocks:</span><span id="dogecoin-blocks">—</span></div>
         <div class="progress-bg"><div id="dogecoin-progress" class="progress-fill" style="width:0%"></div></div>
-        <div class="row"><span class="label">Sync Progress:</span><span id="dogecoin-sync">—</span></div>
+        <div class="row"><span class="label">Sync progress:</span><span id="dogecoin-sync">—</span></div>
         <div id="index-bar-dogecoin" class="index-bar" hidden><div class="row"><span class="label">Balance index:</span><span class="index-bar-label"></span></div><div class="progress-bg" role="progressbar" aria-label="Balance index" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill index-bar-fill" style="width:0%"></div></div></div>
-        <div class="row"><span class="label">Node Data Size:</span><span id="dogecoin-size">—</span></div>
+        <div class="row"><span class="label">Node data size:</span><span id="dogecoin-size">—</span></div>
         <hr>
         <div class="row"><span class="label">Mempool:</span><span id="dogecoin-mempool">—</span></div>
-        <div class="row"><span class="label">Latest Block:</span><span id="dogecoin-last-block">—</span></div>
+        <div class="row"><span class="label">Latest block:</span><span id="dogecoin-last-block">—</span></div>
         <div id="dogecoin-fee-section" hidden><div class="row"><span id="dogecoin-fee-unit" class="label">Fee estimates:</span><span id="dogecoin-fees">—</span></div><div class="spark-row"><span class="label">Fee (24h)</span><canvas class="spark" id="spark-dogecoin-fee"></canvas></div></div>
         <section data-price-asset="dogecoin" hidden><hr><div class="price-row"><span class="price-label">Dogecoin price</span><strong class="price-value" data-price-value>—</strong><select class="price-currency" data-price-currency aria-label="Dogecoin price currency"></select><span class="price-status" data-price-status>Price unavailable</span></div></section>
         <hr>
@@ -309,7 +309,7 @@
     <div class="tower-stats" data-wallet-tower="bitcoincash" hidden></div>
     <section id="bitcoincash-live" class="card chain-card">
       <h2>Bitcoin Cash Node Status<span id="bitcoincash-badge" class="badge">Loading</span></h2>
-      <p id="bitcoincash-state" class="node-state">Connecting...</p>
+      <p id="bitcoincash-state" class="node-state">Connecting to Bitcoin Cash… Still stuck? Run {{.Command}} doctor.</p>
       <div id="bitcoincash-details" hidden>
         <div class="row"><span class="label">Version:</span><span id="bitcoincash-version">—</span></div>
         <div class="row"><span class="label">Uptime:</span><span id="bitcoincash-uptime">—</span></div>
@@ -317,12 +317,12 @@
         <hr>
         <div class="row"><span class="label">Blocks:</span><span id="bitcoincash-blocks">—</span></div>
         <div class="progress-bg"><div id="bitcoincash-progress" class="progress-fill" style="width:0%"></div></div>
-        <div class="row"><span class="label">Sync Progress:</span><span id="bitcoincash-sync">—</span></div>
+        <div class="row"><span class="label">Sync progress:</span><span id="bitcoincash-sync">—</span></div>
         <div id="index-bar-bitcoincash" class="index-bar" hidden><div class="row"><span class="label">Balance index:</span><span class="index-bar-label"></span></div><div class="progress-bg" role="progressbar" aria-label="Balance index" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill index-bar-fill" style="width:0%"></div></div></div>
-        <div class="row"><span class="label">Node Data Size:</span><span id="bitcoincash-size">—</span></div>
+        <div class="row"><span class="label">Node data size:</span><span id="bitcoincash-size">—</span></div>
         <hr>
         <div class="row"><span class="label">Mempool:</span><span id="bitcoincash-mempool">—</span></div>
-        <div class="row"><span class="label">Latest Block:</span><span id="bitcoincash-last-block">—</span></div>
+        <div class="row"><span class="label">Latest block:</span><span id="bitcoincash-last-block">—</span></div>
         <div id="bitcoincash-fee-section" hidden><div class="row"><span id="bitcoincash-fee-unit" class="label">Fee estimates:</span><span id="bitcoincash-fees">—</span></div><div class="spark-row"><span class="label">Fee (24h)</span><canvas class="spark" id="spark-bitcoincash-fee"></canvas></div></div>
         <section data-price-asset="bitcoin-cash" hidden><hr><div class="price-row"><span class="price-label">Bitcoin Cash price</span><strong class="price-value" data-price-value>—</strong><select class="price-currency" data-price-currency aria-label="Bitcoin Cash price currency"></select><span class="price-status" data-price-status>Price unavailable</span></div></section>
         <hr>
@@ -345,7 +345,7 @@
     <div class="tower-stats" data-wallet-tower="zcash" hidden></div>
     <section id="zcash-live" class="card chain-card">
       <h2>Zcash Node Status<span id="zcash-badge" class="badge">Loading</span></h2>
-      <p id="zcash-state" class="node-state">Connecting...</p>
+      <p id="zcash-state" class="node-state">Connecting to Zcash… Still stuck? Run {{.Command}} doctor.</p>
       <div id="zcash-details" hidden>
         <div class="row"><span class="label">Version:</span><span id="zcash-version">—</span></div>
         <div class="row"><span class="label">Uptime:</span><span id="zcash-uptime">—</span></div>
@@ -353,11 +353,11 @@
         <hr>
         <div class="row"><span class="label">Blocks:</span><span id="zcash-blocks">—</span></div>
         <div class="progress-bg"><div id="zcash-progress" class="progress-fill" style="width:0%"></div></div>
-        <div class="row"><span class="label">Sync Progress:</span><span id="zcash-sync">—</span></div>
-        <div class="row"><span class="label">Node Data Size:</span><span id="zcash-size">—</span></div>
+        <div class="row"><span class="label">Sync progress:</span><span id="zcash-sync">—</span></div>
+        <div class="row"><span class="label">Node data size:</span><span id="zcash-size">—</span></div>
         <hr>
         <div class="row"><span class="label">Mempool:</span><span id="zcash-mempool">—</span></div>
-        <div class="row"><span class="label">Latest Block:</span><span id="zcash-last-block">—</span></div>
+        <div class="row"><span class="label">Latest block:</span><span id="zcash-last-block">—</span></div>
         <div id="zcash-fee-section" hidden><div class="row"><span id="zcash-fee-unit" class="label">Fee estimates:</span><span id="zcash-fees">—</span></div><div class="spark-row"><span class="label">Fee (24h)</span><canvas class="spark" id="spark-zcash-fee"></canvas></div></div>
         <section data-price-asset="zcash" hidden><hr><div class="price-row"><span class="price-label">Zcash price</span><strong class="price-value" data-price-value>—</strong><select class="price-currency" data-price-currency aria-label="Zcash price currency"></select><span class="price-status" data-price-status>Price unavailable</span></div></section>
         <hr>
@@ -400,7 +400,7 @@
       <fieldset id="settings-appearance">
         <legend>Appearance</legend>
         <label class="settings-check"><input id="settings-tower-labels" type="checkbox"> Label towers</label>
-        <label class="settings-check"><input id="settings-computer-stats" type="checkbox"> Node manager usage</label>
+        <label class="settings-check"><input id="settings-computer-stats" type="checkbox"> Node Manager usage</label>
         <label class="settings-check"><input id="settings-thermal-throttle" type="checkbox"> Thermal throttle</label>
         <label>Default currency<select id="settings-default-currency">
           <option>USD</option><option>EUR</option><option>GBP</option><option>INR</option><option>CAD</option>

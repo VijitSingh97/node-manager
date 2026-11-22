@@ -707,3 +707,19 @@ func TestLeftoverActuatorFileDeleteFailureLogsAFixedMessage(t *testing.T) {
 		t.Fatalf("missing file logged %q", logs.String())
 	}
 }
+
+func TestCommandNameFollowsInstallKind(t *testing.T) {
+	a, _ := testApp(t, &rpcFixture{}, "")
+	if got := a.commandName(); got != "./stack" {
+		t.Fatalf("no helper command = %q", got)
+	}
+	for kind, want := range map[string]string{"boot": "sudo node-manager", "login": "node-manager", "unsupported": "./stack"} {
+		capability := fmt.Sprintf(`{"platform":"linux","boot_kind":%q,"boot_supported":true,"timestamp":%d}`, kind, time.Now().Unix())
+		if err := os.WriteFile(a.nodeControlPath("capability"), []byte(capability), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got := a.commandName(); got != want {
+			t.Fatalf("%s command = %q, want %q", kind, got, want)
+		}
+	}
+}

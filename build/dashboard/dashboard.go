@@ -56,6 +56,7 @@ type diskInfo struct {
 
 type pageData struct {
 	NodeName             string
+	Command              string
 	PasswordEnabled      bool
 	BitcoinEnabled       bool
 	Loading              bool
@@ -328,6 +329,7 @@ func (a *app) loadingPageData() pageData {
 
 func (a *app) render(w http.ResponseWriter, data pageData) {
 	data.NodeName = a.monitor.nodeName
+	data.Command = a.commandName()
 	data.PasswordEnabled = a.hasDashboardPassword()
 	data.UpdateNote = a.monitor.UpdateNote()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

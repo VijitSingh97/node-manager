@@ -265,6 +265,16 @@ func (a *app) installKind() string {
 	return "source"
 }
 
+func (a *app) commandName() string {
+	switch a.installKind() {
+	case "apt":
+		return "sudo node-manager"
+	case "homebrew":
+		return "node-manager"
+	}
+	return "./stack"
+}
+
 func (a *app) actuatorInfo(w http.ResponseWriter, _ *http.Request) {
 	chains := map[string]actuatorChain{}
 	for _, chain := range a.actuatorChains() {

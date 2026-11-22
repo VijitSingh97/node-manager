@@ -1,4 +1,4 @@
-import { dashboardFetch as fetch } from "./session.js";
+import { commandName, dashboardFetch as fetch } from "./session.js";
 
 export const NODE_IDS = ["bitcoin", "monero", "tari", "litecoin", "dogecoin", "bitcoincash", "zcash"];
 const NODES = new Set(NODE_IDS);
@@ -68,15 +68,17 @@ export function formatUpdated(unixSeconds, DateTimeFormat = Intl.DateTimeFormat)
   }
 }
 
+const notAnswering = (label) => `Connecting to ${label}… Still stuck? Run ${commandName()} doctor.`;
+
 export function moneroView(data) {
   if (!data || data.enabled === false) return { state: "Not configured", badge: "Disabled", details: false };
-  if (data.available !== true) return { state: "Connecting...", badge: "Connecting", details: false };
+  if (data.available !== true) return { state: notAnswering("Monero"), badge: "Connecting", details: false };
   const heightAvailable = typeof data.height === "number" && Number.isFinite(data.height) && data.height >= 0;
   const height = heightAvailable ? Math.floor(data.height) : 0;
   const target = Math.max(height, Math.floor(Number(data.target_height) || 0));
   const progress = Math.max(0, Math.min(100, Number(data.sync_percent) || 0));
   return {
-    state: data.synced ? "Synced" : "Synchronizing the Monero blockchain...",
+    state: data.synced ? "Synced" : "Synchronizing the Monero blockchain…",
     badge: data.pruned ? "Pruned" : "Full",
     details: true,
     version: String(data.version || "—"),
@@ -92,6 +94,7 @@ export function moneroView(data) {
     fees: data.fees_available ? formatMoneroFees(data.fee_estimates_atomic_per_byte) : "—",
     rpcExposure: data.rpc_exposure_enabled ? `${String(data.rpc_endpoint || "—")} · LAN` : "Disabled",
     zmqExposure: data.zmq_exposure_enabled ? `${String(data.zmq_endpoint || "—")} · LAN` : "Disabled",
+    lanNote: data.rpc_exposure_enabled || data.zmq_exposure_enabled ? ["LAN access is on.", data.rpc_exposure_enabled && "RPC is restricted and requires your Monero login.", data.zmq_exposure_enabled && "ZMQ is for a trusted LAN."].filter(Boolean).join(" ") : "LAN access is off.",
     nextBlock: heightAvailable ? height + 1 : "",
     updated: formatUpdated(data.updated_at),
   };
@@ -99,7 +102,7 @@ export function moneroView(data) {
 
 export function genericNodeView(data, label = "Node") {
   if (!data || data.enabled === false) return { state: "Not configured", badge: "Disabled", details: false };
-  if (data.available !== true) return { state: `Connecting to ${label}...`, badge: "Connecting", details: false };
+  if (data.available !== true) return { state: notAnswering(label), badge: "Connecting", details: false };
   const heightAvailable = typeof data.height === "number" && Number.isFinite(data.height) && data.height >= 0;
   const height = heightAvailable ? Math.floor(data.height) : 0;
   const target = Math.max(height, Math.floor(Number(data.target_height) || 0));
@@ -108,7 +111,7 @@ export function genericNodeView(data, label = "Node") {
   const outgoing = Math.max(0, Math.floor(Number(data.outgoing_connections) || 0));
   const connections = Math.max(0, Math.floor(Number(data.connections) || incoming + outgoing));
   return {
-    state: data.synced ? "Synced" : `Synchronizing the ${label} blockchain...`,
+    state: data.synced ? "Synced" : `Synchronizing the ${label} blockchain…`,
     badge: data.pruned ? "Pruned" : "Full",
     details: true,
     version: String(data.version || "—"),
@@ -229,6 +232,7 @@ if (typeof document !== "undefined") {
     document.getElementById("monero-fees").textContent = view.fees;
     document.getElementById("monero-rpc-exposure").textContent = view.rpcExposure;
     document.getElementById("monero-zmq-exposure").textContent = view.zmqExposure;
+    document.getElementById("monero-lan-note").textContent = view.lanNote;
     document.getElementById("monero-live").dataset.nextBlock = view.nextBlock;
     document.getElementById("monero-updated").textContent = `Updated: ${view.updated}`;
   };

@@ -283,7 +283,7 @@ function buildPie(slices, label, labelTitle, zoomedFlag, onToggle, id) {
     at += frac;
   }
   const figure = document.createElement("figure");
-  figure.title = zoomedFlag ? "Node-manager usage only — click to zoom out" : "Click to zoom into node-manager usage";
+  figure.title = zoomedFlag ? "Node Manager usage only — click to zoom out" : "Click to zoom into Node Manager usage";
   const caption = document.createElement("figcaption");
   caption.textContent = label;
   if (labelTitle) caption.title = labelTitle;
@@ -433,7 +433,7 @@ function renderPanel(panel) {
   if (!view) return;
   const line = panel.querySelector("[data-host-line]");
   line.textContent = view.line;
-  line.title = `${view.lineTitle} — click a bar or pie to zoom into node-manager usage`;
+  line.title = `${view.lineTitle} — click a bar or pie to zoom into Node Manager usage`;
   const wrap = panel.querySelector("[data-host-disk]");
   wrap.textContent = "";
   for (const bar of view.bars) {

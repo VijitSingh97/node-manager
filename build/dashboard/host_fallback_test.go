@@ -110,7 +110,7 @@ func TestBitcoinPageFallsBackToHostStats(t *testing.T) {
 		"stale":   bitcoinPageBody(t, &rpcFixture{idleSynced: true}, 10*time.Minute, usage),
 		"missing": bitcoinPageBody(t, &rpcFixture{idleSynced: true}, 0, nil),
 	} {
-		if strings.Contains(body, "GiB</span>") || !strings.Contains(body, "Uptime:</span> <span>—</span>") || !strings.Contains(body, "Node Data Size:</span> <span>—</span>") {
+		if strings.Contains(body, "GiB</span>") || !strings.Contains(body, "Uptime:</span> <span>—</span>") || !strings.Contains(body, "Node data size:</span> <span>—</span>") {
 			t.Errorf("%s host stats still filled the page", name)
 		}
 	}
