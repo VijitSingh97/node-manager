@@ -5,7 +5,10 @@ function node(tag) {
   return {
     tag, className: "", textContent: "", children: [], listeners: {},
     append(...items) { items.forEach((item) => { item.parentNode = this; }); this.children.push(...items); },
-    replaceChildren(...items) { items.forEach((item) => { item.parentNode = this; }); this.children = items; },
+    replaceChildren(...items) {
+      if (this.children.some((child) => child.contains(globalThis.document.activeElement))) globalThis.document.activeElement = globalThis.document.body;
+      items.forEach((item) => { item.parentNode = this; }); this.children = items;
+    },
     contains(other) { return other === this || this.children.some((child) => child.contains(other)); },
     addEventListener(type, fn) { this.listeners[type] = fn; },
     setAttribute(name, value) { (this.attrs ||= {})[name] = value; },
@@ -13,7 +16,8 @@ function node(tag) {
   };
 }
 const { managerRow, replaceIfChanged } = await import("./wallet-ui.js");
-globalThis.document = { createElement: node, querySelector: () => (globalThis.openDialog ? {} : null) };
+const body = node("body");
+globalThis.document = { body, activeElement: body, createElement: node, querySelector: () => (globalThis.openDialog ? {} : null) };
 
 const KEY = "bc1q" + "a".repeat(40);
 const keyOf = (row) => row.children[0].children.find((child) => child.className === "wk");
@@ -27,6 +31,18 @@ test("an expanded address stays expanded when the list is rebuilt with changed d
   assert.equal(replaceIfChanged(list, "b", () => [rowFor()]), true);
   assert.equal(keyOf(list.children[0]).textContent, KEY);
   keyOf(list.children[0]).listeners.click();
+  replaceIfChanged(list, "c", () => [rowFor()]);
+  assert.notEqual(keyOf(list.children[0]).textContent, KEY);
+});
+
+test("an expanded address is forgotten once its wallet is gone, and the title follows the state", () => {
+  const list = node("div");
+  replaceIfChanged(list, "a", () => [rowFor()]);
+  assert.equal(keyOf(list.children[0]).title, "click to expand");
+  keyOf(list.children[0]).listeners.click();
+  assert.equal(keyOf(list.children[0]).title, "click to collapse");
+  replaceIfChanged(list, "b", () => []);
+  assert.equal(list.expandedKeys.size, 0);
   replaceIfChanged(list, "c", () => [rowFor()]);
   assert.notEqual(keyOf(list.children[0]).textContent, KEY);
 });
@@ -78,7 +94,7 @@ test("focus does not move to another row when the focused row is removed", () =>
   const old = list.children[1].children.at(-1);
   document.activeElement = old;
   replaceIfChanged(list, "b", () => ["1", "3"].map((l) => focusable(l)()));
-  assert.equal(document.activeElement, old);
+  assert.equal(document.activeElement, document.body);
 });
 
 test("a rebuild is skipped while a dialog is open and happens once it closes", () => {

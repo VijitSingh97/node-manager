@@ -144,7 +144,7 @@ export function renderWalletList(container, rows, options = {}) {
   container.style.left = window.innerWidth >= WIDE_MIN ? `${towerLayout(window.innerWidth).ox}px` : "";
 }
 
-const expandedKeys = new Set();
+let building = null;
 
 function focusSpot(container) {
   const path = [];
@@ -159,8 +159,18 @@ export function replaceIfChanged(container, key, build) {
   if (container.renderKey === key) return false;
   if (document.querySelector?.("dialog[open]")) return false;
   const spot = focusSpot(container);
-  container.replaceChildren(...build());
+  container.expandedKeys ||= new Set();
+  building = container.expandedKeys;
+  let rows;
+  try {
+    rows = build();
+  } finally {
+    building = null;
+  }
+  container.replaceChildren(...rows);
   container.renderKey = key;
+  const present = new Set(rows.map((child) => child.getAttribute?.("data-row-key")));
+  container.expandedKeys.forEach((expanded) => present.has(expanded) || container.expandedKeys.delete(expanded));
   const row = spot?.key != null && Array.prototype.find.call(container.children, (child) => child.getAttribute?.("data-row-key") === spot.key);
   row?.contains && spot.path.reduce((node, index) => node?.children?.[index], row)?.focus?.();
   return true;
@@ -177,13 +187,17 @@ export function managerRow({ label, note = "", keyText = "", canRemove, onRemove
   }
   left.append(name);
   if (keyText) {
-    const key = el("span", "wk", expandedKeys.has(keyText) ? keyText : shortKey(keyText));
-    key.title = "click to expand";
-    key.addEventListener("click", () => {
-      const open = !expandedKeys.has(keyText);
-      if (open) expandedKeys.add(keyText);
-      else expandedKeys.delete(keyText);
+    const expandedKeys = building || new Set();
+    const key = el("span", "wk");
+    const show = () => {
+      const open = expandedKeys.has(keyText);
       key.textContent = open ? keyText : shortKey(keyText);
+      key.title = open ? "click to collapse" : "click to expand";
+    };
+    show();
+    key.addEventListener("click", () => {
+      if (!expandedKeys.delete(keyText)) expandedKeys.add(keyText);
+      show();
     });
     left.append(key);
   }
