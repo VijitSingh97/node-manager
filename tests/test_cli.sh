@@ -85,8 +85,10 @@ exit 0
 EOS
 chmod +x "$onion_stub/docker"
 export FAKE_TOR=$fake_tor FAKE_ONION_LOG=$tmp/onion-calls.log
-onion_archive=$(PATH="$onion_stub:$PATH" ./stack backup | sed -n 's/^Wrote \([^ ]*\) .*/\1/p')
+onion_out=$(PATH="$onion_stub:$PATH" ./stack backup)
+onion_archive=$(printf '%s\n' "$onion_out" | sed -n 's/^Wrote \([^ ]*\) .*/\1/p')
 [ -f "$onion_archive" ] || fail "onion backup did not report its archive"
+printf '%s\n' "$onion_out" | grep -q "dashboard onion" && fail "backup warned about a dashboard onion that is off"
 for node in bitcoin litecoin; do
   tar tzf "$onion_archive" | grep -q "${node}_onion/hs_ed25519_secret_key" || fail "backup missing the $node onion key"
 done
@@ -102,6 +104,19 @@ for node in bitcoin litecoin; do
   grep -q " restart $node$" "$FAKE_ONION_LOG" || fail "restore did not restart $node to advertise its onion"
 done
 [ "$(grep -c ' restart tor$' "$FAKE_ONION_LOG")" = 1 ] || fail "restore did not restart tor exactly once"
+
+# an enabled dashboard onion without a key warns; a leftover key is kept after the onion is turned off
+cp -p .env "$tmp/env.saved"
+{ grep -v '^DASHBOARD_ONION=' "$tmp/env.saved"; echo DASHBOARD_ONION=1; } >.env
+dashboard_onion_out=$(PATH="$onion_stub:$PATH" ./stack backup)
+printf '%s\n' "$dashboard_onion_out" | grep -q "WARN: dashboard onion keys not captured" ||
+  fail "backup did not warn about a missing dashboard onion key"
+cp -p "$tmp/env.saved" .env
+mkdir "$fake_tor/dashboard_onion"
+printf 'dashboard-secret' >"$fake_tor/dashboard_onion/hs_ed25519_secret_key"
+leftover_archive=$(PATH="$onion_stub:$PATH" ./stack backup | sed -n 's/^Wrote \([^ ]*\) .*/\1/p')
+tar tzf "$leftover_archive" | grep -q "dashboard_onion/hs_ed25519_secret_key" ||
+  fail "backup dropped a leftover dashboard onion key"
 
 package_root=$tmp/package-root
 package_state=$tmp/package-state

@@ -6,6 +6,14 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `node-manager backup` no longer warns "dashboard onion keys not captured
+  (is the tor container up?)" when the dashboard onion is off. The warning
+  appeared on every backup with `dashboard.onion` off, the default, and pointed
+  at Tor although nothing was missing. A dashboard onion key left over from an
+  earlier enable is still backed up.
+
 ## [1.40.0] - 2026-11-21
 
 ### Added

@@ -1780,6 +1780,7 @@ do_backup() {
   [ -f "$env_file" ] && cp "$env_file" "$tmp/.env"
   # the dashboard and node onion keys live in the tor volume
   compose cp tor:/var/lib/tor/dashboard_onion "$tmp/dashboard_onion" >/dev/null 2>&1 ||
+    [ "$(env_get DASHBOARD_ONION)" != 1 ] ||
     echo "WARN: dashboard onion keys not captured (is the tor container up?)"
   for node in bitcoin litecoin bitcoincash; do
     compose cp "tor:/var/lib/tor/${node}_onion" "$tmp/${node}_onion" >/dev/null 2>&1 ||
