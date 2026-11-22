@@ -722,6 +722,13 @@ func TestCommandNameFollowsInstallKind(t *testing.T) {
 			t.Fatalf("%s command = %q, want %q", kind, got, want)
 		}
 	}
+	stale := fmt.Sprintf(`{"platform":"linux","boot_kind":"boot","boot_supported":true,"timestamp":%d}`, time.Now().Add(-time.Hour).Unix())
+	if err := os.WriteFile(a.nodeControlPath("capability"), []byte(stale), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.commandName(); got != "sudo node-manager" {
+		t.Fatalf("stale capability command = %q", got)
+	}
 }
 
 func TestRenderedPagesUseInstallCommand(t *testing.T) {

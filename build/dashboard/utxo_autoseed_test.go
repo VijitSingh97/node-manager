@@ -101,7 +101,7 @@ func TestQueueSeedHostActionWritesOneRequest(t *testing.T) {
 	if _, got := a.queueSeedHostAction(nodeBitcoin); got != "another host change is pending" {
 		t.Fatalf("second request: %q", got)
 	}
-	if canonicalHostStatusMessage(hostControlStatus{State: "applied", Action: "utxo_seed"}) != "Balance index seed started." {
+	if canonicalHostStatusMessage(hostControlStatus{State: "applied", Action: "utxo_seed"}, "./stack") != "Balance index seed started." {
 		t.Fatal("applied seed status has no message")
 	}
 }

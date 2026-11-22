@@ -584,7 +584,7 @@ Know the trade-offs before enabling:
   startup and needs a fresh chain download.
 - A pruned node can't serve historical blocks to other software. Software that
   requires archival blocks or `txindex` needs a separately planned archival node.
-- The dashboard's "Node Data Size" will show the pruned footprint.
+- The dashboard's "Node data size" will show the pruned footprint.
 
 Apply like any other change: edit `config.json`, `./configure.sh`,
 `./stack apply`.

@@ -148,6 +148,14 @@ test("the install dialog offers a balance index checkbox ticked by default, next
 
 test("removal commands and the launch label follow the install type", () => {
   assert.match(UTXO_INDEX_OFF_PROMPT(), /run \.\/stack utxo-index remove\.$/);
+  for (const command of ["sudo node-manager", "node-manager"]) {
+    globalThis.document = { body: { dataset: { command } } };
+    try {
+      assert.ok(UTXO_INDEX_OFF_PROMPT().endsWith(`run ${command} utxo-index remove.`), command);
+    } finally {
+      delete globalThis.document;
+    }
+  }
   assert.equal(hostChangeLabel({ action: "launch_at_boot" }, {}, "login"), "Launch at login");
   assert.equal(hostChangeLabel({ action: "launch_at_boot" }, {}, "boot"), "Launch at boot");
 });

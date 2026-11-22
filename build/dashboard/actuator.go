@@ -252,8 +252,15 @@ func (a *app) lanServices(node string) []actuatorService {
 }
 
 func (a *app) installKind() string {
-	capability, ok := a.hostControlCapability()
-	if !ok {
+	b, err := readSmallFile(a.nodeControlPath("capability"), 16384)
+	if err != nil {
+		return "unknown"
+	}
+	// The install type never changes, so a stale capability still tells it.
+	var capability struct {
+		BootKind string `json:"boot_kind"`
+	}
+	if json.Unmarshal(b, &capability) != nil {
 		return "unknown"
 	}
 	switch capability.BootKind {

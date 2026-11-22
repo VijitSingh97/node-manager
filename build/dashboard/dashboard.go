@@ -292,7 +292,7 @@ func (a *app) index(w http.ResponseWriter, r *http.Request) {
 	if !chain.InitialBlockDownload && chain.Blocks == chain.Headers {
 		data.Progress = 100
 	}
-	data.StateLine = "Synchronizing the Bitcoin blockchain..."
+	data.StateLine = "Synchronizing the Bitcoin blockchain…"
 	if !chain.InitialBlockDownload && chain.Blocks >= chain.Headers {
 		data.StateLine = "Synced"
 	}

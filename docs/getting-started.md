@@ -321,7 +321,7 @@ this possible; never delete it as a way to apply an edit.
    it has no host port and cannot spend. No miner starts.
 
 4. **The dashboard** at the URL printed by setup shows the configured towers. Click a tower to
-   open its chain's card. It shows "Connecting to <chain>" until RPC comes up,
+   open its chain's card. It shows "Connecting to" and the chain name until RPC comes up,
    then sync progress. After its wallet section, that node's settings contain
    block alerts, LAN ports, and any authenticated RPC credentials. The gear
    menu contains node installation, launch at boot/login, Thermal throttle,
