@@ -212,6 +212,8 @@ if (typeof document !== "undefined") {
     if (event.key === "Escape" && document.body.dataset.node && !document.querySelector("dialog[open]")) controller.close();
   });
   window.addEventListener("live-updated", () => controller.refresh());
+  localizeUpdated(document);
+  window.addEventListener("live-updated", () => localizeUpdated(document));
 
   const renderMonero = (data) => {
     const view = moneroView(data);
