@@ -38,6 +38,7 @@ const GUARD_TEXT = {
   request: "Seed request",
   lock: "Another index is seeding",
   scanner: "Watch scan running",
+  host: "Host helper",
 };
 
 export const guardText = (r) => `${GUARD_TEXT[r.guard] || "Blocked"}: ${r.detail}`;

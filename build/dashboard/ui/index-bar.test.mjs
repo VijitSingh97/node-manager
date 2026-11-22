@@ -78,10 +78,11 @@ flow("With Bitcoin disabled the index script still loads and Litecoin's bar show
     const bar = document.getElementById("index-bar-litecoin");
     mod.applyIndexBar(bar, mod.indexBarView(status));
     const style = getComputedStyle(bar.querySelector(".progress-fill"));
-    return { hidden: bar.hidden, bg: style.backgroundColor, animation: style.animationName };
+    return { hidden: bar.hidden, bg: style.backgroundColor, animation: style.animationName, width: style.width };
   }, status);
   let got = await look({ enabled: true, state: "not_seeded", needs_host: true });
   assert.deepEqual([got.hidden, got.bg, got.animation], [false, "rgb(217, 138, 0)", "none"]);
+  assert.equal(got.width, "0px", "a blocked bar is empty, not a completed bar");
   got = await look({ enabled: true, state: "ready" });
   assert.equal(got.bg, "rgb(46, 158, 91)");
   got = await look({ enabled: true, state: "catching_up", blocks_behind: 3 });

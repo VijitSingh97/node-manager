@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { STATE_LABEL, guardText, badgeClickTarget, indexBadge, indexView, indexBarView, applyIndexBar, offHint, OFF_HINT, OFF_HINT_DOCS, SEED_COMMANDS, CONFIRMED_ONLY } from "./utxo-index.js";
 
 test("every endpoint state renders its label, and the confirmed-only row is always present", () => {
@@ -162,14 +162,18 @@ test("every node card carries a hidden bar, the Bitcoin one inside the replaced 
   assert.match(source, /addEventListener\("live-updated", renderBar\)/);
 });
 
-test("one label per state is shared by badge and card, and no guard id reaches users", () => {
+test("one label per state is shared by badge and card, and no guard id reaches users", async () => {
   for (const state of Object.keys(STATE_LABEL)) {
     const status = { enabled: true, state };
     assert.equal(indexBadge(status).text, `Balance index: ${STATE_LABEL[state]}`);
     assert.equal(indexView(status).rows[0].toLowerCase(), `index: ${STATE_LABEL[state]}`);
   }
-  const ids = ["state", "node", "thermal", "cpu_cap", "free_space", "rpc_idle", "fifo", "request", "lock", "scanner"];
-  for (const guard of ids) assert.doesNotMatch(guardText({ guard, detail: "x" }), /_|^[a-z]+:/, guard);
+  const goDir = new URL("../", import.meta.url);
+  const sources = await Promise.all((await readdir(goDir)).filter((f) => f.endsWith(".go") && !f.endsWith("_test.go")).map((f) => readFile(new URL(f, goDir), "utf8")));
+  const ids = [...new Set(sources.flatMap((src) => [...src.matchAll(/seedRefusal\{\{?"(\w+)"/g)].map((m) => m[1])))];
+  assert.equal(ids.length, 11);
+  assert.ok(ids.includes("host"));
+  for (const guard of ids) assert.doesNotMatch(guardText({ guard, detail: "x" }), /_|^[a-z]+:|^Blocked/, guard);
   assert.equal(guardText({ guard: "mystery", detail: "x" }), "Blocked: x");
 });
 

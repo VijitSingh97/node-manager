@@ -685,7 +685,8 @@ body:not([data-computer-stats="1"]) .host-stats { display: none; }
 .index-bar-warn .progress-fill { background: #d98a00; }
 .chain-card .index-bar-ok .progress-fill { background: #2e9e5b; }
 .chain-card .index-bar-warn .progress-fill { background: #d98a00; }
-.index-bar-warn.index-bar-indeterminate .progress-fill { width: 100% !important; animation: none; margin-left: 0; opacity: 0.5; }
+.index-bar-warn.index-bar-indeterminate .progress-fill { width: 0 !important; animation: none; margin-left: 0; transition: none; }
+.index-bar-warn.index-bar-indeterminate .progress-bg { background: repeating-linear-gradient(45deg, var(--border) 0 6px, transparent 6px 12px); }
 .index-bar-indeterminate .progress-fill { width: 40% !important; animation: index-bar-slide 1.6s ease-in-out infinite alternate; }
 @keyframes index-bar-slide { from { margin-left: 0; } to { margin-left: 60%; } }
 @media (prefers-reduced-motion: reduce) { .index-bar-indeterminate .progress-fill { animation: none; margin-left: 30%; } }
