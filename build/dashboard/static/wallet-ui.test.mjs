@@ -8,11 +8,12 @@ function node(tag) {
     replaceChildren(...items) { items.forEach((item) => { item.parentNode = this; }); this.children = items; },
     contains(other) { return other === this || this.children.some((child) => child.contains(other)); },
     addEventListener(type, fn) { this.listeners[type] = fn; },
-    setAttribute() {},
+    setAttribute(name, value) { (this.attrs ||= {})[name] = value; },
+    getAttribute(name) { return this.attrs?.[name]; },
   };
 }
 const { managerRow, replaceIfChanged } = await import("./wallet-ui.js");
-globalThis.document = { createElement: node };
+globalThis.document = { createElement: node, querySelector: () => (globalThis.openDialog ? {} : null) };
 
 const KEY = "bc1q" + "a".repeat(40);
 const keyOf = (row) => row.children[0].children.find((child) => child.className === "wk");
@@ -54,4 +55,43 @@ test("a focused row control keeps focus when the list is rebuilt with changed da
   const fresh = list.children[0].children.at(-1);
   assert.notEqual(fresh, old);
   assert.equal(document.activeElement, fresh);
+});
+
+const focusable = (label) => () => {
+  const row = managerRow({ label, canRemove: true, onRemove() {} });
+  const button = row.children.at(-1);
+  button.focus = function focus() { document.activeElement = this; };
+  return row;
+};
+
+test("focus follows the same wallet when an earlier row is removed", () => {
+  const list = node("div");
+  replaceIfChanged(list, "a", () => ["1", "2", "3"].map((l) => focusable(l)()));
+  document.activeElement = list.children[1].children.at(-1);
+  replaceIfChanged(list, "b", () => ["2", "3"].map((l) => focusable(l)()));
+  assert.equal(document.activeElement, list.children[0].children.at(-1));
+});
+
+test("focus does not move to another row when the focused row is removed", () => {
+  const list = node("div");
+  replaceIfChanged(list, "a", () => ["1", "2", "3"].map((l) => focusable(l)()));
+  const old = list.children[1].children.at(-1);
+  document.activeElement = old;
+  replaceIfChanged(list, "b", () => ["1", "3"].map((l) => focusable(l)()));
+  assert.equal(document.activeElement, old);
+});
+
+test("a rebuild is skipped while a dialog is open and happens once it closes", () => {
+  const list = node("div");
+  replaceIfChanged(list, "a", () => [rowFor()]);
+  globalThis.openDialog = true;
+  assert.equal(replaceIfChanged(list, "b", () => [rowFor()]), false);
+  globalThis.openDialog = false;
+  assert.equal(replaceIfChanged(list, "b", () => [rowFor()]), true);
+});
+
+test("a build that throws does not record the render key", () => {
+  const list = node("div");
+  assert.throws(() => replaceIfChanged(list, "a", () => { throw new Error("boom"); }));
+  assert.equal(replaceIfChanged(list, "a", () => [rowFor()]), true);
 });

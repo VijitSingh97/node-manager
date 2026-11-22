@@ -146,27 +146,29 @@ export function renderWalletList(container, rows, options = {}) {
 
 const expandedKeys = new Set();
 
-function focusPath(container) {
+function focusSpot(container) {
   const path = [];
-  for (let node = document.activeElement; node && node !== container; node = node.parentNode) {
-    if (!node.parentNode) return null;
+  for (let node = document.activeElement; node && node.parentNode; node = node.parentNode) {
+    if (node.parentNode === container) return { key: node.getAttribute?.("data-row-key"), path };
     path.unshift(Array.prototype.indexOf.call(node.parentNode.children, node));
   }
-  return container.contains?.(document.activeElement) ? path : null;
+  return null;
 }
 
 export function replaceIfChanged(container, key, build) {
   if (container.renderKey === key) return false;
-  container.renderKey = key;
-  const path = focusPath(container);
+  if (document.querySelector?.("dialog[open]")) return false;
+  const spot = focusSpot(container);
   container.replaceChildren(...build());
-  const target = path?.reduce((node, index) => node?.children?.[index], container);
-  if (target && target !== container) target.focus?.();
+  container.renderKey = key;
+  const row = spot?.key != null && Array.prototype.find.call(container.children, (child) => child.getAttribute?.("data-row-key") === spot.key);
+  row?.contains && spot.path.reduce((node, index) => node?.children?.[index], row)?.focus?.();
   return true;
 }
 
 export function managerRow({ label, note = "", keyText = "", canRemove, onRemove, extras = [] }) {
   const row = el("div", "row");
+  row.setAttribute("data-row-key", keyText || label);
   const left = el("div", "wk-cell");
   const name = el("span", "label", label);
   if (note) {
