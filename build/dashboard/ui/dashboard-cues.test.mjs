@@ -24,6 +24,17 @@ flow("Default towers show a focus ring, unreachable towers say so in text and th
   assert.match(cue, /down/);
   const name = await page.evaluate(() => document.querySelector('[data-select-node="bitcoin"]').getAttribute("aria-label"));
   assert.match(name, /^Bitcoin.*not responding/);
+  const fresh = await page.evaluate(() => {
+    const live = document.getElementById("live");
+    live.dataset.nextBlock = "101";
+    window.dispatchEvent(new Event("live-updated"));
+    const label = document.querySelector('[data-select-node="bitcoin"]').getAttribute("aria-label");
+    delete live.dataset.nextBlock;
+    window.dispatchEvent(new Event("live-updated"));
+    return { label, after: document.querySelector('[data-select-node="bitcoin"]').getAttribute("aria-label") };
+  });
+  assert.doesNotMatch(fresh.label, /not responding/, "a fresh Bitcoin height clears the spoken cue like the visual one");
+  assert.match(fresh.after, /not responding/);
 
   await page.send("Emulation.setDeviceMetricsOverride", { width: 360, height: 740, deviceScaleFactor: 1, mobile: false });
   await page.goto(page.origin + "/");

@@ -230,6 +230,10 @@ export function sceneDepth(H, anchorY, tw, overviewY, overviewTw) {
 }
 
 // The server's offline flag lags the status polls, so a fresh height overrides it.
+export function liveBlockElement(node) {
+  return document.getElementById(node === "bitcoin" ? "live" : `${node}-live`);
+}
+
 export function nodeUnreachable(choice, nextBlock) {
   return choice?.nodeOffline === "1" && !/^\d+$/.test(String(nextBlock ?? "").trim());
 }
@@ -340,7 +344,7 @@ if (typeof document !== "undefined") {
         : { top, side: shade(top, 0.82), dark: shade(top, 0.48), grid: shade(top, 0.62), edge: shade(top, 1.12), alpha: 0.9, glow: 10 };
     }
 
-    const liveElement = (node) => document.getElementById(node === "bitcoin" ? "live" : `${node}-live`);
+    const liveElement = liveBlockElement;
     const nextBlocks = () => Object.fromEntries(NODE_IDS.map((node) =>
       [node, liveElement(node)?.dataset?.nextBlock]));
 

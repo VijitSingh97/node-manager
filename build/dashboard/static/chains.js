@@ -1,6 +1,6 @@
 import { NODE_IDS, genericNodeView, updateTowerProgress } from "./nodes.js";
 import { dashboardFetch as fetch } from "./session.js";
-import { nodeUnreachable } from "./tower.js";
+import { liveBlockElement, nodeUnreachable } from "./tower.js";
 
 export const NODE_LABELS = {
   bitcoin: "Bitcoin",
@@ -60,7 +60,7 @@ function setText(id, value) {
 }
 
 function announceNodeStatus(id) {
-  const next = byId(`${id}-live`)?.dataset.nextBlock;
+  const next = liveBlockElement(id)?.dataset.nextBlock;
   for (const choice of document.querySelectorAll(`[data-select-node="${id}"]`)) {
     const note = choice.dataset.powerNote || (nodeUnreachable(choice.dataset, next) ? " — not responding" : "");
     choice.setAttribute("aria-label", NODE_LABELS[id] + note);
@@ -261,5 +261,7 @@ if (typeof document !== "undefined") {
     finally {busy=false;updateSubmit();updateButtons();await loadNodes();}
   });
   window.addEventListener("node-catalog-updated", loadNodes);
+  window.addEventListener("live-updated", () => announceNodeStatus("bitcoin"));
+  window.addEventListener("node-height", (event) => announceNodeStatus(event.detail.node));
   loadNodes();
 }
