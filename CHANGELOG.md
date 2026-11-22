@@ -38,6 +38,24 @@ All notable changes to this project are documented here. Format follows
   from the keyboard. The theme toggle announces its current mode, and the
   chain cards no longer make screen readers repeat them on every refresh
   (#432).
+- Dashboard instructions name the real place for each setting (the User
+  dialog, Node controls, the launch option), show the command for how Node
+  Manager was installed (`sudo node-manager` for APT, `node-manager` for
+  Homebrew, `./stack` for a source checkout), give every chain the same
+  recovery hint when its node is not answering, and use one casing and
+  ellipsis style. The Bitcoin and Monero LAN access text follows the RPC
+  setting (#427).
+- The Bitcoin card shows its update time in the browser's time zone, a Latest
+  block row and a Synced or Synchronizing line like the other chains, and all
+  watch-only cards share one heading style, an Add wallet button and the same
+  scan-failure and add/remove messages (#428).
+- Settings shows why a control is disabled (Delete, a balance index switch,
+  Install) and the "Click to undo" hint as text instead of only a tooltip, and
+  the Thermal throttle switch moved from Appearance to the Node set group
+  (#435).
+- The docs match the dashboard again: the password is in the User dialog, the
+  Node set and Thermal throttle locations, alert names, GiB units and the
+  watch-only wallet wording (#429).
 
 ## [1.40.1] - 2026-11-21
 
