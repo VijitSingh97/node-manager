@@ -275,6 +275,16 @@ function buildPie(slices, label, labelTitle, zoomedFlag, onToggle) {
   if (labelTitle) caption.title = labelTitle;
   figure.appendChild(svg);
   figure.appendChild(caption);
+  const legend = document.createElement("ul");
+  legend.className = "pie-legend";
+  for (const slice of slices) {
+    const item = document.createElement("li");
+    const swatch = document.createElement("i");
+    if (slice.color) swatch.style.setProperty("--swatch", slice.color);
+    item.append(swatch, slice.title);
+    legend.appendChild(item);
+  }
+  figure.appendChild(legend);
   figure.addEventListener("click", onToggle);
   return figure;
 }
