@@ -201,7 +201,7 @@ if (typeof document !== "undefined") {
         await request("", "POST", value);
         name.value = address.value = height.value = "";
         say(WATCH_COPY.added);
-      } catch (error) { say(errorText(error) || WATCH_COPY.addFailed, true); }
+      } catch (error) { say(errorText(error), true); }
       finally { viewKey.value = ""; busy = false; refresh(); }
     });
     window.addEventListener("node-selected", event => { if (event.detail?.node !== "monero") viewKey.value = ""; });

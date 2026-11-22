@@ -49,8 +49,7 @@ All notable changes to this project are documented here. Format follows
 - The Bitcoin card shows its update time in the browser's time zone, a Latest
   block row and a Synced or Synchronizing line like the other chains, and all
   watch-only cards share one heading style, an Add wallet button, the same
-  scan-failure text and add/remove confirmations, and one fallback when an
-  add or remove fails without a reason (#428).
+  scan-failure text and the same add and remove confirmations (#428).
 - Settings shows why a control is disabled (Delete, a balance index switch,
   Install) and the "Click to undo" hint as text instead of only a tooltip, and
   the Thermal throttle switch moved from Appearance to the Node set group

@@ -710,8 +710,8 @@ func TestLeftoverActuatorFileDeleteFailureLogsAFixedMessage(t *testing.T) {
 
 func TestCommandNameFollowsInstallKind(t *testing.T) {
 	a, _ := testApp(t, &rpcFixture{}, "")
-	if got := a.commandName(); got != "./stack" {
-		t.Fatalf("no helper command = %q", got)
+	if kind, command := a.installKind(), a.commandName(); kind != "unknown" || command != "./stack" {
+		t.Fatalf("no helper: kind %q command %q", kind, command)
 	}
 	for kind, want := range map[string]string{"boot": "sudo node-manager", "login": "node-manager", "unsupported": "./stack"} {
 		capability := fmt.Sprintf(`{"platform":"linux","boot_kind":%q,"boot_supported":true,"timestamp":%d}`, kind, time.Now().Unix())
@@ -732,7 +732,7 @@ func TestCommandNameFollowsInstallKind(t *testing.T) {
 	if _, refusal := a.queueSeedHostAction(nodeBitcoin); !strings.Contains(refusal, "start the seed with sudo node-manager utxo-seed") {
 		t.Fatalf("seed refusal = %q", refusal)
 	}
-	for _, body := range []string{`{}`, `{"boot_kind":null}`, `{"boot_kind":"other"}`} {
+	for _, body := range []string{`{}`, `{"boot_kind":null}`, `{"boot_kind":"other"}`, `not json`} {
 		if err := os.WriteFile(a.nodeControlPath("capability"), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
