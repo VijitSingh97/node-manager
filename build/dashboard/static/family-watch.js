@@ -1,6 +1,6 @@
 import { dashboardFetch as fetch } from "./session.js";
 import { bigSeries, formatAmount, httpsURL, joinNote, scanNote } from "./wallet-format.js";
-import { el, managerRow, renderWalletList, safeLink } from "./wallet-ui.js";
+import { el, managerRow, renderWalletList, replaceIfChanged, safeLink } from "./wallet-ui.js";
 
 const SUPPORTED = new Set(["litecoin", "dogecoin", "bitcoincash", "zcash"]);
 const LABELS = { tari: "Tari", litecoin: "Litecoin", dogecoin: "Dogecoin", bitcoincash: "Bitcoin Cash", zcash: "Zcash" };
@@ -126,15 +126,14 @@ if (typeof document !== "undefined") {
       const wallets = data.wallets || [];
       const views = wallets.map((wallet) => familyRow(wallet, node));
       if (stats) renderWalletList(stats, views);
-      const rows = wallets.map((wallet, index) => managerRow({
+      replaceIfChanged(list, JSON.stringify([wallets, access.canEdit, busy]), () => wallets.map((wallet, index) => managerRow({
         label: views[index].label,
         note: views[index].note,
         keyText: String(wallet.address || ""),
         canRemove: access.canEdit && !busy,
         onRemove: () => remove(String(wallet.id || "")),
         extras: wallet.example === true ? [safeLink(wallet.source_url, "Verified public source")] : [],
-      }));
-      list.replaceChildren(...rows);
+      })));
     };
 
     async function refresh(force = false) {

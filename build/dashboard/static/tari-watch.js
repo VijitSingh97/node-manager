@@ -1,5 +1,5 @@
 import { atomicToDecimal, bigSeries, formatAmount, joinNote, scanNote } from "./wallet-format.js";
-import { el, managerRow, renderWalletList, setMessage as showMessage, walletRequest } from "./wallet-ui.js";
+import { el, managerRow, renderWalletList, replaceIfChanged, setMessage as showMessage, walletRequest } from "./wallet-ui.js";
 
 const HEX_KEY = /^[0-9a-fA-F]{64}$/;
 const BIRTHDAY_MIN = "2022-01-01";
@@ -165,9 +165,10 @@ if (typeof document !== "undefined") {
       for (const field of [name, publicSpendKey, viewKey, birthday, file, add]) field.disabled = busy || !access.canEdit || Boolean(wallet);
       status.textContent = access.status || (wallet ? "" : "No view-only wallet configured.");
       status.classList.remove("watch-msg-error");
-      list.replaceChildren();
       renderWalletList(stats, wallet ? [tariRow(wallet)] : []);
-      if (!wallet) return;
+      replaceIfChanged(list, JSON.stringify([wallet, busy, access.canEdit]), () => (wallet ? [walletManagerRow(wallet, access, queued)] : []));
+    }
+    function walletManagerRow(wallet, access, queued) {
       const row = tariRow(wallet);
       const details = el("div", "tari-wallet-metrics");
       for (const detail of tariDetails(wallet)) {
@@ -175,7 +176,7 @@ if (typeof document !== "undefined") {
         metric.append(el("span", "label", `${detail.label}:`), el("span", null, detail.value));
         details.append(metric);
       }
-      list.append(managerRow({
+      return managerRow({
         label: row.label,
         keyText: String(wallet.public_spend_key || ""),
         canRemove: !busy && access.canEdit && !queued,
@@ -196,7 +197,7 @@ if (typeof document !== "undefined") {
           }
         },
         extras: details.childElementCount ? [details] : [],
-      }));
+      });
     }
     async function refresh(force = false) {
       const panel = document.getElementById("tari-panel");

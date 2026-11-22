@@ -143,6 +143,15 @@ export function renderWalletList(container, rows, options = {}) {
   container.style.left = window.innerWidth >= WIDE_MIN ? `${towerLayout(window.innerWidth).ox}px` : "";
 }
 
+const expandedKeys = new Set();
+
+export function replaceIfChanged(container, key, build) {
+  if (container.renderKey === key) return false;
+  container.renderKey = key;
+  container.replaceChildren(...build());
+  return true;
+}
+
 export function managerRow({ label, note = "", keyText = "", canRemove, onRemove, extras = [] }) {
   const row = el("div", "row");
   const left = el("div", "wk-cell");
@@ -153,10 +162,13 @@ export function managerRow({ label, note = "", keyText = "", canRemove, onRemove
   }
   left.append(name);
   if (keyText) {
-    const key = el("span", "wk", shortKey(keyText));
+    const key = el("span", "wk", expandedKeys.has(keyText) ? keyText : shortKey(keyText));
     key.title = "click to expand";
     key.addEventListener("click", () => {
-      key.textContent = key.textContent === keyText ? shortKey(keyText) : keyText;
+      const open = !expandedKeys.has(keyText);
+      if (open) expandedKeys.add(keyText);
+      else expandedKeys.delete(keyText);
+      key.textContent = open ? keyText : shortKey(keyText);
     });
     left.append(key);
   }

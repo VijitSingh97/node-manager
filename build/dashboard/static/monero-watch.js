@@ -1,5 +1,5 @@
 import { atomicToDecimal, bigSeries, formatAmount, joinNote, scanNote } from "./wallet-format.js";
-import { el, managerRow, renderWalletList, safeLink, setMessage, walletRequest } from "./wallet-ui.js";
+import { el, managerRow, renderWalletList, replaceIfChanged, safeLink, setMessage, walletRequest } from "./wallet-ui.js";
 
 const EXAMPLE_NOTE = "Public example: the official Monero General Fund address, excluded from your totals. A view key reveals funds received but not spending, so this is the total ever received, not a current balance.";
 
@@ -144,10 +144,9 @@ if (typeof document !== "undefined") {
       const rows = wallets.map(moneroRow);
       const personal = wallets.filter((wallet) => wallet.example !== true);
       renderWalletList(stats, rows, { total: personal.length > 1 ? moneroTotal(wallets) : null });
-      list.textContent = "";
-      wallets.forEach((wallet, index) => {
+      replaceIfChanged(list, JSON.stringify([wallets, allowed]), () => wallets.map((wallet, index) => {
         const row = rows[index];
-        list.append(managerRow({
+        return managerRow({
           label: row.label,
           note: row.note,
           keyText: String(wallet.address || ""),
@@ -158,8 +157,8 @@ if (typeof document !== "undefined") {
             refresh();
           },
           extras: row.example ? [safeLink(wallet.source_url, "Official Monero contribution address")] : [keyImagesInput(wallet, row.label)],
-        }));
-      });
+        });
+      }));
       if (!allowed) say(data.has_password ? "View-only wallet service unavailable. Apply the updated stack to enable it." : "Set a dashboard password to use view-only wallets.");
     }
 
