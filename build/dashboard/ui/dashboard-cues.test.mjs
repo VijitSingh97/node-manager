@@ -22,6 +22,8 @@ flow("Default towers show a focus ring, unreachable towers say so in text and th
 
   const cue = await page.evaluate(() => getComputedStyle(document.querySelector('[data-select-node="bitcoin"] .node-choice-label b'), "::after").content);
   assert.match(cue, /down/);
+  const name = await page.evaluate(() => document.querySelector('[data-select-node="bitcoin"]').getAttribute("aria-label"));
+  assert.match(name, /^Bitcoin.*not responding/);
 
   await page.send("Emulation.setDeviceMetricsOverride", { width: 360, height: 740, deviceScaleFactor: 1, mobile: false });
   await page.goto(page.origin + "/");
@@ -37,4 +39,6 @@ flow("Default towers show a focus ring, unreachable towers say so in text and th
   assert.match(legends[0], /Bitcoin.*% CPU/);
   assert.match(legends[0], /Idle/);
   assert.match(legends[1], /Free/);
+  const swatches = await page.evaluate(() => [...document.querySelectorAll(".pie-legend i")].map((i) => getComputedStyle(i).borderTopWidth));
+  assert.ok(swatches.length >= 4 && swatches.every((width) => width !== "0px"), "legend swatches carry a border");
 });

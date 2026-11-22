@@ -358,7 +358,7 @@ if (typeof document !== "undefined") {
       if (!element || !text || opacity <= 0.001) return;
       const number = element.querySelector("b");
       number.textContent = text.slice("loading block ".length);
-      number.style.color = activeNode(node) ? NODE_COLORS[node] : NODE_COLORS.zcash;
+      number.style.color = `var(--nt-${activeNode(node) ? node : "zcash"})`;
       const position = overviewLabelPosition(ox, anchorY, tw);
       element.style.left = `${position.left}px`;
       element.style.top = `${position.top}px`;
@@ -373,7 +373,7 @@ if (typeof document !== "undefined") {
       label.hidden = state.hidden;
       label.style.opacity = String(state.opacity);
       if (state.hidden) return;
-      label.style.setProperty("--accent", activeNode(node) ? NODE_COLORS[node] : NODE_COLORS.zcash);
+      label.style.setProperty("--accent", `var(--nt-${activeNode(node) ? node : "zcash"})`);
       const topY = project(0, 0, 0, tw, tw * 0.5, ox, anchorY - push - N * (tw / 4)).y;
       label.style.left = `${ox}px`;
       label.style.top = `${Math.max(8, topY - 40)}px`;

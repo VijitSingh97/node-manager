@@ -6,7 +6,7 @@
   --bg: #0f0f0f;
   --card: #1a1a1a;
   --text: #e0e0e0;
-  --muted: #888;
+  --muted: #8a8a8a;
   --faint: #8a8a8a;
   --border: #333;
   --accent: #f2a900;
@@ -23,6 +23,13 @@
   --vital-ring: #2dd4bf;
   --vital-dot-ring: rgba(255, 255, 255, 0.4);
   --unreachable: #ff5252;
+  --nt-bitcoin: #f2a900;
+  --nt-monero: #ff6600;
+  --nt-tari: #9c70ff;
+  --nt-litecoin: #4d8fd8;
+  --nt-dogecoin: #b88746;
+  --nt-bitcoincash: #36a852;
+  --nt-zcash: #d69c35;
 }
 
 :root[data-theme="light"] {
@@ -34,7 +41,7 @@
   --faint: #6b6b6b;
   --border: #e0e0e0;
   --accent: #8a5700;
-  --monero: #d94f00;
+  --monero: #b84900;
   --tag-bg: #f0f0f0;
   --tag-border: #d4d4d4;
   --shadow: rgba(0, 0, 0, 0.12);
@@ -47,6 +54,13 @@
   --vital-ring: #0f766e;
   --vital-dot-ring: rgba(0, 0, 0, 0.35);
   --unreachable: #c0392b;
+  --nt-bitcoin: #8f6400;
+  --nt-monero: #b84900;
+  --nt-tari: #7b4fdb;
+  --nt-litecoin: #3b6ea6;
+  --nt-dogecoin: #8a6534;
+  --nt-bitcoincash: #277b3c;
+  --nt-zcash: #8b6522;
 }
 
 @media (prefers-color-scheme: light) {
@@ -60,7 +74,7 @@
     --faint: #6b6b6b;
     --border: #e0e0e0;
     --accent: #8a5700;
-    --monero: #d94f00;
+    --monero: #b84900;
     --tag-bg: #f0f0f0;
     --tag-border: #d4d4d4;
     --shadow: rgba(0, 0, 0, 0.12);
@@ -73,6 +87,13 @@
     --vital-ring: #0f766e;
     --vital-dot-ring: rgba(0, 0, 0, 0.35);
     --unreachable: #c0392b;
+    --nt-bitcoin: #8f6400;
+    --nt-monero: #b84900;
+    --nt-tari: #7b4fdb;
+    --nt-litecoin: #3b6ea6;
+    --nt-dogecoin: #8a6534;
+    --nt-bitcoincash: #277b3c;
+    --nt-zcash: #8b6522;
   }
 }
 
@@ -143,13 +164,13 @@ body[data-tower-labels="1"] .node-choice span,
 .node-choice-label small { display: block; }
 .node-choice-label small {
   margin-top: 2px;
-  color: var(--node-accent, var(--accent));
+  color: var(--node-text, var(--accent));
   font-size: 0.7rem;
   font-weight: 400;
 }
 .node-choice-label small.stale { opacity: 0.65; }
 .node-choice:focus { outline: 0; }
-.node-choice:focus-visible span { display: table; box-shadow: 0 0 0 2px var(--node-accent, var(--accent)); }
+.node-choice:focus-visible span { display: table; box-shadow: 0 0 0 2px var(--node-text, var(--accent)); }
 .node-choice[data-node-active="0"] { color: var(--muted); }
 .node-choice[data-node-active="0"] span { filter: grayscale(1); opacity: 0.68; }
 .node-choice[data-node-unreachable="1"] span { display: table; filter: none; opacity: 1; }
@@ -476,7 +497,7 @@ h2 {
 /* Watch-only balances, in gold above the tower (desktop) / at the top of the
    column (mobile). */
 .tower-stats {
-  color: var(--node-accent, var(--accent));
+  color: var(--node-text, var(--accent));
   font-family: monospace;
   z-index: 0;
   /* A roomy fixed width — wider than the content, ~¾ of the tower's span so it
@@ -524,7 +545,7 @@ h2 {
   font-size: 1.3rem;
   font-weight: 600;
 }
-.tower-stats .ws-total-row .ws-name { color: var(--node-accent, var(--accent)); }
+.tower-stats .ws-total-row .ws-name { color: var(--node-text, var(--accent)); }
 .watch-hint { color: var(--muted); font-size: 0.72rem; margin-top: 8px; }
 
 @media (min-width: 1024px) {
@@ -628,7 +649,7 @@ body:not([data-computer-stats="1"]) .host-stats { display: none; }
 .host-stats-pies svg { transform: rotate(-90deg); width: 100%; height: auto; }
 .host-stats-pies figure { margin: 0; flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .pie-legend { list-style: none; margin: 0; padding: 0; font-size: 0.75rem; color: var(--muted); align-self: stretch; }
-.pie-legend i { display: inline-block; width: 0.7em; height: 0.7em; margin-right: 6px; border-radius: 2px; background: var(--swatch, var(--glass-track)); }
+.pie-legend i { box-sizing: border-box; border: 1px solid var(--muted); display: inline-block; width: 0.7em; height: 0.7em; margin-right: 6px; border-radius: 2px; background: var(--swatch, var(--glass-track)); }
 .host-stats-pies figcaption { color: var(--muted); font-size: 0.85rem; }
 
 .host-stats-health { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0 0 12px; font-size: 0.85rem; }
@@ -799,12 +820,12 @@ hr {
 .tari-wallet-metrics .row { margin:6px 0; font-size:0.8rem; }
 .tari-watch-form[hidden] { display:none; }
 
-.chain-panel { --accent:var(--node-accent); }
-.chain-card h2 { color:var(--node-accent); }
-.chain-card .badge, .chain-card .price-value { color:var(--node-accent); }
+.chain-panel { --accent:var(--node-text); }
+.chain-card h2 { color:var(--node-text); }
+.chain-card .badge, .chain-card .price-value { color:var(--node-text); }
 .chain-card .badge { border-color:var(--node-accent); }
 .chain-card .progress-fill { background:var(--node-accent); }
-.node-power-card h2 { color:var(--node-accent,var(--accent)); }
+.node-power-card h2 { color:var(--node-text,var(--accent)); }
 .node-power-button { padding:9px 14px; border:1px solid var(--border); border-radius:5px; background:var(--tag-bg); color:var(--text); cursor:pointer; }
 .node-power-button:hover { border-color:var(--node-accent,var(--accent)); }
 .node-power-button:disabled { opacity:0.55; cursor:default; }
@@ -828,12 +849,12 @@ hr {
 .tower-overview-label { padding:3px 5px; border-radius:3px; background:var(--bg); }
 
 #node-overview-status {position:fixed;top:75px;inset-inline:24px;text-align:center;color:var(--muted);font:0.8rem monospace;pointer-events:none;}
-.chain-wallet-card h2 {color:var(--node-accent);}
+.chain-wallet-card h2 {color:var(--node-text);}
 .node-panel[data-node-active="0"] .chain-wallet-card {display:none !important;}
 .family-watch-form {display:grid;grid-template-columns:1fr;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);}
 .family-watch-form[hidden] {display:none;}
 .family-watch-form input {min-width:0;padding:7px;border:1px solid var(--border);border-radius:4px;background:var(--tag-bg);color:var(--text);font:0.8rem monospace;}
-.family-watch-form button {justify-self:start;padding:7px 10px;border:1px solid var(--node-accent);border-radius:4px;background:transparent;color:var(--node-accent);cursor:pointer;}
+.family-watch-form button {justify-self:start;padding:7px 10px;border:1px solid var(--node-accent);border-radius:4px;background:transparent;color:var(--node-text);cursor:pointer;}
 .family-watch-form button:disabled {opacity:0.5;cursor:default;}
 .family-watch-message {grid-column:1 / -1;min-height:1.2em;margin:0;color:var(--muted);font-size:0.75rem;}
 .family-watch-error {color:var(--unreachable) !important;}

@@ -69,3 +69,34 @@ test("accent-filled add button takes its text colour from a theme token", () => 
   assert.match(rule, /background:\s*var\(--accent\)/);
   assert.match(rule, /\bcolor:\s*var\(--bg\)/);
 });
+
+const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+const nodes = ["bitcoin", "monero", "tari", "litecoin", "dogecoin", "bitcoincash", "zcash"];
+
+for (const [theme, values] of Object.entries(themes)) {
+  for (const node of nodes) {
+    for (const bg of ["bg", "card", "tag-bg"]) {
+      test(`${theme}: ${node} text reaches 4.5:1 on --${bg}`, () => {
+        const got = ratio(values[`nt-${node}`], values[bg]);
+        assert.ok(got >= 4.5, `${values[`nt-${node}`]} on ${values[bg]} is ${got.toFixed(2)}:1`);
+      });
+    }
+    test(`${theme}: ${node} focus ring reaches 3:1 on --bg and --card`, () => {
+      for (const bg of ["bg", "card"]) assert.ok(ratio(values[`nt-${node}`], values[bg]) >= 3, `${node} on ${bg}`);
+    });
+  }
+  test(`${theme}: muted text reaches 4.5:1 on --tag-bg`, () => {
+    assert.ok(ratio(values.muted, values["tag-bg"]) >= 4.5);
+  });
+  test(`${theme}: --monero text reaches 4.5:1 on --bg and --card`, () => {
+    for (const bg of ["bg", "card"]) assert.ok(ratio(values.monero, values[bg]) >= 4.5, bg);
+  });
+}
+
+test("every inline node accent has its matching text token and the ring uses it", () => {
+  const brand = { "#f2a900": "bitcoin", "#ff6600": "monero", "#8f5cff": "tari", "#4d8fd8": "litecoin", "#b88746": "dogecoin", "#36a852": "bitcoincash", "#d69c35": "zcash" };
+  const found = [...html.matchAll(/--node-accent:(#[0-9a-f]{6})([^"]*)"/gi)];
+  assert.ok(found.length > 20);
+  for (const [, hex, rest] of found) assert.ok(rest.includes(`--node-text:var(--nt-${brand[hex.toLowerCase()]})`), hex);
+  assert.match(css, /\.node-choice:focus-visible span \{[^}]*var\(--node-text/);
+});
