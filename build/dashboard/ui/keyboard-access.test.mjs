@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import { flow } from "./harness.mjs";
 
-const focused = (page) => page.evaluate(() => document.activeElement?.getAttribute("data-zoom") || document.activeElement?.className || "");
-
 flow("The shortened wallet address is a button that Enter and Space expand and collapse", async ({ page }) => {
   await page.evaluate(async () => {
     const { managerRow, replaceIfChanged } = await import("/static/wallet-ui.js");

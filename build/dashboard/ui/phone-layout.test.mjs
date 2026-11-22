@@ -55,7 +55,7 @@ flow("Phone host stats leave the towers clickable", { nodes, hostStats: true, se
   assert.ok(got.statsBottom <= got.height * 0.4, `host stats reach ${got.statsBottom}px of ${got.height}px`);
   assert.equal(got.coversToggle, false);
   assert.equal(got.belowInStats, false);
-  assert.ok(got.towerHits >= 1, "a tower must be clickable under the host stats");
+  assert.ok(got.towerHits >= 4, `only ${got.towerHits} of 12 probe points reach a tower under the host stats`);
   assert.ok(got.upperHits >= 1, "a tower must be clickable just below the host stats");
 });
 

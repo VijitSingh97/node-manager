@@ -59,12 +59,16 @@ function setText(id, value) {
   if (element) element.textContent = value;
 }
 
-function announceNodeStatus(id) {
+function refreshNodeLabel(id) {
   const next = liveBlockElement(id)?.dataset.nextBlock;
   for (const choice of document.querySelectorAll(`[data-select-node="${id}"]`)) {
     const note = choice.dataset.powerNote || (nodeUnreachable(choice.dataset, next) ? " — not responding" : "");
     choice.setAttribute("aria-label", NODE_LABELS[id] + note);
   }
+}
+
+function announceNodeStatus(id) {
+  refreshNodeLabel(id);
   window.dispatchEvent(new CustomEvent("node-status-updated", { detail: { node: id } }));
 }
 
@@ -261,7 +265,7 @@ if (typeof document !== "undefined") {
     finally {busy=false;updateSubmit();updateButtons();await loadNodes();}
   });
   window.addEventListener("node-catalog-updated", loadNodes);
-  window.addEventListener("live-updated", () => announceNodeStatus("bitcoin"));
-  window.addEventListener("node-height", (event) => announceNodeStatus(event.detail.node));
+  window.addEventListener("live-updated", () => refreshNodeLabel("bitcoin"));
+  window.addEventListener("node-height", (event) => refreshNodeLabel(event.detail.node));
   loadNodes();
 }

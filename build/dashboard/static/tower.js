@@ -229,11 +229,11 @@ export function sceneDepth(H, anchorY, tw, overviewY, overviewTw) {
   return Math.max(previewDepth(H, anchorY, tw), previewDepth(H, overviewY, overviewTw));
 }
 
-// The server's offline flag lags the status polls, so a fresh height overrides it.
 export function liveBlockElement(node) {
   return document.getElementById(node === "bitcoin" ? "live" : `${node}-live`);
 }
 
+// The server's offline flag lags the status polls, so a fresh height overrides it.
 export function nodeUnreachable(choice, nextBlock) {
   return choice?.nodeOffline === "1" && !/^\d+$/.test(String(nextBlock ?? "").trim());
 }
