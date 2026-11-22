@@ -27,11 +27,13 @@ All notable changes to this project are documented here. Format follows
   are no longer covered by the theme toggle, the fixed Settings and account
   buttons or the host stats panel, and the add-address form shows its full
   hints on desktop (#430).
-- Dashboard text, including each node's coloured headings and labels, meets
-  WCAG AA contrast in both themes, with a test that checks every pair. Towers
-  show a keyboard focus ring with at least 3:1 contrast, unreachable towers say
-  so in text and to screen readers under the same rule, and the CPU and memory
-  pies have a legend (#431).
+- Dashboard text meets WCAG AA contrast in both themes on the page, cards,
+  tags and host-stats tiles, including each node's own text colour, and a test
+  computes those pairs from the stylesheet. Focus rings reach 3:1 and stay at
+  full strength on inactive towers, stale balances and prices show in the
+  muted colour in italics instead of fading, unreachable towers say so in text
+  and to screen readers under the same rule, and the CPU and memory pies have
+  a legend (#431).
 - The shortened wallet address, the host usage pies and the disk bars work
   from the keyboard. The theme toggle announces its current mode, and the
   chain cards no longer make screen readers repeat them on every refresh
