@@ -276,7 +276,7 @@ shows the overridable settings with their defaults:
 | `dashboard.bind_ip` | `auto` | Select the default network interface's RFC1918 IPv4 address each time configuration is rendered, falling back to `127.0.0.1` when no supported private interface is available. When that address later disappears, the host helper moves the dashboard to the new one. LAN listeners on the old address follow only within the same subnet and are paused otherwise; see [Self-healing](operations.md#self-healing-a-deliberate-non-feature). Set loopback for access only from this machine, or an explicit private host address. Public and wildcard binds are rejected; `::1` is accepted only with `dashboard.public_url`. |
 | `dashboard.port` | `80`; `8080` for a fresh Homebrew install | Host TCP port for the dashboard (`1`–`65535`). Edit this key before setup or apply it later when the default conflicts with another service. |
 | `dashboard.launch_at_boot` | `false` | Start the configured application after reboot for APT, or after login for user Homebrew services. Global Settings applies this through the host helper, including container restart policy; disabling it leaves the current application running and uses up to five retries for crashes without startup after a Docker restart. Source installs without a managed service report this control as unavailable. |
-| `host.thermal_limit_c` | `0` (use `85`) | Throttle temperature for the host thermal throttle (Linux, `/sys/class/thermal`), which is switched on and off with the "Thermal throttle" checkbox in the dashboard settings panel. While the host is at or above this temperature the resource-profile timer halves running node containers' CPU caps each pass toward a 0.25-CPU floor, instead of anything stopping them. `50`–`110`; `0` means the default of `85`. Actions are logged to `/state/events.log` (`./stack events`) and forwarded to Telegram when configured. |
+| `host.thermal_limit_c` | `0` (use `85`) | Throttle temperature for the host thermal throttle (Linux, `/sys/class/thermal`), which is switched on and off with the "Thermal throttle" checkbox in the Node set group of Settings. While the host is at or above this temperature the resource-profile timer halves running node containers' CPU caps each pass toward a 0.25-CPU floor, instead of anything stopping them. `50`–`110`; `0` means the default of `85`. Actions are logged to `/state/events.log` (`./stack events`) and forwarded to Telegram when configured. |
 | `host.thermal_resume_c` | `0` (limit − 10) | Temperature at or below which the pre-throttle CPU caps are restored exactly, including unlimited. `20` up to below `thermal_limit_c`. Caps are also restored when the throttle is switched off in the settings panel. |
 | `notifications.telegram_bot_token` | `""` (off) | With `telegram_chat_id`, enables Telegram alerts (node down/recovered, sync complete, disk low) — see [Notifications](notifications.md#telegram-alerts). |
 | `notifications.telegram_chat_id` | `""` (off) | The chat that receives alerts. |
@@ -396,10 +396,11 @@ workload fits; see [hardware estimates and test evidence](hardware.md).
 
 ## Dashboard settings
 
-The gear menu contains **Nodes**, **Launch at boot/login**, **Network**,
-**Balance index**, **Appearance**, **Telegram**, and **Healthchecks** settings;
+The gear menu contains **Appearance**, **Node set** (with **Launch at
+boot/login** and **Thermal throttle**), **Network**, **Balance index**,
+**Telegram**, and **Healthchecks** settings;
 nothing there takes effect until you press **Save**. The person icon above the gear
-holds **Account** and **Dashboard password**. **Nodes**
+opens the User dialog, which holds **Account** and **Dashboard password**. **Node set**
 installs an available chain through the host helper using versioned project images and
 default storage; LAN interfaces remain closed. It shows installation progress
 and errors. Pending external configuration changes appear here for explicit
@@ -544,7 +545,7 @@ dashboard state volume. Their sourced public examples are created automatically
 on fresh state: Linux Mint for Litecoin and Bitcoin Cash Node for Bitcoin Cash.
 The Monero General Fund is a received-only example because it has no signed key
 images. All examples are excluded from personal totals. Dogecoin and Zcash show
-**Wallet balance not available** and no public reference address. Tari imports
+no balance and no public reference address; the card explains why. Tari imports
 one view-only wallet and has no bundled example.
 
 Keep the following in the server file: Bitcoin storage paths, pruning, indexes,

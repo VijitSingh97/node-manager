@@ -92,7 +92,7 @@ Wallet capabilities differ by chain:
 | Monero | Primary address plus private view key, with optional signed key images. Without complete key images, the amount is received-only rather than a verified current balance. |
 | Litecoin | Address-only confirmed UTXO snapshots from the local node. |
 | Bitcoin Cash | Address-only confirmed UTXO snapshots from the local node. |
-| Dogecoin | Address-only confirmed UTXO snapshots from the local node with `dogecoin.utxo_index`, pruned or archival, which Dogecoin installs from the dashboard turn on; the index seeds from a copy of the node's chainstate. Without it, **wallet balance is not available**: the pruned daemon cannot discover an arbitrary address balance. With the opt-in `dogecoin.watch_wallet` (archival node, fresh unpruned sync, hours-long rescans, disk not yet measured here), public addresses are read from the local node's watch-only wallet and the Dogecoin Foundation address is shown as an example. |
+| Dogecoin | Address-only confirmed UTXO snapshots from the local node with `dogecoin.utxo_index`, pruned or archival, which Dogecoin installs from the dashboard turn on; the index seeds from a copy of the node's chainstate. Without it, the watch card gives a reason instead of a balance: the pruned daemon cannot discover an arbitrary address balance. With the opt-in `dogecoin.watch_wallet` (archival node, fresh unpruned sync, hours-long rescans, disk not yet measured here), public addresses are read from the local node's watch-only wallet and the Dogecoin Foundation address is shown as an example. |
 | Zcash / Zakura | **Wallet balance** needs `zcash.address_index`, which new Zcash installs from the dashboard turn on (slower and less secure upstream than checkpoint sync, disk not yet measured). Existing installs keep their setting, and enabling it later needs a fresh data directory and resync. With it, transparent `t1`/`t3` addresses are read from the local node and the Zcash Community Grants address is shown as an example. |
 | Tari | One native view-only wallet using a public spend key, private view key, and optional `YYYY-MM-DD` birthday. Blank birthday scans from genesis. No seed or private spend key is accepted. |
 
@@ -177,8 +177,9 @@ phrase or private spend key. **Node controls**, after wallets, contains separate
 and reset require a dashboard sign-in from the last 15 minutes.
 Monero ZMQ and Tari gRPC have no password controls.
 
-Global Settings also contains launch at boot/login, Appearance, Dashboard
-password, Telegram, and Healthchecks. Launch at boot/login is managed by APT
+Global Settings also contains launch at boot/login, Thermal throttle,
+Appearance, Telegram, and Healthchecks. The Dashboard password is in the User
+dialog (person icon). Launch at boot/login is managed by APT
 and Homebrew installations; source installs show it as unavailable. Turning it
 off does not stop running nodes; it controls future starts. The read-only
 **Config** section immediately below Healthchecks shows the exact host
@@ -331,7 +332,7 @@ not affected.
 **Settings → Node set → Delete…**, next to **Move data…**, removes a node so it
 can be installed again from scratch. The button is enabled only for an installed
 node that is already deactivated and is not the last installed node; otherwise
-its tooltip says what is missing. The confirmation dialog warns that the step
+the reason shows under the row. The confirmation dialog warns that the step
 cannot be undone and lists exactly what goes: the node's data folder shown in
 Settings, its balance-index or wallet Docker volumes (Bitcoin `utxo_index`,
 Litecoin `utxo_index_litecoin`, Bitcoin Cash `utxo_index_bitcoincash`, Dogecoin
