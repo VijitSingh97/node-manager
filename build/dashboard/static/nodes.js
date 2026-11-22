@@ -211,6 +211,7 @@ if (typeof document !== "undefined") {
     details.hidden = !view.details;
     const live = document.getElementById("monero-live");
     live.dataset.nextBlock = view.nextBlock || "";
+    window.dispatchEvent(new CustomEvent("node-height", { detail: { node: "monero" } }));
     updateTowerProgress(live, data);
     if (!view.details) return;
     if (data.database_size_available) window.dispatchEvent(new CustomEvent("node-size", { detail: { id: "monero", bytes: Number(data.database_size_bytes) || 0 } }));

@@ -252,7 +252,21 @@ export function arcPath(startFrac, endFrac) {
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-function buildPie(slices, label, labelTitle, zoomedFlag, onToggle) {
+function operable(node, id, name, pressed, onToggle) {
+  node.setAttribute("role", "button");
+  node.tabIndex = 0;
+  node.dataset.zoom = id;
+  node.setAttribute("aria-label", name);
+  node.setAttribute("aria-pressed", String(pressed));
+  node.addEventListener("click", onToggle);
+  node.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onToggle();
+  });
+}
+
+function buildPie(slices, label, labelTitle, zoomedFlag, onToggle, id) {
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("viewBox", "-1.15 -1.15 2.3 2.3");
   let at = 0;
@@ -275,7 +289,17 @@ function buildPie(slices, label, labelTitle, zoomedFlag, onToggle) {
   if (labelTitle) caption.title = labelTitle;
   figure.appendChild(svg);
   figure.appendChild(caption);
-  figure.addEventListener("click", onToggle);
+  const legend = document.createElement("ul");
+  legend.className = "pie-legend";
+  for (const slice of slices) {
+    const item = document.createElement("li");
+    const swatch = document.createElement("i");
+    if (slice.color) swatch.style.setProperty("--swatch", slice.color);
+    item.append(swatch, slice.title);
+    legend.appendChild(item);
+  }
+  figure.appendChild(legend);
+  operable(figure, id, `${label} (${slices.map((slice) => slice.title).join(", ")}): zoom to Node Manager usage`, zoomedFlag, onToggle);
   return figure;
 }
 
@@ -291,11 +315,11 @@ function renderPies(stats) {
   wrap.appendChild(buildPie(cpuSlices, cpuLabel, view.cpuLabelTitle, cpuZoomed, () => {
     cpuZoomed = !cpuZoomed;
     render();
-  }));
+  }, "cpu"));
   wrap.appendChild(buildPie(memSlices, memLabel, view.memLabelTitle, memZoomed, () => {
     memZoomed = !memZoomed;
     render();
-  }));
+  }, "mem"));
   wrap.hidden = false;
 }
 
@@ -397,6 +421,12 @@ let memZoomed = false;
 function render() {
   const panel = document.getElementById("host-stats");
   if (!panel) return;
+  const focusedZoom = panel.contains(document.activeElement) ? document.activeElement.dataset?.zoom : null;
+  renderPanel(panel);
+  if (focusedZoom) panel.querySelector(`[data-zoom="${focusedZoom}"]`)?.focus({ preventScroll: true });
+}
+
+function renderPanel(panel) {
   const bitcoinBytes = Number(document.getElementById("live")?.dataset.nodeSize);
   if (bitcoinBytes > 0) sizes.set("bitcoin", bitcoinBytes);
   const view = diskViews(host, withCollectorSizes(host?.stats, sizes), zoomedDisks);
@@ -423,7 +453,7 @@ function render() {
       part.title = slice.title;
       row.appendChild(part);
     }
-    row.addEventListener("click", () => {
+    operable(row, `disk-${bar.index}`, `${bar.label}: ${bar.title}. Zoom to Node Manager usage`, bar.zoomed, () => {
       if (zoomedDisks.has(bar.index)) zoomedDisks.delete(bar.index);
       else zoomedDisks.add(bar.index);
       render();

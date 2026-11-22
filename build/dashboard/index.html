@@ -11,14 +11,14 @@
 {{if or .Loading (not .BitcoinEnabled)}}
 <body class="center-screen" data-node="">
   <canvas id="tower"></canvas><div id="tower-label"></div>
-  <div id="tower-overview-label-bitcoin" class="tower-overview-label tower-overview-label-bitcoin" style="--node-accent:#f2a900" hidden>loading block <b></b></div>
-  <div id="tower-overview-label-monero" class="tower-overview-label tower-overview-label-monero" style="--node-accent:#ff6600" hidden>loading block <b></b></div>
-  <div id="tower-overview-label-tari" class="tower-overview-label tower-overview-label-tari" style="--node-accent:#8f5cff" hidden>loading block <b></b></div>
-  <div id="tower-overview-label-litecoin" class="tower-overview-label tower-overview-label-litecoin" style="--node-accent:#4d8fd8" hidden>loading block <b></b></div>
-  <div id="tower-overview-label-dogecoin" class="tower-overview-label tower-overview-label-dogecoin" style="--node-accent:#b88746" hidden>loading block <b></b></div>
-  <div id="tower-overview-label-bitcoincash" class="tower-overview-label tower-overview-label-bitcoincash" style="--node-accent:#36a852" hidden>loading block <b></b></div>
-  <div id="tower-overview-label-zcash" class="tower-overview-label tower-overview-label-zcash" style="--node-accent:#d69c35" hidden>loading block <b></b></div>
-  <button id="theme-toggle" class="theme-toggle" title="Toggle light / dark theme" aria-label="Toggle theme">Auto</button>
+  <div id="tower-overview-label-bitcoin" class="tower-overview-label tower-overview-label-bitcoin" style="--node-accent:#f2a900;--node-text:var(--nt-bitcoin)" hidden>loading block <b></b></div>
+  <div id="tower-overview-label-monero" class="tower-overview-label tower-overview-label-monero" style="--node-accent:#ff6600;--node-text:var(--nt-monero)" hidden>loading block <b></b></div>
+  <div id="tower-overview-label-tari" class="tower-overview-label tower-overview-label-tari" style="--node-accent:#8f5cff;--node-text:var(--nt-tari)" hidden>loading block <b></b></div>
+  <div id="tower-overview-label-litecoin" class="tower-overview-label tower-overview-label-litecoin" style="--node-accent:#4d8fd8;--node-text:var(--nt-litecoin)" hidden>loading block <b></b></div>
+  <div id="tower-overview-label-dogecoin" class="tower-overview-label tower-overview-label-dogecoin" style="--node-accent:#b88746;--node-text:var(--nt-dogecoin)" hidden>loading block <b></b></div>
+  <div id="tower-overview-label-bitcoincash" class="tower-overview-label tower-overview-label-bitcoincash" style="--node-accent:#36a852;--node-text:var(--nt-bitcoincash)" hidden>loading block <b></b></div>
+  <div id="tower-overview-label-zcash" class="tower-overview-label tower-overview-label-zcash" style="--node-accent:#d69c35;--node-text:var(--nt-zcash)" hidden>loading block <b></b></div>
+  <button id="theme-toggle" class="theme-toggle" title="Toggle light / dark theme" aria-label="Switch theme, now Auto">Auto</button>
   <aside id="update-notice" class="update-notice update-notice-global" role="status"{{if not .UpdateNote}} hidden{{end}}>{{if .UpdateNote}}<strong>🆕 {{.UpdateNote}}</strong> <a href="https://github.com/VijitSingh97/node-manager#updating" target="_blank" rel="noopener noreferrer">How to update</a>{{end}}</aside>
   <main id="node-overview" class="node-overview" aria-label="Choose a node">
     <div id="host-stats" class="host-stats" hidden>
@@ -28,13 +28,13 @@
       <div class="host-stats-pies" data-host-pies hidden></div>
     </div>
     <h1 class="node-set-title">{{.NodeName}} Node Set</h1><p id="node-overview-status" role="status">Loading node set…</p>
-    <button class="node-choice node-choice-bitcoin" type="button" data-select-node="bitcoin" hidden data-node-active="1" style="--node-accent:#f2a900" aria-label="Bitcoin" aria-controls="bitcoin-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Bitcoin</b><small data-tower-price-asset="bitcoin">Price unavailable</small></span></button>
-    <button class="node-choice node-choice-monero" type="button" data-select-node="monero" hidden data-node-active="1" style="--node-accent:#ff6600" aria-label="Monero" aria-controls="monero-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Monero</b><small data-tower-price-asset="monero">Price unavailable</small></span></button>
-    <button class="node-choice node-choice-tari" type="button" data-select-node="tari" hidden data-node-active="1" style="--node-accent:#8f5cff" aria-label="Tari" aria-controls="tari-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Tari</b><small data-tower-price-asset="tari">Price unavailable</small></span></button>
-    <button class="node-choice node-choice-litecoin" type="button" data-select-node="litecoin" hidden data-node-active="1" style="--node-accent:#4d8fd8" aria-label="Litecoin" aria-controls="litecoin-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Litecoin</b><small data-tower-price-asset="litecoin">Price unavailable</small></span></button>
-    <button class="node-choice node-choice-dogecoin" type="button" data-select-node="dogecoin" hidden data-node-active="1" style="--node-accent:#b88746" aria-label="Dogecoin" aria-controls="dogecoin-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Dogecoin</b><small data-tower-price-asset="dogecoin">Price unavailable</small></span></button>
-    <button class="node-choice node-choice-bitcoincash" type="button" data-select-node="bitcoincash" hidden data-node-active="1" style="--node-accent:#36a852" aria-label="Bitcoin Cash" aria-controls="bitcoincash-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Bitcoin Cash</b><small data-tower-price-asset="bitcoin-cash">Price unavailable</small></span></button>
-    <button class="node-choice node-choice-zcash" type="button" data-select-node="zcash" hidden data-node-active="0" style="--node-accent:#d69c35" aria-label="Zcash" aria-controls="zcash-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Zcash</b><small data-tower-price-asset="zcash">Unavailable</small></span></button>
+    <button class="node-choice node-choice-bitcoin" type="button" data-select-node="bitcoin" hidden data-node-active="1" style="--node-accent:#f2a900;--node-text:var(--nt-bitcoin)" aria-label="Bitcoin" aria-controls="bitcoin-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Bitcoin</b><small data-tower-price-asset="bitcoin">Price unavailable</small></span></button>
+    <button class="node-choice node-choice-monero" type="button" data-select-node="monero" hidden data-node-active="1" style="--node-accent:#ff6600;--node-text:var(--nt-monero)" aria-label="Monero" aria-controls="monero-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Monero</b><small data-tower-price-asset="monero">Price unavailable</small></span></button>
+    <button class="node-choice node-choice-tari" type="button" data-select-node="tari" hidden data-node-active="1" style="--node-accent:#8f5cff;--node-text:var(--nt-tari)" aria-label="Tari" aria-controls="tari-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Tari</b><small data-tower-price-asset="tari">Price unavailable</small></span></button>
+    <button class="node-choice node-choice-litecoin" type="button" data-select-node="litecoin" hidden data-node-active="1" style="--node-accent:#4d8fd8;--node-text:var(--nt-litecoin)" aria-label="Litecoin" aria-controls="litecoin-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Litecoin</b><small data-tower-price-asset="litecoin">Price unavailable</small></span></button>
+    <button class="node-choice node-choice-dogecoin" type="button" data-select-node="dogecoin" hidden data-node-active="1" style="--node-accent:#b88746;--node-text:var(--nt-dogecoin)" aria-label="Dogecoin" aria-controls="dogecoin-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Dogecoin</b><small data-tower-price-asset="dogecoin">Price unavailable</small></span></button>
+    <button class="node-choice node-choice-bitcoincash" type="button" data-select-node="bitcoincash" hidden data-node-active="1" style="--node-accent:#36a852;--node-text:var(--nt-bitcoincash)" aria-label="Bitcoin Cash" aria-controls="bitcoincash-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Bitcoin Cash</b><small data-tower-price-asset="bitcoin-cash">Price unavailable</small></span></button>
+    <button class="node-choice node-choice-zcash" type="button" data-select-node="zcash" hidden data-node-active="0" style="--node-accent:#d69c35;--node-text:var(--nt-zcash)" aria-label="Zcash" aria-controls="zcash-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Zcash</b><small data-tower-price-asset="zcash">Unavailable</small></span></button>
   </main>
   <div id="node-close-backdrop" class="node-close-backdrop" aria-hidden="true"></div>
   <div id="bitcoin-panel" class="stack-col node-panel" data-node-panel="bitcoin" hidden>
@@ -69,7 +69,7 @@
     </div></div>
     {{if .BitcoinEnabled}}<section id="watch" class="card watch-card" hidden></section>
     <section id="utxo-index" class="card watch-card" hidden></section>{{end}}
-    <section class="card node-power-card" style="--node-accent:#f2a900">
+    <section class="card node-power-card" style="--node-accent:#f2a900;--node-text:var(--nt-bitcoin)">
       <h2>Node controls</h2>
       <p id="bitcoin-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
       <button type="button" class="node-power-button" data-node-power="bitcoin">Deactivate node</button>
@@ -78,14 +78,14 @@
 {{else}}
 <body class="center" data-node="">
   <canvas id="tower"></canvas><div id="tower-label"></div>
-  <div id="tower-overview-label-bitcoin" class="tower-overview-label tower-overview-label-bitcoin" style="--node-accent:#f2a900" hidden>loading block <b></b></div>
-  <div id="tower-overview-label-monero" class="tower-overview-label tower-overview-label-monero" style="--node-accent:#ff6600" hidden>loading block <b></b></div>
-  <div id="tower-overview-label-tari" class="tower-overview-label tower-overview-label-tari" style="--node-accent:#8f5cff" hidden>loading block <b></b></div>
-  <div id="tower-overview-label-litecoin" class="tower-overview-label tower-overview-label-litecoin" style="--node-accent:#4d8fd8" hidden>loading block <b></b></div>
-  <div id="tower-overview-label-dogecoin" class="tower-overview-label tower-overview-label-dogecoin" style="--node-accent:#b88746" hidden>loading block <b></b></div>
-  <div id="tower-overview-label-bitcoincash" class="tower-overview-label tower-overview-label-bitcoincash" style="--node-accent:#36a852" hidden>loading block <b></b></div>
-  <div id="tower-overview-label-zcash" class="tower-overview-label tower-overview-label-zcash" style="--node-accent:#d69c35" hidden>loading block <b></b></div>
-  <button id="theme-toggle" class="theme-toggle" title="Toggle light / dark theme" aria-label="Toggle theme">Auto</button>
+  <div id="tower-overview-label-bitcoin" class="tower-overview-label tower-overview-label-bitcoin" style="--node-accent:#f2a900;--node-text:var(--nt-bitcoin)" hidden>loading block <b></b></div>
+  <div id="tower-overview-label-monero" class="tower-overview-label tower-overview-label-monero" style="--node-accent:#ff6600;--node-text:var(--nt-monero)" hidden>loading block <b></b></div>
+  <div id="tower-overview-label-tari" class="tower-overview-label tower-overview-label-tari" style="--node-accent:#8f5cff;--node-text:var(--nt-tari)" hidden>loading block <b></b></div>
+  <div id="tower-overview-label-litecoin" class="tower-overview-label tower-overview-label-litecoin" style="--node-accent:#4d8fd8;--node-text:var(--nt-litecoin)" hidden>loading block <b></b></div>
+  <div id="tower-overview-label-dogecoin" class="tower-overview-label tower-overview-label-dogecoin" style="--node-accent:#b88746;--node-text:var(--nt-dogecoin)" hidden>loading block <b></b></div>
+  <div id="tower-overview-label-bitcoincash" class="tower-overview-label tower-overview-label-bitcoincash" style="--node-accent:#36a852;--node-text:var(--nt-bitcoincash)" hidden>loading block <b></b></div>
+  <div id="tower-overview-label-zcash" class="tower-overview-label tower-overview-label-zcash" style="--node-accent:#d69c35;--node-text:var(--nt-zcash)" hidden>loading block <b></b></div>
+  <button id="theme-toggle" class="theme-toggle" title="Toggle light / dark theme" aria-label="Switch theme, now Auto">Auto</button>
   <aside id="update-notice" class="update-notice update-notice-global" role="status"{{if not .UpdateNote}} hidden{{end}}>{{if .UpdateNote}}<strong>🆕 {{.UpdateNote}}</strong> <a href="https://github.com/VijitSingh97/node-manager#updating" target="_blank" rel="noopener noreferrer">How to update</a>{{end}}</aside>
   <main id="node-overview" class="node-overview" aria-label="Choose a node">
     <div id="host-stats" class="host-stats" hidden>
@@ -95,13 +95,13 @@
       <div class="host-stats-pies" data-host-pies hidden></div>
     </div>
     <h1 class="node-set-title">{{.NodeName}} Node Set</h1><p id="node-overview-status" role="status">Loading node set…</p>
-    <button class="node-choice node-choice-bitcoin" type="button" data-select-node="bitcoin" hidden data-node-active="1" style="--node-accent:#f2a900" aria-label="Bitcoin" aria-controls="bitcoin-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Bitcoin</b><small data-tower-price-asset="bitcoin">Price unavailable</small></span></button>
-    <button class="node-choice node-choice-monero" type="button" data-select-node="monero" hidden data-node-active="1" style="--node-accent:#ff6600" aria-label="Monero" aria-controls="monero-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Monero</b><small data-tower-price-asset="monero">Price unavailable</small></span></button>
-    <button class="node-choice node-choice-tari" type="button" data-select-node="tari" hidden data-node-active="1" style="--node-accent:#8f5cff" aria-label="Tari" aria-controls="tari-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Tari</b><small data-tower-price-asset="tari">Price unavailable</small></span></button>
-    <button class="node-choice node-choice-litecoin" type="button" data-select-node="litecoin" hidden data-node-active="1" style="--node-accent:#4d8fd8" aria-label="Litecoin" aria-controls="litecoin-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Litecoin</b><small data-tower-price-asset="litecoin">Price unavailable</small></span></button>
-    <button class="node-choice node-choice-dogecoin" type="button" data-select-node="dogecoin" hidden data-node-active="1" style="--node-accent:#b88746" aria-label="Dogecoin" aria-controls="dogecoin-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Dogecoin</b><small data-tower-price-asset="dogecoin">Price unavailable</small></span></button>
-    <button class="node-choice node-choice-bitcoincash" type="button" data-select-node="bitcoincash" hidden data-node-active="1" style="--node-accent:#36a852" aria-label="Bitcoin Cash" aria-controls="bitcoincash-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Bitcoin Cash</b><small data-tower-price-asset="bitcoin-cash">Price unavailable</small></span></button>
-    <button class="node-choice node-choice-zcash" type="button" data-select-node="zcash" hidden data-node-active="0" style="--node-accent:#d69c35" aria-label="Zcash" aria-controls="zcash-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Zcash</b><small data-tower-price-asset="zcash">Unavailable</small></span></button>
+    <button class="node-choice node-choice-bitcoin" type="button" data-select-node="bitcoin" hidden data-node-active="1" style="--node-accent:#f2a900;--node-text:var(--nt-bitcoin)" aria-label="Bitcoin" aria-controls="bitcoin-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Bitcoin</b><small data-tower-price-asset="bitcoin">Price unavailable</small></span></button>
+    <button class="node-choice node-choice-monero" type="button" data-select-node="monero" hidden data-node-active="1" style="--node-accent:#ff6600;--node-text:var(--nt-monero)" aria-label="Monero" aria-controls="monero-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Monero</b><small data-tower-price-asset="monero">Price unavailable</small></span></button>
+    <button class="node-choice node-choice-tari" type="button" data-select-node="tari" hidden data-node-active="1" style="--node-accent:#8f5cff;--node-text:var(--nt-tari)" aria-label="Tari" aria-controls="tari-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Tari</b><small data-tower-price-asset="tari">Price unavailable</small></span></button>
+    <button class="node-choice node-choice-litecoin" type="button" data-select-node="litecoin" hidden data-node-active="1" style="--node-accent:#4d8fd8;--node-text:var(--nt-litecoin)" aria-label="Litecoin" aria-controls="litecoin-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Litecoin</b><small data-tower-price-asset="litecoin">Price unavailable</small></span></button>
+    <button class="node-choice node-choice-dogecoin" type="button" data-select-node="dogecoin" hidden data-node-active="1" style="--node-accent:#b88746;--node-text:var(--nt-dogecoin)" aria-label="Dogecoin" aria-controls="dogecoin-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Dogecoin</b><small data-tower-price-asset="dogecoin">Price unavailable</small></span></button>
+    <button class="node-choice node-choice-bitcoincash" type="button" data-select-node="bitcoincash" hidden data-node-active="1" style="--node-accent:#36a852;--node-text:var(--nt-bitcoincash)" aria-label="Bitcoin Cash" aria-controls="bitcoincash-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Bitcoin Cash</b><small data-tower-price-asset="bitcoin-cash">Price unavailable</small></span></button>
+    <button class="node-choice node-choice-zcash" type="button" data-select-node="zcash" hidden data-node-active="0" style="--node-accent:#d69c35;--node-text:var(--nt-zcash)" aria-label="Zcash" aria-controls="zcash-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Zcash</b><small data-tower-price-asset="zcash">Unavailable</small></span></button>
   </main>
   <div id="node-close-backdrop" class="node-close-backdrop" aria-hidden="true"></div>
   <div id="bitcoin-panel" class="stack-col node-panel" data-node-panel="bitcoin" hidden>
@@ -145,7 +145,7 @@
       </div>
     </div>
     <section id="watch" class="card watch-card" hidden></section>
-    <section class="card node-power-card" style="--node-accent:#f2a900">
+    <section class="card node-power-card" style="--node-accent:#f2a900;--node-text:var(--nt-bitcoin)">
       <h2>Node controls</h2>
       <p id="bitcoin-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
       <button type="button" class="node-power-button" data-node-power="bitcoin">Deactivate node</button>
@@ -156,7 +156,7 @@
     <button class="node-panel-close" type="button" data-close-node aria-label="Close Monero status">✕</button>
     <section class="card node-inactive-state"><h2>Monero</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>
     <div id="monero-tower-stats" class="tower-stats monero-wallets" hidden></div>
-    <section id="monero-live" class="card monero-card" aria-live="polite">
+    <section id="monero-live" class="card monero-card">
       <h2>Monero Node Status<span id="monero-badge" class="badge monero-badge">Loading</span></h2>
       <p id="monero-state" class="node-state">Connecting...</p>
       <div id="monero-details" hidden>
@@ -192,17 +192,17 @@
       </div>
     </section>
     <section id="monero-watch" class="card watch-card monero-wallets" hidden></section>
-    <section class="card node-power-card" style="--node-accent:#ff6600">
+    <section class="card node-power-card" style="--node-accent:#ff6600;--node-text:var(--nt-monero)">
       <h2>Node controls</h2>
       <p id="monero-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
       <button type="button" class="node-power-button" data-node-power="monero">Deactivate node</button>
     </section>
   </div>
-  <div id="tari-panel" class="stack-col node-panel chain-panel" data-node-panel="tari" style="--node-accent:#8f5cff" hidden>
+  <div id="tari-panel" class="stack-col node-panel chain-panel" data-node-panel="tari" style="--node-accent:#8f5cff;--node-text:var(--nt-tari)" hidden>
     <button class="node-panel-close" type="button" data-close-node aria-label="Close Tari status">✕</button>
     <section class="card node-inactive-state"><h2>Tari</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>
     <div class="tower-stats" data-wallet-tower="tari" hidden></div>
-    <section id="tari-live" class="card chain-card" aria-live="polite">
+    <section id="tari-live" class="card chain-card">
       <h2>Tari Node Status<span id="tari-badge" class="badge">Loading</span></h2>
       <p id="tari-state" class="node-state">Connecting...</p>
       <div id="tari-details" hidden>
@@ -225,17 +225,17 @@
       </div>
     </section>
     <section id="tari-watch" class="card chain-wallet-card watch-card"><h2>Watch-only wallet</h2><p class="node-state">Loading wallet service…</p></section>
-    <section class="card node-power-card" style="--node-accent:#8f5cff">
+    <section class="card node-power-card" style="--node-accent:#8f5cff;--node-text:var(--nt-tari)">
       <h2>Node controls</h2>
       <p id="tari-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
       <button type="button" class="node-power-button" data-node-power="tari">Deactivate node</button>
     </section>
   </div>
-  <div id="litecoin-panel" class="stack-col node-panel chain-panel" data-node-panel="litecoin" style="--node-accent:#4d8fd8" hidden>
+  <div id="litecoin-panel" class="stack-col node-panel chain-panel" data-node-panel="litecoin" style="--node-accent:#4d8fd8;--node-text:var(--nt-litecoin)" hidden>
     <button class="node-panel-close" type="button" data-close-node aria-label="Close Litecoin status">✕</button>
     <section class="card node-inactive-state"><h2>Litecoin</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>
     <div class="tower-stats" data-wallet-tower="litecoin" hidden></div>
-    <section id="litecoin-live" class="card chain-card" aria-live="polite">
+    <section id="litecoin-live" class="card chain-card">
       <h2>Litecoin Node Status<span id="litecoin-badge" class="badge">Loading</span></h2>
       <p id="litecoin-state" class="node-state">Connecting...</p>
       <div id="litecoin-details" hidden>
@@ -261,17 +261,17 @@
     </section>
     <section class="card chain-wallet-card" data-family-watch="litecoin"><h2>Watch-only wallets</h2><p class="node-state" data-family-watch-status>Loading wallet capabilities…</p><div data-family-watch-list></div></section>
     <section id="utxo-index-litecoin" class="card watch-card" hidden></section>
-    <section class="card node-power-card" style="--node-accent:#4d8fd8">
+    <section class="card node-power-card" style="--node-accent:#4d8fd8;--node-text:var(--nt-litecoin)">
       <h2>Node controls</h2>
       <p id="litecoin-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
       <button type="button" class="node-power-button" data-node-power="litecoin">Deactivate node</button>
     </section>
   </div>
-  <div id="dogecoin-panel" class="stack-col node-panel chain-panel" data-node-panel="dogecoin" style="--node-accent:#b88746" hidden>
+  <div id="dogecoin-panel" class="stack-col node-panel chain-panel" data-node-panel="dogecoin" style="--node-accent:#b88746;--node-text:var(--nt-dogecoin)" hidden>
     <button class="node-panel-close" type="button" data-close-node aria-label="Close Dogecoin status">✕</button>
     <section class="card node-inactive-state"><h2>Dogecoin</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>
     <div class="tower-stats" data-wallet-tower="dogecoin" hidden></div>
-    <section id="dogecoin-live" class="card chain-card" aria-live="polite">
+    <section id="dogecoin-live" class="card chain-card">
       <h2>Dogecoin Node Status<span id="dogecoin-badge" class="badge">Loading</span></h2>
       <p id="dogecoin-state" class="node-state">Connecting...</p>
       <div id="dogecoin-details" hidden>
@@ -297,17 +297,17 @@
     </section>
     <section class="card chain-wallet-card" data-family-watch="dogecoin"><h2>Watch-only wallets</h2><p class="node-state" data-family-watch-status>Loading wallet capabilities…</p><div data-family-watch-list></div></section>
     <section id="utxo-index-dogecoin" class="card watch-card" hidden></section>
-    <section class="card node-power-card" style="--node-accent:#b88746">
+    <section class="card node-power-card" style="--node-accent:#b88746;--node-text:var(--nt-dogecoin)">
       <h2>Node controls</h2>
       <p id="dogecoin-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
       <button type="button" class="node-power-button" data-node-power="dogecoin">Deactivate node</button>
     </section>
   </div>
-  <div id="bitcoincash-panel" class="stack-col node-panel chain-panel" data-node-panel="bitcoincash" style="--node-accent:#36a852" hidden>
+  <div id="bitcoincash-panel" class="stack-col node-panel chain-panel" data-node-panel="bitcoincash" style="--node-accent:#36a852;--node-text:var(--nt-bitcoincash)" hidden>
     <button class="node-panel-close" type="button" data-close-node aria-label="Close Bitcoin Cash status">✕</button>
     <section class="card node-inactive-state"><h2>Bitcoin Cash</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>
     <div class="tower-stats" data-wallet-tower="bitcoincash" hidden></div>
-    <section id="bitcoincash-live" class="card chain-card" aria-live="polite">
+    <section id="bitcoincash-live" class="card chain-card">
       <h2>Bitcoin Cash Node Status<span id="bitcoincash-badge" class="badge">Loading</span></h2>
       <p id="bitcoincash-state" class="node-state">Connecting...</p>
       <div id="bitcoincash-details" hidden>
@@ -333,17 +333,17 @@
     </section>
     <section class="card chain-wallet-card" data-family-watch="bitcoincash"><h2>Watch-only wallets</h2><p class="node-state" data-family-watch-status>Loading wallet capabilities…</p><div data-family-watch-list></div></section>
     <section id="utxo-index-bitcoincash" class="card watch-card" hidden></section>
-    <section class="card node-power-card" style="--node-accent:#36a852">
+    <section class="card node-power-card" style="--node-accent:#36a852;--node-text:var(--nt-bitcoincash)">
       <h2>Node controls</h2>
       <p id="bitcoincash-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
       <button type="button" class="node-power-button" data-node-power="bitcoincash">Deactivate node</button>
     </section>
   </div>
-  <div id="zcash-panel" class="stack-col node-panel chain-panel" data-node-panel="zcash" style="--node-accent:#d69c35" hidden>
+  <div id="zcash-panel" class="stack-col node-panel chain-panel" data-node-panel="zcash" style="--node-accent:#d69c35;--node-text:var(--nt-zcash)" hidden>
     <button class="node-panel-close" type="button" data-close-node aria-label="Close Zcash status">✕</button>
     <section class="card node-inactive-state"><h2>Zcash</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>
     <div class="tower-stats" data-wallet-tower="zcash" hidden></div>
-    <section id="zcash-live" class="card chain-card" aria-live="polite">
+    <section id="zcash-live" class="card chain-card">
       <h2>Zcash Node Status<span id="zcash-badge" class="badge">Loading</span></h2>
       <p id="zcash-state" class="node-state">Connecting...</p>
       <div id="zcash-details" hidden>
@@ -367,7 +367,7 @@
       </div>
     </section>
     <section class="card chain-wallet-card" data-family-watch="zcash"><h2>Watch-only wallets</h2><p class="node-state" data-family-watch-status>Loading wallet capabilities…</p><div data-family-watch-list></div></section>
-    <section class="card node-power-card" style="--node-accent:#d69c35">
+    <section class="card node-power-card" style="--node-accent:#d69c35;--node-text:var(--nt-zcash)">
       <h2>Node controls</h2>
       <p id="zcash-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
       <button type="button" class="node-power-button" data-node-power="zcash">Deactivate node</button>

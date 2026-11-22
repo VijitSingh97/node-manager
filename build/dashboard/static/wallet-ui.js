@@ -188,9 +188,11 @@ export function managerRow({ label, note = "", keyText = "", canRemove, onRemove
   left.append(name);
   if (keyText) {
     const expandedKeys = building || new Set();
-    const key = el("span", "wk");
+    const key = el("button", "wk");
+    key.type = "button";
     const show = () => {
       const open = expandedKeys.has(keyText);
+      key.setAttribute("aria-expanded", String(open));
       key.textContent = open ? keyText : shortKey(keyText);
       key.title = open ? "click to collapse" : "click to expand";
     };

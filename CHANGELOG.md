@@ -19,10 +19,25 @@ All notable changes to this project are documented here. Format follows
 - Closing Settings asks before discarding staged installs, moves, deletes,
   config runs and Reset to default. If the browser closes Settings without
   letting it ask, staged changes that were not saved yet are discarded and
-  Settings says so when it opens again; a save already running carries on. Saving block alerts with Telegram off says no alert will be
-  sent. Escape closes only the open dialog, not the node panel behind it.
-  Turning off an index and removing a wallet use the dashboard's own confirm
-  dialog (#434).
+  Settings says so when it opens again; a save already running carries on.
+  Saving block alerts with Telegram off says no alert will be sent. Escape
+  closes only the open dialog, not the node panel behind it. Turning off an
+  index and removing a wallet use the dashboard's own confirm dialog (#434).
+- On phones, the node panel close button, chain values and the tower overview
+  are no longer covered by the theme toggle, the fixed Settings and account
+  buttons or the host stats panel, and the add-address form shows its full
+  hints on desktop (#430).
+- Dashboard text meets WCAG AA contrast in both themes on the page, cards,
+  tags and host-stats tiles, including each node's own text colour, and a test
+  computes those pairs from the stylesheet. Focus rings reach 3:1 and stay at
+  full strength on inactive towers, stale balances and prices show in the
+  muted colour in italics instead of fading, unreachable towers say so in text
+  and to screen readers under the same rule, and the CPU and memory pies have
+  a legend (#431).
+- The shortened wallet address, the host usage pies and the disk bars work
+  from the keyboard. The theme toggle announces its current mode, and the
+  chain cards no longer make screen readers repeat them on every refresh
+  (#432).
 
 ## [1.40.1] - 2026-11-21
 

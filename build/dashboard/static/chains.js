@@ -1,5 +1,6 @@
 import { NODE_IDS, genericNodeView, updateTowerProgress } from "./nodes.js";
 import { dashboardFetch as fetch } from "./session.js";
+import { liveBlockElement, nodeUnreachable } from "./tower.js";
 
 export const NODE_LABELS = {
   bitcoin: "Bitcoin",
@@ -58,7 +59,16 @@ function setText(id, value) {
   if (element) element.textContent = value;
 }
 
+function refreshNodeLabel(id) {
+  const next = liveBlockElement(id)?.dataset.nextBlock;
+  for (const choice of document.querySelectorAll(`[data-select-node="${id}"]`)) {
+    const note = choice.dataset.powerNote || (nodeUnreachable(choice.dataset, next) ? " — not responding" : "");
+    choice.setAttribute("aria-label", NODE_LABELS[id] + note);
+  }
+}
+
 function announceNodeStatus(id) {
+  refreshNodeLabel(id);
   window.dispatchEvent(new CustomEvent("node-status-updated", { detail: { node: id } }));
 }
 
@@ -72,7 +82,7 @@ export function setNodeActive(id, node) {
     choice.dataset.lastNextBlock = Number.isSafeInteger(node.last_height) && node.last_height >= 0 ? String(node.last_height + 1) : "";
     choice.dataset.lastSyncPercent = Number.isFinite(node.last_sync_percent) ? String(node.last_sync_percent) : "";
     choice.classList.toggle("inactive", !view.active);
-    choice.setAttribute("aria-label", `${NODE_LABELS[id]}${view.active ? (offline ? " — not responding" : "") : view.restarting ? " — restarting" : view.stopped ? " — stopped" : " — inactive"}`);
+    choice.dataset.powerNote = view.active ? "" : view.restarting ? " — restarting" : view.stopped ? " — stopped" : " — inactive";
   }
   const panel = byId(`${id}-panel`);
   if (panel) panel.dataset.nodeActive = view.active ? "1" : "0";
@@ -255,5 +265,7 @@ if (typeof document !== "undefined") {
     finally {busy=false;updateSubmit();updateButtons();await loadNodes();}
   });
   window.addEventListener("node-catalog-updated", loadNodes);
+  window.addEventListener("live-updated", () => refreshNodeLabel("bitcoin"));
+  window.addEventListener("node-height", (event) => refreshNodeLabel(event.detail.node));
   loadNodes();
 }
