@@ -44,16 +44,19 @@ flow("Phone host stats leave the towers clickable", { nodes, hostStats: true, se
     const toggle = document.getElementById("theme-toggle").getBoundingClientRect();
     const hit = (x, y) => document.elementFromPoint(x, y);
     const below = hit(innerWidth / 2, stats.bottom + 8);
-    const lower = [0.2, 0.4, 0.6, 0.8].map((f) => hit(innerWidth * f, innerHeight * 0.85));
+    const fields = [(stats.bottom + 12) / innerHeight, 0.6, 0.85];
+    const lower = fields.flatMap((y) => [0.2, 0.4, 0.6, 0.8].map((f) => hit(innerWidth * f, innerHeight * y)));
     return {
       statsBottom: stats.bottom, height: innerHeight, coversToggle: stats.top < toggle.bottom,
       belowInStats: !!below.closest("#host-stats"), towerHits: lower.filter((el) => el.closest(".node-choice")).length,
+      upperHits: lower.slice(0, 4).filter((el) => el.closest(".node-choice")).length,
     };
   });
   assert.ok(got.statsBottom <= got.height * 0.4, `host stats reach ${got.statsBottom}px of ${got.height}px`);
   assert.equal(got.coversToggle, false);
   assert.equal(got.belowInStats, false);
   assert.ok(got.towerHits >= 1, "a tower must be clickable under the host stats");
+  assert.ok(got.upperHits >= 1, "a tower must be clickable just below the host stats");
 });
 
 flow("Desktop add-address placeholders are fully readable", { nodes }, async ({ page }) => {
@@ -81,4 +84,54 @@ flow("Desktop panel close button is not covered", { nodes }, async ({ page }) =>
     return document.elementFromPoint(c.left + c.width / 2, c.top + c.height / 2) === close;
   });
   assert.equal(hit, true);
+});
+
+flow("Phone node panel is not covered by host stats", { nodes, hostStats: true, settings: { computer_stats: true } }, async ({ page }) => {
+  await page.send("Emulation.setDeviceMetricsOverride", phone);
+  await page.waitVisible("#host-stats");
+  await page.click('[data-select-node="litecoin"]');
+  await settle(page);
+  const got = await page.evaluate(() => {
+    const panel = document.querySelector('[data-node-panel="litecoin"]');
+    const close = panel.querySelector("[data-close-node]");
+    const p = panel.getBoundingClientRect();
+    const c = close.getBoundingClientRect();
+    const xs = [p.left + 20, p.left + p.width / 2, p.right - 20];
+    const ys = Array.from({ length: 15 }, (_, i) => 60 + i * 20);
+    const covered = ys.flatMap((y) => xs.map((x) => [x, y])).filter(([x, y]) => document.elementFromPoint(x, y)?.closest("#host-stats")).length;
+    return { covered, closeHit: document.elementFromPoint(c.left + c.width / 2, c.top + c.height / 2) === close };
+  });
+  assert.equal(got.covered, 0);
+  assert.equal(got.closeHit, true);
+});
+
+flow("Phone close button does not overlap panel headings", { nodes: nodeIDs }, async ({ page }) => {
+  await page.send("Emulation.setDeviceMetricsOverride", phone);
+  for (const id of nodeIDs) {
+    await page.click(`[data-select-node="${id}"]`);
+    await settle(page);
+    const hits = await page.evaluate((id) => {
+      const panel = document.querySelector(`[data-node-panel="${id}"]`);
+      const c = panel.querySelector("[data-close-node]").getBoundingClientRect();
+      return [...panel.querySelectorAll("h1, h2, h3")].filter((h) => h.getClientRects().length).filter((h) => {
+        const range = document.createRange();
+        range.selectNodeContents(h);
+        return [...range.getClientRects()].some((r) => r.width && !(r.right <= c.left || r.left >= c.right || r.bottom <= c.top || r.top >= c.bottom));
+      }).map((h) => h.textContent.trim());
+    }, id);
+    assert.deepEqual(hits, [], `${id}: close button overlaps headings`);
+    await page.click(`[data-node-panel="${id}"] [data-close-node]`);
+    await settle(page);
+  }
+});
+
+flow("Desktop add button is not a full-width bar", { nodes }, async ({ page }) => {
+  await page.send("Emulation.setDeviceMetricsOverride", desktop);
+  await page.click('[data-select-node="litecoin"]');
+  await page.waitVisible(".family-watch-form button");
+  const got = await page.evaluate(() => {
+    const form = document.querySelector('[data-node-panel="litecoin"] .family-watch-form');
+    return { button: form.querySelector("button").getBoundingClientRect().width, form: form.getBoundingClientRect().width };
+  });
+  assert.ok(got.button < got.form / 2, `button ${got.button}px in a ${got.form}px form`);
 });

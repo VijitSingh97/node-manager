@@ -833,7 +833,7 @@ hr {
 .family-watch-form {display:grid;grid-template-columns:1fr;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);}
 .family-watch-form[hidden] {display:none;}
 .family-watch-form input {min-width:0;padding:7px;border:1px solid var(--border);border-radius:4px;background:var(--tag-bg);color:var(--text);font:0.8rem monospace;}
-.family-watch-form button {padding:7px 10px;border:1px solid var(--node-accent);border-radius:4px;background:transparent;color:var(--node-accent);cursor:pointer;}
+.family-watch-form button {justify-self:start;padding:7px 10px;border:1px solid var(--node-accent);border-radius:4px;background:transparent;color:var(--node-accent);cursor:pointer;}
 .family-watch-form button:disabled {opacity:0.5;cursor:default;}
 .family-watch-message {grid-column:1 / -1;min-height:1.2em;margin:0;color:var(--muted);font-size:0.75rem;}
 .family-watch-error {color:var(--unreachable) !important;}
