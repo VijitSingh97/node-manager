@@ -58,8 +58,14 @@ test("delete confirmation button text reaches 4.5:1 on its fixed background", ()
 });
 
 test("warning, notice, error and delete text use theme tokens, not fixed colours", () => {
-  for (const selector of [".watch-warn", ".update-notice", ".watch-msg.watch-msg-error", ".settings-delete-warning"]) {
+  for (const selector of [".watch-warn", ".update-notice", ".watch-msg.watch-msg-error", ".settings-delete-warning", ".warn", ".family-watch-error"]) {
     const rule = css.match(new RegExp(`${selector.replace(/\./g, "\\.")} \\{[^}]*\\}`))[0];
     assert.match(rule, /color:\s*var\(--/, selector);
   }
+});
+
+test("accent-filled add button takes its text colour from a theme token", () => {
+  const rule = css.match(/\.watch-add button \{[^}]*\}/)[0];
+  assert.match(rule, /background:\s*var\(--accent\)/);
+  assert.match(rule, /\bcolor:\s*var\(--bg\)/);
 });
