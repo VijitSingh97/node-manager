@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { needsFullReload, replaceLive, replaceUpdateViews } from "./refresh.js";
+import { focusState, needsFullReload, replaceLive, replaceUpdateViews, restoreFocus } from "./refresh.js";
 
 const bitcoinMounts = ["tower-stats", "watch", "btc-price"];
 
@@ -149,4 +149,48 @@ test("release checks refresh the overview notice and Settings instructions", () 
     ["update-notice", "next-update-notice"],
     ["settings-update", "next-settings-update"],
   ]);
+});
+
+test("a focused input inside the live area keeps focus and selection across a refresh", () => {
+  const input = { id: "amount", selectionStart: 1, selectionEnd: 3 };
+  const live = { contains: (node) => node === input };
+  const state = focusState({ activeElement: input }, live);
+  assert.deepEqual(state, { id: "amount", start: 1, end: 3 });
+  const replacement = { id: "amount", focused: false, focus() { this.focused = true; }, setSelectionRange(a, b) { this.range = [a, b]; } };
+  restoreFocus({ getElementById: (id) => id === "amount" ? replacement : null }, state);
+  assert.equal(replacement.focused, true);
+  assert.deepEqual(replacement.range, [1, 3]);
+  assert.equal(focusState({ activeElement: {} }, live), null);
+  assert.equal(focusState({ activeElement: { id: "outside" } }, live), null);
+});
+
+test("replaceLive restores focus to the same control after the swap", () => {
+  const current = documentFixture("current");
+  const control = { id: "name" };
+  current.activeElement = control;
+  current.live.contains = (node) => node === control;
+  const next = documentFixture("next");
+  const swapped = { id: "name", focus() { this.focused = true; } };
+  const getElementById = current.getElementById;
+  current.getElementById = (id) => id === "name" ? swapped : getElementById(id);
+  assert.equal(replaceLive(current, next), true);
+  assert.equal(swapped.focused, true);
+});
+
+test("replaceLive keeps focus when moving the price section blurs the focused control", () => {
+  const current = documentFixture("current");
+  const control = { id: "btc-price-currency" };
+  current.activeElement = control;
+  current.live.contains = (node) => node === control;
+  const next = documentFixture("next");
+  const movePrice = next.live.price.replaceWith;
+  next.live.price.replaceWith = (price) => {
+    current.activeElement = { id: "body" };
+    movePrice(price);
+  };
+  const swapped = { id: "btc-price-currency", focus() { this.focused = true; } };
+  const getElementById = current.getElementById;
+  current.getElementById = (id) => id === "btc-price-currency" ? swapped : getElementById(id);
+  assert.equal(replaceLive(current, next), true);
+  assert.equal(swapped.focused, true);
 });

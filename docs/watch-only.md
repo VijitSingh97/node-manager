@@ -522,7 +522,7 @@ measured seed budget, a "Needs a new seed" card, upgrades and removal.
   **Save** applies the change, restarts the dashboard, and asks first when turning off (the host
   refuses to turn it off while a seed runs; cancel it first). A badge
   in the heading of the watch-only wallets card shows the index state (ready,
-  catching up, seeding, needs a seed, degraded or off) and links to the index
+  catching up, seeding, not seeded, needs a new seed, degraded or off) and links to the index
   card. After turning it on, the index seeds itself once the node has synced, and the node
   card shows a progress bar for it; there is no Seed button. The install dialog offers the
   same option, ticked, next to the data folder.

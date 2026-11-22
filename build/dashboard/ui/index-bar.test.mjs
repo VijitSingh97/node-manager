@@ -70,3 +70,36 @@ flow("Bitcoin's card shows its balance index bar from the dashboard's own status
   assert.equal(status.enabled, true);
   assert.notEqual(label, "");
 });
+
+flow("With Bitcoin disabled the index script still loads and Litecoin's bar shows warn and ok tones without animating a blocked bar", { nodes: ["litecoin"], bitcoin: false }, async ({ page }) => {
+  assert.equal(await page.evaluate(() => !document.getElementById("watch") && performance.getEntriesByType("resource").some((e) => e.name.endsWith("/static/utxo-index.js"))), true);
+  const look = (status) => page.evaluate(async (status) => {
+    const mod = await import("/static/utxo-index.js");
+    const bar = document.getElementById("index-bar-litecoin");
+    mod.applyIndexBar(bar, mod.indexBarView(status));
+    const style = getComputedStyle(bar.querySelector(".progress-fill"));
+    return { hidden: bar.hidden, bg: style.backgroundColor, animation: style.animationName, width: style.width };
+  }, status);
+  let got = await look({ enabled: true, state: "not_seeded", needs_host: true });
+  assert.deepEqual([got.hidden, got.bg, got.animation], [false, "rgb(217, 138, 0)", "none"]);
+  assert.equal(got.width, "0px", "a blocked bar is empty, not a completed bar");
+  got = await look({ enabled: true, state: "ready" });
+  assert.equal(got.bg, "rgb(46, 158, 91)");
+  got = await look({ enabled: true, state: "catching_up", blocks_behind: 3 });
+  assert.equal(got.animation, "index-bar-slide");
+});
+
+flow("With Bitcoin disabled the Litecoin badge and card render from the polled status and Bitcoin is never polled", { nodes: ["litecoin"], utxoChains: ["litecoin"], bitcoin: false }, async ({ page }) => {
+  await page.waitFor(() => document.querySelector('[data-family-watch="litecoin"] h2 .index-badge')?.hidden === false && !document.getElementById("utxo-index-litecoin").hidden, { timeout: 40000, description: "Litecoin's badge and card to render" });
+  const got = await page.evaluate(() => ({
+    badge: document.querySelector('[data-family-watch="litecoin"] h2 .index-badge').textContent,
+    heading: document.querySelector("#utxo-index-litecoin h2").textContent,
+    body: document.getElementById("utxo-index-litecoin").textContent,
+    polls: performance.getEntriesByType("resource").map((e) => e.name).filter((n) => n.includes("/api/utxo-index")),
+  }));
+  assert.match(got.badge, /^Balance index: /);
+  assert.match(got.heading, /^Litecoin balance index/);
+  assert.match(got.body, /Index: /);
+  assert.ok(got.polls.some((n) => n.endsWith("chain=litecoin")), got.polls.join());
+  assert.ok(!got.polls.some((n) => n.endsWith("/api/utxo-index")), got.polls.join());
+});

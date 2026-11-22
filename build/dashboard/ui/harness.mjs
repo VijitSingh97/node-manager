@@ -156,9 +156,9 @@ class Helper {
   }
 }
 
-export async function startDashboard({ nodes = [], settings, capability = {}, host = true, hostStats = false, password = PASSWORD, state = {}, rpcDown = false, utxoIndex = false } = {}) {
+export async function startDashboard({ nodes = [], settings, capability = {}, host = true, hostStats = false, password = PASSWORD, state = {}, rpcDown = false, utxoIndex = false, utxoChains = [], bitcoin = true } = {}) {
   const stateDir = mkdtempSync(join(tmpdir(), "ui-state-"));
-  const utxoDir = utxoIndex ? mkdtempSync(join(tmpdir(), "ui-utxo-")) : "";
+  const utxoDir = utxoIndex || utxoChains.length ? mkdtempSync(join(tmpdir(), "ui-utxo-")) : "";
   const removeDirs = () => { for (const dir of [stateDir, utxoDir].filter(Boolean)) rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); };
   const rpc = await startRPC();
   rpc.down = rpcDown;
@@ -168,6 +168,7 @@ export async function startDashboard({ nodes = [], settings, capability = {}, ho
     DATA_DIR: stateDir, STATE_DIR: stateDir, WATCH_STORE: join(stateDir, "wallets.json"), BALANCE_HISTORY: join(stateDir, "balance_history.json"),
     EVENTS_LOG: join(stateDir, "events.log"), WATCH_WALLETS_B64: "", TELEGRAM_BOT_TOKEN: "", TELEGRAM_CHAT_ID: "", HEALTHCHECKS_URL: "", STACK_VERSION: "1.0.0-ui",
   };
+  if (!bitcoin) env.BITCOIN_ENABLED = "0";
   for (const id of nodes) {
     const prefix = id.toUpperCase();
     env[`${prefix}_ENABLED`] = "1";
@@ -175,7 +176,8 @@ export async function startDashboard({ nodes = [], settings, capability = {}, ho
     env[`${prefix}_RPC_USER`] = "uiuser";
     env[`${prefix}_RPC_PASSWORD`] = "uirpc";
   }
-  if (utxoDir) Object.assign(env, { UTXO_INDEX_ENABLED: "1", UTXO_INDEX_DIR: utxoDir });
+  if (utxoIndex) Object.assign(env, { UTXO_INDEX_ENABLED: "1", UTXO_INDEX_DIR: utxoDir });
+  for (const id of utxoChains) Object.assign(env, { [`${id.toUpperCase()}_UTXO_INDEX_ENABLED`]: "1", [`${id.toUpperCase()}_UTXO_INDEX_DIR`]: utxoDir });
   if (settings) writeFileSync(join(stateDir, "notification_settings.json"), JSON.stringify({ ...defaultSettings, ...settings }), { mode: 0o600 });
   for (const [name, value] of Object.entries(state)) writeFileSync(join(stateDir, name), JSON.stringify(value), { mode: 0o600 });
   let child, url;
@@ -238,9 +240,22 @@ export function expectSettings(dash, expected = {}) {
   assert.deepEqual(dash.settings(), { ...defaultSettings, ...expected });
 }
 
-export async function reopenSettings(page) {
+export async function answerConfirm(page, accept) {
+  await page.waitFor(() => document.getElementById("confirm-dialog").open, { description: "confirm dialog to open" });
+  await page.click(accept ? "#confirm-dialog-ok" : "#confirm-dialog button[value=cancel]");
+  await page.waitFor(() => !document.getElementById("confirm-dialog").open, { description: "confirm dialog to close" });
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 50)));
+}
+
+export async function closeSettings(page) {
   await page.click("#settings-cancel");
+  await page.waitFor(() => !document.getElementById("settings-dialog").open || document.getElementById("confirm-dialog").open, { description: "settings dialog to close or ask" });
+  if (await page.evaluate(() => document.getElementById("confirm-dialog").open)) await answerConfirm(page, true);
   await page.waitFor(() => !document.getElementById("settings-dialog").open, { description: "settings dialog to close" });
+}
+
+export async function reopenSettings(page) {
+  await closeSettings(page);
   await openSettings(page);
 }
 
@@ -269,8 +284,7 @@ export async function openHostSettings(page) {
 }
 
 export async function reopenHostSettings(page) {
-  await page.click("#settings-cancel");
-  await page.waitFor(() => !document.getElementById("settings-dialog").open, { description: "settings dialog to close" });
+  await closeSettings(page);
   await openHostSettings(page);
 }
 

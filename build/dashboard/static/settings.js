@@ -1,6 +1,7 @@
 import { actuatorCurlController } from "./actuator-curl.js";
 import { credentialSettingsController } from "./credentials.js";
 import { dashboardFetch as fetch } from "./session.js";
+import { askConfirm } from "./confirm-dialog.js";
 
 const extraNodes = ["tari", "litecoin", "dogecoin", "bitcoincash", "zcash"];
 const allNodes = ["bitcoin", "monero", ...extraNodes];
@@ -77,8 +78,8 @@ const toggleFields = { launch_at_boot: "boot_enabled", clearnet_over_tor: "clear
 export const hostToggleDefaults = { launch_at_boot: false, clearnet_over_tor: true, inbound_connections: true, utxo_index: false, utxo_index_litecoin: false, utxo_index_bitcoincash: false, utxo_index_dogecoin: false };
 export const UTXO_INDEX_OFF_PROMPT = "Turn off instant Bitcoin balances? Wallets go back to the slower scan. The index volume stays on disk until you run utxo-index remove.";
 
-export function balanceIndexPayload(enabled, confirmFn) {
-  if (enabled === false && !confirmFn(UTXO_INDEX_OFF_PROMPT)) return undefined;
+export async function balanceIndexPayload(enabled, confirmFn) {
+  if (enabled === false && !(await confirmFn(UTXO_INDEX_OFF_PROMPT))) return undefined;
   return hostActionPayload("utxo_index", enabled);
 }
 
@@ -93,13 +94,16 @@ export function savedHostActions(view, draft, staged = {}) {
   return [...byAction("apply_config"), ...hostToggleChanges(view, draft), ...byAction("install"), ...byAction("migrate"), ...byAction("delete")];
 }
 
-export function confirmedHostChanges(changes, confirmFn) {
-  return changes.map((change) => {
-    if (change.action !== "utxo_index") return change;
-    const prompt = chainIndexOffPrompts[change.node];
-    if (prompt) return change.enabled === false && !confirmFn(prompt) ? undefined : change;
-    return balanceIndexPayload(change.enabled, confirmFn);
-  }).filter(Boolean);
+export async function confirmedHostChanges(changes, confirmFn) {
+  const confirmed = [];
+  for (const change of changes) {
+    const prompt = change.action === "utxo_index" && chainIndexOffPrompts[change.node];
+    const kept = change.action !== "utxo_index" ? change
+      : prompt ? (change.enabled === false && !(await confirmFn(prompt)) ? undefined : change)
+      : await balanceIndexPayload(change.enabled, confirmFn);
+    if (kept) confirmed.push(kept);
+  }
+  return confirmed;
 }
 
 const sameHostChange = (status, change) => status?.action === change?.action && (status?.node || "") === (change?.node || "") && (!change?.requestId || !status?.id || status.id === change.requestId);
@@ -412,8 +416,10 @@ export function shouldPollPort(dialogOpen, state) {
   return dialogOpen === true && state === "pending";
 }
 
-export function settingsSaveMessage(settingsSaved) {
-  return settingsSaved ? "Settings saved." : "";
+export const TELEGRAM_OFF_NOTE = "Telegram is off, so no alerts are sent.";
+
+export function settingsSaveMessage(settingsSaved, alertsOff = false) {
+  return settingsSaved ? (alertsOff ? `Settings saved. ${TELEGRAM_OFF_NOTE}` : "Settings saved.") : "";
 }
 
 const defaultCurrencies = ["USD", "EUR", "GBP", "INR", "CAD", "AUD", "JPY", "RUB", "CNY"];
@@ -535,6 +541,7 @@ if (typeof document !== "undefined") {
     const panel = document.querySelector(`[data-node-panel="${node}"]`);
     const power = panel?.querySelector(".node-power-card");
     if (!details || !power) continue;
+    byId(`${node}-new-block`).closest("label").insertAdjacentHTML("afterend", `<p class="settings-note" data-telegram-off-note hidden>${TELEGRAM_OFF_NOTE}</p>`);
     const lan = splitNodeControlSections(details);
     const nodeForm = document.createElement("form");
     nodeForm.className = "node-settings-form";
@@ -551,6 +558,7 @@ if (typeof document !== "undefined") {
     actions.className = "settings-actions";
     const nodeSave = document.createElement("button");
     nodeSave.type = "submit";
+    nodeSave.className = "primary";
     nodeSave.textContent = "Save";
     actions.append(nodeSave);
     nodeForm.append(details, lan, nodeStatus, impact, actions);
@@ -572,6 +580,7 @@ if (typeof document !== "undefined") {
   let ambiguousPortDraft;
   let ambiguousStatusPrefix = "";
   let ambiguousStatusTarget;
+  let ambiguousAlerts;
   let submittedPortNode = "";
   let stagedPortDraft;
   let hostPoll;
@@ -1019,6 +1028,7 @@ if (typeof document !== "undefined") {
     token.placeholder = "Paste your bot token";
     url.placeholder = "https://hc-ping.com/…";
     reset.disabled = !allowed || !saved.defaults;
+    for (const note of document.querySelectorAll("[data-telegram-off-note]")) note.hidden = !!saved.telegram_enabled;
     telegramEnabled.disabled = healthchecksEnabled.disabled = bitcoinNewBlock.disabled = moneroNewBlock.disabled = towerLabels.disabled = computerStats.disabled = thermalThrottle.disabled = defaultCurrency.disabled = actuatorHealth.disabled = actuatorInfo.disabled = !allowed;
     updateInputs();
     updatePortPlan();
@@ -1040,6 +1050,7 @@ if (typeof document !== "undefined") {
     }
     return response.json();
   }
+  const ambiguousMessage = () => settingsSaveMessage(ambiguousStatusPrefix !== "", ambiguousAlerts ? nodeAlertsOff(ambiguousAlerts.scope, ambiguousAlerts.payload, saved) : false);
   async function loadPortControl() {
     try {
       const data = await requestPortControl();
@@ -1050,12 +1061,12 @@ if (typeof document !== "undefined") {
         const outcome = portSubmissionOutcome(view, changes);
         if (outcome === "queued") {
           ambiguousPortDraft = undefined;
-          (ambiguousStatusTarget || status).textContent = settingsSaveMessage(ambiguousStatusPrefix !== "");
+          (ambiguousStatusTarget || status).textContent = ambiguousMessage();
         } else if (outcome === "applied") {
           ambiguousPortDraft = undefined;
           stagedPortDraft = undefined;
           updatePortPlan(false);
-          (ambiguousStatusTarget || status).textContent = settingsSaveMessage(ambiguousStatusPrefix !== "");
+          (ambiguousStatusTarget || status).textContent = ambiguousMessage();
         } else {
           ambiguousPortDraft = undefined;
           applyPortDraft(draft);
@@ -1063,6 +1074,7 @@ if (typeof document !== "undefined") {
         }
         ambiguousStatusPrefix = "";
         ambiguousStatusTarget = undefined;
+        ambiguousAlerts = undefined;
       }
     }
     catch { if (dialog.open || document.body.dataset.node) portPoll = setTimeout(loadPortControl, 2000); }
@@ -1092,10 +1104,21 @@ if (typeof document !== "undefined") {
     }
     resetStaged = false;
     dialog.showModal();
-    load();
+    load().then(() => { if (discardedNotice && !status.textContent) status.textContent = "Settings closed before you confirmed, so the staged changes were discarded."; discardedNotice = false; });
     loadHost();
   });
-  for (const id of ["close", "cancel"]) byId(id).addEventListener("click", () => dialog.close());
+  let closeAsking = false;
+  let discardedNotice = false;
+  const closeSettings = async () => {
+    if (closeAsking) return;
+    closeAsking = true;
+    const discard = saving() || !(Object.keys(hostStaged).length || resetStaged) || await askConfirm("Discard the staged changes?", "Discard");
+    closeAsking = false;
+    if (!discard) return;
+    dialog.close();
+  };
+  for (const id of ["close", "cancel"]) byId(id).addEventListener("click", closeSettings);
+  dialog.addEventListener("cancel", (event) => { if (!event.cancelable) { discardedNotice = !saving() && (Object.keys(hostStaged).length > 0 || resetStaged); return; } event.preventDefault(); closeSettings(); });
   document.getElementById("account-open").addEventListener("click", () => { accountDialog.showModal(); credentialSettings.openPassword(); });
   document.getElementById("account-close").addEventListener("click", () => accountDialog.close());
   accountDialog.addEventListener("close", () => credentialSettings.closePassword());
@@ -1190,6 +1213,7 @@ if (typeof document !== "undefined") {
     return true;
   };
 
+  const nodeAlertsOff = (scope, payload, view) => scope !== "global" && Object.values(payload).includes(true) && !view.telegram_enabled;
   const saveScope = async (scope, scopeForm, targetStatus, targetSave) => {
     if (!allowed) return;
     const allChanges = updatePortPlan(true);
@@ -1207,7 +1231,7 @@ if (typeof document !== "undefined") {
       return;
     }
     if (hostChanges.length) {
-      const confirmed = confirmedHostChanges(hostChanges, (message) => window.confirm(message));
+      const confirmed = await confirmedHostChanges(hostChanges, (message) => askConfirm(message, "Turn off"));
       if (confirmed.length < hostChanges.length) {
         delete hostDraft.utxo_index;
         delete hostDraft.utxo_index_litecoin;
@@ -1240,7 +1264,7 @@ if (typeof document !== "undefined") {
     }
     if (changes.length === 0) {
       render(settingsView, scope);
-      targetStatus.textContent = hostChanges.length ? "Applying host changes…" : resetRequests.length === 1 ? "Defaults restored." : resetRequests.length || saveNotifications ? "Settings saved." : "No changes.";
+      targetStatus.textContent = hostChanges.length ? "Applying host changes…" : resetRequests.length === 1 ? "Defaults restored." : resetRequests.length || saveNotifications ? settingsSaveMessage(true, nodeAlertsOff(scope, payload, settingsView)) : "No changes.";
       if (hostChanges.length) {
         hostFailures = [];
         hostSkipped = [];
@@ -1258,7 +1282,7 @@ if (typeof document !== "undefined") {
         try { localStorage.setItem("nodeStackPortRequest", portRequestID); } catch {}
       }
       renderPortControl(portView);
-      targetStatus.textContent = portStatusMessage(portControlModel(portView)) || settingsSaveMessage(saveNotifications);
+      targetStatus.textContent = portStatusMessage(portControlModel(portView)) || settingsSaveMessage(saveNotifications, nodeAlertsOff(scope, payload, settingsView));
     } catch (error) {
       applyPortDraft(draft);
       const prefix = saveNotifications ? "Settings saved, but " : "";
@@ -1269,6 +1293,7 @@ if (typeof document !== "undefined") {
         ambiguousPortDraft = { draft, changes };
         ambiguousStatusPrefix = saveNotifications ? "Settings saved. " : "";
         ambiguousStatusTarget = targetStatus;
+        ambiguousAlerts = { scope, payload };
         targetStatus.textContent = `${ambiguousStatusPrefix}Checking whether the restart was queued…`;
         loadPortControl();
       }

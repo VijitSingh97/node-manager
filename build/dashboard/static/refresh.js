@@ -19,15 +19,30 @@ export function replaceUpdateViews(current, next) {
   }
 }
 
+export function focusState(doc, live) {
+  const active = doc.activeElement;
+  if (!active?.id || !live.contains?.(active)) return null;
+  return { id: active.id, start: active.selectionStart, end: active.selectionEnd };
+}
+
+export function restoreFocus(doc, state) {
+  const target = state && doc.getElementById(state.id);
+  if (!target?.focus) return;
+  target.focus();
+  if (typeof state.start === "number" && target.setSelectionRange) target.setSelectionRange(state.start, state.end);
+}
+
 export function replaceLive(current, next) {
   const nextLive = next.getElementById("live");
   const currentLive = current.getElementById("live");
   if (!nextLive || !currentLive) return false;
+  const focus = focusState(current, currentLive);
   const price = current.getElementById("btc-price");
   const nextPrice = nextLive.querySelector("#btc-price");
   if (price && nextPrice) nextPrice.replaceWith(price);
   replaceUpdateViews(current, next);
   currentLive.replaceWith(nextLive);
+  restoreFocus(current, focus);
   for (const name of ["center", "center-screen"]) {
     current.body.classList.toggle(name, next.body.classList.contains(name));
   }

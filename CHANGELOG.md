@@ -6,6 +6,24 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The balance index badge and bar now show on Litecoin, Dogecoin and Bitcoin
+  Cash when Bitcoin is not installed. The badge and card use one name per index
+  state, refusals are explained in plain words instead of internal guard names,
+  the bar keeps its warning and ready colours on every chain, and a blocked bar
+  shows as an empty hatched track instead of moving like progress (#426).
+- The wallet list refresh no longer collapses an expanded address or moves
+  keyboard focus, and waits while a dialog is open. The 30 s live refresh keeps
+  focus on the price currency menu (#433).
+- Closing Settings asks before discarding staged installs, moves, deletes,
+  config runs and Reset to default. If the browser closes Settings without
+  letting it ask, staged changes that were not saved yet are discarded and
+  Settings says so when it opens again; a save already running carries on. Saving block alerts with Telegram off says no alert will be
+  sent. Escape closes only the open dialog, not the node panel behind it.
+  Turning off an index and removing a wallet use the dashboard's own confirm
+  dialog (#434).
+
 ## [1.40.1] - 2026-11-21
 
 ### Fixed

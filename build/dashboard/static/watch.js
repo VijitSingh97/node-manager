@@ -1,6 +1,6 @@
 import { dashboardFetch as fetch } from "./session.js";
 import { formatAmount, joinNote, scanNote as scannedAt } from "./wallet-format.js";
-import { el, managerRow, renderWalletList } from "./wallet-ui.js";
+import { el, managerRow, renderWalletList, replaceIfChanged } from "./wallet-ui.js";
 
 const CSRF = { "X-Requested-With": "fetch" }; // blocks cross-site form posts
 const POLL_MS = 15000;
@@ -170,17 +170,16 @@ if (typeof document !== "undefined") {
     bday.hidden = !!view.pruned;
     if (view.pruned) bday.value = "";
     hint.textContent = watchHint(!!view.pruned);
-    list.textContent = "";
-    for (const w of view.wallets) {
+    replaceIfChanged(list, JSON.stringify([view.wallets, editingEnabled]), () => view.wallets.map((w) => {
       const identity = walletView(w);
-      list.append(managerRow({
+      return managerRow({
         label: identity.label,
         note: publicExampleNote(w),
         keyText: w.key,
         canRemove: editingEnabled,
         onRemove: () => remove(identity.deleteName),
-      }));
-    }
+      });
+    }));
     warn.textContent = [access.warning, view.scan_cache_unavailable
       ? "Saved balance cache unavailable. Check storage permissions and restart the dashboard."
       : ""].filter(Boolean).join(" ");

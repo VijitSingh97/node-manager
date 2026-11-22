@@ -270,7 +270,6 @@ body:not([data-node=""]) .node-close-backdrop { display: block; }
 .settings-dialog ul { margin: 8px 0; padding-left: 20px; line-height: 1.5; }
 .settings-delete-button:not(:disabled) { color: #e5534b; border-color: #e5534b; }
 #settings-delete-submit { background: #c0392b; color: #fff; }
-#settings-delete-submit:disabled { opacity: 0.4; cursor: default; }
 .settings-config-path { display: block; overflow-wrap: anywhere; color: var(--text); font-size: 0.8rem; }
 .settings-install-interface { padding: 8px 0; border-top: 1px solid var(--border); }
 .settings-install-interface:first-child { border-top: 0; }
@@ -292,7 +291,8 @@ body:not([data-node=""]) .node-close-backdrop { display: block; }
 .settings-actions button { padding: 8px 12px; border-radius: 4px; border: 1px solid var(--border); }
 .settings-footer { position: sticky; bottom: -24px; margin: 16px -24px -24px; padding: 12px 24px; background: var(--card); border-top: 1px solid var(--border); }
 .settings-footer #settings-reset { margin-right: auto; }
-#settings-save { background: var(--accent); color: var(--bg); }
+.settings-dialog button.primary, .node-settings-form button.primary { background: var(--accent); color: var(--bg); }
+.settings-dialog button.primary:disabled, .node-settings-form button.primary:disabled { opacity: 0.4; cursor: default; }
 #settings-reset { background: var(--tag-bg); color: var(--text); }
 #settings-status { min-height: 1.5em; font-size: 0.85rem; }
 .settings-credential { margin-top: 10px; }
@@ -683,6 +683,10 @@ body:not([data-computer-stats="1"]) .host-stats { display: none; }
 .index-bar .progress-bg { margin: 6px 0 15px; }
 .index-bar-ok .progress-fill { background: #2e9e5b; }
 .index-bar-warn .progress-fill { background: #d98a00; }
+.chain-card .index-bar-ok .progress-fill { background: #2e9e5b; }
+.chain-card .index-bar-warn .progress-fill { background: #d98a00; }
+.index-bar-warn.index-bar-indeterminate .progress-fill { width: 0 !important; animation: none; margin-left: 0; transition: none; }
+.index-bar-warn.index-bar-indeterminate .progress-bg { background: repeating-linear-gradient(45deg, var(--border) 0 6px, transparent 6px 12px); }
 .index-bar-indeterminate .progress-fill { width: 40% !important; animation: index-bar-slide 1.6s ease-in-out infinite alternate; }
 @keyframes index-bar-slide { from { margin-left: 0; } to { margin-left: 60%; } }
 @media (prefers-reduced-motion: reduce) { .index-bar-indeterminate .progress-fill { animation: none; margin-left: 30%; } }
@@ -807,7 +811,6 @@ hr {
 .node-panel[data-node-active="0"] #monero-watch,
 .node-panel[data-node-active="0"] .chain-card { display:none !important; }
 #node-power-submit { background:var(--accent); color:var(--bg); }
-#node-power-submit:disabled { opacity:0.4; cursor:default; }
 #node-power-cancel { background:var(--tag-bg); color:var(--text); }
 
 .settings-dialog [hidden] { display:none !important; }

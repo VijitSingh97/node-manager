@@ -2,6 +2,7 @@ import { points } from "./sparkline.js";
 import { towerLayout, WIDE_MIN } from "./tower.js";
 import { dashboardFetch as fetch } from "./session.js";
 import { watchPrice, walletCurrency } from "./prices.js";
+import { askConfirm } from "./confirm-dialog.js";
 import { fiatLabel, httpsURL, shortKey } from "./wallet-format.js";
 
 const STALE_TITLE = "Last known balance; waiting for a fresh result";
@@ -143,8 +144,41 @@ export function renderWalletList(container, rows, options = {}) {
   container.style.left = window.innerWidth >= WIDE_MIN ? `${towerLayout(window.innerWidth).ox}px` : "";
 }
 
+let building = null;
+
+function focusSpot(container) {
+  const path = [];
+  for (let node = document.activeElement; node && node.parentNode; node = node.parentNode) {
+    if (node.parentNode === container) return { key: node.getAttribute?.("data-row-key"), path };
+    path.unshift(Array.prototype.indexOf.call(node.parentNode.children, node));
+  }
+  return null;
+}
+
+export function replaceIfChanged(container, key, build) {
+  if (container.renderKey === key) return false;
+  if (document.querySelector?.("dialog[open]")) return false;
+  const spot = focusSpot(container);
+  container.expandedKeys ||= new Set();
+  building = container.expandedKeys;
+  let rows;
+  try {
+    rows = build();
+  } finally {
+    building = null;
+  }
+  container.replaceChildren(...rows);
+  container.renderKey = key;
+  const present = new Set(rows.map((child) => child.getAttribute?.("data-row-key")));
+  container.expandedKeys.forEach((expanded) => present.has(expanded) || container.expandedKeys.delete(expanded));
+  const row = spot?.key != null && Array.prototype.find.call(container.children, (child) => child.getAttribute?.("data-row-key") === spot.key);
+  row?.contains && spot.path.reduce((node, index) => node?.children?.[index], row)?.focus?.();
+  return true;
+}
+
 export function managerRow({ label, note = "", keyText = "", canRemove, onRemove, extras = [] }) {
   const row = el("div", "row");
+  row.setAttribute("data-row-key", keyText || label);
   const left = el("div", "wk-cell");
   const name = el("span", "label", label);
   if (note) {
@@ -153,10 +187,17 @@ export function managerRow({ label, note = "", keyText = "", canRemove, onRemove
   }
   left.append(name);
   if (keyText) {
-    const key = el("span", "wk", shortKey(keyText));
-    key.title = "click to expand";
+    const expandedKeys = building || new Set();
+    const key = el("span", "wk");
+    const show = () => {
+      const open = expandedKeys.has(keyText);
+      key.textContent = open ? keyText : shortKey(keyText);
+      key.title = open ? "click to collapse" : "click to expand";
+    };
+    show();
     key.addEventListener("click", () => {
-      key.textContent = key.textContent === keyText ? shortKey(keyText) : keyText;
+      if (!expandedKeys.delete(keyText)) expandedKeys.add(keyText);
+      show();
     });
     left.append(key);
   }
@@ -168,7 +209,7 @@ export function managerRow({ label, note = "", keyText = "", canRemove, onRemove
   remove.title = `Remove ${label}`;
   remove.setAttribute("aria-label", `Remove ${label}`);
   remove.addEventListener("click", () => {
-    if (window.confirm(`Remove ${label}?`)) onRemove();
+    askConfirm(`Remove ${label}?`, "Remove").then((yes) => { if (yes) onRemove(); });
   });
   row.append(remove);
   return row;

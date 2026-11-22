@@ -258,6 +258,8 @@ test("port status polling stops when the settings dialog closes", () => {
 test("port progress stays in the live port status", () => {
   assert.equal(settingsSaveMessage(false), "");
   assert.equal(settingsSaveMessage(true), "Settings saved.");
+  assert.equal(settingsSaveMessage(true, true), "Settings saved. Telegram is off, so no alerts are sent.");
+  assert.equal(settingsSaveMessage(false, true), "");
   assert.equal(portStatusNode("", "monero", []), "monero");
   assert.equal(portStatusNode("litecoin_rpc", "monero", []), "litecoin");
   assert.equal(portStatusNode("", "", ["zcash"]), "zcash");
@@ -443,7 +445,7 @@ test("host switches stay staged until Save and then apply one at a time in a fix
   const source = await readFile(new URL("./settings.js", import.meta.url), "utf8");
   assert.doesNotMatch(source, /addEventListener\("change", \(\) => submitHost/);
   assert.match(source, /for \(const \[action, input\] of Object\.entries\(hostToggles\)\) input\.addEventListener\("change", \(\) => \{ hostDraft\[action\] = input\.checked; \}\);/);
-  assert.match(source, /byId\("open"\)\.addEventListener\("click", \(\) => \{\n    if \(!hostQueueAction\) \{\n      hostDraft = \{\};/);
+  assert.match(source, /byId\("open"\)\.addEventListener\("click", \(\) => \{\n    if \(!hostQueueAction\) \{\n      hostDraft = \{\};\n      hostStaged = \{\};/);
 });
 
 test("Save sends the pending config first, then switches, installs and data moves", async () => {
@@ -492,9 +494,15 @@ test("host switch defaults match the host helper and the configuration reference
 test("Settings ends with Reset to default, Cancel and Save, and Cancel closes like the X", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const source = await readFile(new URL("./settings.js", import.meta.url), "utf8");
-  assert.match(html, /<div class="settings-footer">\s*<div class="settings-actions"><button id="settings-reset" type="button">Reset to default<\/button><button id="settings-cancel" type="button">Cancel<\/button><button id="settings-save" type="submit">Save<\/button><\/div>\s*<p id="settings-status"/);
+  assert.match(html, /<div class="settings-footer">\s*<div class="settings-actions"><button id="settings-reset" type="button">Reset to default<\/button><button id="settings-cancel" type="button">Cancel<\/button><button class="primary" id="settings-save" type="submit">Save<\/button><\/div>\s*<p id="settings-status"/);
   assert.doesNotMatch(html + source, /Use server config|Server config on Save/);
-  assert.match(source, /for \(const id of \["close", "cancel"\]\) byId\(id\)\.addEventListener\("click", \(\) => dialog\.close\(\)\)/);
+  assert.match(source, /for \(const id of \["close", "cancel"\]\) byId\(id\)\.addEventListener\("click", closeSettings\)/);
+  assert.match(source, /dialog\.addEventListener\("cancel", \(event\) => \{ if \(!event\.cancelable\) \{ discardedNotice = /);
+  assert.match(source, /await askConfirm\(/);
+  assert.doesNotMatch(source, /settingsSaveMessage\([^,()]*(\([^()]*\)[^,()]*)*\)/);
+  assert.doesNotMatch(source + await readFile(new URL("./wallet-ui.js", import.meta.url), "utf8"), /window\.confirm|[^.\w]confirm\(/);
+  assert.equal((html.match(/class="primary"/g) || []).length, 7);
+  assert.match(await readFile(new URL("./nodes.js", import.meta.url), "utf8"), /!document\.querySelector\("dialog\[open\]"\)\) controller\.close\(\)/);
 });
 
 test("the two actuator toggles are independent in the settings payload and default off", () => {
@@ -525,4 +533,10 @@ test("the settings page has only the two actuator toggles and no actuator login 
   for (const id of ["actuator-health", "actuator-info"]) assert.match(page, new RegExp(`id="settings-${id}"`));
   assert.doesNotMatch(page + source, /actuator-username|actuator-password|actuator_username|actuator_password/);
   assert.doesNotMatch(page + source, /health-endpoints|health_endpoints/);
+});
+
+test("The ambiguous port result reads the current Telegram state when it is shown", async () => {
+  const source = await readFile(new URL("./settings.js", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /ambiguousAlertsOff/);
+  assert.match(source, /const ambiguousMessage = \(\) => settingsSaveMessage\(ambiguousStatusPrefix !== "", ambiguousAlerts \? nodeAlertsOff\(ambiguousAlerts\.scope, ambiguousAlerts\.payload, saved\) : false\);/);
 });
