@@ -145,10 +145,22 @@ export function renderWalletList(container, rows, options = {}) {
 
 const expandedKeys = new Set();
 
+function focusPath(container) {
+  const path = [];
+  for (let node = document.activeElement; node && node !== container; node = node.parentNode) {
+    if (!node.parentNode) return null;
+    path.unshift(Array.prototype.indexOf.call(node.parentNode.children, node));
+  }
+  return container.contains?.(document.activeElement) ? path : null;
+}
+
 export function replaceIfChanged(container, key, build) {
   if (container.renderKey === key) return false;
   container.renderKey = key;
+  const path = focusPath(container);
   container.replaceChildren(...build());
+  const target = path?.reduce((node, index) => node?.children?.[index], container);
+  if (target && target !== container) target.focus?.();
   return true;
 }
 

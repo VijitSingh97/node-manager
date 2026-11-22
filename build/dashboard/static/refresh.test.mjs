@@ -176,3 +176,21 @@ test("replaceLive restores focus to the same control after the swap", () => {
   assert.equal(replaceLive(current, next), true);
   assert.equal(swapped.focused, true);
 });
+
+test("replaceLive keeps focus when moving the price section blurs the focused control", () => {
+  const current = documentFixture("current");
+  const control = { id: "btc-price-currency" };
+  current.activeElement = control;
+  current.live.contains = (node) => node === control;
+  const next = documentFixture("next");
+  const movePrice = next.live.price.replaceWith;
+  next.live.price.replaceWith = (price) => {
+    current.activeElement = { id: "body" };
+    movePrice(price);
+  };
+  const swapped = { id: "btc-price-currency", focus() { this.focused = true; } };
+  const getElementById = current.getElementById;
+  current.getElementById = (id) => id === "btc-price-currency" ? swapped : getElementById(id);
+  assert.equal(replaceLive(current, next), true);
+  assert.equal(swapped.focused, true);
+});

@@ -36,11 +36,11 @@ export function replaceLive(current, next) {
   const nextLive = next.getElementById("live");
   const currentLive = current.getElementById("live");
   if (!nextLive || !currentLive) return false;
+  const focus = focusState(current, currentLive);
   const price = current.getElementById("btc-price");
   const nextPrice = nextLive.querySelector("#btc-price");
   if (price && nextPrice) nextPrice.replaceWith(price);
   replaceUpdateViews(current, next);
-  const focus = focusState(current, currentLive);
   currentLive.replaceWith(nextLive);
   restoreFocus(current, focus);
   for (const name of ["center", "center-screen"]) {

@@ -4,8 +4,9 @@ import assert from "node:assert/strict";
 function node(tag) {
   return {
     tag, className: "", textContent: "", children: [], listeners: {},
-    append(...items) { this.children.push(...items); },
-    replaceChildren(...items) { this.children = items; },
+    append(...items) { items.forEach((item) => { item.parentNode = this; }); this.children.push(...items); },
+    replaceChildren(...items) { items.forEach((item) => { item.parentNode = this; }); this.children = items; },
+    contains(other) { return other === this || this.children.some((child) => child.contains(other)); },
     addEventListener(type, fn) { this.listeners[type] = fn; },
     setAttribute() {},
   };
@@ -35,4 +36,22 @@ test("a refresh with unchanged data keeps the existing rows", () => {
   const before = list.children[0];
   assert.equal(replaceIfChanged(list, "same", () => [rowFor()]), false);
   assert.equal(list.children[0], before);
+});
+
+test("a focused row control keeps focus when the list is rebuilt with changed data", () => {
+  const list = node("div");
+  const rowWithButton = () => {
+    const row = rowFor();
+    const button = node("button");
+    button.focus = function focus() { document.activeElement = this; };
+    row.append(button);
+    return row;
+  };
+  replaceIfChanged(list, "a", () => [rowWithButton()]);
+  const old = list.children[0].children.at(-1);
+  document.activeElement = old;
+  replaceIfChanged(list, "b", () => [rowWithButton()]);
+  const fresh = list.children[0].children.at(-1);
+  assert.notEqual(fresh, old);
+  assert.equal(document.activeElement, fresh);
 });
