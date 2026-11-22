@@ -175,6 +175,8 @@ test("one label per state is shared by badge and card, and no guard id reaches u
   assert.ok(ids.includes("host"));
   for (const guard of ids) assert.doesNotMatch(guardText({ guard, detail: "x" }), /_|^[a-z]+:|^Blocked/, guard);
   assert.equal(guardText({ guard: "mystery", detail: "x" }), "Blocked: x");
+  assert.equal(guardText({ guard: "state", detail: "index state is not_seeded" }), "Index state: not seeded");
+  assert.equal(guardText({ guard: "state", detail: "index state is invalid" }), "Index state: needs a new seed");
   assert.equal(guardText({ guard: "thermal", detail: "temperature sensor unreadable" }), "Temperature: temperature sensor unreadable");
   assert.equal(guardText({ guard: "rpc_idle", detail: "active commands unreadable" }), "Node commands: active commands unreadable");
   assert.equal(guardText({ guard: "lock", detail: "another balance index is seeding" }), "Seed slot: another balance index is seeding");

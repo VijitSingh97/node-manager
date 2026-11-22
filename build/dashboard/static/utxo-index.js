@@ -41,7 +41,9 @@ const GUARD_TEXT = {
   host: "Host helper",
 };
 
-export const guardText = (r) => `${GUARD_TEXT[r.guard] || "Blocked"}: ${r.detail}`;
+const humanDetail = (r) => (r.guard === "state" ? r.detail.replace(/^index state is (\w+)$/, (_, id) => STATE_LABEL[id] || id.replace(/_/g, " ")) : r.detail);
+
+export const guardText = (r) => `${GUARD_TEXT[r.guard] || "Blocked"}: ${humanDetail(r)}`;
 
 const cap = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 
