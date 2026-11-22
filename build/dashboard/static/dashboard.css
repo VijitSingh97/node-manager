@@ -835,6 +835,9 @@ hr {
 @media (max-width:700px) {
   .node-panel {padding-right:56px;}
   .node-panel > * {max-width:calc(100vw - 80px);}
+  .node-panel .card {max-width:calc(100vw - 80px);}
+  .node-panel .watch-hint {max-width:100%;box-sizing:border-box;}
+  .node-panel .watch-hint input {max-width:100%;}
   .node-panel-close {right:68px;}
   .host-stats {top:56px;max-height:28vh;padding:12px 16px;}
 }

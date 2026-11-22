@@ -6,26 +6,33 @@ const phone = { width: 375, height: 812, deviceScaleFactor: 1, mobile: true };
 const desktop = { width: 1280, height: 1000, deviceScaleFactor: 1, mobile: false };
 const settle = (page) => page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 600)));
 
-flow("Phone panels keep the close button and values clear of the fixed buttons", { nodes }, async ({ page }) => {
-  await page.send("Emulation.setDeviceMetricsOverride", phone);
-  await page.click('[data-select-node="litecoin"]');
-  await settle(page);
-  const got = await page.evaluate(() => {
-    const rect = (el) => el.getBoundingClientRect();
-    const close = document.querySelector('[data-node-panel="litecoin"] [data-close-node]');
-    const c = rect(close);
-    const top = document.elementFromPoint(c.left + c.width / 2, c.top + c.height / 2);
-    const toggle = rect(document.getElementById("theme-toggle"));
-    const buttons = [...document.querySelectorAll(".settings-open")].map(rect);
-    const panel = document.querySelector('[data-node-panel="litecoin"]');
-    const right = Math.max(...[...panel.querySelectorAll("*")].filter((el) => el !== close && rect(el).width && !el.closest("[hidden]")).map((el) => rect(el).right));
-    return { closeHit: top === close, overlapsToggle: !(c.right <= toggle.left || c.left >= toggle.right || c.bottom <= toggle.top || c.top >= toggle.bottom), right, buttonsLeft: Math.min(...buttons.map((b) => b.left)), buttons: buttons.length, scrollWidth: document.documentElement.scrollWidth };
-  });
-  assert.equal(got.closeHit, true);
-  assert.equal(got.overlapsToggle, false);
-  assert.equal(got.buttons, 2);
-  assert.ok(got.right <= got.buttonsLeft, `panel content reaches ${got.right}px, buttons start at ${got.buttonsLeft}px`);
-  assert.ok(got.scrollWidth <= 375);
+flow("Phone panels keep the close button and values clear of the fixed buttons", { nodes: nodeIDs }, async ({ page }) => {
+  for (const width of [375, 320]) {
+    await page.send("Emulation.setDeviceMetricsOverride", { ...phone, width });
+    for (const id of nodeIDs) {
+      await page.click(`[data-select-node="${id}"]`);
+      await settle(page);
+      const got = await page.evaluate((id) => {
+        const rect = (el) => el.getBoundingClientRect();
+        const panel = document.querySelector(`[data-node-panel="${id}"]`);
+        const close = panel.querySelector("[data-close-node]");
+        const c = rect(close);
+        const top = document.elementFromPoint(c.left + c.width / 2, c.top + c.height / 2);
+        const toggle = rect(document.getElementById("theme-toggle"));
+        const buttons = [...document.querySelectorAll(".settings-open")].map(rect);
+        const right = Math.max(...[...panel.querySelectorAll("*")].filter((el) => el !== close && rect(el).width && !el.closest("[hidden]")).map((el) => rect(el).right));
+        return { closeHit: top === close, overlapsToggle: !(c.right <= toggle.left || c.left >= toggle.right || c.bottom <= toggle.top || c.top >= toggle.bottom), right, buttonsLeft: Math.min(...buttons.map((b) => b.left)), buttons: buttons.length, scrollWidth: document.documentElement.scrollWidth };
+      }, id);
+      const where = `${id} at ${width}px`;
+      assert.equal(got.closeHit, true, where);
+      assert.equal(got.overlapsToggle, false, where);
+      assert.equal(got.buttons, 2, where);
+      assert.ok(got.right <= got.buttonsLeft, `${where}: panel content reaches ${got.right}px, buttons start at ${got.buttonsLeft}px`);
+      assert.ok(got.scrollWidth <= width, `${where}: scrollWidth ${got.scrollWidth}`);
+      await page.click(`[data-node-panel="${id}"] [data-close-node]`);
+      await settle(page);
+    }
+  }
 });
 
 flow("Phone host stats leave the towers clickable", { nodes, hostStats: true, settings: { computer_stats: true } }, async ({ page }) => {
