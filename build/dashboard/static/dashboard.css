@@ -824,7 +824,7 @@ hr {
 #node-overview-status {position:fixed;top:75px;inset-inline:24px;text-align:center;color:var(--muted);font:0.8rem monospace;pointer-events:none;}
 .chain-wallet-card h2 {color:var(--node-accent);}
 .node-panel[data-node-active="0"] .chain-wallet-card {display:none !important;}
-.family-watch-form {display:grid;grid-template-columns:1fr 1.5fr auto;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);}
+.family-watch-form {display:grid;grid-template-columns:1fr;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);}
 .family-watch-form[hidden] {display:none;}
 .family-watch-form input {min-width:0;padding:7px;border:1px solid var(--border);border-radius:4px;background:var(--tag-bg);color:var(--text);font:0.8rem monospace;}
 .family-watch-form button {padding:7px 10px;border:1px solid var(--node-accent);border-radius:4px;background:transparent;color:var(--node-accent);cursor:pointer;}
@@ -833,5 +833,8 @@ hr {
 .family-watch-error {color:#ff5252 !important;}
 
 @media (max-width:700px) {
-  .family-watch-form {grid-template-columns:1fr;}
+  .node-panel {padding-right:56px;}
+  .node-panel > * {max-width:calc(100vw - 80px);}
+  .node-panel-close {right:68px;}
+  .host-stats {top:56px;max-height:28vh;padding:12px 16px;}
 }
