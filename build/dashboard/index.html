@@ -116,6 +116,7 @@
       </section>{{end}}
       <div class="card">
         <h2>Bitcoin Node Status<span class="badge">{{if .Pruned}}Pruned{{else}}Full{{end}}</span></h2>
+        <p class="node-state">{{.StateLine}}</p>
         <div class="row"><span class="label">Version:</span> <span>{{.CoreVersion}}</span></div>
         <div class="row"><span class="label">Uptime:</span> <span>{{.Uptime}}</span></div>
         <div class="row"><span class="label">Connections:</span> <span>{{if .PeersUnknown}}—{{else}}{{.Inbound}} in · {{.Outbound}} out{{end}}</span></div>
@@ -124,6 +125,7 @@
         <div class="progress-bg"><div class="progress-fill" style="width: {{printf "%.4f" .Progress}}%"></div></div>
         <div class="row"><span class="label">Sync progress:</span> <span>{{printf "%.4f" .Progress}}%</span></div>
         <div id="index-bar-bitcoin" class="index-bar" hidden><div class="row"><span class="label">Balance index:</span><span class="index-bar-label"></span></div><div class="progress-bg" role="progressbar" aria-label="Balance index" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill index-bar-fill" style="width:0%"></div></div></div>
+        <div class="row"><span class="label">Latest block:</span> <span>{{.LastBlock}}</span></div>
         <div class="row"><span class="label">Node data size:</span> <span>{{if .NodeSizeBytes}}{{printf "%.2f" .NodeGB}} GiB{{else}}—{{end}}</span></div>
         {{if .ShowMempool}}<hr>
         <div class="row"><span class="label">Mempool:</span> <span>{{.MempoolTxs}} tx · {{printf "%.1f" .MempoolMB}} MiB</span></div>
@@ -141,7 +143,7 @@
         <hr>
         <div class="row"><span class="label">RPC:</span> <span>{{if .BitcoinRPCEndpoint}}{{.BitcoinRPCEndpoint}} · LAN{{else}}Disabled{{end}}</span></div>
         <p class="node-state">{{if .BitcoinRPCEndpoint}}LAN access is on. Use your Bitcoin RPC login.{{else}}LAN access is off.{{end}}</p>
-        <div class="footer"><span>Updated: {{.LastUpdate}}</span><span>{{.Version}}</span><span>Auto-refresh: 30s</span></div>
+        <div class="footer"><span>Updated: <time data-updated-at="{{.UpdatedAt}}">{{.LastUpdate}}</time></span><span>{{.Version}}</span><span>Auto-refresh: 30s</span></div>
       </div>
     </div>
     <section id="watch" class="card watch-card" hidden></section>
@@ -224,7 +226,7 @@
         <div class="footer"><span id="tari-updated">Updated: —</span><span>{{.Version}}</span><span>Auto-refresh: 30s</span></div>
       </div>
     </section>
-    <section id="tari-watch" class="card chain-wallet-card watch-card"><h2>Watch-only wallet</h2><p class="node-state">Loading wallet service…</p></section>
+    <section id="tari-watch" class="card chain-wallet-card watch-card"><h2>Watch-only wallets</h2><p class="node-state">Loading wallet service…</p></section>
     <section class="card node-power-card" style="--node-accent:#8f5cff;--node-text:var(--nt-tari)">
       <h2>Node controls</h2>
       <p id="tari-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
@@ -259,7 +261,7 @@
         <div class="footer"><span id="litecoin-updated">Updated: —</span><span>{{.Version}}</span><span>Auto-refresh: 30s</span></div>
       </div>
     </section>
-    <section class="card chain-wallet-card" data-family-watch="litecoin"><h2>Watch-only wallets</h2><p class="node-state" data-family-watch-status>Loading wallet capabilities…</p><div data-family-watch-list></div></section>
+    <section class="card chain-wallet-card watch-card" data-family-watch="litecoin"><h2>Watch-only wallets</h2><p class="node-state" data-family-watch-status>Loading wallet capabilities…</p><div data-family-watch-list></div></section>
     <section id="utxo-index-litecoin" class="card watch-card" hidden></section>
     <section class="card node-power-card" style="--node-accent:#4d8fd8;--node-text:var(--nt-litecoin)">
       <h2>Node controls</h2>
@@ -295,7 +297,7 @@
         <div class="footer"><span id="dogecoin-updated">Updated: —</span><span>{{.Version}}</span><span>Auto-refresh: 30s</span></div>
       </div>
     </section>
-    <section class="card chain-wallet-card" data-family-watch="dogecoin"><h2>Watch-only wallets</h2><p class="node-state" data-family-watch-status>Loading wallet capabilities…</p><div data-family-watch-list></div></section>
+    <section class="card chain-wallet-card watch-card" data-family-watch="dogecoin"><h2>Watch-only wallets</h2><p class="node-state" data-family-watch-status>Loading wallet capabilities…</p><div data-family-watch-list></div></section>
     <section id="utxo-index-dogecoin" class="card watch-card" hidden></section>
     <section class="card node-power-card" style="--node-accent:#b88746;--node-text:var(--nt-dogecoin)">
       <h2>Node controls</h2>
@@ -331,7 +333,7 @@
         <div class="footer"><span id="bitcoincash-updated">Updated: —</span><span>{{.Version}}</span><span>Auto-refresh: 30s</span></div>
       </div>
     </section>
-    <section class="card chain-wallet-card" data-family-watch="bitcoincash"><h2>Watch-only wallets</h2><p class="node-state" data-family-watch-status>Loading wallet capabilities…</p><div data-family-watch-list></div></section>
+    <section class="card chain-wallet-card watch-card" data-family-watch="bitcoincash"><h2>Watch-only wallets</h2><p class="node-state" data-family-watch-status>Loading wallet capabilities…</p><div data-family-watch-list></div></section>
     <section id="utxo-index-bitcoincash" class="card watch-card" hidden></section>
     <section class="card node-power-card" style="--node-accent:#36a852;--node-text:var(--nt-bitcoincash)">
       <h2>Node controls</h2>
@@ -366,7 +368,7 @@
         <div class="footer"><span id="zcash-updated">Updated: —</span><span>{{.Version}}</span><span>Auto-refresh: 30s</span></div>
       </div>
     </section>
-    <section class="card chain-wallet-card" data-family-watch="zcash"><h2>Watch-only wallets</h2><p class="node-state" data-family-watch-status>Loading wallet capabilities…</p><div data-family-watch-list></div></section>
+    <section class="card chain-wallet-card watch-card" data-family-watch="zcash"><h2>Watch-only wallets</h2><p class="node-state" data-family-watch-status>Loading wallet capabilities…</p><div data-family-watch-list></div></section>
     <section class="card node-power-card" style="--node-accent:#d69c35;--node-text:var(--nt-zcash)">
       <h2>Node controls</h2>
       <p id="zcash-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>

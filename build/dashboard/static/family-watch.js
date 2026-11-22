@@ -1,5 +1,5 @@
 import { dashboardFetch as fetch } from "./session.js";
-import { bigSeries, formatAmount, httpsURL, joinNote, scanNote } from "./wallet-format.js";
+import { WATCH_COPY, bigSeries, formatAmount, httpsURL, joinNote, scanNote } from "./wallet-format.js";
 import { el, managerRow, renderWalletList, replaceIfChanged, safeLink } from "./wallet-ui.js";
 
 const SUPPORTED = new Set(["litecoin", "dogecoin", "bitcoincash", "zcash"]);
@@ -26,7 +26,7 @@ export function familyRow(wallet, node) {
   else if (state === "unscanned") stateText = "Example only; not scanned";
   else if (state === "rescanning") stateText = "Rescanning the chain; this can take hours…";
   else if (ready || stale) stateText = "Balance unavailable";
-  else if (state === "error") stateText = "Scan failed";
+  else if (state === "error") stateText = WATCH_COPY.scanFailed;
   else if (state === "unavailable") stateText = "Unavailable";
   const history = (Array.isArray(wallet?.history) ? wallet.history : []).slice(-96).map((sample) => familyAmount(sample?.amount).replace(".", ""));
   return {
@@ -72,7 +72,7 @@ if (typeof document !== "undefined") {
     const form = el("form", "family-watch-form");
     const label = el("input");
     const address = el("input");
-    const add = el("button", null, "Add public address");
+    const add = el("button", null, WATCH_COPY.add);
     const message = el("p", "family-watch-message");
     let last = { wallets: [] };
     let busy = false;
@@ -105,8 +105,8 @@ if (typeof document !== "undefined") {
       setMessage("");
       try {
         const response = await fetch(`/api/${node}/watch/${encodeURIComponent(id)}`, { method: "DELETE", headers: HEADERS });
-        if (!response.ok) throw new Error(await requestError(response, "Address could not be removed."));
-        setMessage("Address removed.");
+        if (!response.ok) throw new Error(await requestError(response, WATCH_COPY.removeFailed));
+        setMessage(WATCH_COPY.removed);
         await refresh(true);
       } catch (error) {
         setMessage(error.message || "Network error.", true);
@@ -161,10 +161,10 @@ if (typeof document !== "undefined") {
           headers: { ...HEADERS, "Content-Type": "application/json" },
           body: JSON.stringify(familyWalletPost(node, label.value, address.value)),
         });
-        if (!response.ok) throw new Error(await requestError(response, "Address could not be added."));
+        if (!response.ok) throw new Error(await requestError(response, WATCH_COPY.addFailed));
         label.value = "";
         address.value = "";
-        setMessage("Address added; scanning confirmed UTXOs.");
+        setMessage(WATCH_COPY.added);
         await refresh(true);
       } catch (error) {
         setMessage(error.message || "Network error.", true);

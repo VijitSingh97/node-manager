@@ -1,4 +1,4 @@
-import { atomicToDecimal, bigSeries, formatAmount, joinNote, scanNote } from "./wallet-format.js";
+import { WATCH_COPY, atomicToDecimal, bigSeries, formatAmount, joinNote, scanNote } from "./wallet-format.js";
 import { el, managerRow, renderWalletList, replaceIfChanged, safeLink, setMessage, walletRequest } from "./wallet-ui.js";
 
 const EXAMPLE_NOTE = "Public example: the official Monero General Fund address, excluded from your totals. A view key reveals funds received but not spending, so this is the total ever received, not a current balance.";
@@ -28,7 +28,7 @@ export function moneroRow(wallet) {
     value: decimal ?? "",
     amount: decimal === null ? "" : formatAmount(decimal, true),
     unit: "XMR",
-    stateText: pending ? "Pending scan…" : "—",
+    stateText: pending ? "Pending scan…" : wallet.state === "error" ? WATCH_COPY.scanFailed : "—",
     stale: wallet.spending_status === "stale" || wallet.state === "error",
     fiatAsset: "monero",
     status: joinNote(status),
@@ -75,7 +75,7 @@ if (typeof document !== "undefined") {
   const stats = document.getElementById("monero-tower-stats");
   if (card && stats) {
     const request = walletRequest("/api/monero/watch");
-    const heading = el("h2", null, "Watch-only wallets");
+    const heading = el("h2", null, WATCH_COPY.heading);
     const list = el("div", "watch-list");
     const form = el("form", "watch-add");
     const message = el("p", "watch-msg");
@@ -102,7 +102,7 @@ if (typeof document !== "undefined") {
     const file = input("View-only wallet JSON", "file");
     file.accept = ".json,application/json";
     fileLabel.append(file);
-    const add = el("button", null, "Add");
+    const add = el("button", null, WATCH_COPY.add);
     add.type = "submit";
     add.disabled = true;
     for (const field of [name, address, viewKey, height, file]) field.disabled = true;
@@ -152,7 +152,7 @@ if (typeof document !== "undefined") {
           keyText: String(wallet.address || ""),
           canRemove: allowed,
           onRemove: async () => {
-            try { await request(`/${encodeURIComponent(wallet.id)}`, "DELETE"); say("Wallet removed from monitoring."); }
+            try { await request(`/${encodeURIComponent(wallet.id)}`, "DELETE"); say(WATCH_COPY.removed); }
             catch (error) { say(error.message, true); }
             refresh();
           },
@@ -187,7 +187,7 @@ if (typeof document !== "undefined") {
         address.value = value.address;
         viewKey.value = value.view_key;
         height.value = value.restore_height;
-        say("View-only details loaded. Choose Add to start scanning.");
+        say(`View-only details loaded. Choose ${WATCH_COPY.add} to start scanning.`);
       } catch (error) { viewKey.value = ""; say(errorText(error), true); }
       finally { file.value = ""; }
     });
@@ -200,7 +200,7 @@ if (typeof document !== "undefined") {
         const value = walletImport({ name: name.value, address: address.value.trim(), view_key: viewKey.value.trim(), restore_height: Number(height.value || 0) });
         await request("", "POST", value);
         name.value = address.value = height.value = "";
-        say("Added. Scanning for incoming funds…");
+        say(WATCH_COPY.added);
       } catch (error) { say(errorText(error), true); }
       finally { viewKey.value = ""; busy = false; refresh(); }
     });

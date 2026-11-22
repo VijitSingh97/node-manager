@@ -56,8 +56,8 @@ test("balanceLabel keeps an accurate zero after rescan without history", () => {
   assert.equal(balanceLabel({ state: "ok", btc: "0", history: [] }), "0 BTC");
 });
 
-test("balanceLabel falls back to a dash on error / not-ready", () => {
-  assert.equal(balanceLabel({ state: "error", btc: null }), "—");
+test("balanceLabel reports a failed scan and falls back to a dash when not ready", () => {
+  assert.equal(balanceLabel({ state: "error", btc: null }), "Scan failed");
   assert.equal(balanceLabel({ state: "whatever" }), "—");
 });
 

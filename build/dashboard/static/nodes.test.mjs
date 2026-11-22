@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyHover, formatBytes, formatCompactBytes, formatHashrate, formatMoneroFees, formatUpdated, formatUptime, genericNodeView, moneroView, selectionController, updateTowerProgress } from "./nodes.js";
+import { applyHover, formatBytes, formatCompactBytes, formatHashrate, formatMoneroFees, formatUpdated, formatUptime, genericNodeView, localizeUpdated, moneroView, selectionController, updateTowerProgress } from "./nodes.js";
 
 test("tower progress follows fresh node status and survives temporary outages or deactivation", () => {
   const live = { dataset: {} };
@@ -191,4 +191,11 @@ test("Monero LAN note follows the RPC and ZMQ rows", () => {
   assert.equal(moneroView(up).lanNote, "LAN access is off.");
   assert.equal(moneroView({ ...up, rpc_exposure_enabled: true }).lanNote, "LAN access is on. RPC is restricted and requires your Monero login.");
   assert.equal(moneroView({ ...up, zmq_exposure_enabled: true }).lanNote, "LAN access is on. ZMQ is for a trusted LAN.");
+});
+
+test("server-rendered Updated times switch to the browser-local format", () => {
+  const nodes = [{ dataset: { updatedAt: "1700000000" }, textContent: "10:00:00" }, { dataset: { updatedAt: "" }, textContent: "10:00:01" }];
+  localizeUpdated({ querySelectorAll: () => nodes });
+  assert.equal(nodes[0].textContent, formatUpdated(1700000000));
+  assert.equal(nodes[1].textContent, "10:00:01");
 });

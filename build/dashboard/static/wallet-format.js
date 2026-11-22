@@ -1,5 +1,15 @@
 import { formatPrice, normalizeCurrency } from "./prices.js";
 
+export const WATCH_COPY = {
+  heading: "Watch-only wallets",
+  add: "Add wallet",
+  scanFailed: "Scan failed",
+  added: "Wallet added. Scanning for confirmed funds…",
+  removed: "Wallet removed.",
+  addFailed: "Wallet could not be added.",
+  removeFailed: "Wallet could not be removed.",
+};
+
 export function groupDigits(whole) {
   return String(whole).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }

@@ -70,6 +70,13 @@ export function formatUpdated(unixSeconds, DateTimeFormat = Intl.DateTimeFormat)
 
 const notAnswering = (label) => `Connecting to ${label}… Still stuck? Run ${commandName()} doctor.`;
 
+export function localizeUpdated(root) {
+  for (const node of root.querySelectorAll("time[data-updated-at]")) {
+    const text = formatUpdated(node.dataset.updatedAt);
+    if (text !== "—") node.textContent = text;
+  }
+}
+
 export function moneroView(data) {
   if (!data || data.enabled === false) return { state: "Not configured", badge: "Disabled", details: false };
   if (data.available !== true) return { state: notAnswering("Monero"), badge: "Connecting", details: false };
