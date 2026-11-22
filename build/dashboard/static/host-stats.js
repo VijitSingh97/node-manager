@@ -263,7 +263,6 @@ function operable(node, id, name, pressed, onToggle) {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     onToggle();
-    document.querySelector(`#host-stats [data-zoom="${id}"]`)?.focus();
   });
 }
 
@@ -422,6 +421,12 @@ let memZoomed = false;
 function render() {
   const panel = document.getElementById("host-stats");
   if (!panel) return;
+  const focusedZoom = panel.contains(document.activeElement) ? document.activeElement.dataset?.zoom : null;
+  renderPanel(panel);
+  if (focusedZoom) panel.querySelector(`[data-zoom="${focusedZoom}"]`)?.focus();
+}
+
+function renderPanel(panel) {
   const bitcoinBytes = Number(document.getElementById("live")?.dataset.nodeSize);
   if (bitcoinBytes > 0) sizes.set("bitcoin", bitcoinBytes);
   const view = diskViews(host, withCollectorSizes(host?.stats, sizes), zoomedDisks);

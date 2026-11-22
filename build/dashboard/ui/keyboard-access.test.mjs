@@ -53,6 +53,9 @@ flow("Host pies and disk bars are keyboard buttons that zoom and keep focus", { 
   await page.evaluate(() => document.querySelector("#host-stats [data-zoom=disk-0]").focus());
   await page.press("Enter");
   assert.deepEqual(await bar(), ["button", "true", true, true]);
+  await page.evaluate(() => document.querySelector("#host-stats [data-zoom=cpu]").focus());
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent("host-stats-data", { detail: { disk_available: true, disk_total_bytes: 1000, disk_free_bytes: 400, stats: { cpus: 4, mem_total_bytes: 2 ** 33, nodes: {}, other: { cpu_pct: 1, mem_bytes: 1 } } } })));
+  assert.equal(await page.evaluate(() => document.activeElement?.dataset?.zoom), "cpu");
 });
 
 flow("The theme toggles announce the current mode", async ({ page }) => {
