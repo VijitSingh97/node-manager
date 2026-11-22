@@ -100,3 +100,57 @@ test("every inline node accent has its matching text token and the ring uses it"
   for (const [, hex, rest] of found) assert.ok(rest.includes(`--node-text:var(--nt-${brand[hex.toLowerCase()]})`), hex);
   assert.match(css, /\.node-choice:focus-visible span \{[^}]*var\(--node-text/);
 });
+
+function rgba(block, name) {
+  const m = block.match(new RegExp(`--${name}:\\s*rgba\\((\\d+),\\s*(\\d+),\\s*(\\d+),\\s*([\\d.]+)\\)`));
+  assert.ok(m, name);
+  return m.slice(1, 5).map(Number);
+}
+function over([r, g, b, a], base) {
+  const [br, bgn, bb] = [0, 2, 4].map((i) => parseInt(base.slice(1 + i, 3 + i), 16));
+  return "#" + [r * a + br * (1 - a), g * a + bgn * (1 - a), b * a + bb * (1 - a)].map((v) => Math.round(v).toString(16).padStart(2, "0")).join("");
+}
+const blocks = {
+  dark: blockAfter(":root {"),
+  light: blockAfter(':root[data-theme="light"] {'),
+  auto: blockAfter(':root:not([data-theme="dark"]) {'),
+};
+
+test("host stats scope muted text to the glass-safe token", () => {
+  assert.match(css, /\.host-stats \{[^}]*--muted:\s*var\(--glass-muted\)/);
+});
+
+for (const [theme, values] of Object.entries(themes)) {
+  const glass = over(rgba(blocks[theme], "glass-bg"), values.bg);
+  const tile = over(rgba(blocks[theme], "glass-track"), glass);
+  for (const [surface, name] of [[glass, "host-stats panel"], [tile, ".vital tile"]]) {
+    for (const fg of ["glass-muted", "text"]) {
+      test(`${theme}: --${fg} on the ${name} reaches 4.5:1`, () => {
+        const got = ratio(values[fg], surface);
+        assert.ok(got >= 4.5, `${values[fg]} on ${surface} is ${got.toFixed(2)}:1`);
+      });
+    }
+  }
+  for (const fg of ["vital-down", "vital-up"]) {
+    test(`${theme}: --${fg} on the .vital tile reaches 4.5:1`, () => {
+      const got = ratio(values[fg], tile);
+      assert.ok(got >= 4.5, `${values[fg]} on ${tile} is ${got.toFixed(2)}:1`);
+    });
+  }
+}
+
+test("stale balances and prices keep full text contrast instead of fading", () => {
+  for (const selector of [".tower-stats .ws-bal.stale", ".node-choice-label small.stale"]) {
+    const rule = css.match(new RegExp(`${selector.replace(/\./g, "\\.")} \\{[^}]*\\}`))[0];
+    assert.doesNotMatch(rule, /opacity/, selector);
+    assert.match(rule, /color:\s*var\(--muted\)/, selector);
+    assert.match(rule, /font-style:\s*italic/, selector);
+  }
+});
+
+test("a focused inactive tower is not dimmed below its ring contrast", () => {
+  const dim = css.indexOf('.node-choice[data-node-active="0"] span {');
+  const focus = css.indexOf('.node-choice[data-node-active="0"]:focus-visible span {');
+  assert.ok(dim >= 0 && focus > dim);
+  assert.match(css.slice(focus, css.indexOf("}", focus)), /filter:\s*none;\s*opacity:\s*1/);
+});

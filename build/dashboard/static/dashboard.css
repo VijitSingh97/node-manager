@@ -18,6 +18,7 @@
   --glass-border: rgba(255, 255, 255, 0.13);
   --glass-highlight: rgba(255, 255, 255, 0.15);
   --glass-track: rgba(255, 255, 255, 0.1);
+  --glass-muted: #a6a6a6;
   --vital-down: #4ade80;
   --vital-up: #60a5fa;
   --vital-ring: #2dd4bf;
@@ -49,7 +50,8 @@
   --glass-border: rgba(0, 0, 0, 0.08);
   --glass-highlight: rgba(255, 255, 255, 0.8);
   --glass-track: rgba(0, 0, 0, 0.07);
-  --vital-down: #15803d;
+  --glass-muted: #666;
+  --vital-down: #166534;
   --vital-up: #1d4ed8;
   --vital-ring: #0f766e;
   --vital-dot-ring: rgba(0, 0, 0, 0.35);
@@ -82,7 +84,8 @@
     --glass-border: rgba(0, 0, 0, 0.08);
     --glass-highlight: rgba(255, 255, 255, 0.8);
     --glass-track: rgba(0, 0, 0, 0.07);
-    --vital-down: #15803d;
+    --glass-muted: #666;
+    --vital-down: #166534;
     --vital-up: #1d4ed8;
     --vital-ring: #0f766e;
     --vital-dot-ring: rgba(0, 0, 0, 0.35);
@@ -168,11 +171,12 @@ body[data-tower-labels="1"] .node-choice span,
   font-size: 0.7rem;
   font-weight: 400;
 }
-.node-choice-label small.stale { opacity: 0.65; }
+.node-choice-label small.stale { color: var(--muted); font-style: italic; }
 .node-choice:focus { outline: 0; }
 .node-choice:focus-visible span { display: table; box-shadow: 0 0 0 2px var(--node-text, var(--accent)); }
 .node-choice[data-node-active="0"] { color: var(--muted); }
 .node-choice[data-node-active="0"] span { filter: grayscale(1); opacity: 0.68; }
+.node-choice[data-node-active="0"]:focus-visible span { filter: none; opacity: 1; }
 .node-choice[data-node-unreachable="1"] span { display: table; filter: none; opacity: 1; }
 .node-choice[data-node-unreachable="1"] .node-choice-label b { color: var(--unreachable); }
 .node-choice[data-node-unreachable="1"] .node-choice-label b::after { content: " (down)"; font-size: 0.6rem; font-weight: 400; }
@@ -532,7 +536,7 @@ h2 {
 .tower-stats .ws-spark { grid-column: 2; opacity: 0.85; }
 .tower-stats .ws-note { grid-column: 1 / -1; color: var(--muted); font-size: 0.65rem; line-height: 1.5; }
 .tower-stats .ws-fiat { grid-column: 3; justify-self: end; color: var(--muted); font-size: 0.72rem; white-space: nowrap; }
-.tower-stats .ws-bal.stale { opacity: 0.5; } /* last-known value while the node is unreachable */
+.tower-stats .ws-bal.stale { color: var(--muted); font-style: italic; } /* last-known value while the node is unreachable */
 .tower-stats .ws-bal {   /* balance, column 3: right-aligned to a common edge */
   grid-column: 3;
   justify-self: end;
@@ -597,6 +601,7 @@ h2 {
 .watch-warn { color: var(--accent); font-size: 0.75rem; margin-top: 8px; }
 
 .host-stats {
+  --muted: var(--glass-muted);
   box-sizing: border-box;
   position: fixed;
   top: 12px;
