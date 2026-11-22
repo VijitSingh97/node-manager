@@ -2,6 +2,7 @@ import { points } from "./sparkline.js";
 import { towerLayout, WIDE_MIN } from "./tower.js";
 import { dashboardFetch as fetch } from "./session.js";
 import { watchPrice, walletCurrency } from "./prices.js";
+import { askConfirm } from "./confirm-dialog.js";
 import { fiatLabel, httpsURL, shortKey } from "./wallet-format.js";
 
 const STALE_TITLE = "Last known balance; waiting for a fresh result";
@@ -192,7 +193,7 @@ export function managerRow({ label, note = "", keyText = "", canRemove, onRemove
   remove.title = `Remove ${label}`;
   remove.setAttribute("aria-label", `Remove ${label}`);
   remove.addEventListener("click", () => {
-    if (window.confirm(`Remove ${label}?`)) onRemove();
+    askConfirm(`Remove ${label}?`, "Remove").then((yes) => { if (yes) onRemove(); });
   });
   row.append(remove);
   return row;

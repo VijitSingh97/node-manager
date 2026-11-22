@@ -508,7 +508,7 @@
         </details>
       </fieldset>
       <div class="settings-footer">
-        <div class="settings-actions"><button id="settings-reset" type="button">Reset to default</button><button id="settings-cancel" type="button">Cancel</button><button id="settings-save" type="submit">Save</button></div>
+        <div class="settings-actions"><button id="settings-reset" type="button">Reset to default</button><button id="settings-cancel" type="button">Cancel</button><button class="primary" id="settings-save" type="submit">Save</button></div>
         <p id="settings-status" role="status" aria-live="polite"></p>
       </div>
     </form>
@@ -526,7 +526,7 @@
         <div id="settings-install-interfaces"></div>
       </fieldset>
       <p id="settings-install-error" class="node-state" role="status" aria-live="polite"></p>
-      <div class="settings-actions"><button id="settings-install-cancel" type="button">Cancel</button><button id="settings-install-submit" type="submit">Install node</button></div>
+      <div class="settings-actions"><button id="settings-install-cancel" type="button">Cancel</button><button class="primary" id="settings-install-submit" type="submit">Install node</button></div>
     </form>
   </dialog>
   <dialog id="settings-delete-dialog" class="settings-dialog" aria-labelledby="settings-delete-title">
@@ -536,7 +536,7 @@
       <ul id="settings-delete-list"></ul>
       <p class="settings-note">The node must be installed again from scratch and re-synced. Other nodes are not touched.</p>
       <label id="settings-delete-confirm-label">Type <b></b> to confirm<input id="settings-delete-confirm" type="text" autocomplete="off" spellcheck="false"></label>
-      <div class="settings-actions"><button id="settings-delete-cancel" type="button">Cancel</button><button id="settings-delete-submit" type="submit" disabled>Delete on Save</button></div>
+      <div class="settings-actions"><button id="settings-delete-cancel" type="button">Cancel</button><button class="primary" id="settings-delete-submit" type="submit" disabled>Delete on Save</button></div>
     </form>
   </dialog>
   <dialog id="actuator-curl-dialog" class="settings-dialog" aria-labelledby="actuator-curl-title">
@@ -546,7 +546,7 @@
       <label>Dashboard password<input id="actuator-curl-password" type="password" autocomplete="current-password" spellcheck="false"></label>
       <label id="actuator-curl-fallback-label" hidden>Press Ctrl+C / Cmd+C to copy<textarea id="actuator-curl-fallback" readonly rows="3" spellcheck="false"></textarea></label>
       <p id="actuator-curl-error" class="node-state" role="status" aria-live="polite"></p>
-      <div class="settings-actions"><button type="button" id="actuator-curl-cancel">Close</button><button type="submit" id="actuator-curl-submit">Copy</button></div>
+      <div class="settings-actions"><button type="button" id="actuator-curl-cancel">Close</button><button class="primary" type="submit" id="actuator-curl-submit">Copy</button></div>
     </form>
   </dialog>
   <dialog id="credential-reset-dialog" class="settings-dialog" aria-labelledby="credential-reset-title">
@@ -555,7 +555,7 @@
       <p id="credential-reset-description"></p>
       <label>Type <b>reset</b> to confirm<input id="credential-reset-confirm" type="text" autocomplete="off" spellcheck="false"></label>
       <p id="credential-reset-error" class="node-state" role="status" aria-live="polite"></p>
-      <div class="settings-actions"><button type="button" id="credential-reset-cancel">Cancel</button><button type="submit" id="credential-reset-submit" disabled>Reset password</button></div>
+      <div class="settings-actions"><button type="button" id="credential-reset-cancel">Cancel</button><button class="primary" type="submit" id="credential-reset-submit" disabled>Reset password</button></div>
     </form>
   </dialog>
   <dialog id="node-power-dialog" class="settings-dialog" aria-labelledby="node-power-title">
@@ -564,7 +564,14 @@
       <p id="node-power-description">The node will stop. Its stored data will be kept, and you can activate it again.</p>
       <label id="node-power-confirm-label">Type <b>deactivate</b> to confirm<input id="node-power-confirm" type="text" autocomplete="off" spellcheck="false"></label>
       <p id="node-power-error" class="node-state" role="status"></p>
-      <div class="settings-actions"><button type="button" id="node-power-cancel">Cancel</button><button type="submit" id="node-power-submit" disabled>Deactivate node</button></div>
+      <div class="settings-actions"><button type="button" id="node-power-cancel">Cancel</button><button class="primary" type="submit" id="node-power-submit" disabled>Deactivate node</button></div>
+    </form>
+  </dialog>
+  <dialog id="confirm-dialog" class="settings-dialog" aria-labelledby="confirm-dialog-title">
+    <form method="dialog">
+      <div class="settings-heading"><h2 id="confirm-dialog-title">Are you sure?</h2></div>
+      <p id="confirm-dialog-message"></p>
+      <div class="settings-actions"><button value="cancel">Cancel</button><button id="confirm-dialog-ok" class="primary" value="ok">Confirm</button></div>
     </form>
   </dialog>
   <script type="module" src="/static/chains.js"></script>

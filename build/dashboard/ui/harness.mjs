@@ -239,9 +239,22 @@ export function expectSettings(dash, expected = {}) {
   assert.deepEqual(dash.settings(), { ...defaultSettings, ...expected });
 }
 
-export async function reopenSettings(page) {
+export async function answerConfirm(page, accept) {
+  await page.waitFor(() => document.getElementById("confirm-dialog").open, { description: "confirm dialog to open" });
+  await page.click(accept ? "#confirm-dialog-ok" : "#confirm-dialog button[value=cancel]");
+  await page.waitFor(() => !document.getElementById("confirm-dialog").open, { description: "confirm dialog to close" });
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 50)));
+}
+
+export async function closeSettings(page) {
   await page.click("#settings-cancel");
+  await page.waitFor(() => !document.getElementById("settings-dialog").open || document.getElementById("confirm-dialog").open, { description: "settings dialog to close or ask" });
+  if (await page.evaluate(() => document.getElementById("confirm-dialog").open)) await answerConfirm(page, true);
   await page.waitFor(() => !document.getElementById("settings-dialog").open, { description: "settings dialog to close" });
+}
+
+export async function reopenSettings(page) {
+  await closeSettings(page);
   await openSettings(page);
 }
 
@@ -270,8 +283,7 @@ export async function openHostSettings(page) {
 }
 
 export async function reopenHostSettings(page) {
-  await page.click("#settings-cancel");
-  await page.waitFor(() => !document.getElementById("settings-dialog").open, { description: "settings dialog to close" });
+  await closeSettings(page);
   await openHostSettings(page);
 }
 

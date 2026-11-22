@@ -199,7 +199,7 @@ if (typeof document !== "undefined") {
     if (choice && !choice.contains(event.relatedTarget)) applyHover(document, "");
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && document.body.dataset.node && !document.getElementById("settings-dialog")?.open) controller.close();
+    if (event.key === "Escape" && document.body.dataset.node && !document.querySelector("dialog[open]")) controller.close();
   });
   window.addEventListener("live-updated", () => controller.refresh());
 

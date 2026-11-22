@@ -292,7 +292,7 @@ body:not([data-node=""]) .node-close-backdrop { display: block; }
 .settings-actions button { padding: 8px 12px; border-radius: 4px; border: 1px solid var(--border); }
 .settings-footer { position: sticky; bottom: -24px; margin: 16px -24px -24px; padding: 12px 24px; background: var(--card); border-top: 1px solid var(--border); }
 .settings-footer #settings-reset { margin-right: auto; }
-#settings-save { background: var(--accent); color: var(--bg); }
+.settings-dialog button.primary, .node-settings-form button.primary { background: var(--accent); color: var(--bg); }
 #settings-reset { background: var(--tag-bg); color: var(--text); }
 #settings-status { min-height: 1.5em; font-size: 0.85rem; }
 .settings-credential { margin-top: 10px; }
