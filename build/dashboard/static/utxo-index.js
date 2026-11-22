@@ -44,7 +44,6 @@ export const guardText = (r) => `${GUARD_TEXT[r.guard] || "Blocked"}: ${r.detail
 
 const cap = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 
-
 export const OFF_HINT = "Instant balances: switch it on under Settings, Balance index. See ";
 export const OFF_HINT_DOCS = "https://github.com/VijitSingh97/node-manager/blob/main/docs/watch-only.md";
 
@@ -53,7 +52,6 @@ export function offHint(status) {
 }
 
 const TONE = { ready: "ok", catching_up: "info", seeding: "info", not_seeded: "warn", invalid: "warn", degraded: "bad" };
-
 
 export function badgeClickTarget(cardHidden) {
   return cardHidden ? "settings" : "anchor";

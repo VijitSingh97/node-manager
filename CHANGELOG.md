@@ -6,6 +6,20 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The balance index badge and bar now show on Litecoin, Dogecoin and Bitcoin
+  Cash when Bitcoin is not installed. Each index state has one name everywhere,
+  refusals are explained in plain words instead of internal guard names, the
+  bar keeps its warning and ready colours on every chain, and a blocked bar no
+  longer animates like progress (#426).
+- The 30 s refresh no longer collapses an expanded wallet address or drops
+  keyboard focus in wallet lists and the live area (#433).
+- Closing Settings asks before discarding staged installs, moves and deletes.
+  Saving block alerts with Telegram off says no alert will be sent. Escape
+  closes only the open dialog, not the node panel behind it. Turning off an
+  index and removing a wallet use the dashboard's own confirm dialog (#434).
+
 ## [1.40.1] - 2026-11-21
 
 ### Fixed

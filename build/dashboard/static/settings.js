@@ -106,7 +106,6 @@ export async function confirmedHostChanges(changes, confirmFn) {
   return confirmed;
 }
 
-
 const sameHostChange = (status, change) => status?.action === change?.action && (status?.node || "") === (change?.node || "") && (!change?.requestId || !status?.id || status.id === change.requestId);
 
 export function hostQueueSettled(view, change) {
