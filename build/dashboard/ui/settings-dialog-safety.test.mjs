@@ -33,24 +33,41 @@ for (const [name, close] of [["Cancel", (page) => page.click("#settings-cancel")
   });
 }
 
-flow("A forced close keeps the staged install and reopening shows it still staged", async ({ page }) => {
+const discardedNotice = "Settings closed before you confirmed, so the staged changes were discarded.";
+
+flow("A forced close discards the staged install and reopening says so", async ({ page }) => {
   await stageInstall(page);
   await escapeUntilClosed(page);
   await page.click("#settings-open");
   await page.waitFor(() => document.getElementById("settings-dialog").open, { description: "settings dialog to reopen" });
-  await page.waitText(monero, "Installs on Save");
+  await page.waitText("#settings-status", discardedNotice);
+  assert.notEqual(await page.text(monero), "Installs on Save");
 });
 
-flow("Cancel after Reset to default asks, and a forced close keeps the reset staged", { settings: { low_disk_gib: 77 } }, async ({ page }) => {
+flow("A forced close then an unrelated Save sends no staged delete", { nodes: ["litecoin"], capability: { delete_supported: true } }, async ({ dash, page, helper }) => {
+  dash.writeState("node-runtime.json", { litecoin: false });
   await openHostSettings(page);
-  await page.click("#settings-reset");
-  const lowDisk = await page.evaluate(() => document.getElementById("settings-low-disk-gib").value);
-  await page.click("#settings-cancel");
-  await answerConfirm(page, false);
-  assert.equal(await settingsOpen(page), true);
+  await page.click("#settings-host-nodes .settings-host-node:nth-child(4) .settings-delete-button");
+  await page.type("#settings-delete-confirm", "litecoin");
+  await page.click("#settings-delete-submit");
   await escapeUntilClosed(page);
   await page.click("#settings-open");
-  await page.waitFor((value) => document.getElementById("settings-dialog").open && document.getElementById("settings-low-disk-gib").value === value, { args: [lowDisk], description: "reset values to stay filled in" });
+  await page.waitText("#settings-status", discardedNotice);
+  await page.setChecked("#settings-telegram-enabled", true);
+  await page.type("#settings-telegram-token", "123456:ABC");
+  await page.type("#settings-telegram-chat", "42");
+  await page.click("#settings-save");
+  await page.waitText("#settings-status", "Settings saved.", { timeout: 40000 });
+  assert.equal(helper.requests.length, 0);
+});
+
+flow("A forced close after Reset to default discards the reset and says so", { settings: { low_disk_gib: 77 } }, async ({ page }) => {
+  await openHostSettings(page);
+  await page.click("#settings-reset");
+  await escapeUntilClosed(page);
+  await page.click("#settings-open");
+  await page.waitText("#settings-status", discardedNotice);
+  await page.waitFor(() => document.getElementById("settings-low-disk-gib").value === "77", { description: "saved value to be shown" });
 });
 
 flow("The confirm dialog is described by its message", async ({ page }) => {

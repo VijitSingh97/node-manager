@@ -580,7 +580,7 @@ if (typeof document !== "undefined") {
   let ambiguousPortDraft;
   let ambiguousStatusPrefix = "";
   let ambiguousStatusTarget;
-  let ambiguousAlertsOff = false;
+  let ambiguousAlerts;
   let submittedPortNode = "";
   let stagedPortDraft;
   let hostPoll;
@@ -1050,6 +1050,7 @@ if (typeof document !== "undefined") {
     }
     return response.json();
   }
+  const ambiguousMessage = () => settingsSaveMessage(ambiguousStatusPrefix !== "", ambiguousAlerts ? nodeAlertsOff(ambiguousAlerts.scope, ambiguousAlerts.payload, saved) : false);
   async function loadPortControl() {
     try {
       const data = await requestPortControl();
@@ -1060,12 +1061,12 @@ if (typeof document !== "undefined") {
         const outcome = portSubmissionOutcome(view, changes);
         if (outcome === "queued") {
           ambiguousPortDraft = undefined;
-          (ambiguousStatusTarget || status).textContent = settingsSaveMessage(ambiguousStatusPrefix !== "", ambiguousAlertsOff);
+          (ambiguousStatusTarget || status).textContent = ambiguousMessage();
         } else if (outcome === "applied") {
           ambiguousPortDraft = undefined;
           stagedPortDraft = undefined;
           updatePortPlan(false);
-          (ambiguousStatusTarget || status).textContent = settingsSaveMessage(ambiguousStatusPrefix !== "", ambiguousAlertsOff);
+          (ambiguousStatusTarget || status).textContent = ambiguousMessage();
         } else {
           ambiguousPortDraft = undefined;
           applyPortDraft(draft);
@@ -1073,6 +1074,7 @@ if (typeof document !== "undefined") {
         }
         ambiguousStatusPrefix = "";
         ambiguousStatusTarget = undefined;
+        ambiguousAlerts = undefined;
       }
     }
     catch { if (dialog.open || document.body.dataset.node) portPoll = setTimeout(loadPortControl, 2000); }
@@ -1094,27 +1096,29 @@ if (typeof document !== "undefined") {
     catch (error) { status.textContent = error.message; }
   }
   byId("open").addEventListener("click", () => {
-    if (!hostQueueAction && !resetStaged) {
+    if (!hostQueueAction) {
       hostDraft = {};
+      hostStaged = {};
       for (const [action, input] of Object.entries(hostToggles)) input.checked = hostView[toggleFields[action]];
       renderHostActions();
     }
+    resetStaged = false;
     dialog.showModal();
-    load().then(() => { if (resetStaged) fillDefaults(); });
+    load().then(() => { if (discardedNotice) status.textContent = "Settings closed before you confirmed, so the staged changes were discarded."; discardedNotice = false; });
     loadHost();
   });
   let closeAsking = false;
+  let discardedNotice = false;
   const closeSettings = async () => {
     if (closeAsking) return;
     closeAsking = true;
     const discard = saving() || !(Object.keys(hostStaged).length || resetStaged) || await askConfirm("Discard the staged changes?", "Discard");
     closeAsking = false;
     if (!discard) return;
-    if (!saving()) { hostStaged = {}; resetStaged = false; }
     dialog.close();
   };
   for (const id of ["close", "cancel"]) byId(id).addEventListener("click", closeSettings);
-  dialog.addEventListener("cancel", (event) => { if (!event.cancelable) return; event.preventDefault(); closeSettings(); });
+  dialog.addEventListener("cancel", (event) => { if (!event.cancelable) { discardedNotice = Object.keys(hostStaged).length > 0 || resetStaged; return; } event.preventDefault(); closeSettings(); });
   document.getElementById("account-open").addEventListener("click", () => { accountDialog.showModal(); credentialSettings.openPassword(); });
   document.getElementById("account-close").addEventListener("click", () => accountDialog.close());
   accountDialog.addEventListener("close", () => credentialSettings.closePassword());
@@ -1289,7 +1293,7 @@ if (typeof document !== "undefined") {
         ambiguousPortDraft = { draft, changes };
         ambiguousStatusPrefix = saveNotifications ? "Settings saved. " : "";
         ambiguousStatusTarget = targetStatus;
-        ambiguousAlertsOff = nodeAlertsOff(scope, payload, settingsView);
+        ambiguousAlerts = { scope, payload };
         targetStatus.textContent = `${ambiguousStatusPrefix}Checking whether the restart was queued…`;
         loadPortControl();
       }
@@ -1305,7 +1309,7 @@ if (typeof document !== "undefined") {
       saveScope(node, view.form, view.status, view.save);
     });
   }
-  const fillDefaults = () => {
+  reset.addEventListener("click", () => {
     if (!allowed || !saved.defaults) return;
     resetStaged = true;
     renderGlobalFields(saved.defaults);
@@ -1321,8 +1325,7 @@ if (typeof document !== "undefined") {
     renderHostActions();
     updateInputs();
     status.textContent = "Defaults filled in. Save applies them; Cancel keeps your current settings.";
-  };
-  reset.addEventListener("click", fillDefaults);
+  });
   fetch("/api/settings?scope=appearance")
     .then((response) => response.ok ? response.json() : Promise.reject())
     .then(applyAppearance)
