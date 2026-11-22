@@ -156,7 +156,7 @@ class Helper {
   }
 }
 
-export async function startDashboard({ nodes = [], settings, capability = {}, host = true, hostStats = false, password = PASSWORD, state = {}, rpcDown = false, utxoIndex = false } = {}) {
+export async function startDashboard({ nodes = [], settings, capability = {}, host = true, hostStats = false, password = PASSWORD, state = {}, rpcDown = false, utxoIndex = false, bitcoin = true } = {}) {
   const stateDir = mkdtempSync(join(tmpdir(), "ui-state-"));
   const utxoDir = utxoIndex ? mkdtempSync(join(tmpdir(), "ui-utxo-")) : "";
   const removeDirs = () => { for (const dir of [stateDir, utxoDir].filter(Boolean)) rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); };
@@ -168,6 +168,7 @@ export async function startDashboard({ nodes = [], settings, capability = {}, ho
     DATA_DIR: stateDir, STATE_DIR: stateDir, WATCH_STORE: join(stateDir, "wallets.json"), BALANCE_HISTORY: join(stateDir, "balance_history.json"),
     EVENTS_LOG: join(stateDir, "events.log"), WATCH_WALLETS_B64: "", TELEGRAM_BOT_TOKEN: "", TELEGRAM_CHAT_ID: "", HEALTHCHECKS_URL: "", STACK_VERSION: "1.0.0-ui",
   };
+  if (!bitcoin) env.BITCOIN_ENABLED = "0";
   for (const id of nodes) {
     const prefix = id.toUpperCase();
     env[`${prefix}_ENABLED`] = "1";

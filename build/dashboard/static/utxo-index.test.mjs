@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { badgeClickTarget, indexBadge, indexView, indexBarView, applyIndexBar, offHint, OFF_HINT, OFF_HINT_DOCS, SEED_COMMANDS, CONFIRMED_ONLY } from "./utxo-index.js";
+import { STATE_LABEL, guardText, badgeClickTarget, indexBadge, indexView, indexBarView, applyIndexBar, offHint, OFF_HINT, OFF_HINT_DOCS, SEED_COMMANDS, CONFIRMED_ONLY } from "./utxo-index.js";
 
 test("every endpoint state renders its label, and the confirmed-only row is always present", () => {
   const cases = [
@@ -38,7 +38,7 @@ test("an unseeded index shows every refusal, and the host command only when no h
   const view = indexView(status);
   assert.equal(view.command, "");
   assert.equal(view.warning, undefined);
-  assert.deepEqual(view.refusals, ["thermal: hottest zone 80 C is above 75 C", "free_space: 3.0 GB free, 27 GB needed"]);
+  assert.deepEqual(view.refusals, ["Too hot: hottest zone 80 C is above 75 C", "Disk space: 3.0 GB free, 27 GB needed"]);
   assert.equal(view.progress, null);
   assert.equal(indexView({ ...status, needs_host: true }).command, SEED_COMMANDS.bitcoin);
   assert.equal(indexView({ ...status, needs_host: true }, "bitcoincash").command, "./stack utxo-seed bitcoincash");
@@ -85,8 +85,8 @@ test("the wallet card badge names each index state and its tone", () => {
     [{ enabled: true, state: "ready" }, "Balance index: ready", "ok"],
     [{ enabled: true, state: "catching_up" }, "Balance index: catching up", "info"],
     [{ enabled: true, state: "seeding" }, "Balance index: seeding", "info"],
-    [{ enabled: true, state: "not_seeded" }, "Balance index: needs a seed", "warn"],
-    [{ enabled: true, state: "invalid" }, "Balance index: needs a seed", "warn"],
+    [{ enabled: true, state: "not_seeded" }, "Balance index: not seeded", "warn"],
+    [{ enabled: true, state: "invalid" }, "Balance index: needs a new seed", "warn"],
     [{ enabled: true, state: "degraded" }, "Balance index: degraded", "bad"],
     [{ enabled: false, state: "off" }, "Balance index: off", "off"],
     [{ enabled: true, state: "off" }, "Balance index: off", "off"],
@@ -119,13 +119,13 @@ test("the node card bar follows the index state", () => {
   assert.equal(view({ state: "not_seeded", waiting_for: "" }).label, "Balance index: starting");
   assert.equal(view({ state: "not_seeded", waiting_for: "blocked", refusals: [{ guard: "cpu_cap", detail: "cpu limit is above 0.5" }] }).label, "Balance index: waiting to start: cpu limit is above 0.5");
   assert.equal(view({ state: "not_seeded", waiting_for: "blocked", refusals: [{ guard: "cpu_cap", detail: "x" }] }).tone, "warn");
-  assert.deepEqual(view({ state: "not_seeded", needs_host: true }), { hidden: false, label: "Balance index: needs the host helper", value: null, tone: "warn" });
+  assert.deepEqual(view({ state: "not_seeded", needs_host: true }), { hidden: false, label: "Balance index: not seeded, needs the host helper", value: null, tone: "warn" });
   assert.deepEqual(view({ state: "seeding", seed_progress: 0.425, phase: "importing" }), { hidden: false, label: "Balance index: building, 42%", value: 0.425, tone: "info" });
   assert.equal(view({ state: "seeding", seed_progress: 0.5, phase: "paused" }).label, "Balance index: paused, 50%");
   assert.deepEqual(view({ state: "seeding", seed_progress: null, phase: "waiting" }), { hidden: false, label: "Balance index: building", value: null, tone: "info" });
   assert.deepEqual(view({ state: "catching_up", blocks_behind: 120, index_tip_height: 880, node_tip_height: 1000 }), { hidden: false, label: "Balance index: catching up 120 blocks", value: null, tone: "info" });
   assert.deepEqual(view({ state: "ready" }), { hidden: false, label: "Balance index: ready", value: 1, tone: "ok" });
-  assert.deepEqual(view({ state: "degraded", reason: "node unreachable" }), { hidden: false, label: "Balance index: needs attention: node unreachable", value: null, tone: "warn" });
+  assert.deepEqual(view({ state: "degraded", reason: "node unreachable" }), { hidden: false, label: "Balance index: degraded: node unreachable", value: null, tone: "warn" });
   assert.equal(view({ state: "invalid", reason: "x".repeat(200) }).label.length < 120, true);
   const stopped = view({ state: "not_seeded", seed_stopped: "failed", last_seed: { outcome: "failed", reason: "less than 2 GB free during the seed" } });
   assert.deepEqual(stopped, { hidden: false, label: "Balance index: seeding failed: less than 2 GB free during the seed", value: null, tone: "warn" });
@@ -160,4 +160,24 @@ test("every node card carries a hidden bar, the Bitcoin one inside the replaced 
   const live = html.slice(html.lastIndexOf('<div id="live"'), html.lastIndexOf('<section id="watch"'));
   assert.ok(live.includes('id="index-bar-bitcoin"'));
   assert.match(source, /addEventListener\("live-updated", renderBar\)/);
+});
+
+test("one label per state is shared by badge and card, and no guard id reaches users", () => {
+  for (const state of Object.keys(STATE_LABEL)) {
+    const status = { enabled: true, state };
+    assert.equal(indexBadge(status).text, `Balance index: ${STATE_LABEL[state]}`);
+    assert.equal(indexView(status).rows[0].toLowerCase(), `index: ${STATE_LABEL[state]}`);
+  }
+  const ids = ["state", "node", "thermal", "cpu_cap", "free_space", "rpc_idle", "fifo", "request", "lock", "scanner"];
+  for (const guard of ids) assert.doesNotMatch(guardText({ guard, detail: "x" }), /_|^[a-z]+:/, guard);
+  assert.equal(guardText({ guard: "mystery", detail: "x" }), "Blocked: x");
+});
+
+test("blocked bars are static and the chain card does not override tones", async () => {
+  const css = await readFile(new URL("./dashboard.css", import.meta.url), "utf8");
+  assert.match(css, /\.chain-card \.index-bar-warn \.progress-fill/);
+  assert.match(css, /\.chain-card \.index-bar-ok \.progress-fill/);
+  assert.match(css, /\.index-bar-warn\.index-bar-indeterminate \.progress-fill \{[^}]*animation: none/);
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  assert.match(html, /\{\{end\}\}\n\s*<script type="module" src="\/static\/utxo-index.js">/);
 });

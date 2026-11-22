@@ -18,14 +18,32 @@ const CHAINS = {
 
 export const CONFIRMED_ONLY = "Balances are confirmed only; unconfirmed and mempool activity is not included.";
 
-const STATE_TEXT = {
-  not_seeded: "Not seeded",
-  seeding: "Seeding",
-  catching_up: "Catching up",
-  ready: "Ready",
-  degraded: "Degraded",
-  invalid: "Needs a new seed",
+export const STATE_LABEL = {
+  not_seeded: "not seeded",
+  seeding: "seeding",
+  catching_up: "catching up",
+  ready: "ready",
+  degraded: "degraded",
+  invalid: "needs a new seed",
 };
+
+const GUARD_TEXT = {
+  state: "Not allowed in this state",
+  node: "Node not ready",
+  thermal: "Too hot",
+  cpu_cap: "CPU limit",
+  free_space: "Disk space",
+  rpc_idle: "Node is busy",
+  fifo: "Host helper",
+  request: "Seed request",
+  lock: "Another index is seeding",
+  scanner: "Watch scan running",
+};
+
+export const guardText = (r) => `${GUARD_TEXT[r.guard] || "Blocked"}: ${r.detail}`;
+
+const cap = (text) => text.charAt(0).toUpperCase() + text.slice(1);
+
 
 export const OFF_HINT = "Instant balances: switch it on under Settings, Balance index. See ";
 export const OFF_HINT_DOCS = "https://github.com/VijitSingh97/node-manager/blob/main/docs/watch-only.md";
@@ -34,14 +52,8 @@ export function offHint(status) {
   return status && status.state === "off" && status.node_pruned === true ? OFF_HINT : "";
 }
 
-const BADGE = {
-  ready: ["ready", "ok"],
-  catching_up: ["catching up", "info"],
-  seeding: ["seeding", "info"],
-  not_seeded: ["needs a seed", "warn"],
-  invalid: ["needs a seed", "warn"],
-  degraded: ["degraded", "bad"],
-};
+const TONE = { ready: "ok", catching_up: "info", seeding: "info", not_seeded: "warn", invalid: "warn", degraded: "bad" };
+
 
 export function badgeClickTarget(cardHidden) {
   return cardHidden ? "settings" : "anchor";
@@ -50,15 +62,14 @@ export function badgeClickTarget(cardHidden) {
 export function indexBadge(status) {
   if (!status) return null;
   if (!status.enabled || status.state === "off") return { text: "Balance index: off", tone: "off" };
-  const [label, tone] = BADGE[status.state] || [String(status.state), "warn"];
-  return { text: `Balance index: ${label}`, tone };
+  return { text: `Balance index: ${STATE_LABEL[status.state] || status.state}`, tone: TONE[status.state] || "warn" };
 }
 
 export function indexView(status, chain = "bitcoin") {
   if (!status || !status.enabled || status.state === "off") return null;
   const seeding = status.state === "seeding";
   const idle = status.state === "not_seeded" || status.state === "invalid";
-  const rows = [`Index: ${STATE_TEXT[status.state] || status.state}${status.reason ? ` (${status.reason})` : ""}`];
+  const rows = [`Index: ${cap(STATE_LABEL[status.state] || String(status.state))}${status.reason ? ` (${status.reason})` : ""}`];
   rows.push(CONFIRMED_ONLY);
   if (seeding) {
     const pct = status.seed_progress == null ? "" : ` ${Math.floor(status.seed_progress * 100)}%`;
@@ -74,7 +85,7 @@ export function indexView(status, chain = "bitcoin") {
   return {
     rows,
     progress: seeding && status.seed_progress != null ? status.seed_progress : null,
-    refusals: (status.refusals || []).map(r => `${r.guard}: ${r.detail}`),
+    refusals: (status.refusals || []).map(guardText),
     command: idle && status.needs_host === true ? SEED_COMMANDS[chain] : "",
   };
 }
@@ -107,10 +118,10 @@ export function indexBarView(status) {
     case "degraded":
     case "invalid": {
       const reason = shortReason(status.reason);
-      return bar(`needs attention${reason ? `: ${reason}` : ""}`, null, "warn");
+      return bar(`${STATE_LABEL[status.state]}${reason ? `: ${reason}` : ""}`, null, "warn");
     }
     case "not_seeded": {
-      if (status.needs_host) return bar("needs the host helper", null, "warn");
+      if (status.needs_host) return bar(`${STATE_LABEL.not_seeded}, needs the host helper`, null, "warn");
       if (status.waiting_for === "node_sync") return bar("waiting for the node to sync", null);
       if (WAITING_START.has(status.waiting_for)) return bar("waiting to start", null);
       if (status.waiting_for === "blocked") {

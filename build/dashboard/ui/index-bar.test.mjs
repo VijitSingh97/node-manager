@@ -70,3 +70,20 @@ flow("Bitcoin's card shows its balance index bar from the dashboard's own status
   assert.equal(status.enabled, true);
   assert.notEqual(label, "");
 });
+
+flow("With Bitcoin disabled the index script still loads and Litecoin's bar shows warn and ok tones without animating a blocked bar", { nodes: ["litecoin"], bitcoin: false }, async ({ page }) => {
+  assert.equal(await page.evaluate(() => !document.getElementById("watch") && performance.getEntriesByType("resource").some((e) => e.name.endsWith("/static/utxo-index.js"))), true);
+  const look = (status) => page.evaluate(async (status) => {
+    const mod = await import("/static/utxo-index.js");
+    const bar = document.getElementById("index-bar-litecoin");
+    mod.applyIndexBar(bar, mod.indexBarView(status));
+    const style = getComputedStyle(bar.querySelector(".progress-fill"));
+    return { hidden: bar.hidden, bg: style.backgroundColor, animation: style.animationName };
+  }, status);
+  let got = await look({ enabled: true, state: "not_seeded", needs_host: true });
+  assert.deepEqual([got.hidden, got.bg, got.animation], [false, "rgb(217, 138, 0)", "none"]);
+  got = await look({ enabled: true, state: "ready" });
+  assert.equal(got.bg, "rgb(46, 158, 91)");
+  got = await look({ enabled: true, state: "catching_up", blocks_behind: 3 });
+  assert.equal(got.animation, "index-bar-slide");
+});
