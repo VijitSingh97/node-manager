@@ -270,7 +270,6 @@ body:not([data-node=""]) .node-close-backdrop { display: block; }
 .settings-dialog ul { margin: 8px 0; padding-left: 20px; line-height: 1.5; }
 .settings-delete-button:not(:disabled) { color: #e5534b; border-color: #e5534b; }
 #settings-delete-submit { background: #c0392b; color: #fff; }
-#settings-delete-submit:disabled { opacity: 0.4; cursor: default; }
 .settings-config-path { display: block; overflow-wrap: anywhere; color: var(--text); font-size: 0.8rem; }
 .settings-install-interface { padding: 8px 0; border-top: 1px solid var(--border); }
 .settings-install-interface:first-child { border-top: 0; }
@@ -293,6 +292,7 @@ body:not([data-node=""]) .node-close-backdrop { display: block; }
 .settings-footer { position: sticky; bottom: -24px; margin: 16px -24px -24px; padding: 12px 24px; background: var(--card); border-top: 1px solid var(--border); }
 .settings-footer #settings-reset { margin-right: auto; }
 .settings-dialog button.primary, .node-settings-form button.primary { background: var(--accent); color: var(--bg); }
+.settings-dialog button.primary:disabled, .node-settings-form button.primary:disabled { opacity: 0.4; cursor: default; }
 #settings-reset { background: var(--tag-bg); color: var(--text); }
 #settings-status { min-height: 1.5em; font-size: 0.85rem; }
 .settings-credential { margin-top: 10px; }
@@ -810,7 +810,6 @@ hr {
 .node-panel[data-node-active="0"] #monero-watch,
 .node-panel[data-node-active="0"] .chain-card { display:none !important; }
 #node-power-submit { background:var(--accent); color:var(--bg); }
-#node-power-submit:disabled { opacity:0.4; cursor:default; }
 #node-power-cancel { background:var(--tag-bg); color:var(--text); }
 
 .settings-dialog [hidden] { display:none !important; }
