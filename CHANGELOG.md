@@ -6,6 +6,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.40.1] - 2026-11-21
+
 ### Fixed
 
 - `node-manager backup` no longer warns "dashboard onion keys not captured
@@ -2133,7 +2135,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.40.0...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.40.1...HEAD
+[1.40.1]: https://github.com/VijitSingh97/node-manager/compare/v1.40.0...v1.40.1
 [1.40.0]: https://github.com/VijitSingh97/node-manager/compare/v1.39.0...v1.40.0
 [1.39.0]: https://github.com/VijitSingh97/node-manager/compare/v1.38.0...v1.39.0
 [1.38.0]: https://github.com/VijitSingh97/node-manager/compare/v1.37.0...v1.38.0
