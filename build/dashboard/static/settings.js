@@ -495,9 +495,13 @@ if (typeof document !== "undefined") {
   byId("network").insertAdjacentHTML("afterend", `<fieldset id="settings-balance-index" hidden>
     <legend>Balance index</legend>
     <label class="settings-check"><input id="settings-utxo-index" type="checkbox" role="switch"> Instant Bitcoin balances</label>
+    <p id="settings-utxo-index-reason" class="settings-note" hidden></p>
     <label id="settings-utxo-index-litecoin-label" class="settings-check" hidden><input id="settings-utxo-index-litecoin" type="checkbox" role="switch"> Instant Litecoin balances</label>
+    <p id="settings-utxo-index-litecoin-reason" class="settings-note" hidden></p>
     <label id="settings-utxo-index-bitcoincash-label" class="settings-check" hidden><input id="settings-utxo-index-bitcoincash" type="checkbox" role="switch"> Instant Bitcoin Cash balances</label>
+    <p id="settings-utxo-index-bitcoincash-reason" class="settings-note" hidden></p>
     <label id="settings-utxo-index-dogecoin-label" class="settings-check" hidden><input id="settings-utxo-index-dogecoin" type="checkbox" role="switch"> Instant Dogecoin balances</label>
+    <p id="settings-utxo-index-dogecoin-reason" class="settings-note" hidden></p>
     <p id="settings-utxo-index-status" class="settings-note" role="status" aria-live="polite"></p>
   </fieldset>`);
   const utxoIndex = byId("utxo-index");
@@ -771,7 +775,10 @@ if (typeof document !== "undefined") {
     for (const [node, input] of [["bitcoin", utxoIndex], ["litecoin", utxoIndexLitecoin], ["bitcoincash", utxoIndexBitcoinCash], ["dogecoin", utxoIndexDogecoin]]) {
       const refusal = hostView.nodes[node].index_refusal;
       if (refusal) input.disabled = true;
-      input.title = refusal;
+      const note = byId(node === "bitcoin" ? "utxo-index-reason" : `utxo-index-${node}-reason`);
+      note.textContent = refusal || "";
+      note.hidden = !refusal || input.closest("label").hidden;
+      if (refusal) input.setAttribute("aria-describedby", note.id); else input.removeAttribute("aria-describedby");
     }
     balanceSettings.hidden = balanceControl.hidden && utxoIndexLitecoinLabel.hidden && utxoIndexBitcoinCashLabel.hidden && utxoIndexDogecoinLabel.hidden;
     configChange.hidden = !hostView.config_pending;
@@ -802,9 +809,11 @@ if (typeof document !== "undefined") {
       const key = `${action}:${node.id}`;
       const button = document.createElement("button");
       button.type = "button";
+      const reasons = new Map();
+      const explain = (text, control) => reasons.set(text, [...(reasons.get(text) || []), control]);
       if (hostStaged[key]) {
         button.textContent = node.installed ? "Moves on Save" : "Installs on Save";
-        button.title = "Click to undo";
+        explain("Click to undo", button);
         button.disabled = busy;
         button.addEventListener("click", () => { delete hostStaged[key]; renderHostActions(); });
       } else if (node.installed) {
@@ -814,7 +823,6 @@ if (typeof document !== "undefined") {
       } else {
         button.textContent = node.id === installing ? "Installing…" : "Install";
         button.disabled = !node.data_dir || !hostView.available || !hostView.install_supported || hostView.config_pending || busy || !!node.unsupported;
-        if (node.unsupported) button.title = node.unsupported;
         button.addEventListener("click", () => openInstall(node.id));
       }
       if (node.installed) {
@@ -828,7 +836,7 @@ if (typeof document !== "undefined") {
         const deleteKey = `delete:${node.id}`;
         if (hostStaged[deleteKey]) {
           remove.textContent = "Deletes on Save";
-          remove.title = "Click to undo";
+          explain("Click to undo", remove);
           remove.disabled = busy;
           remove.addEventListener("click", () => { delete hostStaged[deleteKey]; renderHostActions(); });
           button.disabled = true;
@@ -836,7 +844,7 @@ if (typeof document !== "undefined") {
           const control = deleteControl(hostView, node, hostStaged);
           remove.textContent = node.id === deleting ? "Deleting…" : "Delete…";
           remove.disabled = control.disabled;
-          remove.title = control.reason || `Delete ${node.name} and all its data`;
+          if (control.reason) explain(control.reason, remove); else remove.title = `Delete ${node.name} and all its data`;
           remove.addEventListener("click", () => openDelete(node.id));
         }
         row.append(name, path, button, remove);
@@ -844,8 +852,19 @@ if (typeof document !== "undefined") {
         const note = document.createElement("span");
         note.className = "settings-host-note";
         note.textContent = node.unsupported;
+        note.id = `settings-host-note-${node.id}`;
+        button.setAttribute("aria-describedby", note.id);
         row.append(name, note, button);
       } else row.append(name, button);
+      let count = 0;
+      for (const [text, controls] of reasons) {
+        const reason = document.createElement("span");
+        reason.className = "settings-host-reason";
+        reason.id = `settings-host-reason-${node.id}-${count++}`;
+        reason.textContent = text;
+        for (const control of controls) control.setAttribute("aria-describedby", reason.id);
+        row.append(reason);
+      }
       hostNodes.append(row);
     }
     applyConfig.textContent = hostStaged.apply_config ? "Runs on Save" : "Run new config";
