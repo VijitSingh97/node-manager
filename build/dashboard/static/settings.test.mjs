@@ -445,7 +445,7 @@ test("host switches stay staged until Save and then apply one at a time in a fix
   const source = await readFile(new URL("./settings.js", import.meta.url), "utf8");
   assert.doesNotMatch(source, /addEventListener\("change", \(\) => submitHost/);
   assert.match(source, /for \(const \[action, input\] of Object\.entries\(hostToggles\)\) input\.addEventListener\("change", \(\) => \{ hostDraft\[action\] = input\.checked; \}\);/);
-  assert.match(source, /byId\("open"\)\.addEventListener\("click", \(\) => \{\n    if \(!hostQueueAction\) \{\n      hostDraft = \{\};/);
+  assert.match(source, /byId\("open"\)\.addEventListener\("click", \(\) => \{\n    if \(!hostQueueAction && !resetStaged\) \{\n      hostDraft = \{\};/);
 });
 
 test("Save sends the pending config first, then switches, installs and data moves", async () => {
@@ -461,8 +461,8 @@ test("Save sends the pending config first, then switches, installs and data move
   const source = await readFile(new URL("./settings.js", import.meta.url), "utf8");
   assert.equal(source.match(/submitHost\(/g).length, 2, "only the Save queue may call submitHost");
   assert.match(source, /hostStaged\[`\$\{installAction\}:\$\{installNode\}`\] = payload;/);
-  const resetHandler = source.slice(source.indexOf('reset.addEventListener("click"'), source.indexOf("fetch(\"/api/settings?scope=appearance\")"));
-  assert.match(resetHandler, /^reset\.addEventListener\("click", \(\) => \{\n    if \(!allowed \|\| !saved\.defaults\) return;\n    resetStaged = true;/);
+  const resetHandler = source.slice(source.indexOf("const fillDefaults"), source.indexOf("fetch(\"/api/settings?scope=appearance\")"));
+  assert.match(resetHandler, /^const fillDefaults = \(\) => \{\n    if \(!allowed \|\| !saved\.defaults\) return;\n    resetStaged = true;/);
   assert.doesNotMatch(resetHandler, /request\(|submitHost|requestHost/, "Reset to default only stages values");
 });
 
@@ -497,8 +497,9 @@ test("Settings ends with Reset to default, Cancel and Save, and Cancel closes li
   assert.match(html, /<div class="settings-footer">\s*<div class="settings-actions"><button id="settings-reset" type="button">Reset to default<\/button><button id="settings-cancel" type="button">Cancel<\/button><button class="primary" id="settings-save" type="submit">Save<\/button><\/div>\s*<p id="settings-status"/);
   assert.doesNotMatch(html + source, /Use server config|Server config on Save/);
   assert.match(source, /for \(const id of \["close", "cancel"\]\) byId\(id\)\.addEventListener\("click", closeSettings\)/);
-  assert.match(source, /dialog\.addEventListener\("cancel", \(event\) => \{ event\.preventDefault\(\); closeSettings\(\); \}\)/);
+  assert.match(source, /dialog\.addEventListener\("cancel", \(event\) => \{ if \(!event\.cancelable\) return; event\.preventDefault\(\); closeSettings\(\); \}\)/);
   assert.match(source, /await askConfirm\(/);
+  assert.doesNotMatch(source, /settingsSaveMessage\([^,()]*(\([^()]*\)[^,()]*)*\)/);
   assert.doesNotMatch(source + await readFile(new URL("./wallet-ui.js", import.meta.url), "utf8"), /window\.confirm|[^.\w]confirm\(/);
   assert.equal((html.match(/class="primary"/g) || []).length, 7);
   assert.match(await readFile(new URL("./nodes.js", import.meta.url), "utf8"), /!document\.querySelector\("dialog\[open\]"\)\) controller\.close\(\)/);

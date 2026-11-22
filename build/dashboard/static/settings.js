@@ -580,6 +580,7 @@ if (typeof document !== "undefined") {
   let ambiguousPortDraft;
   let ambiguousStatusPrefix = "";
   let ambiguousStatusTarget;
+  let ambiguousAlertsOff = false;
   let submittedPortNode = "";
   let stagedPortDraft;
   let hostPoll;
@@ -1059,12 +1060,12 @@ if (typeof document !== "undefined") {
         const outcome = portSubmissionOutcome(view, changes);
         if (outcome === "queued") {
           ambiguousPortDraft = undefined;
-          (ambiguousStatusTarget || status).textContent = settingsSaveMessage(ambiguousStatusPrefix !== "");
+          (ambiguousStatusTarget || status).textContent = settingsSaveMessage(ambiguousStatusPrefix !== "", ambiguousAlertsOff);
         } else if (outcome === "applied") {
           ambiguousPortDraft = undefined;
           stagedPortDraft = undefined;
           updatePortPlan(false);
-          (ambiguousStatusTarget || status).textContent = settingsSaveMessage(ambiguousStatusPrefix !== "");
+          (ambiguousStatusTarget || status).textContent = settingsSaveMessage(ambiguousStatusPrefix !== "", ambiguousAlertsOff);
         } else {
           ambiguousPortDraft = undefined;
           applyPortDraft(draft);
@@ -1093,27 +1094,27 @@ if (typeof document !== "undefined") {
     catch (error) { status.textContent = error.message; }
   }
   byId("open").addEventListener("click", () => {
-    if (!hostQueueAction) {
+    if (!hostQueueAction && !resetStaged) {
       hostDraft = {};
-      hostStaged = {};
       for (const [action, input] of Object.entries(hostToggles)) input.checked = hostView[toggleFields[action]];
       renderHostActions();
     }
-    resetStaged = false;
     dialog.showModal();
-    load();
+    load().then(() => { if (resetStaged) fillDefaults(); });
     loadHost();
   });
   let closeAsking = false;
   const closeSettings = async () => {
     if (closeAsking) return;
     closeAsking = true;
-    const discard = saving() || !Object.keys(hostStaged).length || await askConfirm("Discard the staged changes?", "Discard");
+    const discard = saving() || !(Object.keys(hostStaged).length || resetStaged) || await askConfirm("Discard the staged changes?", "Discard");
     closeAsking = false;
-    if (discard) dialog.close();
+    if (!discard) return;
+    if (!saving()) { hostStaged = {}; resetStaged = false; }
+    dialog.close();
   };
   for (const id of ["close", "cancel"]) byId(id).addEventListener("click", closeSettings);
-  dialog.addEventListener("cancel", (event) => { event.preventDefault(); closeSettings(); });
+  dialog.addEventListener("cancel", (event) => { if (!event.cancelable) return; event.preventDefault(); closeSettings(); });
   document.getElementById("account-open").addEventListener("click", () => { accountDialog.showModal(); credentialSettings.openPassword(); });
   document.getElementById("account-close").addEventListener("click", () => accountDialog.close());
   accountDialog.addEventListener("close", () => credentialSettings.closePassword());
@@ -1288,6 +1289,7 @@ if (typeof document !== "undefined") {
         ambiguousPortDraft = { draft, changes };
         ambiguousStatusPrefix = saveNotifications ? "Settings saved. " : "";
         ambiguousStatusTarget = targetStatus;
+        ambiguousAlertsOff = nodeAlertsOff(scope, payload, settingsView);
         targetStatus.textContent = `${ambiguousStatusPrefix}Checking whether the restart was queued…`;
         loadPortControl();
       }
@@ -1303,7 +1305,7 @@ if (typeof document !== "undefined") {
       saveScope(node, view.form, view.status, view.save);
     });
   }
-  reset.addEventListener("click", () => {
+  const fillDefaults = () => {
     if (!allowed || !saved.defaults) return;
     resetStaged = true;
     renderGlobalFields(saved.defaults);
@@ -1319,7 +1321,8 @@ if (typeof document !== "undefined") {
     renderHostActions();
     updateInputs();
     status.textContent = "Defaults filled in. Save applies them; Cancel keeps your current settings.";
-  });
+  };
+  reset.addEventListener("click", fillDefaults);
   fetch("/api/settings?scope=appearance")
     .then((response) => response.ok ? response.json() : Promise.reject())
     .then(applyAppearance)

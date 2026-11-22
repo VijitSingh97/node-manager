@@ -4,6 +4,14 @@ import { answerConfirm, flow, nodeIDs, openHostSettings } from "./harness.mjs";
 const monero = `#settings-host-nodes .settings-host-node:nth-child(${nodeIDs.indexOf("monero") + 1}) button`;
 const settingsOpen = (page) => page.evaluate(() => document.getElementById("settings-dialog").open);
 
+async function escapeUntilClosed(page) {
+  for (let presses = 0; presses < 6 && (await settingsOpen(page)); presses++) {
+    await page.press("Escape");
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  assert.equal(await settingsOpen(page), false);
+}
+
 async function stageInstall(page) {
   await openHostSettings(page);
   await page.click(monero);
@@ -24,6 +32,30 @@ for (const [name, close] of [["Cancel", (page) => page.click("#settings-cancel")
     assert.equal(helper.requests.length, 0);
   });
 }
+
+flow("A forced close keeps the staged install and reopening shows it still staged", async ({ page }) => {
+  await stageInstall(page);
+  await escapeUntilClosed(page);
+  await page.click("#settings-open");
+  await page.waitFor(() => document.getElementById("settings-dialog").open, { description: "settings dialog to reopen" });
+  await page.waitText(monero, "Installs on Save");
+});
+
+flow("Cancel after Reset to default asks, and a forced close keeps the reset staged", { settings: { low_disk_gib: 77 } }, async ({ page }) => {
+  await openHostSettings(page);
+  await page.click("#settings-reset");
+  const lowDisk = await page.evaluate(() => document.getElementById("settings-low-disk-gib").value);
+  await page.click("#settings-cancel");
+  await answerConfirm(page, false);
+  assert.equal(await settingsOpen(page), true);
+  await escapeUntilClosed(page);
+  await page.click("#settings-open");
+  await page.waitFor((value) => document.getElementById("settings-dialog").open && document.getElementById("settings-low-disk-gib").value === value, { args: [lowDisk], description: "reset values to stay filled in" });
+});
+
+flow("The confirm dialog is described by its message", async ({ page }) => {
+  assert.equal(await page.evaluate(() => document.getElementById("confirm-dialog").getAttribute("aria-describedby")), "confirm-dialog-message");
+});
 
 flow("Closing Settings with only a staged Run new config asks before discarding it", { capability: { config_pending: true, config_revision: "ab12".repeat(16) } }, async ({ page }) => {
   await openHostSettings(page);
