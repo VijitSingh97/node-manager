@@ -166,9 +166,11 @@ node-manager pull
 node-manager apply
 ```
 
-`node-manager pull` downloads only the images of the nodes that are enabled. The
-APT package's extra refresh of inactive and deleted nodes does not run here, so
-activating such a node from the dashboard downloads its image first.
+`node-manager pull` downloads the images of the enabled nodes, then the new
+image of every other node that already has an image on the machine, including
+inactive and deleted nodes, so Activate works afterwards. Those extra pulls are
+tried once, never start a container, and only warn on failure; activating that
+node downloads its image then. A node with no image on the machine is not pulled.
 
 Homebrew replaces the versioned Cellar payload and retains the user-owned
 configuration, dashboard state, and chain data. Uninstalling the formula also

@@ -174,8 +174,11 @@ case " $* " in
   *' info '*) [ "${FAKE_DOCKER_INFO_FAIL:-0}" != 1 ]; exit ;;
   *' exec dashboard cat /state/dashboard_auth.json '*) [ -f "${FAKE_DASH_AUTH_FILE:-}" ] && cat "$FAKE_DASH_AUTH_FILE"; exit ;;
   *' compose '*' config --images '*) printf 'example.invalid/stack:test\n' ;;
+  *' images --format {{.Repository}} '*) printf '%s\n' ${FAKE_LOCAL_REPOS:-}; exit ;;
+  *' image inspect '*"${FAKE_STALE_IMAGE:-@unset@}"*) exit 1 ;;
   *' image inspect '*) [ "${FAKE_IMAGES_MISSING:-0}" != 1 ] || [ -f "$FAKE_IMAGES_READY" ]; exit ;;
   *' compose '*' pull '*) [ "${FAKE_PULL_FAIL:-0}" != 1 ] || exit 1; touch "$FAKE_IMAGES_READY"; exit ;;
+  *' pull '*) [ "${FAKE_REF_PULL_FAIL:-0}" != 1 ]; exit ;;
   *' compose '*' up '*) [ "${FAKE_UP_FAIL:-0}" != 1 ]; exit ;;
   *' ps -aq '*'com.docker.compose.service=dashboard'*) printf 'dashboard-id\n'; exit ;;
   *'com.docker.compose.project.config_files'*) printf '%s/docker-compose.yml\n' "$PWD" ;;
@@ -475,6 +478,7 @@ grep -q 'docker compose .* up -d --pull never --no-build --force-recreate --no-d
 HOME="$tmp" PATH="$stub:$PATH" ./stack up tor --force-recreate >/dev/null 2>&1 && fail "up accepted a flag after a service name"
 
 # Explicit pulls use the host Docker configuration and report pull failures.
+cp "$repo_root/docker-compose.yml" .
 rm -f "$FAKE_LOG"
 HOME="$tmp" PATH="$stub:$PATH" ./stack pull >/dev/null || fail "host Docker pull failed"
 grep -q 'docker compose .* pull' "$FAKE_LOG" || fail "pull did not reach Compose"
@@ -483,6 +487,32 @@ rm -f "$FAKE_LOG"
 HOME="$tmp" PATH="$stub:$PATH" ./stack pull --policy missing >/dev/null || fail "pull policy was rejected"
 grep -q 'docker compose .* pull --policy missing' "$FAKE_LOG" || fail "pull arguments did not reach Compose"
 FAKE_PULL_FAIL=1 HOME="$tmp" PATH="$stub:$PATH" ./stack pull >/dev/null 2>&1 && fail "pull failure was ignored"
+
+# A plain pull also refreshes every node image already on the machine, without starting anything.
+stale_litecoin="ghcr.io/vijitsingh97/node-manager-litecoin:$(cat VERSION)"
+export FAKE_LOCAL_REPOS="ghcr.io/vijitsingh97/node-manager-tor ghcr.io/vijitsingh97/node-manager-litecoin"
+export FAKE_STALE_IMAGE="node-manager-litecoin:"
+rm -f "$FAKE_LOG"
+HOME="$tmp" PATH="$stub:$PATH" ./stack pull >"$tmp/pull.out" || fail "pull failed while refreshing other node images"
+grep -qx "docker pull $stale_litecoin" "$FAKE_LOG" || fail "pull did not refresh the image of a node that is off or deleted"
+[ "$(grep -c '^docker pull ' "$FAKE_LOG")" = 1 ] || fail "pull refreshed a current image or one never downloaded: $(grep '^docker pull ' "$FAKE_LOG")"
+grep -q 'docker compose .* up ' "$FAKE_LOG" && fail "the image refresh started a node"
+awk '/^flock -u 8$/ { unlock=NR } /^docker pull / { pull=NR } END { exit !(unlock && unlock < pull) }' "$FAKE_LOG" ||
+  fail "the image refresh held the configuration lock"
+rm -f "$FAKE_LOG"
+HOME="$tmp" PATH="$stub:$PATH" ./stack pull --policy missing >/dev/null || fail "install pull failed"
+grep -q '^docker pull ' "$FAKE_LOG" && fail "an install or activation pull refreshed other node images"
+FAKE_REF_PULL_FAIL=1 HOME="$tmp" PATH="$stub:$PATH" ./stack pull >"$tmp/pull.out" 2>&1 || fail "a failed image refresh failed the pull"
+grep -q "^WARN  could not pull $stale_litecoin for a node that is not running" "$tmp/pull.out" || fail "a failed image refresh did not warn"
+no_timeout="$tmp/no-timeout"
+mkdir "$no_timeout"
+IFS=: read -ra path_dirs <<<"$PATH"
+for dir in "${path_dirs[@]}"; do ln -s "$dir"/* "$no_timeout"/ 2>/dev/null || true; done
+rm -f "$no_timeout/timeout" "$FAKE_LOG"
+HOME="$tmp" PATH="$stub:$no_timeout" ./stack pull >/dev/null || fail "pull failed on a host without timeout"
+grep -qx "docker pull $stale_litecoin" "$FAKE_LOG" || fail "a host without timeout did not refresh other node images"
+unset FAKE_LOCAL_REPOS FAKE_STALE_IMAGE
+rm docker-compose.yml
 
 rm -f "$FAKE_LOG"
 upgrade_out=$(PATH="$stub:$PATH" ./stack upgrade)
