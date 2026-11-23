@@ -375,8 +375,7 @@ func diskUsage(path string) diskInfo {
 	return diskInfo{Total: used + uint64(stat.Bavail)*blockSize, Free: uint64(stat.Bavail) * blockSize}
 }
 
-func gib(v int64) float64   { return float64(v) / (1024 * 1024 * 1024) }
-func gibU(v uint64) float64 { return float64(v) / (1024 * 1024 * 1024) }
+func gib(v int64) float64 { return float64(v) / (1024 * 1024 * 1024) }
 func boolInt(v bool) int {
 	if v {
 		return 1
