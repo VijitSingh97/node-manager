@@ -184,16 +184,17 @@ If `bitcoin.utxo_index` was on, its Docker volume stays too; see
 
 An unreleased branch uses image tags that do not exist in GHCR. Before testing
 its Homebrew formula, archive the committed revision and build every
-first-party image with the exact `VERSION` stored in that archive. Building
-images does not start a node:
+first-party image with the exact `VERSION` stored in that revision. The archive
+carries only runtime files, so the images build from a checkout of the same
+commit. Building images does not start a node:
 
 ```sh
 source_dir=$(pwd)
 preview_dir=$(mktemp -d)
 git archive --format=tar.gz --prefix=node-manager/ \
   --output="$preview_dir/node-manager.tar.gz" HEAD
-tar -xzf "$preview_dir/node-manager.tar.gz" -C "$preview_dir"
-cd "$preview_dir/node-manager"
+git worktree add --detach "$preview_dir/source" HEAD
+cd "$preview_dir/source"
 version=$(cat VERSION)
 
 for image in tor monero; do
@@ -233,7 +234,8 @@ brew test "$tap/node-manager"
 
 For an existing test tap, use its name, skip `brew tap-new`, and use `brew reinstall`
 in place of `brew install`. This installs committed `HEAD`; uncommitted source
-changes are excluded.
+changes are excluded. Remove the checkout afterwards with
+`git -C "$source_dir" worktree remove --force "$preview_dir/source"`.
 
 Fresh Homebrew installations use the `node-manager-brew` Compose project, which
 gives their containers and named volumes project-scoped names. Existing

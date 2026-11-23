@@ -6,7 +6,7 @@ a dashboard password shown once. Later starts use `./stack up` and your saved
 login. `configure.sh` renders configuration into a gitignored `.env` for Docker
 Compose; both files are kept private with mode `600`.
 
-For custom first-boot settings, copy `config.example.json` to `config.json`,
+For custom first-boot settings, copy [`config.example.json`](https://github.com/VijitSingh97/node-manager/blob/main/config.example.json) to `config.json`,
 set `dashboard.password` to 12–128 letters or numbers, and edit the other values
 before running `./stack init`. Missing or empty dashboard passwords are rejected.
 Existing installations with a missing or empty baseline must set it before
