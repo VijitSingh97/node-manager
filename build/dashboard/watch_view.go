@@ -250,24 +250,6 @@ func valueFrom(values map[string]any, key string) any {
 	return values[key]
 }
 
-func numberValue(value any) float64 {
-	switch number := value.(type) {
-	case float64:
-		return number
-	case float32:
-		return float64(number)
-	case int:
-		return float64(number)
-	case int64:
-		return float64(number)
-	case json.Number:
-		result, _ := number.Float64()
-		return result
-	default:
-		return 0
-	}
-}
-
 func balanceValue(value any) (float64, bool) {
 	var btc float64
 	switch amount := value.(type) {

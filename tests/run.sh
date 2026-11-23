@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 exec </dev/null
 
-if docker info >/dev/null 2>&1; then
+if [ "${CI:-}" = true ] || docker info >/dev/null 2>&1; then
   scripts/lint.sh
 else
   echo "SKIP: lint (Docker not running)"
@@ -33,43 +33,53 @@ tests/test_tor_image.sh
 tests/test_e2e.sh
 tests/test_upgrade.sh
 tests/test_postsync.sh
-python3 -m unittest tests.test_developer_bot tests.test_tor_boundary tests.test_pages
+python3 -m unittest tests.test_developer_bot tests.test_tor_boundary tests.test_pages tests.test_node_dependencies
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+dashboard_bin=
 
 if command -v go >/dev/null; then
   (
-    dashboard_check=$(mktemp)
-    trap 'rm -f "$dashboard_check"' EXIT
     cd build/dashboard
     go test -race ./...
     go test -count=1 -run '^TestBenchIndexMatchesScanAndIsFaster$' .
     go vet ./...
-    go build -o "$dashboard_check" .
   )
-  echo "PASS: dashboard Go tests, race detector, vet, and build"
+  (cd build/dashboard && go build -o "$work/dashboard" .)
+  dashboard_bin="$work/dashboard"
+  for module in tari-wallet hostd; do
+    (
+      cd "build/$module"
+      go test -race ./...
+      go vet ./...
+    )
+  done
+  echo "PASS: Go tests, race detector, vet, and build (dashboard, tari-wallet, hostd)"
 else
-  echo "SKIP: dashboard Go checks (Go not installed)"
+  echo "SKIP: Go checks (Go not installed)"
 fi
 
 if python3 -c "import pytest, flask, waitress" 2>/dev/null; then
-  python3 -m pytest build/dashboard/tests -q
+  cov=()
+  if python3 -c "import pytest_cov" 2>/dev/null; then
+    cov=(--cov=parity/reference --cov-report=term-missing --cov-fail-under=85)
+  fi
+  (cd build/dashboard && python3 -m pytest tests -q ${cov[@]+"${cov[@]}"})
   python3 build/dashboard/parity/generate.py --check
   python3 build/dashboard/parity/test_http.py
-  if command -v go >/dev/null; then
-    (
-      dashboard_bin=$(mktemp)
-      trap 'rm -f "$dashboard_bin"' EXIT
-      (cd build/dashboard && go build -o "$dashboard_bin" .)
-      DASHBOARD_COMMAND="[\"$dashboard_bin\"]" python3 build/dashboard/parity/test_http.py
-    )
+  if [ -n "$dashboard_bin" ]; then
+    DASHBOARD_COMMAND="[\"$dashboard_bin\"]" python3 build/dashboard/parity/test_http.py
   fi
 else
-  echo "SKIP: dashboard Python reference tests (pip install -r build/dashboard/parity/reference/requirements.txt pytest)"
+  echo "SKIP: dashboard Python reference tests (pip install -r build/dashboard/parity/reference/requirements.txt pytest pytest-cov)"
 fi
 
 if command -v node >/dev/null; then
+  DASHBOARD_BIN="$dashboard_bin" node --test --test-timeout=600000 "build/dashboard/ui/*.test.mjs"
   node --test build/dashboard/static/*.test.mjs
 else
-  echo "SKIP: frontend unit tests (node not installed)"
+  echo "SKIP: UI flows and frontend unit tests (node not installed)"
 fi
 
 echo "All tests passed."

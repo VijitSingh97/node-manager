@@ -31,10 +31,6 @@ func familyWatchID(address string) string {
 	return hex.EncodeToString(sum[:12])
 }
 
-func validFamilyWatchID(id string) bool {
-	return len(id) == 24 && strings.Trim(id, "0123456789abcdef") == ""
-}
-
 func validFamilyWatchLabel(label string) bool {
 	if label == "" || len(label) > 80 || strings.TrimSpace(label) != label {
 		return false

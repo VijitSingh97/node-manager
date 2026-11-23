@@ -23,7 +23,7 @@ test("turning the balance index on needs no confirmation and turning it off asks
 });
 
 test("the settings page carries none of the removed explanatory notes", async () => {
-  const sources = await Promise.all(["./settings.js", "../index.html"].map((file) => readFile(new URL(file, import.meta.url), "utf8")));
+  const sources = await Promise.all(["./settings.js", "../testdata/index.rendered.html"].map((file) => readFile(new URL(file, import.meta.url), "utf8")));
   for (const source of sources) {
     for (const removed of ["For uptime monitors and scripts", "For pruned nodes", "needs 27 GB free", "All traffic stays on Tor", "utxo-seed-cli", "utxo-seed-command"]) {
       assert.equal(source.includes(removed), false, removed);
@@ -46,7 +46,7 @@ test("saving the balance index off drops only that change on a cancelled confirm
 });
 
 test("the seed buttons and their notes are gone, and a seed status still routes to the balance line", async () => {
-  const sources = await Promise.all(["./settings.js", "../index.html"].map((file) => readFile(new URL(file, import.meta.url), "utf8")));
+  const sources = await Promise.all(["./settings.js", "../testdata/index.rendered.html"].map((file) => readFile(new URL(file, import.meta.url), "utf8")));
   for (const source of sources) {
     for (const removed of ["settings-utxo-seed-now", "utxo_seed_now", "Seed Litecoin now", "Replay Bitcoin Cash now", "Seed Dogecoin now", "bitcoincash-note", "dogecoin-note", "archival node)", "has no coin-set export"]) {
       assert.equal(source.includes(removed), false, removed);
@@ -138,7 +138,7 @@ test("the queue summary names every failed change with the host's real message",
 });
 
 test("the install dialog offers a balance index checkbox ticked by default, next to the data folder", async () => {
-  const [html, source] = await Promise.all(["../index.html", "./settings.js"].map((file) => readFile(new URL(file, import.meta.url), "utf8")));
+  const [html, source] = await Promise.all(["../testdata/index.rendered.html", "./settings.js"].map((file) => readFile(new URL(file, import.meta.url), "utf8")));
   assert.match(html, /<label id="settings-install-index-label"[^>]*hidden><input id="settings-install-index" type="checkbox" checked>/);
   assert.ok(html.indexOf("settings-install-data-dir") < html.indexOf("settings-install-index-label") && html.indexOf("settings-install-index-label") < html.indexOf("settings-install-interfaces"));
   assert.match(source, /node\.can_index && hostView\.install_index_supported/);

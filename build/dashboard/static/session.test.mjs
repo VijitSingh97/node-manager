@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { dashboardFetch, signOut } from "./session.js";
+import { dashboardFetch, jsonRequest, signOut } from "./session.js";
 
 test("dashboardFetch preserves requests and redirects same-origin API 401 responses", async (t) => {
   const originalFetch = globalThis.fetch;
@@ -53,4 +53,15 @@ test("signOut posts without storing credentials and navigates after success", as
 
   await signOut(async () => ({ ok: false }), { replace: (path) => redirects.push(path) });
   assert.deepEqual(redirects, ["/login"]);
+});
+
+test("jsonRequest sends the CSRF header only with a body and bounds error text", async () => {
+  const calls = [];
+  const reply = (ok, text) => async (path, init) => { calls.push([path, init]); return { ok, text: async () => text, json: async () => ({ ok: true }) }; };
+  assert.deepEqual(await jsonRequest(reply(true), "/a", { method: "POST", payload: { x: 1 }, failure: "no" }), { ok: true });
+  assert.deepEqual(calls[0], ["/a", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" }, body: '{"x":1}' }]);
+  await jsonRequest(reply(true), "/b", { failure: "no" });
+  assert.deepEqual(calls[1], ["/b", { method: "GET", headers: {} }]);
+  await assert.rejects(jsonRequest(reply(false, " bad "), "/c", { failure: "no" }), (error) => error.message === "bad" && error.definitive === undefined);
+  await assert.rejects(jsonRequest(reply(false, "x".repeat(201)), "/c", { failure: "no", definitive: true }), (error) => error.message === "no" && error.definitive === true);
 });

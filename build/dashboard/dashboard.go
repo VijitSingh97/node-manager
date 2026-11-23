@@ -88,6 +88,7 @@ type pageData struct {
 	StateLine            string
 	LastBlock            string
 	BitcoinRPCEndpoint   string
+	Chains               []chainView
 }
 
 type app struct {
@@ -346,6 +347,7 @@ func (a *app) loadingPageData() pageData {
 }
 
 func (a *app) render(w http.ResponseWriter, data pageData) {
+	data.Chains = dashboardChains
 	data.NodeName = a.monitor.nodeName
 	data.Command = a.commandName()
 	data.PasswordEnabled = a.hasDashboardPassword()
@@ -375,8 +377,7 @@ func diskUsage(path string) diskInfo {
 	return diskInfo{Total: used + uint64(stat.Bavail)*blockSize, Free: uint64(stat.Bavail) * blockSize}
 }
 
-func gib(v int64) float64   { return float64(v) / (1024 * 1024 * 1024) }
-func gibU(v uint64) float64 { return float64(v) / (1024 * 1024 * 1024) }
+func gib(v int64) float64 { return float64(v) / (1024 * 1024 * 1024) }
 func boolInt(v bool) int {
 	if v {
 		return 1

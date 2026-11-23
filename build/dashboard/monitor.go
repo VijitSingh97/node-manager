@@ -45,8 +45,6 @@ type monitorState struct {
 	syncPercent   float64
 	pendingBlock  int64
 	diskAlerted   bool
-	ticks         int
-	pingDue       int
 	notifiedStack string
 }
 
@@ -179,98 +177,6 @@ func (m *Monitor) configureNodes(bitcoinEnabled, moneroEnabled bool, moneroDataD
 	m.moneroDataDir = moneroDataDir
 }
 
-func (m *Monitor) Run(ctx context.Context, blockchain func() map[string]any, network func() map[string]any) {
-	onlinePending := true
-	ticker := time.NewTicker(m.tickEvery)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		var info map[string]any
-		if blockchain != nil {
-			info = blockchain()
-		}
-		if onlinePending && info != nil {
-			if ibd, ok := info["initialblockdownload"].(bool); ok {
-				onlinePending = false
-				if !ibd && m.notificationSettings().AlertMonitorOnline {
-					m.sendTelegram(ctx, "🚀 node monitor online")
-				}
-			}
-		}
-		var netInfo map[string]any
-		if info != nil && network != nil && m.state.ticks%updateCheckEveryTick == 0 {
-			netInfo = network()
-			if netInfo == nil {
-				netInfo = map[string]any{}
-			}
-		}
-		m.tick(ctx, info, netInfo)
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
-func (m *Monitor) RunNodes(ctx context.Context, bitcoin, monero func() map[string]any) {
-	bitcoinOnlinePending, moneroOnlinePending := true, true
-	ticker := time.NewTicker(m.tickEvery)
-	defer ticker.Stop()
-	for {
-		if ctx.Err() != nil {
-			return
-		}
-		var bitcoinInfo, moneroInfo map[string]any
-		type nodeResult struct {
-			bitcoin bool
-			info    map[string]any
-		}
-		results := make(chan nodeResult, 2)
-		pending := 0
-		if m.bitcoinEnabled && bitcoin != nil {
-			pending++
-			go func() { results <- nodeResult{bitcoin: true, info: bitcoin()} }()
-		}
-		if m.moneroEnabled && monero != nil {
-			pending++
-			go func() { results <- nodeResult{info: monero()} }()
-		}
-		for range pending {
-			var result nodeResult
-			select {
-			case result = <-results:
-			case <-ctx.Done():
-				return
-			}
-			if result.bitcoin {
-				bitcoinInfo = result.info
-			} else {
-				moneroInfo = result.info
-			}
-		}
-		if m.bitcoinEnabled {
-			bitcoinOnlinePending = m.announceOnline(ctx, "Bitcoin", &m.state, bitcoinInfo, bitcoinOnlinePending)
-		}
-		if m.moneroEnabled {
-			moneroOnlinePending = m.announceOnline(ctx, "Monero", &m.moneroState, moneroInfo, moneroOnlinePending)
-		}
-		m.tickNodes(ctx, bitcoinInfo, moneroInfo)
-		m.forwardHostEvents(ctx)
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
 func (m *Monitor) announceOnline(ctx context.Context, chain string, state *monitorState, info map[string]any, pending bool) bool {
 	if !pending || info == nil {
 		return pending
@@ -288,47 +194,6 @@ func (m *Monitor) UpdateNote() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.updateNote
-}
-
-func (m *Monitor) tick(ctx context.Context, info, network map[string]any) {
-	ticks := m.state.ticks
-	healthy, hasIBD, ibd := m.tickNode(ctx, &m.state, "", m.dataDir, m.notificationSettings().AlertNewBlock, info)
-	if ticks >= m.state.pingDue && m.pingHealthchecks(ctx) {
-		m.state.pingDue = ticks + pingEveryTicks
-	}
-	if healthy && network != nil && ticks%updateCheckEveryTick == 0 {
-		m.checkUpdatesWithNotification(ctx, hasIBD && !ibd)
-	}
-	m.state.ticks++
-}
-
-func (m *Monitor) tickNodes(ctx context.Context, bitcoinInfo, moneroInfo map[string]any) {
-	before := m.persistedState()
-	settings := m.notificationSettings()
-	anySynced := false
-	if m.bitcoinEnabled {
-		healthy, hasIBD, ibd := m.tickNode(ctx, &m.state, "Bitcoin", m.dataDir, settings.AlertNewBlock, bitcoinInfo)
-		anySynced = anySynced || (healthy && hasIBD && !ibd)
-		m.state.ticks++
-	}
-	if m.moneroEnabled {
-		healthy, hasIBD, ibd := m.tickNode(ctx, &m.moneroState, "Monero", m.moneroDataDir, settings.AlertNewBlockMonero, moneroInfo)
-		anySynced = anySynced || (healthy && hasIBD && !ibd)
-		m.moneroState.ticks++
-	}
-	if !m.bitcoinEnabled && !m.moneroEnabled {
-		return
-	}
-	if m.healthTicks >= m.healthPingDue && m.pingHealthchecks(ctx) {
-		m.healthPingDue = m.healthTicks + pingEveryTicks
-	}
-	if m.healthTicks%updateCheckEveryTick == 0 {
-		m.checkUpdatesWithNotification(ctx, anySynced)
-	}
-	m.healthTicks++
-	if !reflect.DeepEqual(before, m.persistedState()) {
-		m.saveState()
-	}
 }
 
 func (m *Monitor) alertsSuppressed(id string) bool {
@@ -473,7 +338,6 @@ func (m *Monitor) tickConfiguredNodes(ctx context.Context, infos map[string]map[
 		activeCount++
 		healthy, hasIBD, ibd := m.tickNode(ctx, state, nodeDisplayName(id), m.nodeDataDir(id), alertNewBlockFor(settings, id), info)
 		anySynced = anySynced || (healthy && hasIBD && !ibd)
-		state.ticks++
 	}
 	if activeCount == 0 {
 		return
