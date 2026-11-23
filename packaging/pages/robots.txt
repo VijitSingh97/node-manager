@@ -1,0 +1,5 @@
+# Crawlers read robots.txt only at a host root, so this applies once the site has its own domain.
+User-agent: *
+Allow: /
+
+Sitemap: https://vijitsingh97.github.io/node-manager/sitemap.xml

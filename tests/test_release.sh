@@ -11,7 +11,7 @@ fail() {
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-for development_file in AGENTS.md docs/developer-bot.md docs/adr tools build/hostd; do
+for development_file in AGENTS.md llms.txt docs/developer-bot.md docs/adr tools build/hostd; do
   git check-attr export-ignore -- "$development_file" | grep -Fq ': export-ignore: set' ||
     fail "$development_file is not excluded from release archives"
 done
