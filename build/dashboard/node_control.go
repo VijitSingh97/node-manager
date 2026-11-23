@@ -30,6 +30,7 @@ type nodeControlNode struct {
 	Configured bool    `json:"configured"`
 	Stopped    bool    `json:"stopped"`
 	Restarting bool    `json:"restarting"`
+	Starting   bool    `json:"starting,omitempty"`
 	Failure    string  `json:"failure,omitempty"`
 	LastHeight *int64  `json:"last_height,omitempty"`
 	LastSync   float64 `json:"last_sync_percent,omitempty"`
@@ -168,7 +169,7 @@ func (a *app) apiNodes(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	runtime := a.nodeRuntime()
 	stats := a.hostStats()
-	restarting := a.restartingNodes()
+	restarting, starting := a.restartStates()
 	nodes := make([]nodeControlNode, 0, len(nodeOrder))
 	for _, id := range nodeOrder {
 		configured, supported := a.nodeConfigured(id)
@@ -178,7 +179,7 @@ func (a *app) apiNodes(w http.ResponseWriter, _ *http.Request) {
 		if stopped {
 			failure = stats.Failed[id]
 		}
-		entry := nodeControlNode{ID: id, Active: active, Available: a.nodeAvailable(id, active), Supported: supported, Configured: configured, Stopped: stopped, Restarting: restarting[id] && failure == "", Failure: failure}
+		entry := nodeControlNode{ID: id, Active: active, Available: a.nodeAvailable(id, active), Supported: supported, Configured: configured, Stopped: stopped, Restarting: restarting[id] && failure == "", Starting: restarting[id] && starting[id] && failure == "", Failure: failure}
 		if seen := a.monitor.LastSeen(id); seen.HasLastBlock && seen.LastBlock >= 0 {
 			entry.LastHeight, entry.LastSync = &seen.LastBlock, seen.SyncPercent
 		}

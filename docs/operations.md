@@ -190,7 +190,12 @@ Upgrades also install newly recommended packages such as `node-manager-hostd`.
 If it is missing (for example after `--no-install-recommends`), run
 `sudo apt install node-manager-hostd` (see [Host readings](#host-readings)).
 Activation pulls the images of the running services one at a time, through the
-host's Docker daemon as before (no new network path). Each pull may take up to
+host's Docker daemon as before (no new network path). It then also pulls the
+new image of every other node that already has an older image on the machine,
+whether that node is inactive or deleted (deleting a node never removes its
+images), so Activate works afterwards. These extra pulls are tried once, never
+start a container, and only warn on failure; activating that node pulls its
+image then. A node with no image of its repository is not pulled. Each pull may take up to
 10 minutes and is tried up to 3 times, 15 s and then 30 s apart, so a transient
 registry or Tor failure costs a retry instead of the activation. The APT output
 records every try, for example `Pulled the dashboard image in 42 s (attempt 1 of

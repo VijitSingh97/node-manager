@@ -54,8 +54,9 @@ for (const node of Object.keys(names)) {
     await page.waitText(button(node), "Activating…");
     helper.release();
     await page.waitText(`#${node}-power-status`, `${names[node]} activated.`);
-    await page.waitText(button(node), "Restarting…");
-    if (node !== "bitcoin") await page.waitText(`#${node}-badge`, "Restarting");
+    await page.waitText(button(node), "Starting…");
+    await page.waitText(`#${node}-power-status`, "Starting the node…");
+    if (node !== "bitcoin") await page.waitText(`#${node}-badge`, "Starting");
     assert.equal(await page.disabled(button(node)), true);
     assert.deepEqual(page.requestsTo("POST", `/api/nodes/${node}/power`).map((request) => request.body), [{ active: false, confirmation: "deactivate" }, { active: true, confirmation: "" }]);
   });
@@ -74,7 +75,8 @@ flow("A stopped node offers Start node, which needs no confirmation word", { hos
   await page.waitText(button("bitcoin"), "Starting…");
   helper.release();
   await page.waitText("#bitcoin-power-status", "Bitcoin activated.");
-  await page.waitText(button("bitcoin"), "Restarting…");
+  await page.waitText(button("bitcoin"), "Starting…");
+  await page.waitText("#bitcoin-power-status", "Starting the node…");
   assert.equal(await page.disabled(button("bitcoin")), true);
 });
 

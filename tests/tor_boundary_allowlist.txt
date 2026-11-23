@@ -11,6 +11,7 @@ build/monero/Dockerfile | curl | 1 | install-time | Image build downloads the Mo
 build/tor/Dockerfile | apt | 1 | install-time | Image build installs pinned Alpine packages for Tor, netcat and socat.
 build/dashboard/Dockerfile | go | 1 | install-time | Image build downloads the pinned Go module set.
 stack | compose pull | 1 | install-time | stack pull downloads container images with the host Docker settings.
+stack | docker pull | 1 | install-time | Package upgrades refresh the image of every node already on the machine with the host Docker settings.
 scripts/node-control | stack pull | 2 | install-time | Node install and activation (only when its image is missing) download it with the host Docker settings.
 scripts/release.sh | git | 2 | dev-tool | Maintainer checks and pushes the release tag.
 scripts/release.sh | gh | 1 | dev-tool | Maintainer reads CI status before tagging.

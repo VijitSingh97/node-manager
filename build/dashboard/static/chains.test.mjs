@@ -90,6 +90,14 @@ test('a restarting node greys out, shows Restarting, and cannot be toggled',()=>
   assert.equal(powerBadge(powerView({...active,supported:false})),'Unavailable');
   assert.equal(nodeBecameActive({...active,restarting:true},active),false);
 });
+test('a node starting after an activation shows Starting, not the settings-change text',()=>{
+  const view=powerView({...active,restarting:true,starting:true});
+  assert.deepEqual([view.active,view.restarting,view.starting,view.disabled,view.button,view.status],[false,true,true,true,'Starting…','Starting the node…']);
+  assert.equal(powerBadge(view),'Starting');
+  assert.equal(powerView({...active,restarting:true,starting:false}).button,'Restarting…');
+  assert.equal(powerView({...active,active:false,restarting:true,starting:true}).starting,undefined);
+  assert.equal(powerBadge(powerView({...active,restarting:true})),'Restarting');
+});
 test('the tower choice and panel go grey with a Restarting badge and status line',()=>{
   const el=(extra={})=>({dataset:{},hidden:false,attrs:{},classes:new Set(),textContent:'',style:{},
     classList:{toggle(name,on){on?this.owner.classes.add(name):this.owner.classes.delete(name)}},
@@ -114,6 +122,11 @@ test('the tower choice and panel go grey with a Restarting badge and status line
     assert.equal(texts['litecoin-power-status'].textContent,'Restarting after a settings change…');
     assert.equal(button.disabled,true);
     assert.equal(choice.dataset.nodeOffline,'1');
+    setNodeActive('litecoin',{...active,restarting:true,starting:true});
+    assert.match(choice.attrs['aria-label'],/starting/);
+    assert.equal(texts['litecoin-badge'].textContent,'Starting');
+    assert.equal(texts['litecoin-state'].textContent,'Starting the node…');
+    assert.equal(texts['litecoin-power-status'].textContent,'Starting the node…');
     setNodeActive('litecoin',active);
     assert.equal(choice.dataset.nodeActive,'1');
     assert.equal(choice.classes.has('inactive'),false);

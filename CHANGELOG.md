@@ -16,10 +16,17 @@ All notable changes to this project are documented here. Format follows
 
 ### Fixed
 
+- Every APT package upgrade now also downloads the new image of each node that
+  already has an older image on the machine, whether the node is running,
+  inactive or deleted, so Activate no longer fails after an upgrade. Nodes that
+  were never downloaded are not pulled, and a failed extra pull only warns.
 - Activating a node that was inactive during a package upgrade now downloads its
   missing image first instead of failing with no explanation. A failed
   activation keeps its reason, including the last error line, in the node panel
   and the event log until the node reaches the requested state.
+- A node that was just activated now says "Starting…" until it answers, instead
+  of "Restarting after a settings change…". Restarts caused by settings changes
+  keep their wording.
 
 ## [1.40.2] - 2026-11-22
 
