@@ -1542,8 +1542,15 @@ func TestRunConfiguredNodesForwardsHostEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	go m.RunConfiguredNodes(ctx, map[string]func() map[string]any{nodeLitecoin: func() map[string]any { return map[string]any{"active": true} }})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		m.RunConfiguredNodes(ctx, map[string]func() map[string]any{nodeLitecoin: func() map[string]any { return map[string]any{"active": true} }})
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
 	select {
 	case got := <-messages:
 		if want := "[alice] 🌡 thermal throttle at 91C — capped monero at 2.00 CPUs"; got != want {
