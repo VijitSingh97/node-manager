@@ -322,6 +322,17 @@ printf '1.2.3\n' >"$wizard_no_docker/VERSION"
 no_docker_password=$(jq -r '.dashboard.password' "$wizard_no_docker/config.json")
 grep -Fq "Dashboard — username: admin  password: $no_docker_password" "$tmp/no-docker.log" || fail "failed first init concealed the generated dashboard login"
 [ ! -f "$wizard_no_docker/.approved-config.json" ] || fail "init approved a config that was not started"
+[ ! -f "$wizard_no_docker/.env" ] || fail "init without Docker kept a rendered .env that was not there before"
+[ -z "$(find "$wizard_no_docker" -name '*.before-*')" ] || fail "init without Docker left temporary copies behind"
+no_docker_prev="$tmp/wizard-no-docker-prev"
+mkdir "$no_docker_prev"
+cp stack configure.sh "$no_docker_prev/"
+printf '1.2.3\n' >"$no_docker_prev/VERSION"
+printf '{"bitcoin":{"enabled":true},"dashboard":{"password":"newdashboardpassword1234"}}\n' >"$no_docker_prev/config.json"
+printf 'DASHBOARD_PASSWORD=previouspassword1234\n' >"$no_docker_prev/.env"
+(cd "$no_docker_prev" && FAKE_DOCKER_INFO_FAIL=1 HOME="$tmp" PATH="$stub:$PATH" ./stack init >/dev/null 2>&1) && fail "init succeeded while Docker was unavailable with a previous .env"
+[ "$(cat "$no_docker_prev/.env")" = 'DASHBOARD_PASSWORD=previouspassword1234' ] || fail "init without Docker did not restore the previous .env"
+[ -z "$(find "$no_docker_prev" -name '*.before-*')" ] || fail "init without Docker left temporary copies behind with a previous .env"
 grep -q 'Configuration was saved, but Docker is not ready' "$tmp/no-docker.log" || fail "init did not explain how to recover when Docker was unavailable"
 
 pending="$tmp/pending-config"
@@ -357,6 +368,7 @@ jq '.dashboard.port=8090' "$pending/config.json" >"$pending/config.next"
 mv "$pending/config.next" "$pending/config.json"
 (cd "$pending" && FAKE_UP_FAIL=1 HOME="$tmp" PATH="$stub:$PATH" ./stack apply >/dev/null 2>&1) && fail "failed apply returned success"
 grep -q '^DASHBOARD_PORT=8088$' "$pending/.env" || fail "failed apply did not restore the previous runtime environment"
+[ -z "$(find "$pending" -name '*.before-*')" ] || fail "failed apply left temporary copies behind"
 [ "$(jq -r '.dashboard.port' "$pending/.approved-config.json")" = 8088 ] || fail "failed apply replaced the approved config"
 cp "$pending/.approved.env" "$pending/approved-env.before"
 : >"$FAKE_LOG"
@@ -364,6 +376,7 @@ cp "$pending/.approved.env" "$pending/approved-env.before"
 grep -q '^DASHBOARD_PORT=8088$' "$pending/.env" || fail "approval failure did not restore the previous runtime environment"
 [ "$(jq -r '.dashboard.port' "$pending/.approved-config.json")" = 8088 ] || fail "approval failure replaced the approved config"
 cmp -s "$pending/.approved.env" "$pending/approved-env.before" || fail "approval failure replaced the approved environment"
+[ -z "$(find "$pending" -name '*.before-*')" ] || fail "apply approval failure left temporary copies behind"
 [ "$(grep -c 'docker compose .* up -d --pull never --no-build' "$FAKE_LOG")" -ge 2 ] || fail "approval failure did not reconcile the previous runtime"
 cp "$pending/config.json" "$pending/config.before-invalid"
 printf '{\n' >"$pending/config.json"
@@ -759,6 +772,11 @@ grep -q ' -u 1000 dashboard sh -c umask 077; cat > /state/.utxo-seed.request.tmp
 reset_useed
 useed utxo-seed </dev/null >/dev/null 2>&1 && fail "utxo-seed started without a terminal or -y"
 grep -q mkfifo "$FAKE_LOG" && fail "declined utxo-seed created a FIFO"
+useed utxo-seed </dev/null >"$tmp/useed.out" 2>&1 || true
+grep -q 'Run this on a terminal, or pass -y' "$tmp/useed.out" || fail "utxo-seed did not ask for -y"
+reset_useed
+printf 'n\n' | BITCOIN_STACK_INTERACTIVE=1 useed utxo-seed >"$tmp/useed.out" 2>&1 || true
+grep -q 'Not started\.' "$tmp/useed.out" || fail "utxo-seed did not report the declined start"
 reset_useed
 printf 'n\n' | BITCOIN_STACK_INTERACTIVE=1 useed utxo-seed >/dev/null 2>&1 && fail "utxo-seed ignored a no answer"
 grep -q mkfifo "$FAKE_LOG" && fail "utxo-seed created a FIFO after a no answer"
@@ -864,6 +882,13 @@ reset_useed
 FAKE_VOL_MISSING=1 useed utxo-index remove -y >"$tmp/useed.out" 2>&1 || fail "utxo-index remove failed with no volume"
 grep -q 'Nothing to remove' "$tmp/useed.out" || fail "utxo-index remove did not report nothing to remove"
 grep -q 'volume rm' "$FAKE_LOG" && fail "utxo-index remove removed a missing volume"
+reset_useed
+useed utxo-index remove </dev/null >"$tmp/useed.out" 2>&1 && fail "utxo-index remove ran without a terminal or -y"
+grep -q 'Run this on a terminal, or pass -y' "$tmp/useed.out" || fail "utxo-index remove did not ask for -y"
+reset_useed
+printf 'n\n' | BITCOIN_STACK_INTERACTIVE=1 useed utxo-index remove >"$tmp/useed.out" 2>&1 && fail "utxo-index remove ran after the answer n"
+grep -q 'Not removed\.' "$tmp/useed.out" || fail "utxo-index remove did not report the declined removal"
+grep -q 'volume rm' "$FAKE_LOG" && fail "utxo-index remove removed the volume after the answer n"
 reset_useed
 FAKE_DOCKER_FAIL=1 useed utxo-index remove -y >"$tmp/useed.out" 2>&1 && fail "utxo-index remove succeeded with docker failing"
 grep -q 'Nothing to remove' "$tmp/useed.out" && fail "utxo-index remove reported a docker failure as a missing volume"

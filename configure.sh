@@ -455,33 +455,7 @@ if [ -n "$dashboard_public_url" ] && [ "$dashboard_bind_ip" != 127.0.0.1 ] && [ 
   echo "dashboard.bind_ip must be 127.0.0.1 or ::1 when dashboard.public_url is set."
   exit 1
 fi
-case "$dashboard_port" in '' | 0* | *[!0-9]*) echo "dashboard.port must be a whole number from 1 to 65535."; exit 1 ;; esac
-if ((${#dashboard_port} > 5 || 10#$dashboard_port > 65535)); then
-  echo "dashboard.port must be a whole number from 1 to 65535."
-  exit 1
-fi
-
-if [ -n "$rpc_bind_ip" ]; then
-  check_bind_ip bitcoin.rpc_bind_ip "$rpc_bind_ip" 0
-elif [ "$rpc_expose" = "1" ]; then
-  echo "bitcoin.rpc_bind_ip is required when bitcoin.rpc_expose is true."
-  exit 1
-fi
-case "$rpc_port" in '' | 0* | *[!0-9]*)
-  echo "bitcoin.rpc_port must be a whole number from 1 to 65535."
-  exit 1
-  ;;
-esac
-if ((${#rpc_port} > 5 || 10#$rpc_port > 65535)); then
-  echo "bitcoin.rpc_port must be a whole number from 1 to 65535."
-  exit 1
-fi
-if [ "$rpc_expose" = "1" ] && [ "$rpc_bind_ip" = "$dashboard_bind_ip" ] && [ "$rpc_port" = "$dashboard_port" ]; then
-  echo "bitcoin.rpc_port conflicts with the dashboard on $rpc_bind_ip:$dashboard_port."
-  exit 1
-fi
-
-validate_monero_port() {
+check_port() {
   case "$2" in '' | 0* | *[!0-9]*)
     echo "$1 must be a whole number from 1 to 65535."
     exit 1
@@ -492,13 +466,22 @@ validate_monero_port() {
     exit 1
   fi
 }
-validate_monero_port monero.rpc_port "$monero_rpc_port"
-validate_monero_port monero.zmq_port "$monero_zmq_port"
-validate_monero_port tari.grpc_port "$tari_grpc_port"
-validate_monero_port litecoin.rpc_port "$litecoin_rpc_port"
-validate_monero_port dogecoin.rpc_port "$dogecoin_rpc_port"
-validate_monero_port bitcoincash.rpc_port "$bitcoincash_rpc_port"
-validate_monero_port zcash.rpc_port "$zcash_rpc_port"
+check_port dashboard.port "$dashboard_port"
+
+if [ -n "$rpc_bind_ip" ]; then
+  check_bind_ip bitcoin.rpc_bind_ip "$rpc_bind_ip" 0
+elif [ "$rpc_expose" = "1" ]; then
+  echo "bitcoin.rpc_bind_ip is required when bitcoin.rpc_expose is true."
+  exit 1
+fi
+check_port bitcoin.rpc_port "$rpc_port"
+check_port monero.rpc_port "$monero_rpc_port"
+check_port monero.zmq_port "$monero_zmq_port"
+check_port tari.grpc_port "$tari_grpc_port"
+check_port litecoin.rpc_port "$litecoin_rpc_port"
+check_port dogecoin.rpc_port "$dogecoin_rpc_port"
+check_port bitcoincash.rpc_port "$bitcoincash_rpc_port"
+check_port zcash.rpc_port "$zcash_rpc_port"
 case "$bitcoin_resource_profile" in compact | off) ;; *) echo "bitcoin.resource_profile must be compact or off."; exit 1 ;; esac
 case "$monero_resource_profile" in compact | off) ;; *) echo "monero.resource_profile must be compact or off."; exit 1 ;; esac
 for profile in "tari:$tari_resource_profile" "litecoin:$litecoin_resource_profile" "dogecoin:$dogecoin_resource_profile" "bitcoincash:$bitcoincash_resource_profile" "zcash:$zcash_resource_profile"; do
@@ -545,10 +528,6 @@ for port_config in \
   if [ "$exposed" = 1 ]; then
     [ -n "$bind_ip" ] || { echo "$node.${kind}_bind_ip is required when $node.${kind}_expose is true."; exit 1; }
     check_bind_ip "$node.${kind}_bind_ip" "$bind_ip" 0
-    if [ "$bind_ip" = "$dashboard_bind_ip" ] && [ "$port" = "$dashboard_port" ]; then
-      echo "$node.${kind}_port conflicts with the dashboard on $bind_ip:$dashboard_port."
-      exit 1
-    fi
   fi
 done
 exposed_listener_keys=()
@@ -566,7 +545,7 @@ register_listener() {
   exposed_listener_keys+=("$key")
   exposed_listener_names+=("$name")
 }
-register_listener dashboard 1 "$dashboard_bind_ip" "$dashboard_port"
+register_listener "the dashboard" 1 "$dashboard_bind_ip" "$dashboard_port"
 register_listener bitcoin.rpc_port "$rpc_expose" "$rpc_bind_ip" "$rpc_port"
 register_listener monero.rpc_port "$monero_rpc_expose" "$monero_rpc_bind_ip" "$monero_rpc_port"
 register_listener monero.zmq_port "$monero_zmq_expose" "$monero_zmq_bind_ip" "$monero_zmq_port"
@@ -597,27 +576,6 @@ if [ "$monero_zmq_expose" = "1" ]; then
   [ -n "$monero_zmq_bind_ip" ] || { echo "monero.zmq_bind_ip is required when monero.zmq_expose is true."; exit 1; }
   check_bind_ip monero.zmq_bind_ip "$monero_zmq_bind_ip" 0
 fi
-if [ "$monero_rpc_expose" = "1" ] && [ "$monero_rpc_bind_ip" = "$dashboard_bind_ip" ] && [ "$monero_rpc_port" = "$dashboard_port" ]; then
-  echo "monero.rpc_port conflicts with the dashboard on $monero_rpc_bind_ip:$dashboard_port."
-  exit 1
-fi
-if [ "$monero_zmq_expose" = "1" ] && [ "$monero_zmq_bind_ip" = "$dashboard_bind_ip" ] && [ "$monero_zmq_port" = "$dashboard_port" ]; then
-  echo "monero.zmq_port conflicts with the dashboard on $monero_zmq_bind_ip:$dashboard_port."
-  exit 1
-fi
-if [ "$monero_rpc_expose" = "1" ] && [ "$monero_zmq_expose" = "1" ] && [ "$monero_rpc_bind_ip:$monero_rpc_port" = "$monero_zmq_bind_ip:$monero_zmq_port" ]; then
-  echo "monero.rpc_port and monero.zmq_port conflict on $monero_rpc_bind_ip:$monero_rpc_port."
-  exit 1
-fi
-if [ "$rpc_expose" = "1" ] && [ "$monero_rpc_expose" = "1" ] && [ "$rpc_bind_ip:$rpc_port" = "$monero_rpc_bind_ip:$monero_rpc_port" ]; then
-  echo "bitcoin.rpc_port and monero.rpc_port conflict on $rpc_bind_ip:$rpc_port."
-  exit 1
-fi
-if [ "$rpc_expose" = "1" ] && [ "$monero_zmq_expose" = "1" ] && [ "$rpc_bind_ip:$rpc_port" = "$monero_zmq_bind_ip:$monero_zmq_port" ]; then
-  echo "bitcoin.rpc_port and monero.zmq_port conflict on $rpc_bind_ip:$rpc_port."
-  exit 1
-fi
-
 if [ "$bitcoin_utxo_index_invalid" = 1 ]; then
   echo "bitcoin.utxo_index must be true or false."
   exit 1
