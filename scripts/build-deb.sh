@@ -38,6 +38,7 @@ install -m 755 stack configure.sh "$root/"
 install -m 755 scripts/node-resource-profile "$root/node-resource-profile"
 install -m 755 scripts/node-port-control "$root/node-port-control"
 install -m 755 scripts/node-control "$root/node-control"
+install -m 644 scripts/helper-common.sh "$root/helper-common.sh"
 install -d "$package/usr/lib/systemd/system"
 install -m 644 packaging/systemd/node-manager-resource-profile.service packaging/systemd/node-manager-resource-profile.timer \
   packaging/systemd/node-manager-port-control.service packaging/systemd/node-manager-port-control.timer \

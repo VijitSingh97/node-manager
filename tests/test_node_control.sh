@@ -10,7 +10,7 @@ state=$tmp/state
 config=$tmp/config
 dashboard_state=$tmp/dashboard
 mkdir -p "$root/scripts" "$state" "$config" "$dashboard_state"
-cp scripts/node-control "$root/scripts/"
+cp scripts/node-control scripts/helper-common.sh "$root/scripts/"
 : >"$root/scripts/node-port-control"
 cat >"$root/scripts/node-port-control" <<'EOF'
 #!/bin/sh
@@ -923,10 +923,34 @@ FAKE_PORT_CHECK_RESULT=port_in_use:litecoin_rpc BITCOIN_STACK_PACKAGE_MANAGED=1 
 
 flat=$tmp/flat
 mkdir -p "$flat"
-cp scripts/node-control "$root/scripts/node-port-control" "$root/stack" "$root/configure.sh" "$root/docker-compose.yml" "$flat/"
+cp scripts/node-control scripts/helper-common.sh "$root/scripts/node-port-control" "$root/stack" "$root/configure.sh" "$root/docker-compose.yml" "$flat/"
 request '{"action":"install","data_dir":"/srv/nodes/litecoin","id":"0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a","interfaces":[{"enabled":true,"host_port":29332,"id":"litecoin_rpc"}],"node":"litecoin","requested_at":1000}'
 BITCOIN_STACK_ROOT=$flat FAKE_PORT_CHECK_RESULT=port_in_use:litecoin_rpc BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$flat/node-control"
 [ "$(status .error_code)" = port_in_use ] || fail "flat package layout could not run the port check"
+no_common=$tmp/no-common
+mkdir -p "$no_common"
+for helper in node-control node-port-control node-resource-profile; do
+  cp "scripts/$helper" "$no_common/"
+  if "$no_common/$helper" >/dev/null 2>"$tmp/no-common.err"; then fail "$helper ran without helper-common.sh"; fi
+  grep -q 'helper-common.sh is missing' "$tmp/no-common.err" || fail "$helper did not say helper-common.sh is missing"
+done
+[ "$("$no_common/node-port-control" --check-ports '[]' 2>/dev/null || true)" = port_check_failed ] || fail "port check without helper-common.sh did not fail closed"
+seen_ring=$tmp/seen-ring
+for n in $(seq 1 300); do (. scripts/helper-common.sh && remember_seen_id "$seen_ring" "id-$n"); done
+[ "$(wc -l <"$seen_ring" | tr -d ' ')" = 256 ] && [ "$(head -n 1 "$seen_ring")" = id-45 ] && [ "$(tail -n 1 "$seen_ring")" = id-300 ] || fail "seen ring did not keep the newest 256 ids"
+[ "$(stat -c %a "$seen_ring" 2>/dev/null || stat -f %Lp "$seen_ring")" = 600 ] || fail "seen ring is not mode 600"
+for line in 'rpcpassword=hunter2' 'Authorization: Bearer abc' 'connect to http://user:pw@host failed' "key $(printf 'a%.0s' $(seq 1 40))" 'my cookie here' 'my onion here' 'pub1abc' 'api key x' 'apikey x' 'seed x' 'token x' 'secret x' 'login x' 'mnemonic x' 'private x' 'phrase x' 'prv x'; do
+  printf 'earlier line\n%s\n' "$line" >"$tmp/redact.log"
+  [ "$(. scripts/helper-common.sh && redact_last_line fallback <"$tmp/redact.log")" = fallback ] || fail "redact_last_line kept a secret-looking line from stdin: $line"
+  [ "$(. scripts/helper-common.sh && redact_last_line fallback "$tmp/redact.log")" = fallback ] || fail "redact_last_line kept a secret-looking line from a file: $line"
+done
+long=$(printf 'word %.0s' $(seq 1 60))
+printf '%s\n' "$long" >"$tmp/redact.log"
+[ "$(. scripts/helper-common.sh && redact_last_line fallback <"$tmp/redact.log" | tr -d '\n' | wc -c | tr -d ' ')" = 240 ] || fail "redact_last_line did not cap at 240 characters"
+printf '\033[31mboom\033[0m\n' >"$tmp/redact.log"
+[ "$(. scripts/helper-common.sh && redact_last_line fallback <"$tmp/redact.log")" = boom ] || fail "redact_last_line kept an ANSI escape"
+printf 'Error response from daemon: port is already allocated\n' >"$tmp/redact.log"
+[ "$(. scripts/helper-common.sh && redact_last_line fallback <"$tmp/redact.log")" = 'Error response from daemon: port is already allocated' ] || fail "redact_last_line dropped a safe line"
 request '{"action":"install","id":"1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b","node":"litecoin","requested_at":1000}'
 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 [ "$(status .state)" = applied ] || fail "Litecoin install was not applied: $(status .message)"

@@ -11,6 +11,7 @@
 # Maintainer scripts; only the four runtime helpers stay.
 /scripts -export-ignore
 scripts/* export-ignore
+scripts/helper-common.sh -export-ignore
 scripts/node-control -export-ignore
 scripts/node-manager -export-ignore
 scripts/node-port-control -export-ignore

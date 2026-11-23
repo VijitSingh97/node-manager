@@ -128,10 +128,25 @@ printf '%s' "${FAKE_IFCONFIG_ADDRESSES:-}"
 EOF
 chmod +x "$fake_ifconfig"
 
+port_table_jq=$(sed -n "/^port_table_jq='/,/^'\$/{//!p;}" scripts/node-port-control)
+[ -n "$port_table_jq" ] || fail "port table was not found in node-port-control"
+jq -en "$port_table_jq"'(port_table | length) == 8 and
+  all(port_table[]; keys == ["bind", "default", "enabled_default", "expose", "node", "password", "port"])' >/dev/null || fail "port table is incomplete"
+for port in bitcoin_rpc monero_rpc monero_zmq tari_grpc litecoin_rpc dogecoin_rpc bitcoincash_rpc zcash_rpc; do
+  jq -en --arg port "$port" "$port_table_jq"'$port | known_port' >/dev/null || fail "port table lacks $port"
+  [ "$(grep -c "\"$port\"" scripts/node-port-control)" = 0 ] || fail "$port is spelled outside the port table in node-port-control"
+done
+jq -en "$port_table_jq"'[port_table[] | [.node, .default, .password, .enabled_default]] == [
+  ["bitcoin", 8332, "BITCOIN_RPC_PASSWORD", true], ["monero", 18081, "MONERO_RPC_PASSWORD", null],
+  ["monero", 18083, "MONERO_RPC_PASSWORD", null], ["tari", 18142, null, null],
+  ["litecoin", 9332, "LITECOIN_RPC_PASSWORD", null], ["dogecoin", 22555, "DOGECOIN_RPC_PASSWORD", null],
+  ["bitcoincash", 8332, "BITCOINCASH_RPC_PASSWORD", null], ["zcash", 8232, "ZCASH_RPC_PASSWORD", null]]' >/dev/null || fail "port table defaults, passwords or enabled defaults changed"
+jq -en "$port_table_jq"'[null, 5, "", "bitcoin", "bitcoin_rpcX", "Bitcoin_rpc"] | any(.[]; known_port)' >/dev/null && fail "port table accepted an unknown port"
+
 new_case() {
   case_root=$tmp/$1
   mkdir -p "$case_root/root/scripts" "$case_root/state/dashboard" "$case_root/config"
-  cp scripts/node-port-control "$case_root/root/scripts/"
+  cp scripts/node-port-control scripts/helper-common.sh "$case_root/root/scripts/"
   cp configure.sh "$case_root/root/"
   : >"$case_root/root/docker-compose.yml"
   cat >"$case_root/root/stack" <<'EOF'
