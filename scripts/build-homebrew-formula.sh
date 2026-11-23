@@ -45,17 +45,13 @@ fi
 for required in \
   node-manager/stack \
   node-manager/configure.sh \
+  node-manager/LICENSE \
   node-manager/VERSION \
   node-manager/docker-compose.yml \
   node-manager/docker-compose.tari-wallet.yml \
-  node-manager/build/dashboard/Dockerfile \
   node-manager/build/bitcoin/bitcoin.conf \
   node-manager/build/tari/config.toml \
   node-manager/build/tari/entrypoint.sh \
-  node-manager/build/tari-wallet/Dockerfile \
-  node-manager/build/tari-wallet/go.mod \
-  node-manager/build/tari-wallet/launcher.go \
-  node-manager/build/tari-wallet/config.toml \
   node-manager/build/zcash/zakurad.toml \
   node-manager/build/zcash/zakurad-address-index.toml \
   node-manager/build/zcash/healthcheck.sh \

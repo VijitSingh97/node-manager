@@ -28,9 +28,8 @@ package=$(mktemp -d)
 trap 'rm -rf "$package"' EXIT
 root=$package/usr/lib/node-manager
 docs=$package/usr/share/doc/node-manager
-share=$package/usr/share/node-manager
 
-install -d "$package/DEBIAN" "$package/usr/bin" "$root" "$docs/docs" "$share"
+install -d "$package/DEBIAN" "$package/usr/bin" "$root" "$docs"
 sed "s/@VERSION@/$version/g" packaging/postinst >"$package/DEBIAN/postinst"
 chmod 755 "$package/DEBIAN/postinst"
 install -m 755 scripts/node-manager "$package/usr/bin/node-manager"
@@ -47,7 +46,7 @@ install -m 644 packaging/systemd/node-manager-resource-profile.service packaging
   "$package/usr/lib/systemd/system/"
 install -m 644 docker-compose.yml docker-compose.rpc.yml docker-compose.monero-rpc.yml docker-compose.monero-zmq.yml \
   docker-compose.tari-wallet.yml docker-compose.tari-grpc.yml docker-compose.litecoin-rpc.yml docker-compose.dogecoin-rpc.yml docker-compose.bitcoincash-rpc.yml \
-  docker-compose.zcash-rpc.yml docker-compose.utxo-index.yml docker-compose.litecoin-utxo-index.yml docker-compose.bitcoincash-utxo-index.yml docker-compose.dogecoin-utxo-index.yml VERSION .dockerignore "$root/"
+  docker-compose.zcash-rpc.yml docker-compose.utxo-index.yml docker-compose.litecoin-utxo-index.yml docker-compose.bitcoincash-utxo-index.yml docker-compose.dogecoin-utxo-index.yml VERSION "$root/"
 printf '%s\n' "$version" >"$root/VERSION"
 install -m 644 "$image_digests" "$root/runtime-images.json"
 for service in tor dashboard monero tari-wallet litecoin dogecoin bitcoincash; do
@@ -70,24 +69,13 @@ for service in tor dashboard monero tari-wallet litecoin dogecoin bitcoincash; d
   }
   mv "$compose_file.pinned" "$compose_file"
 done
-cp -R build "$root/"
-rm -rf "$root/build/dashboard/tests" "$root/build/dashboard/parity" "$root/build/dashboard/ui" \
-  "$root/build/dashboard/.pytest_cache" "$root/build/dashboard/__pycache__"
-find "$root/build/dashboard" -name '*_test.go' -delete
-find "$root/build/tari-wallet" -name '*_test.go' -delete
-rm -rf "$root/build/hostd"
-find "$root/build/dashboard" -name '*.proto' -delete
-find "$root/build/dashboard/static" -name '*.test.mjs' -delete
-find "$root/build/dashboard" -name '*.pyc' -delete
-rm -f "$root/build/dashboard/.coverage" "$root/build/dashboard/.coveragerc" \
-  "$root/build/dashboard/package.json"
-install -m 644 README.md CHANGELOG.md SECURITY.md "$docs/"
+install -d "$root/build/bitcoin" "$root/build/tari" "$root/build/zcash"
+install -m 644 build/bitcoin/bitcoin.conf "$root/build/bitcoin/"
+install -m 644 build/tari/config.toml "$root/build/tari/"
+install -m 755 build/tari/entrypoint.sh "$root/build/tari/"
+install -m 644 build/zcash/zakurad.toml build/zcash/zakurad-address-index.toml "$root/build/zcash/"
+install -m 755 build/zcash/healthcheck.sh "$root/build/zcash/"
 install -m 644 LICENSE "$docs/copyright"
-for guide in README architecture configuration getting-started homebrew hardware nodes notifications operations privacy watch-only; do
-  install -m 644 "docs/$guide.md" "$docs/docs/"
-done
-install -m 644 docs/Caddyfile.example "$docs/docs/"
-install -m 644 config.example.json "$share/"
 
 cat >"$package/DEBIAN/control" <<CONTROL
 Package: node-manager
