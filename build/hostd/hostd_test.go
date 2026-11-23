@@ -452,26 +452,6 @@ func TestRunDU(t *testing.T) {
 	}
 }
 
-func TestWriteStats(t *testing.T) {
-	dir := t.TempDir()
-	out := filepath.Join(dir, "host-stats.json")
-	os.WriteFile(out, []byte("old"), 0o644)
-	st := &Stats{Updated: 5, CPUs: 2, Nodes: map[string]Usage{}, Failed: map[string]string{}, Running: map[string]bool{}, Disks: []Disk{}}
-	if err := writeStats(out, st); err != nil {
-		t.Fatal(err)
-	}
-	info, err := os.Stat(out)
-	if err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("stat %v %v", info, err)
-	}
-	if _, err := os.Stat(out + ".tmp"); !os.IsNotExist(err) {
-		t.Error("temp file left behind")
-	}
-	if err := writeStats(filepath.Join(dir, "missing", "x.json"), st); err == nil {
-		t.Error("write into a missing dir succeeded")
-	}
-}
-
 func TestDockerFailures(t *testing.T) {
 	boxes := []Container{ctr("dash000000000000", "dashboard", "running")}
 	good := DockerInfo{NCPU: 4, MemTotal: 1 << 30}
@@ -499,17 +479,17 @@ func TestDockerFailures(t *testing.T) {
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			e := newEnv(t)
-			out := filepath.Join(e.root, "out.json")
-			os.WriteFile(out, []byte("previous"), 0o600)
-			err := run(e.cfg, c.socket(t), out, func() {})
+			wrote := false
+			err := job{Cfg: e.cfg, Socket: c.socket(t), Wait: func() {}, Now: time.Now,
+				Write: func(*Stats) error { wrote = true; return nil }}.execute()
 			if err == nil {
 				t.Fatal("run succeeded")
 			}
 			if c.want != nil && !errors.Is(err, c.want) {
 				t.Errorf("error = %v, want %v", err, c.want)
 			}
-			if b, _ := os.ReadFile(out); string(b) != "previous" {
-				t.Errorf("a failed sample replaced the old file: %q", b)
+			if wrote {
+				t.Error("a failed sample was written")
 			}
 		})
 	}
@@ -529,59 +509,25 @@ func TestDockerRequestShape(t *testing.T) {
 	}
 }
 
-func TestRunWritesFile(t *testing.T) {
+func TestExecuteWritesStats(t *testing.T) {
 	e := newEnv(t)
 	e.put("proc/stat", "cpu  1 0 1 8 0\n")
 	e.put("proc/meminfo", "MemTotal: 2000 kB\nMemAvailable: 500 kB\n")
 	e.put("proc/uptime", "10.5 1\n")
 	e.cgroup("systemd", "dash000000000000", 0, 4096)
 	socket := staticDocker(t, DockerInfo{NCPU: 2, MemTotal: 1 << 30}, []Container{ctr("dash000000000000", "dashboard", "running")})
-	out := filepath.Join(e.root, "host-stats.json")
 	waited := false
-	if err := run(e.cfg, socket, out, func() { waited = true }); err != nil {
+	var got *Stats
+	err := job{Cfg: e.cfg, Socket: socket, Wait: func() { waited = true }, Now: time.Now,
+		Write: func(st *Stats) error { got = st; return nil }}.execute()
+	if err != nil {
 		t.Fatal(err)
 	}
 	if !waited {
 		t.Error("the second sample did not wait")
 	}
-	info, err := os.Stat(out)
-	if err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("output %v %v", info, err)
-	}
-}
-
-func TestWriteStatsDoesNotFollowPlantedTmpSymlink(t *testing.T) {
-	dir := t.TempDir()
-	out := filepath.Join(dir, "host-stats.json")
-	victim := filepath.Join(t.TempDir(), "victim")
-	os.WriteFile(victim, []byte("PRECIOUS"), 0o600)
-	if err := os.Symlink(victim, out+".tmp"); err != nil {
-		t.Fatal(err)
-	}
-	if err := writeStats(out, &Stats{}); err != nil {
-		t.Fatal(err)
-	}
-	if b, _ := os.ReadFile(victim); string(b) != "PRECIOUS" {
-		t.Errorf("symlink target overwritten: %q", b)
-	}
-	if b, _ := os.ReadFile(out); len(b) == 0 {
-		t.Error("stats not written")
-	}
-}
-
-func TestWriteStatsChownsToDirOwner(t *testing.T) {
-	dir := t.TempDir()
-	var got [2]int
-	called := false
-	old := fchown
-	fchown = func(_ *os.File, uid, gid int) error { got, called = [2]int{uid, gid}, true; return nil }
-	defer func() { fchown = old }()
-	if err := writeStats(filepath.Join(dir, "s.json"), &Stats{}); err != nil {
-		t.Fatal(err)
-	}
-	st := mustStat(t, dir)
-	if !called || got != [2]int{int(st.Uid), int(st.Gid)} {
-		t.Errorf("chown called=%v got=%v want dir owner %d:%d", called, got, st.Uid, st.Gid)
+	if got == nil || got.CPUs != 2 {
+		t.Fatalf("stats written = %+v", got)
 	}
 }
 
@@ -594,7 +540,7 @@ func mustStat(t *testing.T, path string) *syscall.Stat_t {
 	return info.Sys().(*syscall.Stat_t)
 }
 
-func TestRunDoesNoDuBeforeRateWindowCloses(t *testing.T) {
+func TestExecuteDoesNoDuBeforeRateWindowCloses(t *testing.T) {
 	e := newEnv(t)
 	e.put("proc/stat", "cpu  1 0 1 8 0\n")
 	e.put("proc/meminfo", "MemTotal: 2000 kB\nMemAvailable: 500 kB\n")
@@ -606,12 +552,12 @@ func TestRunDoesNoDuBeforeRateWindowCloses(t *testing.T) {
 	os.WriteFile(filepath.Join(bin, "du"), []byte("#!/bin/sh\necho x >> "+log+"\necho 2048 \"$3\"\n"), 0o755)
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
 	socket := staticDocker(t, DockerInfo{NCPU: 2, MemTotal: 1 << 30}, []Container{ctr("dash000000000000", "dashboard", "running")})
-	out := filepath.Join(e.root, "host-stats.json")
-	err := run(e.cfg, socket, out, func() {
-		if _, err := os.Stat(log); err == nil {
-			t.Error("du ran before the rate window closed")
-		}
-	})
+	err := job{Cfg: e.cfg, Socket: socket, Now: time.Now, Write: func(*Stats) error { return nil },
+		Wait: func() {
+			if _, err := os.Stat(log); err == nil {
+				t.Error("du ran before the rate window closed")
+			}
+		}}.execute()
 	if err != nil {
 		t.Fatal(err)
 	}

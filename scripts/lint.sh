@@ -21,7 +21,7 @@ lint ruff check --no-cache .
 lint actionlint
 
 if command -v gofmt >/dev/null; then
-  unformatted=$(git ls-files -z '*.go' ':!:experiments' | xargs -0 gofmt -l)
+  unformatted=$(git ls-files -z '*.go' | xargs -0 gofmt -l)
   [ -z "$unformatted" ] || {
     printf 'FAIL: gofmt -w these files:\n%s\n' "$unformatted" >&2
     exit 1

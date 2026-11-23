@@ -95,7 +95,7 @@ for required in \
   ./usr/share/doc/node-manager/copyright; do
   grep -q " $required$" "$tmp/contents" || fail "package is missing $required"
 done
-if grep -Eq '/(tests|parity|experiments|images|__pycache__|\.pytest_cache)/|/build/(dashboard|tor|monero|bitcoin-family|tari-wallet|hostd)/|\.go$|Dockerfile$|\.dockerignore$|\.proto$|package\.json$|\.pyc$|\.(jpg|jpeg)$|/usr/share/node-manager/|/usr/share/doc/node-manager/(README|CHANGELOG|SECURITY|docs)' "$tmp/contents"; then
+if grep -Eq '/(tests|parity|images|__pycache__|\.pytest_cache)/|/build/(dashboard|tor|monero|bitcoin-family|tari-wallet|hostd)/|\.go$|Dockerfile$|\.dockerignore$|\.proto$|package\.json$|\.pyc$|\.(jpg|jpeg)$|/usr/share/node-manager/|/usr/share/doc/node-manager/(README|CHANGELOG|SECURITY|docs)' "$tmp/contents"; then
   fail "package contains development-only files"
 fi
 if grep -Eq ' \./(etc|var)/' "$tmp/contents"; then

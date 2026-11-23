@@ -1,58 +1,15 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"syscall"
 	"time"
 )
 
 var fchown = (*os.File).Chown
-
-func chownToDirOwner(f *os.File, dir string) error {
-	info, err := os.Stat(dir)
-	if err != nil {
-		return err
-	}
-	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		return fchown(f, int(st.Uid), int(st.Gid))
-	}
-	return nil
-}
-
-func writeStats(path string, st *Stats) error {
-	b, err := json.Marshal(st)
-	if err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	os.Remove(tmp)
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return err
-	}
-	if err = f.Chmod(0o600); err == nil {
-		err = chownToDirOwner(f, filepath.Dir(path))
-	}
-	if err == nil {
-		_, err = f.Write(b)
-	}
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err == nil {
-		err = os.Rename(tmp, path)
-	}
-	if err != nil {
-		os.Remove(tmp)
-	}
-	return err
-}
 
 type job struct {
 	Cfg       Config
@@ -61,10 +18,6 @@ type job struct {
 	Write     func(*Stats) error
 	Wait      func()
 	Now       func() time.Time
-}
-
-func run(cfg Config, socket, out string, wait func()) error {
-	return job{Cfg: cfg, Socket: socket, Write: func(st *Stats) error { return writeStats(out, st) }, Wait: wait, Now: time.Now}.execute()
 }
 
 func (j job) execute() error {
@@ -116,29 +69,22 @@ func volumeWriter(cfg Config, socket string) func(*Stats) error {
 func mainRun(args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("hostd", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	once := fs.Bool("once", false, "sample, write the file and exit")
-	out := fs.String("out", "", "path of host-stats.json")
+	once := fs.Bool("once", false, "sample, write the stats and exit")
 	volume := fs.Bool("volume", false, "write host-stats.json into the dashboard state volume")
 	stateFile := fs.String("state-file", "", "path of the carry-over state between runs")
-	socket := fs.String("socket", "", "Docker socket (default $HOSTD_DOCKER_SOCKET or /var/run/docker.sock)")
 	if fs.Parse(args) != nil {
 		return 2
 	}
-	if !*once || (*out == "") == !*volume {
-		fmt.Fprintln(stderr, "usage: hostd -once (-out PATH | -volume) [-state-file PATH] [-socket PATH]")
+	if !*once || !*volume {
+		fmt.Fprintln(stderr, "usage: hostd -once -volume [-state-file PATH]")
 		return 2
 	}
-	if *socket == "" {
-		if *socket = os.Getenv("HOSTD_DOCKER_SOCKET"); *socket == "" {
-			*socket = "/var/run/docker.sock"
-		}
+	socket := os.Getenv("HOSTD_DOCKER_SOCKET")
+	if socket == "" {
+		socket = "/var/run/docker.sock"
 	}
 	cfg := ConfigFromEnv()
-	write := func(st *Stats) error { return writeStats(*out, st) }
-	if *volume {
-		write = volumeWriter(cfg, *socket)
-	}
-	j := job{Cfg: cfg, Socket: *socket, StateFile: *stateFile, Write: write, Now: time.Now, Wait: func() { time.Sleep(time.Second) }}
+	j := job{Cfg: cfg, Socket: socket, StateFile: *stateFile, Write: volumeWriter(cfg, socket), Now: time.Now, Wait: func() { time.Sleep(time.Second) }}
 	if err := j.execute(); errors.Is(err, ErrNoDashboard) {
 		return 0
 	} else if err != nil {

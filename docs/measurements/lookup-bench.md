@@ -143,7 +143,7 @@ The margins are low because the synthetic set is about 800 times smaller than ma
 
 Synthetic, on an Apple M5 Max (go1.27.1, darwin/arm64), load average 10 to 12 on 18 cores, 2026-11-17, five runs in a row of both chains: the 30 samples of 2,000-script wallets had a p50 of 5.3 to 15.9 ms against scans of at least 0.2 s, so 13 to 38 times faster, against the 2-times margin. Each run took 15 to 18 s.
 
-The race detector slows Pebble lookups about 40 to 80 times (the 2,000-script p50 rose to 0.14 to 0.28 s), so the test skips under `-race`. CI runs it in a separate `go test` without `-race` in the `test` job, and so does `tests/run.sh`.
+The race detector slows Pebble lookups about 40 to 80 times (the 2,000-script p50 rose to 0.14 to 0.28 s), so the test skips under `-race`. `tests/run.sh` runs it in a separate `go test` without `-race`, and the CI `test` job runs that script.
 
 ### Adding a chain
 

@@ -198,7 +198,6 @@ type fakeHost struct {
 	socket string
 	now    time.Time
 	waits  int
-	out    string
 	state  string
 }
 
@@ -209,14 +208,13 @@ func newFakeHost(t *testing.T) *fakeHost {
 	e.put("proc/uptime", "100.0 1\n")
 	e.cgroup("systemd", "dash000000000000", 0, 4096)
 	socket := staticDocker(t, DockerInfo{NCPU: 2, MemTotal: 1 << 30}, []Container{ctr("dash000000000000", "dashboard", "running")})
-	return &fakeHost{e: e, socket: socket, now: time.Unix(5000, 0),
-		out: filepath.Join(e.root, "host-stats.json"), state: filepath.Join(e.root, "hostd/state.json")}
+	return &fakeHost{e: e, socket: socket, now: time.Unix(5000, 0), state: filepath.Join(e.root, "hostd/state.json")}
 }
 
 func (h *fakeHost) run(t *testing.T) error {
 	t.Helper()
 	return job{Cfg: h.e.cfg, Socket: h.socket, StateFile: h.state, Wait: func() { h.waits++ }, Now: func() time.Time { return h.now },
-		Write: func(st *Stats) error { return writeStats(h.out, st) }}.execute()
+		Write: func(*Stats) error { return nil }}.execute()
 }
 
 func TestStateDeltaPathSkipsSleep(t *testing.T) {
@@ -283,7 +281,7 @@ func TestExecuteMeasuresOneDirPerRun(t *testing.T) {
 func TestMainRunExitCodes(t *testing.T) {
 	var sink bytes.Buffer
 	for _, args := range [][]string{
-		{}, {"-out", "x"}, {"-once"}, {"-once", "-out", "x", "-volume"}, {"-once", "-bogus"},
+		{}, {"-once"}, {"-volume"}, {"-once", "-bogus"},
 	} {
 		if code := mainRun(args, &sink); code != 2 {
 			t.Errorf("%v: exit %d, want 2", args, code)
@@ -296,17 +294,12 @@ func TestMainRunExitCodes(t *testing.T) {
 	t.Setenv("BITCOIN_STACK_STATE_DIR", h.e.cfg.StateRoot)
 	t.Setenv("BITCOIN_STACK_ROOT", h.e.cfg.StackRoot)
 	t.Setenv("BITCOIN_STACK_PROJECT_NAME", "p")
-	args := []string{"-once", "-out", h.out, "-state-file", h.state, "-socket", h.socket}
-	if code := mainRun(args, &sink); code != 0 {
-		t.Fatalf("success exit %d: %s", code, sink.String())
-	}
-	if _, err := os.Stat(h.out); err != nil {
-		t.Error("exit 0 without a file")
-	}
-	if code := mainRun([]string{"-once", "-out", h.out, "-socket", filepath.Join(h.e.root, "nosuch.sock")}, &sink); code != 1 {
+	t.Setenv("HOSTD_DOCKER_SOCKET", filepath.Join(h.e.root, "nosuch.sock"))
+	if code := mainRun([]string{"-once", "-volume"}, &sink); code != 1 {
 		t.Errorf("docker down: exit %d, want 1", code)
 	}
-	if code := mainRun([]string{"-once", "-volume", "-socket", h.socket}, &sink); code != 1 {
+	t.Setenv("HOSTD_DOCKER_SOCKET", h.socket)
+	if code := mainRun([]string{"-once", "-volume"}, &sink); code != 1 {
 		t.Errorf("missing volume: exit %d, want 1", code)
 	}
 }
@@ -332,8 +325,9 @@ func TestMainRunVolumeWritesIntoMountpoint(t *testing.T) {
 	t.Setenv("RESOURCE_CGROUP_ROOT", h.e.cfg.CgroupRoot)
 	t.Setenv("BITCOIN_STACK_STATE_DIR", h.e.cfg.StateRoot)
 	t.Setenv("BITCOIN_STACK_PROJECT_NAME", "p")
+	t.Setenv("HOSTD_DOCKER_SOCKET", socket)
 	var sink bytes.Buffer
-	if code := mainRun([]string{"-once", "-volume", "-state-file", h.state, "-socket", socket}, &sink); code != 0 {
+	if code := mainRun([]string{"-once", "-volume", "-state-file", h.state}, &sink); code != 0 {
 		t.Fatalf("exit %d: %s", code, sink.String())
 	}
 	if _, err := os.Stat(filepath.Join(mount, statsName)); err != nil {
@@ -389,11 +383,9 @@ func TestMainRunNoDashboardExitsClean(t *testing.T) {
 	socket := staticDocker(t, DockerInfo{NCPU: 2, MemTotal: 1 << 30}, nil)
 	t.Setenv("RESOURCE_PROC_ROOT", h.e.cfg.ProcRoot)
 	t.Setenv("BITCOIN_STACK_PROJECT_NAME", "p")
+	t.Setenv("HOSTD_DOCKER_SOCKET", socket)
 	var sink bytes.Buffer
-	if code := mainRun([]string{"-once", "-out", h.out, "-socket", socket}, &sink); code != 0 || sink.Len() != 0 {
+	if code := mainRun([]string{"-once", "-volume"}, &sink); code != 0 || sink.Len() != 0 {
 		t.Errorf("exit %d output %q, want a silent 0", code, sink.String())
-	}
-	if _, err := os.Stat(h.out); err == nil {
-		t.Error("a file was written with no dashboard")
 	}
 }
