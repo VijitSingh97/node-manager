@@ -1413,6 +1413,15 @@ package_image_refs() {
   sed -n -e "s/\${STACK_VERSION:?[^}]*}/$version/" -e 's/^ *image: *//p' "$stack_root"/docker-compose*.yml | sort -u
 }
 
+docker_pull_once() {
+  # Older macOS has no timeout(1).
+  if command -v timeout >/dev/null; then
+    timeout --foreground --kill-after=30 600 docker pull "$1"
+  else
+    docker pull "$1"
+  fi
+}
+
 pull_other_node_images() {
   local refs repos ref repo started
   refs=$(package_image_refs) || return 0
@@ -1424,7 +1433,7 @@ pull_other_node_images() {
     grep -Fxq -- "$repo" <<<"$repos" || continue
     ! docker image inspect "$ref" >/dev/null 2>&1 || continue
     started=$SECONDS
-    if timeout --foreground --kill-after=30 600 docker pull "$ref" >/dev/null; then
+    if docker_pull_once "$ref" >/dev/null; then
       echo "Pulled $ref for a node that is not running in $((SECONDS - started)) s."
     else
       echo "WARN  could not pull $ref for a node that is not running; activating that node will pull it." >&2
@@ -2252,6 +2261,7 @@ case "$cmd" in
     "$stack_root/configure.sh"
     pull_images "$@"
     unlock_config
+    [ $# -gt 0 ] || pull_other_node_images
     ;;
   upgrade-agent) upgrade_agent ;;
   host-service) host_service ;;
