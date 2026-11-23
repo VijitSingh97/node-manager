@@ -921,6 +921,17 @@ FAKE_PORT_CHECK_RESULT=port_in_use:litecoin_rpc BITCOIN_STACK_PACKAGE_MANAGED=1 
 [ "$(status .port)" = litecoin_rpc ] || fail "install port conflict lost its interface"
 [ "$(shasum -a 256 "$config/config.json")" = "$before_conflict" ] || fail "install port conflict changed configuration"
 
+flat=$tmp/flat
+mkdir -p "$flat"
+cp scripts/node-control "$root/scripts/node-port-control" "$root/stack" "$root/configure.sh" "$root/docker-compose.yml" "$flat/"
+request '{"action":"install","data_dir":"/srv/nodes/litecoin","id":"0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a","interfaces":[{"enabled":true,"host_port":29332,"id":"litecoin_rpc"}],"node":"litecoin","requested_at":1000}'
+BITCOIN_STACK_ROOT=$flat FAKE_PORT_CHECK_RESULT=port_in_use:litecoin_rpc BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$flat/node-control"
+[ "$(status .error_code)" = port_in_use ] || fail "flat package layout could not run the port check"
+request '{"action":"install","id":"1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b","node":"litecoin","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state)" = applied ] || fail "Litecoin install was not applied: $(status .message)"
+[ "$(jq -r .litecoin.steady_mem_limit_mb "$config/config.json")" = 2048 ] || fail "dashboard-installed Litecoin did not get the 2048 MiB default"
+
 # --- migrate ---
 jq '.bitcoincash.enabled=true | .bitcoincash.active=true' "$config/config.json" >"$config/.config.tmp"
 mv "$config/.config.tmp" "$config/config.json"

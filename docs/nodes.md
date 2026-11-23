@@ -21,9 +21,9 @@ temporary compaction space, or future growth.
 | Bitcoin Core | 10,000 MiB of block files | 28–56 GiB total | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 2 GiB | Short capped trial passed; 24-hour qualification pending |
 | Monero | Native pruned mode | 120–150 GiB; upstream reported about 105 GiB pruned on October 5, 2026 | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 2 GiB, plus its wallet service | Not yet qualified |
 | Tari | 10,000-block pruning horizon | No current measured total; use an expandable volume and measure after first sync | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 4 GiB for the node, plus a 0.5 CPU / 512 MiB view-only wallet sidecar | Node startup and native wallet lifecycle/authentication proven; funded pruned full-sync balance and sustained caps not qualified |
-| Litecoin | 10,000 MiB of block files | Provisional 28–56 GiB; current full-sync total is not measured | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 4 GiB | Binary and runtime startup proven; full sync not qualified |
-| Dogecoin | 10,000 MiB of block files | Provisional 28–56 GiB; current full-sync total is not measured | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 4 GiB | Binary and runtime startup proven; full sync not qualified |
-| Bitcoin Cash Node | 10,000 MiB of block files (pruned); the balance index works on a pruned node | Archival: 231 GiB of block files reported by a public Bitcoin Cash Node on 2026-11-16 ([bch.chaingraph.cash](https://bch.chaingraph.cash/node-status)), plus chainstate and the index, not measured here. Pruned: provisional 28–56 GiB | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 4 GiB | Signed upstream binary and runtime startup proven; full sync not qualified |
+| Litecoin | 10,000 MiB of block files | Provisional 28–56 GiB; current full-sync total is not measured | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 2 GiB | Binary and runtime startup proven; full sync not qualified |
+| Dogecoin | 10,000 MiB of block files | Provisional 28–56 GiB; current full-sync total is not measured | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 2 GiB | Binary and runtime startup proven; full sync not qualified |
+| Bitcoin Cash Node | 10,000 MiB of block files (pruned); the balance index works on a pruned node | Archival: 231 GiB of block files reported by a public Bitcoin Cash Node on 2026-11-16 ([bch.chaingraph.cash](https://bch.chaingraph.cash/node-status)), plus chainstate and the index, not measured here. Pruned: provisional 28–56 GiB | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 2 GiB | Signed upstream binary and runtime startup proven; full sync not qualified |
 | Zcash / Zakura | Pruned state with 10,000 retained blocks | Upstream's published snapshot was roughly 10 GiB when checked; plan 28–56 GiB on an expandable volume until a full sync is measured | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 4 GiB | Pruning, Tor bootstrap, and RPC proven; full sync not qualified |
 
 All six non-Bitcoin adapters have passed native-daemon startup and dashboard
@@ -49,7 +49,7 @@ Bitcoin-family pruning retains a configured amount of recent block files while
 keeping the live chainstate.
 
 Budgets apply **per node**. Bitcoin plus Monero in compact mode therefore needs
-up to 4 GiB for the daemons. Three of the newer nodes need up to 12 GiB. Add
+up to 4 GiB for the daemons. Litecoin, Dogecoin and Bitcoin Cash need up to 2 GiB each, and Tari and Zcash up to 4 GiB each. Add
 memory and CPU for Tor, the Go dashboard, Docker, filesystem cache, the operating
 system, and wallet sidecars. Tari's sidecar has its own 0.5 CPU / 512 MiB ceiling;
 it is not included in the Tari base node's 1 CPU / 4 GiB budget and is not yet
@@ -57,9 +57,9 @@ qualified under sustained load. Sync one chain at a time on a small
 host. A container cap on a larger test machine does not qualify a real VPS with
 the same total RAM.
 
-Selecting all seven nodes sets base-node ceilings totaling 7 CPUs and 24 GiB.
+Selecting all seven nodes sets base-node ceilings totaling 7 CPUs and 18 GiB.
 The Monero and Tari wallet sidecars add 0.5 CPU and 512 MiB each, making 8 CPUs
-and 25 GiB of container ceilings before Tor, dashboard, Docker, filesystem cache,
+and 19 GiB of container ceilings before Tor, dashboard, Docker, filesystem cache,
 and the host. This is cap arithmetic, not measured simultaneous use or a
 qualified minimum machine.
 

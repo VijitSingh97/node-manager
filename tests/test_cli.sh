@@ -257,6 +257,21 @@ grep -q '^BITCOIN_RPC_EXPOSE=0$' "$wizard/.env" || fail "init exposed Bitcoin RP
 [ -f "$wizard/.approved-config.json" ] || fail "init did not approve its config"
 grep -q "Dashboard — username: admin  password: $dashboard_password" "$tmp/wizard-init.log" || fail "init did not print the generated dashboard credential"
 grep -q 'Bitcoin RPC — username: admin  password:' "$tmp/wizard-init.log" || fail "init did not print the selected node credentials"
+bad_init="$tmp/bad-init"
+mkdir "$bad_init"
+cp stack configure.sh "$bad_init/"
+printf '{"bitcoin":{"enabled":true},"dashboard":{"password":"short"}}\n' >"$bad_init/config.json"
+printf 'DASHBOARD_PASSWORD=previouspassword1234\n' >"$bad_init/.env"
+(cd "$bad_init" && HOME="$tmp" PATH="$stub:$PATH" ./stack init >"$tmp/bad-init.log" 2>&1) && fail "init accepted an invalid configuration"
+[ -z "$(find "$bad_init" -name '*.before-init.*')" ] || fail "failed init left temporary copies of .env behind"
+grep -qx 'DASHBOARD_PASSWORD=previouspassword1234' "$bad_init/.env" || fail "failed init changed the previous .env"
+bad_fresh="$tmp/bad-fresh-init"
+mkdir "$bad_fresh"
+cp stack configure.sh "$bad_fresh/"
+cp "$bad_init/config.json" "$bad_fresh/config.json"
+(cd "$bad_fresh" && HOME="$tmp" PATH="$stub:$PATH" ./stack init >"$tmp/bad-fresh-init.log" 2>&1) && fail "first init accepted an invalid configuration"
+[ ! -e "$bad_fresh/.env" ] || fail "failed first init left a .env behind"
+[ -z "$(find "$bad_fresh" -name '*.before-init.*')" ] || fail "failed first init left temporary copies behind"
 wizard_config_hash=$(shasum -a 256 "$wizard/config.json" | cut -d' ' -f1)
 (cd "$wizard" && HOME="$tmp" PATH="$stub:$PATH" ./stack init >"$tmp/wizard-repeat.log")
 [ "$(shasum -a 256 "$wizard/config.json" | cut -d' ' -f1)" = "$wizard_config_hash" ] || fail "repeated init rotated the generated dashboard password"
@@ -1322,5 +1337,23 @@ grep -q ' stop dogecoin$' "$FAKE_LOG" && fail "utxo-seed dogecoin stopped the no
 reset_useed
 (cd "$bch_dir" && HOME="$tmp" PATH="$utxo_stub:$stub:$PATH" ./stack utxo-chainstate-copy dogecoin) >"$tmp/dcopy.out" 2>&1 && fail "utxo-chainstate-copy ran with the Dogecoin index off"
 grep -q 'balance index is off' "$tmp/dcopy.out" || fail "utxo-chainstate-copy did not say the index is off"
+
+status_dir="$tmp/status"
+mkdir -p "$status_dir/bin"
+cp stack "$status_dir/"
+printf 'BITCOIN_ENABLED=0\nTARI_ENABLED=1\nTARI_ACTIVE=1\n' >"$status_dir/.env"
+cat >"$status_dir/bin/docker" <<'EOS'
+#!/usr/bin/env bash
+case " $* " in
+  *' ps -aq '*) for arg in "$@"; do case "$arg" in label=com.docker.compose.service=*) printf '%s-id\n' "${arg##*=}" ;; esac; done ;;
+  *' inspect '*) case "$2" in tari-wallet-id) printf 'running unhealthy\n' ;; *) printf 'running healthy\n' ;; esac ;;
+esac
+exit 0
+EOS
+chmod +x "$status_dir/bin/docker"
+status_code=0
+(cd "$status_dir" && HOME="$tmp" PATH="$status_dir/bin:$PATH" ./stack status >"$tmp/status.out" 2>&1) || status_code=$?
+grep -q '^WARN  tari-wallet: running unhealthy$' "$tmp/status.out" || { cat "$tmp/status.out"; fail "status did not report an unhealthy tari-wallet"; }
+[ "$status_code" != 0 ] || fail "status exited 0 with an unhealthy tari-wallet"
 
 echo "PASS: test_cli.sh"

@@ -250,6 +250,7 @@ func (m *Monitor) RunConfiguredNodes(ctx context.Context, probes map[string]func
 			}
 		}
 		m.tickConfiguredNodes(ctx, infos)
+		m.forwardHostEvents(ctx)
 		select {
 		case <-ctx.Done():
 			return

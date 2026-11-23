@@ -1139,8 +1139,8 @@ if [ "$host_request" = true ]; then
     [ "$configured" != true ] || host_finish rejected "Node is already installed." "$host_node" "" already_installed
     printf '%s' "$unsupported_nodes" | jq -e --arg node "$host_node" 'index($node) == null' >/dev/null ||
       host_finish rejected "This processor cannot run that node." "$host_node" "" unsupported_cpu
-    memory=4096
-    [ "$host_node" != bitcoin ] && [ "$host_node" != monero ] || memory=2048
+    memory=2048
+    [ "$host_node" != tari ] && [ "$host_node" != zcash ] || memory=4096
     candidate=$(mktemp "$config_root/.config.install.XXXXXX")
     printf '%s' "$current" | jq --arg node "$host_node" --arg data_dir "$host_data_dir" --arg bind_ip "$host_bind_ip" --arg utxo_index "$host_utxo_index" --argjson interfaces "$host_interfaces" --argjson memory "$memory" '
       .[$node].enabled=true | .[$node].active=true |
@@ -1181,7 +1181,7 @@ if [ "$host_request" = true ]; then
     host_port_changes=$(printf '%s' "$host_interfaces" | jq -c --arg bind_ip "$host_bind_ip" '[.[]|select(.enabled)|{port:.id,enabled:true,bind_ip:$bind_ip,host_port:.host_port}]')
     if [ "$(printf '%s' "$host_port_changes" | jq 'length')" -gt 0 ]; then
       if ! host_port_check=$(BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root" \
-        "$stack_root/scripts/node-port-control" --check-ports "$host_port_changes"); then
+        "$(dirname "$0")/node-port-control" --check-ports "$host_port_changes"); then
         case "$host_port_check" in
           port_in_use:*) host_finish rejected "Selected port is already in use." "$host_node" "" port_in_use "${host_port_check#*:}" ;;
           bind_address_unavailable:*) host_finish rejected "Selected LAN address is not assigned to this host." "$host_node" "" validation_failed ;;

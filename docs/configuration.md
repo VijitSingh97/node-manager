@@ -349,7 +349,7 @@ no effect while the profile is `off`.
     "litecoin": {
         "resource_profile": "compact",
         "steady_cpus": 1,
-        "steady_mem_limit_mb": 4096
+        "steady_mem_limit_mb": 2048
     }
 }
 ```
@@ -361,8 +361,8 @@ other settings. Then run:
 node-manager apply  # use sudo for an APT install
 ```
 
-Tari, Litecoin, Dogecoin, Bitcoin Cash, and Zcash base nodes use 4096 MiB by default;
-Bitcoin and Monero use 2048 MiB. For example, `steady_cpus: 2` and
+Tari and Zcash base nodes use 4096 MiB by default;
+Bitcoin, Monero, Litecoin, Dogecoin, and Bitcoin Cash use 2048 MiB. For example, `steady_cpus: 2` and
 `steady_mem_limit_mb: 3072` give that node a
 2-core, 3-GiB post-sync ceiling. Changing a cap recreates the affected container
 and rechecks sync before applying the new values. The chain data stays in its
@@ -371,9 +371,9 @@ Tari's view-only wallet sidecar has a separate fixed 0.5 CPU / 512 MiB container
 ceiling. It is additional to the Tari node budget and has not completed sustained
 resource qualification.
 
-With all seven nodes selected, the base-node ceilings total 7 CPUs and 24 GiB.
+With all seven nodes selected, the base-node ceilings total 7 CPUs and 18 GiB.
 The Monero and Tari wallet sidecars add 1 CPU and 1 GiB together, for container
-ceilings totaling 8 CPUs and 25 GiB before Tor, dashboard, Docker, filesystem
+ceilings totaling 8 CPUs and 19 GiB before Tor, dashboard, Docker, filesystem
 cache, and host overhead. These figures add configured ceilings; they are not
 measurements of actual use or a qualified host minimum.
 

@@ -11,9 +11,9 @@
   the formula; Docker is still installed separately.
 - Hardware per [Hardware Requirements](hardware.md) — Bitcoin plans for
   28–56 GiB SSD space and Monero for 120–150 GiB. The other nodes need expandable
-  storage until their current full-sync totals are measured. Bitcoin and Monero
-  use an experimental 1 CPU / 2 GiB steady budget; Tari, Litecoin, Dogecoin,
-  Bitcoin Cash, and Zcash use 1 CPU / 4 GiB each. Shared services and host
+  storage until their current full-sync totals are measured. Bitcoin, Monero,
+  Litecoin, Dogecoin, and Bitcoin Cash use an experimental 1 CPU / 2 GiB steady
+  budget; Tari and Zcash use 1 CPU / 4 GiB each. Shared services and host
   overhead are additional. Initial sync is uncapped.
   For sync headroom, plan around 2 CPU cores and 4 GiB RAM per node; these are
   estimates, not minimum requirements or measured average usage. More resources
@@ -241,7 +241,7 @@ managed user service when it is installed.
 
 Fresh APT and Homebrew installs select `resource_profile: compact`. The host
 helper waits for three spaced, healthy, current sync checks before applying
-1 CPU / 2048 MiB to Bitcoin or Monero, or 1 CPU / 4096 MiB to the other nodes,
+1 CPU / 2048 MiB to Bitcoin, Monero, Litecoin, Dogecoin or Bitcoin Cash, or 1 CPU / 4096 MiB to Tari and Zcash,
 with no extra swap. Initial sync is uncapped. Source first-start selections and
 existing profiles stay off unless configured; a node installed later from the
 dashboard selects `compact`. These ceilings remain experimental until sustained
