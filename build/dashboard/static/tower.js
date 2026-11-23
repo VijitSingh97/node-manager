@@ -1,3 +1,4 @@
+import { NODE_IDS } from "./nodes.js";
 // A live tower of the blockchain. Each confirmed block adds one cube to the
 // top 12x12 layer; the next block pulses while the network works on it.
 export const GRID = 12;
@@ -9,7 +10,7 @@ export const SCENE_MS = 700;
 // the viewport edge (a squeeze in the 900–1024 range looked broken).
 export const WIDE_MIN = 1024;
 const ROLLOVER_DROP = 12;
-export const NODE_IDS = ["bitcoin", "monero", "tari", "litecoin", "dogecoin", "bitcoincash", "zcash"];
+export { NODE_IDS };
 export const NODE_COLORS = {
   bitcoin: "#f2a900",
   monero: "#ff6600",

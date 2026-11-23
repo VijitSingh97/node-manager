@@ -246,18 +246,6 @@ func (s *WatchStore) Contains(entry WatchEntry) bool {
 	return false
 }
 
-func (s *WatchStore) UsesKey(key string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	identity := watchKeyID(key)
-	for _, current := range s.entries {
-		if watchKeyID(current.Key) == identity {
-			return true
-		}
-	}
-	return false
-}
-
 func watchKeyID(key string) string {
 	sum := sha256.Sum256([]byte(strings.TrimSpace(key)))
 	return hex.EncodeToString(sum[:])

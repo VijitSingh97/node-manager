@@ -44,7 +44,7 @@ test("credential polling runs only while a reset is active and settings remain o
 });
 
 test("credential controls are independent, limited to password-capable RPCs, and never persist secrets", async () => {
-  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const html = await readFile(new URL("../testdata/index.rendered.html", import.meta.url), "utf8");
   const source = await readFile(new URL("./credentials.js", import.meta.url), "utf8");
   const account = html.slice(html.indexOf('<dialog id="account-dialog"'), html.indexOf('<dialog id="settings-dialog"'));
   assert.ok(html.indexOf('id="account-open"') < html.indexOf('id="settings-open"'));

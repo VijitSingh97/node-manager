@@ -1,6 +1,6 @@
 import { actuatorCurlController } from "./actuator-curl.js";
 import { credentialSettingsController } from "./credentials.js";
-import { commandName, dashboardFetch as fetch } from "./session.js";
+import { commandName, dashboardFetch as fetch, jsonRequest } from "./session.js";
 import { askConfirm } from "./confirm-dialog.js";
 
 const extraNodes = ["tari", "litecoin", "dogecoin", "bitcoincash", "zcash"];
@@ -320,16 +320,7 @@ export function resetSaveRequests(defaults, payload) {
 }
 
 export async function requestSettings(scope = "global", method = "GET", payload, fetcher = fetch) {
-  const response = await fetcher(settingsEndpoint(scope, method), {
-    method,
-    headers: payload ? { "Content-Type": "application/json", "X-Requested-With": "fetch" } : {},
-    ...(payload ? { body: JSON.stringify(payload) } : {}),
-  });
-  if (!response.ok) {
-    const text = (await response.text()).trim();
-    throw new Error(text.length <= 200 ? text : "Could not update settings.");
-  }
-  return response.json();
+  return jsonRequest(fetcher, settingsEndpoint(scope, method), { method, payload, failure: "Could not update settings." });
 }
 
 export function configuredNodeVisibility(data) {
@@ -700,18 +691,7 @@ if (typeof document !== "undefined") {
 
   const clearSecrets = () => { token.value = ""; chat.value = ""; url.value = ""; };
 
-  const requestHost = async (payload) => {
-    const response = await fetch("/api/settings/host", {
-      method: payload ? "POST" : "GET",
-      headers: payload ? { "Content-Type": "application/json", "X-Requested-With": "fetch" } : {},
-      ...(payload ? { body: JSON.stringify(payload) } : {}),
-    });
-    if (!response.ok) {
-      const message = (await response.text()).trim();
-      throw new Error(message.length <= 200 ? message : "Could not update the node set.");
-    }
-    return response.json();
-  };
+  const requestHost = (payload) => jsonRequest(fetch, "/api/settings/host", { method: payload ? "POST" : "GET", payload, failure: "Could not update the node set." });
 
   const renderHost = (data) => {
     const nextHostView = hostControlModel(data);
@@ -1055,19 +1035,8 @@ if (typeof document !== "undefined") {
   async function request(method = "GET", payload, scope = "global") {
     return requestSettings(scope, method, payload);
   }
-  async function requestPortControl(method = "GET", payload) {
-    const response = await fetch("/api/settings/ports", {
-      method,
-      headers: payload ? { "Content-Type": "application/json", "X-Requested-With": "fetch" } : {},
-      ...(payload ? { body: JSON.stringify(payload) } : {}),
-    });
-    if (!response.ok) {
-      const text = (await response.text()).trim();
-      const error = new Error(text.length <= 200 ? text : "Could not update LAN ports.");
-      error.definitive = true;
-      throw error;
-    }
-    return response.json();
+  function requestPortControl(method = "GET", payload) {
+    return jsonRequest(fetch, "/api/settings/ports", { method, payload, failure: "Could not update LAN ports.", definitive: true });
   }
   const ambiguousMessage = () => settingsSaveMessage(ambiguousStatusPrefix !== "", ambiguousAlerts ? nodeAlertsOff(ambiguousAlerts.scope, ambiguousAlerts.payload, saved) : false);
   async function loadPortControl() {

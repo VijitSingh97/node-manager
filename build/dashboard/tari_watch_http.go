@@ -80,7 +80,7 @@ func (a *app) apiTariWatchRemove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
-	if len(id) != 32 || strings.Trim(id, "0123456789abcdef") != "" {
+	if !lowerHex(id, 32) {
 		http.Error(w, "no such wallet", http.StatusNotFound)
 		return
 	}

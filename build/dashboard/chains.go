@@ -429,3 +429,46 @@ func (a *app) writeBitcoinFamilyStatus(w http.ResponseWriter, r *http.Request, n
 	a.fillFromHostStats(node.ID, &status)
 	writeJSON(w, status)
 }
+
+type chainView struct {
+	ID           string
+	Label        string
+	Accent       string
+	PriceAsset   string
+	RPCName      string
+	AlertsPerDay int
+	Family       bool
+	UTXOIndex    bool
+	Unavailable  bool
+}
+
+type chainPage struct {
+	accent       string
+	priceAsset   string
+	rpcName      string
+	alertsPerDay int
+	family       bool
+	unavailable  bool
+}
+
+var chainPages = map[string]chainPage{
+	nodeBitcoin:     {accent: "#f2a900", priceAsset: "bitcoin", alertsPerDay: 144},
+	nodeMonero:      {accent: "#ff6600", priceAsset: "monero", alertsPerDay: 720},
+	nodeTari:        {accent: "#8f5cff", priceAsset: "tari", alertsPerDay: 720},
+	nodeLitecoin:    {accent: "#4d8fd8", priceAsset: "litecoin", alertsPerDay: 576, family: true, rpcName: "RPC"},
+	nodeDogecoin:    {accent: "#b88746", priceAsset: "dogecoin", alertsPerDay: 1440, family: true, rpcName: "RPC"},
+	nodeBitcoinCash: {accent: "#36a852", priceAsset: "bitcoin-cash", alertsPerDay: 144, family: true, rpcName: "RPC"},
+	nodeZcash:       {accent: "#d69c35", priceAsset: "zcash", alertsPerDay: 1152, family: true, rpcName: "read-only RPC", unavailable: true},
+}
+
+var dashboardChains = func() []chainView {
+	chains := make([]chainView, 0, len(nodeOrder))
+	for _, id := range nodeOrder {
+		page := chainPages[id]
+		chains = append(chains, chainView{
+			ID: id, Label: nodeDisplayName(id), Accent: page.accent, PriceAsset: page.priceAsset, RPCName: page.rpcName,
+			AlertsPerDay: page.alertsPerDay, Family: page.family, UTXOIndex: utxoChains[id] != nil, Unavailable: page.unavailable,
+		})
+	}
+	return chains
+}()

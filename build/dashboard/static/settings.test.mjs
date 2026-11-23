@@ -376,7 +376,7 @@ test("node and global saves use independent HTTP scopes and payloads", async () 
 });
 
 test("node controls split alerts from LAN access and stay ahead of deactivation", async () => {
-  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const html = await readFile(new URL("../testdata/index.rendered.html", import.meta.url), "utf8");
   const source = await readFile(new URL("./settings.js", import.meta.url), "utf8");
   const ports = [{ className: "settings-port" }, { className: "settings-port" }];
   const alerts = {
@@ -403,7 +403,7 @@ test("node controls split alerts from LAN access and stay ahead of deactivation"
 });
 
 test("every node shows its approximate maximum alert volume and coalescing behavior", async () => {
-  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const html = await readFile(new URL("../testdata/index.rendered.html", import.meta.url), "utf8");
   const estimates = { bitcoin: 144, monero: 720, tari: 720, litecoin: 576, dogecoin: 1440, bitcoincash: 144, zcash: 1152 };
   for (const [node, count] of Object.entries(estimates)) {
     assert.match(html, new RegExp(`id="settings-${node}-new-block"[^>]*> Alert on new blocks \\(up to about ${count} alerts/day\\)`));
@@ -492,7 +492,7 @@ test("host switch defaults match the host helper and the configuration reference
 });
 
 test("Settings ends with Reset to default, Cancel and Save, and Cancel closes like the X", async () => {
-  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const html = await readFile(new URL("../testdata/index.rendered.html", import.meta.url), "utf8");
   const source = await readFile(new URL("./settings.js", import.meta.url), "utf8");
   assert.match(html, /<div class="settings-footer">\s*<div class="settings-actions"><button id="settings-reset" type="button">Reset to default<\/button><button id="settings-cancel" type="button">Cancel<\/button><button class="primary" id="settings-save" type="submit">Save<\/button><\/div>\s*<p id="settings-status"/);
   assert.doesNotMatch(html + source, /Use server config|Server config on Save/);
@@ -528,7 +528,7 @@ test("Reset to default turns off whichever actuator endpoint is on, and keeps on
 });
 
 test("the settings page has only the two actuator toggles and no actuator login fields", async () => {
-  const page = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const page = await readFile(new URL("../testdata/index.rendered.html", import.meta.url), "utf8");
   const source = await readFile(new URL("./settings.js", import.meta.url), "utf8");
   for (const id of ["actuator-health", "actuator-info"]) assert.match(page, new RegExp(`id="settings-${id}"`));
   assert.doesNotMatch(page + source, /actuator-username|actuator-password|actuator_username|actuator_password/);

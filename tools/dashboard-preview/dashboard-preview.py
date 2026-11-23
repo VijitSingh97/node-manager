@@ -1,24 +1,21 @@
 #!/usr/bin/env python3
 """Render the real dashboard with public and fictional data for README screenshots."""
 
-import importlib.util
 import base64
 import json
 import os
-from pathlib import Path
 import subprocess
 import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.request import Request, urlopen
+from pathlib import Path
 from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
+import fixture
 
-ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("fixture", ROOT / "experiments/go-dashboard/fixture.py")
-fixture = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(fixture)
+ROOT = Path(__file__).resolve().parents[2]
 fixture.RESULTS["getblockchaininfo"].update(blocks=973490, headers=973490)
 fixture.RESULTS["getnetworkinfo"]["subversion"] = "/Satoshi:32.1.0/"
 fixture.RESULTS["getpeerinfo"] = [{"inbound": i < 3} for i in range(10)]

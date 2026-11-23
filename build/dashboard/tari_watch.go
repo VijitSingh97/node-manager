@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/url"
@@ -194,10 +192,7 @@ func (s *TariWatchStore) Add(name, publicSpendKey, viewKey, birthday string) (Ta
 	if err != nil {
 		return TariWatchWallet{}, err
 	}
-	walletID, err := tariWatchRandomID()
-	if err != nil {
-		return TariWatchWallet{}, errTariWatchUnavailable
-	}
+	walletID := newRequestID()
 	requestID := walletID
 	wallet := &tariStoredWallet{TariWatchWallet: TariWatchWallet{
 		ID: walletID, Name: name, PublicSpendKey: publicSpendKey, Birthday: canonicalBirthday, State: "pending", History: []tariWatchHistory{},
@@ -252,10 +247,7 @@ func (s *TariWatchStore) Remove(id string) (bool, error) {
 		removeTariWatchControlFile(s.requestPath)
 		return true, nil
 	}
-	requestID, err := tariWatchRandomID()
-	if err != nil {
-		return false, errTariWatchUnavailable
-	}
+	requestID := newRequestID()
 	previous := *s.wallet
 	s.wallet.State, s.wallet.RequestID, s.wallet.RequestAction = "removing", requestID, "remove"
 	if s.saveLocked() != nil {
@@ -634,14 +626,6 @@ func removeTariWatchControlFile(path string) {
 	}
 }
 
-func tariWatchRandomID() (string, error) {
-	raw := make([]byte, 16)
-	if _, err := rand.Read(raw); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(raw), nil
-}
-
 func validTariWatchName(name string) bool {
 	if name == "" || len(name) > 80 || !utf8.ValidString(name) || strings.TrimSpace(name) != name {
 		return false
@@ -655,11 +639,7 @@ func validTariWatchName(name string) bool {
 }
 
 func validTariKey(key string) bool {
-	if len(key) != 64 {
-		return false
-	}
-	decoded, err := hex.DecodeString(key)
-	return err == nil && hex.EncodeToString(decoded) == key
+	return lowerHex(key, 64)
 }
 
 func parseTariBirthday(value string, now time.Time) (uint16, string, error) {
@@ -680,7 +660,7 @@ func parseTariBirthday(value string, now time.Time) (uint16, string, error) {
 }
 
 func validTariStoredWallet(wallet *tariStoredWallet) bool {
-	if wallet == nil || len(wallet.ID) != 32 || strings.Trim(wallet.ID, "0123456789abcdef") != "" || !validTariWatchName(wallet.Name) || !validTariKey(wallet.PublicSpendKey) {
+	if wallet == nil || !lowerHex(wallet.ID, 32) || !validTariWatchName(wallet.Name) || !validTariKey(wallet.PublicSpendKey) {
 		return false
 	}
 	if wallet.Birthday != "" {
@@ -689,7 +669,7 @@ func validTariStoredWallet(wallet *tariStoredWallet) bool {
 			return false
 		}
 	}
-	if !validTariWatchState(wallet.State) || len(wallet.History) > tariWatchMaxHistory || wallet.RequestID != "" && (len(wallet.RequestID) != 32 || strings.Trim(wallet.RequestID, "0123456789abcdef") != "") {
+	if !validTariWatchState(wallet.State) || len(wallet.History) > tariWatchMaxHistory || wallet.RequestID != "" && !lowerHex(wallet.RequestID, 32) {
 		return false
 	}
 	if wallet.RequestAction != "" && wallet.RequestAction != "create" && wallet.RequestAction != "remove" {
@@ -726,7 +706,7 @@ func validTariWatchState(state string) bool {
 }
 
 func validTariWatchStatus(status tariWatchStatus) bool {
-	if len(status.ID) != 32 || strings.Trim(status.ID, "0123456789abcdef") != "" || len(status.WalletID) != 32 || strings.Trim(status.WalletID, "0123456789abcdef") != "" {
+	if !lowerHex(status.ID, 32) || !lowerHex(status.WalletID, 32) {
 		return false
 	}
 	if status.Action == "create" {
@@ -736,7 +716,7 @@ func validTariWatchStatus(status tariWatchStatus) bool {
 }
 
 func validTariWatchRequest(request tariWatchRequest) bool {
-	if len(request.ID) != 32 || strings.Trim(request.ID, "0123456789abcdef") != "" || len(request.WalletID) != 32 || strings.Trim(request.WalletID, "0123456789abcdef") != "" || request.RequestedAt <= 0 {
+	if !lowerHex(request.ID, 32) || !lowerHex(request.WalletID, 32) || request.RequestedAt <= 0 {
 		return false
 	}
 	if request.Action == "create" {

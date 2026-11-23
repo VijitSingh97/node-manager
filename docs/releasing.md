@@ -82,7 +82,7 @@ scripts in `scripts/`, and the config files Compose mounts from `build/`
 (`bitcoin/bitcoin.conf`, `tari/`, and `zcash/`). Everything else stays in Git:
 the user guides (read them on GitHub), `README.md`, the changelog and security
 policy, `config.example.json`, the Dockerfiles and Go and web sources that the
-release workflow compiles into the GHCR images, tests, benchmarks, maintainer
+release workflow compiles into the GHCR images, tests, maintainer
 scripts, packaging and development metadata. The Debian package ships the same
 runtime files plus its systemd units and `/usr/share/doc/node-manager/copyright`.
 The production dashboard image contains the compiled Go binary and runtime web

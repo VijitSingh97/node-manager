@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"sort"
 	"strings"
@@ -168,9 +169,9 @@ func (s *WatchStore) StoreScanBatch(caches map[string]entryScanCache) []entrySca
 	previousScans := s.scans
 	previousStates := s.scanStates
 	previousPending := s.pending
-	s.scans = cloneScanCaches(s.scans)
-	s.scanStates = cloneStringMap(s.scanStates)
-	s.pending = cloneBoolMap(s.pending)
+	s.scans = maps.Clone(s.scans)
+	s.scanStates = maps.Clone(s.scanStates)
+	s.pending = maps.Clone(s.pending)
 	stored := make([]entryScanCache, 0, len(caches))
 	for identity, item := range caches {
 		s.scans[identity] = item.cache
@@ -185,30 +186,6 @@ func (s *WatchStore) StoreScanBatch(caches map[string]entryScanCache) []entrySca
 		return nil
 	}
 	return stored
-}
-
-func cloneScanCaches(source map[string]prunedScanCache) map[string]prunedScanCache {
-	result := make(map[string]prunedScanCache, len(source))
-	for key, value := range source {
-		result[key] = value
-	}
-	return result
-}
-
-func cloneStringMap(source map[string]string) map[string]string {
-	result := make(map[string]string, len(source))
-	for key, value := range source {
-		result[key] = value
-	}
-	return result
-}
-
-func cloneBoolMap(source map[string]bool) map[string]bool {
-	result := make(map[string]bool, len(source))
-	for key, value := range source {
-		result[key] = value
-	}
-	return result
 }
 
 func (s *WatchStore) StoreScanIfCurrent(entry WatchEntry, cache prunedScanCache) bool {
