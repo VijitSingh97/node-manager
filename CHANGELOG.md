@@ -6,6 +6,14 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Release tarballs and Debian packages now contain only what installs and runs
+  Node Manager. The guides, README, changelog, security policy, example config,
+  Dockerfiles and Go and web sources are no longer shipped; read the guides on
+  GitHub. The license is kept (`LICENSE`, and `/usr/share/doc/node-manager/copyright`
+  in the package).
+
 ### Fixed
 
 - Every APT package upgrade now also downloads the new image of each node that

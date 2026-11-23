@@ -11,38 +11,38 @@ fail() {
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-for development_file in AGENTS.md llms.txt docs/developer-bot.md docs/adr tools build/hostd; do
+for development_file in AGENTS.md CHANGELOG.md README.md SECURITY.md config.example.json .dockerignore llms.txt docs tools \
+  build/dashboard build/hostd build/monero build/tor build/bitcoin-family build/tari-wallet; do
   git check-attr export-ignore -- "$development_file" | grep -Fq ': export-ignore: set' ||
     fail "$development_file is not excluded from release archives"
 done
 
+git check-attr export-ignore -- llms.txt unlisted-root-file.txt | grep -vq ': export-ignore: set' &&
+  fail "new top-level files are not excluded from release archives by default"
+
 git archive --worktree-attributes HEAD >"$tmp/release.tar"
 tar -tf "$tmp/release.tar" >"$tmp/contents"
-runtime_helpers=
-git cat-file -e HEAD:scripts/node-port-control 2>/dev/null && runtime_helpers="scripts/node-port-control scripts/node-control"
-for required in stack configure.sh docker-compose.yml docker-compose.rpc.yml config.example.json VERSION \
-  .dockerignore .gitignore README.md CHANGELOG.md LICENSE SECURITY.md \
-  build/dashboard/Dockerfile build/dashboard/go.mod build/dashboard/main.go build/dashboard/settings.go \
-  build/dashboard/auth.go build/dashboard/credentials.go build/dashboard/login.go build/dashboard/sessions.go \
-  build/dashboard/index.html build/dashboard/login.html build/dashboard/THIRD_PARTY_NOTICES \
-  build/dashboard/static/credentials.js build/dashboard/static/login.css build/dashboard/static/session.js \
-  build/dashboard/static/theme-init.js build/dashboard/static/watch.js \
-  build/dashboard/static/prices.js build/dashboard/static/settings.js build/tor/Dockerfile build/tor/entrypoint.sh build/tor/torrc \
-  build/monero/Dockerfile build/monero/entrypoint.sh build/monero/healthcheck.sh \
-  build/monero/wallet-entrypoint.sh build/monero/wallet-healthcheck.sh \
-  build/tari/entrypoint.sh build/tari/config.toml \
-  build/tari-wallet/Dockerfile build/tari-wallet/go.mod build/tari-wallet/launcher.go build/tari-wallet/config.toml \
-  build/bitcoin-family/Dockerfile build/bitcoin-family/entrypoint.sh build/bitcoin-family/healthcheck.sh \
-  build/zcash/zakurad.toml build/zcash/zakurad-address-index.toml build/zcash/healthcheck.sh \
-  docker-compose.monero-rpc.yml docker-compose.monero-zmq.yml docker-compose.tari-grpc.yml \
-  docker-compose.litecoin-rpc.yml docker-compose.dogecoin-rpc.yml docker-compose.bitcoincash-rpc.yml docker-compose.zcash-rpc.yml docker-compose.utxo-index.yml docker-compose.litecoin-utxo-index.yml docker-compose.bitcoincash-utxo-index.yml docker-compose.dogecoin-utxo-index.yml \
-  build/dashboard/static/nodes.js docs/nodes.md $runtime_helpers \
-  docs/Caddyfile.example docs/getting-started.md docs/configuration.md docs/operations.md docs/watch-only.md docs/privacy.md; do
+for required in stack configure.sh LICENSE VERSION docker-compose.yml docker-compose.rpc.yml \
+  docker-compose.monero-rpc.yml docker-compose.monero-zmq.yml docker-compose.tari-wallet.yml docker-compose.tari-grpc.yml \
+  docker-compose.litecoin-rpc.yml docker-compose.dogecoin-rpc.yml docker-compose.bitcoincash-rpc.yml docker-compose.zcash-rpc.yml \
+  docker-compose.utxo-index.yml docker-compose.litecoin-utxo-index.yml docker-compose.bitcoincash-utxo-index.yml docker-compose.dogecoin-utxo-index.yml \
+  scripts/node-manager scripts/node-control scripts/node-port-control scripts/node-resource-profile \
+  build/bitcoin/bitcoin.conf build/tari/config.toml build/tari/entrypoint.sh \
+  build/zcash/zakurad.toml build/zcash/zakurad-address-index.toml build/zcash/healthcheck.sh; do
   grep -Fxq "$required" "$tmp/contents" || fail "release archive is missing $required"
 done
-if grep -Ev '^scripts/$|^scripts/(node-port-control|node-control|node-resource-profile|node-manager)$' "$tmp/contents" | grep -Eq '(^|/)(tests|parity|experiments|images)(/|$)|(_test\.go|\.test\.mjs|\.proto|\.pyc)$|^(\.github/|\.gitattributes$|\.gitleaks\.toml$|ruff\.toml$|AGENTS\.md$|CONTRIBUTING\.md$|scripts/|packaging/|tools/|docs/(developer-bot|releasing)\.md$|docs/adr/|build/dashboard/package\.json$|build/dashboard/ui/)'; then
-  fail "release archive includes development-only files"
-fi
+grep -Evx 'stack|configure\.sh|LICENSE|VERSION|docker-compose[a-z.-]*\.yml|scripts/|scripts/node-(manager|control|port-control|resource-profile)|build/|build/(bitcoin|tari|zcash)/|build/bitcoin/bitcoin\.conf|build/tari/(config\.toml|entrypoint\.sh)|build/zcash/(zakurad\.toml|zakurad-address-index\.toml|healthcheck\.sh)' \
+  "$tmp/contents" >"$tmp/unexpected" || true
+[ ! -s "$tmp/unexpected" ] || fail "release archive includes files outside the runtime set: $(tr '\n' ' ' <"$tmp/unexpected")"
+grep -Eq '^docs(/|$)|\.go$' "$tmp/contents" && fail "release archive includes docs or Go sources"
+
+# shellcheck disable=SC2016 # the compose variable names are literal text
+sed -n 's|.*${STACK_ASSET_ROOT:-\.}/\(.*\):/.*|\1|p' docker-compose*.yml | sed 's|${ZCASH_TOML:-zakurad.toml}|zakurad.toml|' | sort -u >"$tmp/mounts"
+[ -s "$tmp/mounts" ] || fail "no compose asset mounts were found"
+while IFS= read -r mount; do
+  grep -Eq "^$mount(/|$)" "$tmp/contents" || fail "release archive is missing compose asset $mount"
+  grep -Fq "$mount" scripts/build-deb.sh || fail "Debian package does not install compose asset $mount"
+done <"$tmp/mounts"
 
 # --- release-notes.sh ---
 

@@ -75,28 +75,12 @@ for required in \
   ./usr/lib/node-manager/docker-compose.bitcoincash-utxo-index.yml \
   ./usr/lib/node-manager/docker-compose.dogecoin-utxo-index.yml \
   ./usr/lib/node-manager/runtime-images.json \
-  ./usr/lib/node-manager/build/dashboard/main.go \
-  ./usr/lib/node-manager/build/dashboard/login.go \
-  ./usr/lib/node-manager/build/dashboard/sessions.go \
-  ./usr/lib/node-manager/build/dashboard/index.html \
-  ./usr/lib/node-manager/build/dashboard/login.html \
-  ./usr/lib/node-manager/build/dashboard/static/login.css \
-  ./usr/lib/node-manager/build/dashboard/static/session.js \
-  ./usr/lib/node-manager/build/dashboard/static/theme-init.js \
-  ./usr/lib/node-manager/build/monero/Dockerfile \
-  ./usr/lib/node-manager/build/monero/wallet-entrypoint.sh \
-  ./usr/lib/node-manager/build/monero/wallet-healthcheck.sh \
+  ./usr/lib/node-manager/build/bitcoin/bitcoin.conf \
   ./usr/lib/node-manager/build/tari/config.toml \
-  ./usr/lib/node-manager/build/tari-wallet/Dockerfile \
-  ./usr/lib/node-manager/build/tari-wallet/launcher.go \
-  ./usr/lib/node-manager/build/tari-wallet/config.toml \
-  ./usr/lib/node-manager/build/bitcoin-family/Dockerfile \
-  ./usr/lib/node-manager/build/bitcoin-family/entrypoint.sh \
-  ./usr/lib/node-manager/build/bitcoin-family/healthcheck.sh \
+  ./usr/lib/node-manager/build/tari/entrypoint.sh \
   ./usr/lib/node-manager/build/zcash/zakurad.toml \
   ./usr/lib/node-manager/build/zcash/zakurad-address-index.toml \
   ./usr/lib/node-manager/build/zcash/healthcheck.sh \
-  ./usr/lib/node-manager/build/tor/torrc \
   ./usr/lib/node-manager/node-resource-profile \
   ./usr/lib/node-manager/node-port-control \
   ./usr/lib/node-manager/node-control \
@@ -108,13 +92,10 @@ for required in \
   ./usr/lib/systemd/system/node-manager-node-control.service \
   ./usr/lib/systemd/system/node-manager-node-control.timer \
   ./usr/lib/systemd/system/node-manager-node-control.path \
-  ./usr/share/doc/node-manager/README.md \
-  ./usr/share/doc/node-manager/docs/Caddyfile.example \
-  ./usr/share/doc/node-manager/docs/nodes.md \
-  ./usr/share/doc/node-manager/docs/privacy.md; do
+  ./usr/share/doc/node-manager/copyright; do
   grep -q " $required$" "$tmp/contents" || fail "package is missing $required"
 done
-if grep -Eq '/(tests|parity|experiments|images|__pycache__|\.pytest_cache)/|/build/dashboard/ui/|/build/hostd/|_test\.go$|\.test\.mjs$|\.proto$|package\.json$|/\.coverage$|\.pyc$|docs/releasing\.md$|\.(jpg|jpeg)$' "$tmp/contents"; then
+if grep -Eq '/(tests|parity|experiments|images|__pycache__|\.pytest_cache)/|/build/(dashboard|tor|monero|bitcoin-family|tari-wallet|hostd)/|\.go$|Dockerfile$|\.dockerignore$|\.proto$|package\.json$|\.pyc$|\.(jpg|jpeg)$|/usr/share/node-manager/|/usr/share/doc/node-manager/(README|CHANGELOG|SECURITY|docs)' "$tmp/contents"; then
   fail "package contains development-only files"
 fi
 if grep -Eq ' \./(etc|var)/' "$tmp/contents"; then
@@ -259,7 +240,7 @@ awk '$1 == "image:" && ($2 ~ /^bitcoin\/bitcoin:/ || $2 ~ /^ghcr.io\/tari-projec
   while IFS= read -r image; do
     grep -Fq "image: $image" "$packaged_main" || fail "package changed external image pin $image"
   done
-privacy=$root/usr/share/doc/node-manager/docs/privacy.md
+privacy=docs/privacy.md
 grep -q "^expected='72FD656754BD7534E274360A37070C2730C0B4EA'$" "$privacy" || fail "published feed fingerprint is missing"
 grep -q 'node-manager.asc' "$privacy" || fail "feed key download is missing"
 grep -q -- '--proxy' "$privacy" && fail "feed key download forces a host proxy"

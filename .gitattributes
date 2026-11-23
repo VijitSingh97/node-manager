@@ -1,35 +1,24 @@
-# Kept out of release tarballs (git archive)
-.github export-ignore
-.gitattributes export-ignore
-.gitleaks.toml export-ignore
-CONTRIBUTING.md export-ignore
-scripts/build-apt.sh export-ignore
-scripts/build-deb.sh export-ignore
-scripts/resolve-runtime-images.sh export-ignore
-scripts/release-notes.sh export-ignore
-scripts/release.sh export-ignore
-packaging export-ignore
-tests export-ignore
-experiments export-ignore
-images export-ignore
-docs/releasing.md export-ignore
-build/dashboard/tests export-ignore
-build/dashboard/parity export-ignore
-build/dashboard/*_test.go export-ignore
-build/dashboard/*.proto export-ignore
-build/dashboard/static/*.test.mjs export-ignore
-build/dashboard/ui export-ignore
-build/dashboard/package.json export-ignore
-build/tari-wallet/*_test.go export-ignore
-build/hostd export-ignore
-AGENTS.md export-ignore
-llms.txt export-ignore
-docs/developer-bot.md export-ignore
-tools export-ignore
-Formula export-ignore
-formula_renames.json export-ignore
-scripts/build-homebrew-formula.sh export-ignore
-scripts/lint.sh export-ignore
-scripts/measure-block-latency.sh export-ignore
-ruff.toml export-ignore
-docs/adr export-ignore
+# Release tarballs (git archive) ship only what installs and runs Node Manager:
+# the CLI, configure.sh, compose files, host helpers and the config files compose mounts.
+# The root is default-deny so new top-level files stay out unless re-included below.
+/* export-ignore
+/LICENSE -export-ignore
+/VERSION -export-ignore
+/stack -export-ignore
+/configure.sh -export-ignore
+/docker-compose*.yml -export-ignore
+
+# Maintainer scripts; only the four runtime helpers stay.
+/scripts -export-ignore
+scripts/* export-ignore
+scripts/node-control -export-ignore
+scripts/node-manager -export-ignore
+scripts/node-port-control -export-ignore
+scripts/node-resource-profile -export-ignore
+
+# Docker build inputs for the GHCR images; only the config files compose mounts stay.
+/build -export-ignore
+build/* export-ignore
+build/bitcoin -export-ignore
+build/tari -export-ignore
+build/zcash -export-ignore

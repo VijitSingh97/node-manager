@@ -27,8 +27,9 @@ the Tari base node, and Zakura use pinned upstream images rather than duplicate
 first-party builds.
 `./stack pull` downloads these tags with the host's Docker settings;
 `./stack up` starts only locally available images and never builds implicitly.
-The release artifact is also a source tarball. Source builds need a controlled
-build environment with its own Tor egress; see [Privacy](privacy.md).
+The release tarball is a runtime bundle, not a source tarball. Source builds
+need a Git checkout in a controlled build environment with its own Tor egress;
+see [Privacy](privacy.md).
 
 ## Single source of truth
 
@@ -72,14 +73,21 @@ outbound-only.
    the **full CI suite** (lint, unit tests, compose contract, e2e
    boot with the egress audit) runs against the tagged commit, and only
    then is the GitHub Release published — title, notes extracted from the
-   changelog section, and a `node-manager.tar.gz` source tarball
+   changelog section, and a `node-manager.tar.gz` runtime tarball
    (`git archive`, filtered by `.gitattributes`).
 
-The tarball contains runtime source and Docker inputs, configuration, the license,
-security policy, changelog, and user guides. Tests, Python parity references,
-benchmark experiments, screenshots, maintainer scripts, and development metadata
-stay in Git. The production dashboard image contains the compiled Go binary and
-runtime web assets; test modules are excluded from the Docker build context.
+The tarball contains only what installs and runs Node Manager: `stack`,
+`configure.sh`, `VERSION`, the license, the Compose files, the four host helper
+scripts in `scripts/`, and the config files Compose mounts from `build/`
+(`bitcoin/bitcoin.conf`, `tari/`, and `zcash/`). Everything else stays in Git:
+the user guides (read them on GitHub), `README.md`, the changelog and security
+policy, `config.example.json`, the Dockerfiles and Go and web sources that the
+release workflow compiles into the GHCR images, tests, benchmarks, maintainer
+scripts, packaging and development metadata. The Debian package ships the same
+runtime files plus its systemd units and `/usr/share/doc/node-manager/copyright`.
+The production dashboard image contains the compiled Go binary and runtime web
+assets. `tests/test_release.sh` fails if the archive gains a file outside this set
+or loses a path that Compose mounts.
 
 Nothing is published until the gate is green. A red gate leaves the tag
 without a release — fix on `main`, bump the patch version, tag again
@@ -128,7 +136,7 @@ monitored periodic re-signing so an idle project does not break every user's
 ## How users get a release
 
 - **Tarball:** obtain and unpack `node-manager.tar.gz`, then run
-  `./stack init` to download missing images and start.
+  `./stack init` to download missing images and start. Guides are on GitHub.
 - **APT:** after the signed Pages deployment succeeds, install the package from
   `https://vijitsingh97.github.io/node-manager` and run
   `sudo node-manager init` explicitly.
