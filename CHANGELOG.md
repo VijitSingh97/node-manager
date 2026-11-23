@@ -6,13 +6,13 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
-### Added
+### Changed
 
-- The APT feed address, https://vijitsingh97.github.io/node-manager/, opens a
-  project page instead of a 404. The page carries a search and link-preview
-  description, structured data, a sitemap and an `llms.txt` summary for AI
-  agents, and the repository has the same `llms.txt` at its root. The page is
-  published with the APT feed, so it goes live with the next release (#443).
+- Release tarballs and Debian packages now contain only what installs and runs
+  Node Manager. The guides, README, changelog, security policy, example config,
+  Dockerfiles and Go and web sources are no longer shipped; read the guides on
+  GitHub. The license is kept (`LICENSE`, and `/usr/share/doc/node-manager/copyright`
+  in the package).
 
 ### Fixed
 
@@ -27,6 +27,16 @@ All notable changes to this project are documented here. Format follows
 - A node that was just activated now says "Starting…" until it answers, instead
   of "Restarting after a settings change…". Restarts caused by settings changes
   keep their wording.
+
+## [1.40.3] - 2026-11-23
+
+### Added
+
+- The APT feed address, https://vijitsingh97.github.io/node-manager/, opens a
+  project page instead of a 404. The page carries a search and link-preview
+  description, structured data, a sitemap and an `llms.txt` summary for AI
+  agents, and the repository has the same `llms.txt` at its root. The page is
+  published with the APT feed, so it goes live with the next release (#443).
 
 ## [1.40.2] - 2026-11-22
 
@@ -2211,7 +2221,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.40.2...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.40.3...HEAD
+[1.40.3]: https://github.com/VijitSingh97/node-manager/compare/v1.40.2...v1.40.3
 [1.40.2]: https://github.com/VijitSingh97/node-manager/compare/v1.40.1...v1.40.2
 [1.40.1]: https://github.com/VijitSingh97/node-manager/compare/v1.40.0...v1.40.1
 [1.40.0]: https://github.com/VijitSingh97/node-manager/compare/v1.39.0...v1.40.0
