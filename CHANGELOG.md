@@ -6,6 +6,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.40.3] - 2026-11-23
+
 ### Added
 
 - The APT feed address, https://vijitsingh97.github.io/node-manager/, opens a
@@ -2197,7 +2199,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.40.2...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.40.3...HEAD
+[1.40.3]: https://github.com/VijitSingh97/node-manager/compare/v1.40.2...v1.40.3
 [1.40.2]: https://github.com/VijitSingh97/node-manager/compare/v1.40.1...v1.40.2
 [1.40.1]: https://github.com/VijitSingh97/node-manager/compare/v1.40.0...v1.40.1
 [1.40.0]: https://github.com/VijitSingh97/node-manager/compare/v1.39.0...v1.40.0
