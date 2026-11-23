@@ -14,6 +14,22 @@ All notable changes to this project are documented here. Format follows
   GitHub. The license is kept (`LICENSE`, and `/usr/share/doc/node-manager/copyright`
   in the package).
 
+### Fixed
+
+- Every APT package upgrade now also downloads the new image of each node that
+  already has an older image on the machine, whether the node is running,
+  inactive or deleted, so Activate no longer fails after an upgrade. Nodes that
+  were never downloaded are not pulled, and a failed extra pull only warns.
+- Activating a node that was inactive during a package upgrade now downloads its
+  missing image first instead of failing with no explanation. A failed
+  activation keeps its reason, including the last error line, in the node panel
+  and the event log until the node reaches the requested state.
+- A node that was just activated now says "Starting…" until it answers, instead
+  of "Restarting after a settings change…". Restarts caused by settings changes
+  keep their wording.
+
+## [1.40.3] - 2026-11-23
+
 ### Added
 
 - The APT feed address, https://vijitsingh97.github.io/node-manager/, opens a
@@ -2205,7 +2221,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.40.2...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.40.3...HEAD
+[1.40.3]: https://github.com/VijitSingh97/node-manager/compare/v1.40.2...v1.40.3
 [1.40.2]: https://github.com/VijitSingh97/node-manager/compare/v1.40.1...v1.40.2
 [1.40.1]: https://github.com/VijitSingh97/node-manager/compare/v1.40.0...v1.40.1
 [1.40.0]: https://github.com/VijitSingh97/node-manager/compare/v1.39.0...v1.40.0
