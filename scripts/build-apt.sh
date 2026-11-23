@@ -9,7 +9,8 @@ printf '%s\n' "$APT_SIGNING_FINGERPRINT" | grep -Eq '^[0-9A-Fa-f]{40}$' || {
   exit 1
 }
 mkdir -p public
-rm -f public/*.deb public/Packages public/Packages.gz public/Release public/Release.gpg public/InRelease public/node-manager.asc public/bitcoin-starter-stack.asc
+rm -f public/*.deb public/Packages public/Packages.gz public/Release public/Release.gpg public/InRelease public/node-manager.asc public/bitcoin-starter-stack.asc \
+  public/index.html public/llms.txt public/robots.txt public/sitemap.xml
 cp "dist/node-manager_${version}_all.deb" "dist/bitcoin-starter-stack_${version}_all.deb" \
   "dist/node-manager-hostd_${version}_amd64.deb" "dist/node-manager-hostd_${version}_arm64.deb" public/
 cd public
@@ -27,3 +28,5 @@ gpg --batch --yes --armor --local-user "$APT_SIGNING_FINGERPRINT" \
   --detach-sign --output Release.gpg Release
 gpg --batch --yes --armor --local-user "$APT_SIGNING_FINGERPRINT" \
   --clearsign --output InRelease Release
+# Copied after signing so the project page never enters the signed feed metadata.
+cp ../packaging/pages/* ../llms.txt .

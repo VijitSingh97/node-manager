@@ -113,7 +113,8 @@ Activation failures are reported for retry with `node-manager package-upgrade`;
 Docker or registry outages do not leave dpkg unconfigured.
 It builds the architecture-independent package, creates and signs the feed,
 verifies that feed with an isolated APT client, uploads the package and checksum
-to the GitHub Release, and deploys the feed to Pages. Do not advertise APT
+to the GitHub Release, and deploys the feed to Pages together with the project
+page in `packaging/pages/` and the root `llms.txt`. Do not advertise APT
 availability until that Pages deployment succeeds.
 
 The static feed omits `Valid-Until`, so releases remain installable between

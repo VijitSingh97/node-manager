@@ -1,0 +1,28 @@
+# Node Manager
+
+> Node Manager runs Bitcoin, Monero, Tari, Litecoin, Dogecoin, Bitcoin Cash and Zcash full nodes from one small Go dashboard on Ubuntu 24.04 (APT or source) or macOS (Homebrew), using Docker Compose. Public runtime traffic stays behind Tor, the dashboard and optional node interfaces stay on the trusted LAN, and wallets are view-only: it never accepts a seed phrase or private spend key.
+
+- Source code: https://github.com/VijitSingh97/node-manager (MIT licence)
+- Project page and signed APT feed: https://vijitsingh97.github.io/node-manager/
+- Releases: https://github.com/VijitSingh97/node-manager/releases
+- The command is `sudo node-manager` for an APT install, `node-manager` for Homebrew and `./stack` in a source checkout.
+
+## Docs
+
+- [README](https://raw.githubusercontent.com/VijitSingh97/node-manager/main/README.md): requirements, APT and Homebrew install, first login and updating
+- [Getting started](https://raw.githubusercontent.com/VijitSingh97/node-manager/main/docs/getting-started.md): prerequisites, install, first start and what to expect during the initial sync
+- [Homebrew](https://raw.githubusercontent.com/VijitSingh97/node-manager/main/docs/homebrew.md): macOS and Linux install, user-owned data paths and the background service
+- [Supported nodes](https://raw.githubusercontent.com/VijitSingh97/node-manager/main/docs/nodes.md): all seven chains, disk and resource budgets, LAN endpoints and remote mining access
+- [Hardware](https://raw.githubusercontent.com/VijitSingh97/node-manager/main/docs/hardware.md): CPU, RAM and disk sizing from a reference deployment
+- [Configuration](https://raw.githubusercontent.com/VijitSingh97/node-manager/main/docs/configuration.md): every config.json key, applying changes and reusing an existing node's data
+- [Watch-only](https://raw.githubusercontent.com/VijitSingh97/node-manager/main/docs/watch-only.md): view-only balances for Bitcoin, Litecoin, Bitcoin Cash, Monero and Tari, for Dogecoin with its balance index or an archival watch wallet, and for Zcash transparent addresses when its address index is on (the default for new installs)
+- [Operations](https://raw.githubusercontent.com/VijitSingh97/node-manager/main/docs/operations.md): day-to-day commands, health checks, upgrades, backup and troubleshooting
+- [Notifications and remote access](https://raw.githubusercontent.com/VijitSingh97/node-manager/main/docs/notifications.md): Telegram alerts, a Healthchecks.io dead-man's switch and reaching the dashboard over Tor or through Caddy
+
+## Optional
+
+- [Architecture](https://raw.githubusercontent.com/VijitSingh97/node-manager/main/docs/architecture.md): services, network layout and privacy model
+- [Tor-only networking](https://raw.githubusercontent.com/VijitSingh97/node-manager/main/docs/privacy.md): how runtime traffic stays on Tor and how to verify downloads
+- [Tor boundary](https://raw.githubusercontent.com/VijitSingh97/node-manager/main/docs/tor-boundary.md): every egress path, how each stays on Tor and the tests that enforce it
+- [Security policy](https://raw.githubusercontent.com/VijitSingh97/node-manager/main/SECURITY.md): security posture and reporting vulnerabilities
+- [Changelog](https://raw.githubusercontent.com/VijitSingh97/node-manager/main/CHANGELOG.md): release history
