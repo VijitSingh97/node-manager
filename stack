@@ -1148,7 +1148,12 @@ init() {
   if [ -f "$env_file" ]; then cp "$env_file" "$previous_env"; had_previous_env=1; fi
   if [ -f "$approved_config_file" ]; then cp "$approved_config_file" "$previous_approved_config"; had_previous_approved_config=1; fi
   if [ -f "$approved_env_file" ]; then cp "$approved_env_file" "$previous_approved_env"; had_previous_approved_env=1; fi
-  render_current_config
+  if ! render_current_config; then
+    if [ "$had_previous_env" = 1 ]; then cp "$previous_env" "$env_file"; else rm -f "$env_file"; fi
+    rm -f "$previous_env" "$previous_approved_config" "$previous_approved_env"
+    unlock_config
+    return 1
+  fi
   if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
     if [ "$had_previous_env" = 1 ]; then cp "$previous_env" "$env_file"; else rm -f "$env_file"; fi
     rm -f "$previous_env" "$previous_approved_config" "$previous_approved_env"
@@ -1686,6 +1691,7 @@ status() {
   for node in TARI LITECOIN DOGECOIN BITCOINCASH ZCASH; do
     [ "$(env_get "${node}_ENABLED")" = 1 ] && [ "$(env_get "${node}_ACTIVE")" != 0 ] && services="$services $(printf '%s' "$node" | tr '[:upper:]' '[:lower:]')"
   done
+  [ "$(env_get TARI_ENABLED)" = 1 ] && [ "$(env_get TARI_ACTIVE)" != 0 ] && services="$services tari-wallet"
   for svc in $services; do
     id=$(container_id "$svc")
     if [ -n "$id" ]; then

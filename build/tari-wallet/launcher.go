@@ -395,7 +395,7 @@ func (s *supervisor) waitReady(cmd *exec.Cmd, done chan error) error {
 	return errors.New("wallet gRPC did not become ready within 120 seconds")
 }
 
-func (s *supervisor) remove(r request) error {
+func (s *supervisor) remove(r request) (err error) {
 	id, err := s.readIdentity()
 	if err != nil {
 		return err
@@ -411,6 +411,11 @@ func (s *supervisor) remove(r request) error {
 		return errors.New("wallet database is missing from active and private archive storage")
 	}
 	s.stopChild()
+	defer func() {
+		if err != nil && s.child == nil && regularFile(s.dbPath()) {
+			err = errors.Join(err, wrapError("restart wallet after failed removal", s.startRuntime(id)))
+		}
+	}()
 	if err := protectTree(s.dataPath()); err != nil {
 		return errors.New("wallet database permissions are unsafe")
 	}

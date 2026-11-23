@@ -16,6 +16,20 @@ All notable changes to this project are documented here. Format follows
 
 ### Fixed
 
+- Installing a node from the dashboard on an APT install no longer fails with
+  "Port availability could not be checked" when you turn on a LAN port.
+- Litecoin, Dogecoin and Bitcoin Cash installed from the dashboard now get the
+  2048 MiB memory limit the documentation promises, not double that. Nodes you
+  already installed keep the value saved in their settings. The memory figures in
+  the hardware and configuration guides now agree.
+- Telegram alerts for the host, such as a thermal throttle or a node the host
+  stopped, are now sent. They were never sent in the running dashboard.
+- A failed `stack init` no longer leaves copies of your `.env`, passwords
+  included, in the state folder.
+- If removing the Tari wallet fails and is rolled back, the wallet now starts
+  again instead of sitting stopped while its health check stays green.
+- `stack status` now checks the Tari wallet, so an unhealthy one is reported and
+  the command exits non-zero.
 - Every APT package upgrade now also downloads the new image of each node that
   already has an older image on the machine, whether the node is running,
   inactive or deleted, so Activate no longer fails after an upgrade. Nodes that

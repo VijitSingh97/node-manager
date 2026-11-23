@@ -1524,6 +1524,36 @@ func handleSOCKSConn(conn net.Conn, backend string, reject bool, domains chan<- 
 	_, _ = io.Copy(conn, upstream)
 }
 
+func TestRunConfiguredNodesForwardsHostEvents(t *testing.T) {
+	messages := make(chan string, 8)
+	m := configuredMonitor(t, func(r *http.Request) (*http.Response, error) {
+		var payload struct {
+			Text string `json:"text"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		messages <- payload.Text
+		return response(http.StatusOK, `{"ok":true}`), nil
+	})
+	m.tickEvery = time.Millisecond
+	line := "2026-11-10T20:01:00Z Host: thermal throttle at 91C — capped monero at 2.00 CPUs\n"
+	if err := os.WriteFile(m.eventsLog, []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go m.RunConfiguredNodes(ctx, map[string]func() map[string]any{nodeLitecoin: func() map[string]any { return map[string]any{"active": true} }})
+	select {
+	case got := <-messages:
+		if want := "[alice] 🌡 thermal throttle at 91C — capped monero at 2.00 CPUs"; got != want {
+			t.Fatalf("alert = %q, want %q", got, want)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("RunConfiguredNodes never forwarded the Host event")
+	}
+}
+
 func TestForwardHostEventsTelegramsNewHostLinesOnce(t *testing.T) {
 	var messages []string
 	m := configuredMonitor(t, func(r *http.Request) (*http.Response, error) {

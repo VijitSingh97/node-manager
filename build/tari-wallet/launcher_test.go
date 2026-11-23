@@ -164,6 +164,42 @@ func TestRemoveRollbackRestoresDatabaseForRetry(t *testing.T) {
 	}
 }
 
+func TestFailedRemoveRestartsTheWallet(t *testing.T) {
+	root := t.TempDir()
+	fake := buildFakeWallet(t)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	t.Setenv("TARI_WALLET_PASSWORD", "databasepassword")
+	s := &supervisor{root: root, executable: fake, config: filepath.Join(root, "unused.toml"), grpcAddr: listener.Addr().String(), timeout: 3 * time.Second, poll: time.Millisecond}
+	if err := s.prepare(); err != nil {
+		t.Fatal(err)
+	}
+	public, view := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	id := strings.Repeat("1", 32)
+	if err := s.create(request{ID: id, Action: "create", WalletID: id, RequestedAt: 1, PublicSpendKey: &public, ViewKey: &view}); err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+	defer s.stopChild()
+	s.removePath = func(path string) error {
+		if path == s.identityPath() {
+			return errors.New("injected identity removal failure")
+		}
+		return os.Remove(path)
+	}
+	if err := s.remove(request{ID: strings.Repeat("2", 32), Action: "remove", WalletID: id, RequestedAt: 2}); err == nil {
+		t.Fatal("injected removal failure was not reported")
+	}
+	if !regularFile(s.dbPath()) {
+		t.Fatal("rollback did not restore the database")
+	}
+	if s.child == nil {
+		t.Fatal("wallet process was left stopped after the failed removal")
+	}
+}
+
 func TestRemoveRollbackFailureKeepsArchiveRecoverable(t *testing.T) {
 	s, id, r := seededRemoval(t)
 	destination := filepath.Join(s.archiveRoot(), id.WalletID)
