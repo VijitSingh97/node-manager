@@ -25,7 +25,11 @@ printf '%s\n' "$*" >>"$FAKE_DOCKER_LOG"
 case "${1:-}" in
   info) [ "${FAKE_DOCKER_DOWN:-0}" != 1 ] ;;
   images)
-    printf 'ghcr.io/vijitsingh97/node-manager-dashboard:ancient img001\nghcr.io/vijitsingh97/node-manager-tor:%s img002\nghcr.io/other/thing:1.0 img003\nghcr.io/vijitsingh97/node-manager-monero:<none> img004\nghcr.io/other/thing:<none> img005\n' "${FAKE_CURRENT_VERSION:-}"
+    printf 'ghcr.io/vijitsingh97/node-manager-dashboard:ancient img001\nghcr.io/vijitsingh97/node-manager-tor:%s img002\nghcr.io/other/thing:1.0 img003\nghcr.io/vijitsingh97/node-manager-monero:<none> img004\nghcr.io/other/thing:<none> img005\nghcr.io/vijitsingh97/node-manager-litecoin:1.39.0 img010\nghcr.io/vijitsingh97/node-manager-litecoin:<none> img006\nzakuracore/zakura:1.8.0 img012\n' "${FAKE_CURRENT_VERSION:-}" |
+      if [ "${3:-}" = '{{.Repository}}' ]; then sed 's/:[^:]* [^ ]*$//'; else cat; fi
+    ;;
+  pull)
+    [ "${FAKE_EXTRA_PULL_FAIL:-0}" != 1 ] && printf '%s\n' "$2" >>"$FAKE_DOCKER_LOG.pulled"
     ;;
   ps)
     case " $* " in *' --format '*)
@@ -53,7 +57,14 @@ case "${1:-}" in
       *State.Running*) grep -qx "$service" "$FAKE_RUNNING_FILE" 2>/dev/null && printf 'true\n' || printf 'false\n' ;;
     esac
     ;;
-  image) exit 0 ;;
+  image)
+    for ref; do :; done
+    ! grep -qxF "$ref" "$FAKE_DOCKER_LOG.pulled" 2>/dev/null || { case "$ref" in *litecoin*) printf 'sha256:img006deadbeef\n' ;; esac; exit 0; }
+    for absent in ${FAKE_IMAGE_ABSENT:-}; do
+      case "$ref" in *"$absent"*) exit 1 ;; esac
+    done
+    case "$ref" in *litecoin*) printf 'sha256:img006deadbeef\n' ;; esac
+    exit 0 ;;
   volume) [ "${2:-}" != inspect ] || [ -z "${FAKE_VOLUME_MOUNTPOINT:-}" ] || printf '%s\n' "$FAKE_VOLUME_MOUNTPOINT" ;;
   compose)
     case " $* " in
@@ -168,6 +179,29 @@ printf '%s\n' tor bitcoin dashboard >"$running"
 FAKE_RUNNING_AFTER_PULL=dashboard ./stack package-upgrade >/dev/null
 grep -q ' up -d --pull never --no-build --no-deps dashboard' "$log" || fail "package upgrade restarted a service stopped during pull"
 grep -q ' up -d --pull never --no-build --no-deps tor' "$log" && fail "package upgrade restarted Tor after it was stopped during pull"
+
+: >"$log"
+printf '%s\n' tor bitcoin dashboard >"$running"
+rm -f "$log.pulled"
+FAKE_IMAGE_ABSENT="litecoin dogecoin zakura" ./stack package-upgrade >"$tmp/extra-pull.out" 2>&1 || fail "package upgrade failed with not-running node images to refresh"
+grep -q "^pull ghcr.io/vijitsingh97/node-manager-litecoin:$FAKE_CURRENT_VERSION\$" "$log" || fail "an inactive node with an older image did not get its current image"
+grep -q '^pull zakuracore/zakura:1.8.9@sha256:' "$log" || fail "an upstream-image node with an older image did not get its current image"
+[ "$(grep -c '^pull ' "$log")" = 2 ] || fail "a node with no image of its repository was pulled: $(grep '^pull ' "$log")"
+grep -q ' up -d --pull never --no-build --no-deps tor bitcoin dashboard' "$log" || fail "an extra pull changed which services were recreated"
+grep -q 'up -d.*litecoin' "$log" && fail "an extra pull started the inactive node"
+grep -q '^rmi img006$' "$log" && fail "the cleanup removed the current image of a not-running node"
+grep -q '^rmi ghcr.io/vijitsingh97/node-manager-litecoin:1.39.0$' "$log" || fail "the cleanup kept the older image of a not-running node"
+[ "$(grep -o ' pull [a-z-]*$' "$log" | tr '\n' ' ')" = ' pull tor  pull bitcoin  pull dashboard ' ] || fail "the extra pulls changed the running pulls"
+[ "$(grep -n ' up -d --pull never' "$log" | head -n 1 | cut -d: -f1)" -lt "$(grep -n '^pull ' "$log" | head -n 1 | cut -d: -f1)" ] || fail "the extra pulls ran before the running services were recreated"
+
+: >"$log"
+rm -f "$log.pulled"
+FAKE_EXTRA_PULL_FAIL=1 FAKE_IMAGE_ABSENT="litecoin" ./stack package-upgrade >"$tmp/extra-pull-fail.out" 2>&1 || fail "a failing extra pull failed the upgrade"
+grep -q "^WARN  could not pull ghcr.io/vijitsingh97/node-manager-litecoin:$FAKE_CURRENT_VERSION for a node that is not running" "$tmp/extra-pull-fail.out" || fail "a failing extra pull did not warn"
+grep -q ' up -d --pull never --no-build --no-deps tor bitcoin dashboard' "$log" || fail "a failing extra pull stopped the running services from being recreated"
+grep -q '^rmi img006$' "$log" && fail "the cleanup removed the only image of a node whose extra pull failed"
+grep -q '^rmi ghcr.io/vijitsingh97/node-manager-litecoin:1.39.0$' "$log" && fail "the cleanup removed the only tagged image of a node whose extra pull failed"
+[ ! -e "$tmp/state/.package-upgrade-pending" ] || fail "a failing extra pull left the activation pending"
 
 before_env=$(cksum "$tmp/state/.env")
 before_approved=$(cksum "$tmp/state/.approved.env")

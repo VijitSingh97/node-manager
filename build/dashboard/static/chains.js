@@ -15,6 +15,7 @@ export const NODE_LABELS = {
 export function powerView(node) {
   if (!node?.configured) return {active:false,disabled:true,button:"Not configured",status:"This node is not configured."};
   if (!node?.supported) return { active: false, disabled: true, button: "Unavailable", status: "This node is unavailable in this build." };
+  if (node.active && node.restarting && node.starting) return { active: false, restarting: true, starting: true, disabled: true, button: "Starting…", status: "Starting the node…" };
   if (node.active && node.restarting) return { active: false, restarting: true, disabled: true, button: "Restarting…", status: "Restarting after a settings change…" };
   if (node.active && node.stopped) {
     const status = node.failure ? `Stopped: the node failed to start. ${node.failure}` : "Stopped: the node's container is not running.";
@@ -33,7 +34,7 @@ export function nodeRefreshable(id, node) {
 }
 
 export function powerBadge(view) {
-  return view.restarting ? "Restarting" : view.disabled ? "Unavailable" : view.stopped ? "Stopped" : "Inactive";
+  return view.starting ? "Starting" : view.restarting ? "Restarting" : view.disabled ? "Unavailable" : view.stopped ? "Stopped" : "Inactive";
 }
 
 export function powerRequest(node, confirmation = "") {
@@ -82,7 +83,7 @@ export function setNodeActive(id, node) {
     choice.dataset.lastNextBlock = Number.isSafeInteger(node.last_height) && node.last_height >= 0 ? String(node.last_height + 1) : "";
     choice.dataset.lastSyncPercent = Number.isFinite(node.last_sync_percent) ? String(node.last_sync_percent) : "";
     choice.classList.toggle("inactive", !view.active);
-    choice.dataset.powerNote = view.active ? "" : view.restarting ? " — restarting" : view.stopped ? " — stopped" : " — inactive";
+    choice.dataset.powerNote = view.active ? "" : view.starting ? " — starting" : view.restarting ? " — restarting" : view.stopped ? " — stopped" : " — inactive";
   }
   const panel = byId(`${id}-panel`);
   if (panel) panel.dataset.nodeActive = view.active ? "1" : "0";
@@ -149,6 +150,11 @@ export function controlView(payload) {
   return {available:payload?.control_available===true,pending:payload?.control_pending===true || valid && status.state==="pending",status:valid?status:null};
 }
 
+export function powerResultMessage(status, node) {
+  if (!status?.message || status.state !== "failed" || node?.stopped === true) return "";
+  return status.active !== (node?.active === true) ? status.message : "";
+}
+
 export function nodeBecameActive(previous, current) {
   return current?.active === true && current.stopped !== true && (previous?.active !== true || previous.stopped === true);
 }
@@ -179,7 +185,9 @@ if (typeof document !== "undefined") {
       const view=powerView(node), pending=control.pending && control.status?.node===id;
       button.disabled=view.disabled || !control.available || control.pending || busy;
       button.textContent=pending ? (control.status.active ? (node.stopped ? "Starting…" : "Activating…") : "Deactivating…") : view.button;
+      const failed=control.pending || control.status?.node!==id ? "" : powerResultMessage(control.status,node);
       if(pending) setText(`${id}-power-status`, "Applying node state change…");
+      else if(failed) setText(`${id}-power-status`, failed);
       else if(node.configured && !control.available && !view.restarting) setText(`${id}-power-status`, "Node controls require the installed host helper.");
     }
   };

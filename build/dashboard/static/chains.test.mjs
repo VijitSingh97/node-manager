@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {powerView,powerBadge,powerRequest,controlView,chainFeesView,nodeBecameActive,setNodeActive,nodePollDelay,nodeRefreshable} from './chains.js';
+import {powerView,powerBadge,powerRequest,controlView,chainFeesView,nodeBecameActive,setNodeActive,nodePollDelay,nodeRefreshable,powerResultMessage} from './chains.js';
 import {genericNodeView,normalizeNode} from './nodes.js';
 import {overviewLayout,previewDepth,GRID} from './tower.js';
 
@@ -90,6 +90,14 @@ test('a restarting node greys out, shows Restarting, and cannot be toggled',()=>
   assert.equal(powerBadge(powerView({...active,supported:false})),'Unavailable');
   assert.equal(nodeBecameActive({...active,restarting:true},active),false);
 });
+test('a node starting after an activation shows Starting, not the settings-change text',()=>{
+  const view=powerView({...active,restarting:true,starting:true});
+  assert.deepEqual([view.active,view.restarting,view.starting,view.disabled,view.button,view.status],[false,true,true,true,'Starting…','Starting the node…']);
+  assert.equal(powerBadge(view),'Starting');
+  assert.equal(powerView({...active,restarting:true,starting:false}).button,'Restarting…');
+  assert.equal(powerView({...active,active:false,restarting:true,starting:true}).starting,undefined);
+  assert.equal(powerBadge(powerView({...active,restarting:true})),'Restarting');
+});
 test('the tower choice and panel go grey with a Restarting badge and status line',()=>{
   const el=(extra={})=>({dataset:{},hidden:false,attrs:{},classes:new Set(),textContent:'',style:{},
     classList:{toggle(name,on){on?this.owner.classes.add(name):this.owner.classes.delete(name)}},
@@ -114,6 +122,11 @@ test('the tower choice and panel go grey with a Restarting badge and status line
     assert.equal(texts['litecoin-power-status'].textContent,'Restarting after a settings change…');
     assert.equal(button.disabled,true);
     assert.equal(choice.dataset.nodeOffline,'1');
+    setNodeActive('litecoin',{...active,restarting:true,starting:true});
+    assert.match(choice.attrs['aria-label'],/starting/);
+    assert.equal(texts['litecoin-badge'].textContent,'Starting');
+    assert.equal(texts['litecoin-state'].textContent,'Starting the node…');
+    assert.equal(texts['litecoin-power-status'].textContent,'Starting the node…');
     setNodeActive('litecoin',active);
     assert.equal(choice.dataset.nodeActive,'1');
     assert.equal(choice.classes.has('inactive'),false);
@@ -145,4 +158,17 @@ test('restarting nodes are not probed by the page',()=>{
   assert.equal(nodeRefreshable('bitcoin',active),false);
   assert.equal(nodeRefreshable('monero',active),false);
   assert.equal(nodeRefreshable('litecoin',undefined),false);
+});
+test('a failed request stays visible only while the node is not in the requested state',()=>{
+  const base={id:'a'.repeat(32),node:'litecoin',active:true,message:'Litecoin was not changed: its image could not be downloaded.'};
+  const off={...active,active:false};
+  assert.equal(powerResultMessage({...base,state:'failed'},off),base.message);
+  assert.equal(powerResultMessage({...base,state:'rejected'},off),'');
+  assert.equal(powerResultMessage({...base,state:'failed'},{...active,stopped:true}),'');
+  assert.equal(powerResultMessage({...base,state:'failed'},active),'');
+  assert.equal(powerResultMessage({...base,state:'applied'},off),'');
+  assert.equal(powerResultMessage({...base,state:'pending'},off),'');
+  assert.equal(powerResultMessage({...base,state:'failed',message:''},off),'');
+  assert.equal(powerResultMessage({...base,state:'failed',active:false},off),'');
+  assert.equal(powerResultMessage(null,off),'');
 });

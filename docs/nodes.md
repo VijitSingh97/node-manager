@@ -268,8 +268,11 @@ endpoint.
 An authenticated dashboard user can deactivate one configured node. The host
 helper gracefully stops only that daemon and its dependent wallet service,
 keeps its data and configuration, and leaves its tower visible but inactive.
-Activating it starts the same configured service again. At least one node must
-remain configured; deactivation keeps the chain and its data, and
+Activating it starts the same configured service again. A package upgrade only
+downloads images for nodes that are running, so activating a node that was off
+during an upgrade first downloads its image. That needs internet access and can
+take a few minutes; if it fails, the panel keeps the reason on screen. At least
+one node must remain configured; deactivation keeps the chain and its data, and
 [deleting a node](#deleting-a-node) is a separate, destructive step.
 Reactivate the node before attempting an RPC credential reset.
 

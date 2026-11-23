@@ -80,6 +80,11 @@ fi
   fi
 }
 [ "${FAKE_STACK_FAIL_APPLY:-0}" != 1 ] || [ "${1:-}" != apply ] || exit 1
+[ -z "${FAKE_STACK_PULL_PROGRESS:-}" ] || [ "${1:-}" != pull ] || printf '%s\n' "$FAKE_STACK_PULL_PROGRESS" >&2
+[ "${FAKE_STACK_FAIL_CMD:-}" != "${1:-}" ] || {
+  [ -z "${FAKE_STACK_STDERR:-}" ] || printf '%s\n' "$FAKE_STACK_STDERR" >&2
+  exit 1
+}
 [ "${FAKE_STACK_FAIL:-0}" != 1 ] || exit 1
 [ "${1:-}" != apply ] || [ ! -f "${FAKE_RECREATE_TO:-/nonexistent}" ] || cp "$FAKE_RECREATE_TO" "$FAKE_SERVICE_IDS"
 if [ "${1:-}" = apply ] || [ "${1:-}" = approve-rendered-config ]; then
@@ -311,6 +316,68 @@ request '{"action":"install","id":"67676767676767676767676767676767","node":"dog
 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 [ "$(status .id)" = 67676767676767676767676767676767 ] || fail "stale install response lost its request ID"
 [ "$(status .error_code)" = invalid_request ] || fail "stale install request was accepted"
+
+activation_id=0
+power() {
+  activation_id=$((activation_id + 1))
+  request "$(printf '{"id":"c%031d","node":"%s","active":%s,"confirmation":"%s","requested_at":1000}' "$activation_id" "$1" "$2" "$([ "$2" = true ] && printf '' || printf deactivate)")"
+  "$root/scripts/node-control"
+}
+line_of() { grep -nx -- "$1" "$tmp/stack.log" | head -n 1 | cut -d: -f1; }
+no_activation_errors() { ! compgen -G "$state/node-control/.activate-errors.*" >/dev/null; }
+
+: >"$tmp/stack.log"
+power litecoin false
+[ "$(status .state)" = applied ] || fail "Litecoin was not deactivated"
+! grep -q '^pull' "$tmp/stack.log" || fail "deactivation pulled images"
+: >"$tmp/stack.log"
+power litecoin true
+[ "$(status .state)" = applied ] || fail "Litecoin was not activated: $(cat "$dashboard_state/node-control.status")"
+[ "$(grep -c '^pull' "$tmp/stack.log")" = 1 ] || fail "activation did not pull exactly once"
+[ "$(line_of 'pull --policy missing litecoin')" -lt "$(line_of 'up litecoin')" ] || fail "activation did not pull its image before starting it"
+[ -z "$(status '.error_code // ""')" ] && [ -z "$(status '.detail // ""')" ] || fail "a successful activation reported an error"
+no_activation_errors || fail "a successful activation left its error file"
+power monero false
+: >"$tmp/stack.log"
+power monero true
+[ "$(status .state)" = applied ] || fail "Monero was not activated"
+grep -qx 'pull --policy missing monero monero-wallet' "$tmp/stack.log" || fail "Monero activation did not pull both of its images"
+[ "$(line_of 'pull --policy missing monero monero-wallet')" -lt "$(line_of 'up monero monero-wallet')" ] || fail "Monero activation did not pull before starting"
+
+power litecoin false
+: >"$tmp/stack.log"
+FAKE_STACK_FAIL_CMD=pull FAKE_STACK_STDERR="$(printf 'Pulling litecoin\n\033[31mError response from daemon: manifest unknown\033[0m\n')" power litecoin true
+[ "$(status .state):$(status .error_code)" = failed:image_unavailable ] || fail "a failed pull lacked its typed status: $(cat "$dashboard_state/node-control.status")"
+[ "$(status .message)" = 'Node image could not be downloaded; prior state restored.' ] || fail "a failed pull had the wrong message"
+[ "$(status .detail)" = 'Error response from daemon: manifest unknown' ] || fail "a failed pull did not report its last error: $(status .detail)"
+[ "$(jq -r .litecoin.active "$config/config.json")" = false ] || fail "a failed pull did not restore config"
+[ "$(jq -r .litecoin.active "$state/.approved-config.json")" = false ] || fail "a failed pull left the change approved"
+! grep -q '^up ' "$tmp/stack.log" || fail "a failed pull still tried to start the node"
+grep -q 'Host: Litecoin activation failed: Error response from daemon: manifest unknown$' "$dashboard_state/events.log" || fail "a failed pull was not logged as a host event"
+no_activation_errors || fail "a failed pull left its error file"
+
+: >"$tmp/stack.log"
+FAKE_STACK_FAIL_CMD=up FAKE_STACK_STDERR='Error response from daemon: port is already allocated' power litecoin true
+[ "$(status .state):$(status .error_code)" = failed:apply_failed ] || fail "a failed start lacked its typed status: $(cat "$dashboard_state/node-control.status")"
+[ "$(status .detail)" = 'Error response from daemon: port is already allocated' ] || fail "a failed start did not report its last error"
+grep -qx 'pull --policy missing litecoin' "$tmp/stack.log" || fail "a failed start skipped the pull"
+[ "$(jq -r .litecoin.active "$config/config.json")" = false ] || fail "a failed start did not restore config"
+grep -q 'Host: Litecoin activation failed: Error response from daemon: port is already allocated$' "$dashboard_state/events.log" || fail "a failed start was not logged as a host event"
+no_activation_errors || fail "a failed start left its error file"
+
+FAKE_STACK_PULL_PROGRESS='Container litecoin Pulled' FAKE_STACK_FAIL_CMD=up power litecoin true
+[ "$(status .error_code)" = apply_failed ] || fail "a silent failed start lacked its typed status"
+[ -z "$(status '.detail // ""')" ] || fail "a successful pull's progress was reported as the failure: $(status .detail)"
+! grep -q 'Container litecoin Pulled' "$dashboard_state/events.log" || fail "a successful pull's progress reached the event log"
+
+FAKE_STACK_FAIL_CMD=pull FAKE_STACK_STDERR='invalid rpc password abc123' power litecoin true
+[ "$(status .error_code)" = image_unavailable ] || fail "a secret-looking pull failure lacked its typed status"
+[ -z "$(status '.detail // ""')" ] || fail "a failure line naming a password was reported"
+! grep -q 'abc123' "$dashboard_state/events.log" || fail "a failure line naming a password reached the event log"
+grep -q 'Host: Litecoin activation failed$' "$dashboard_state/events.log" || fail "a failure without a safe detail was not logged"
+
+power litecoin true
+[ "$(status .state)" = applied ] || fail "Litecoin was not activated again"
 
 request '{"action":"install","id":"68686868686868686868686868686868","node":"bitcoincash","requested_at":1000}'
 FAKE_STACK_INTERRUPT_ON_PULL=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control" >/dev/null 2>&1 || true

@@ -30,6 +30,7 @@ type nodeControlNode struct {
 	Configured bool    `json:"configured"`
 	Stopped    bool    `json:"stopped"`
 	Restarting bool    `json:"restarting"`
+	Starting   bool    `json:"starting,omitempty"`
 	Failure    string  `json:"failure,omitempty"`
 	LastHeight *int64  `json:"last_height,omitempty"`
 	LastSync   float64 `json:"last_sync_percent,omitempty"`
@@ -55,6 +56,7 @@ type nodeControlStatus struct {
 	State     string `json:"state"`
 	Message   string `json:"message,omitempty"`
 	ErrorCode string `json:"error_code,omitempty"`
+	Detail    string `json:"detail,omitempty"`
 }
 
 func (a *app) nodeControlPath(name string) string {
@@ -167,7 +169,7 @@ func (a *app) apiNodes(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	runtime := a.nodeRuntime()
 	stats := a.hostStats()
-	restarting := a.restartingNodes()
+	restarting, starting := a.restartStates()
 	nodes := make([]nodeControlNode, 0, len(nodeOrder))
 	for _, id := range nodeOrder {
 		configured, supported := a.nodeConfigured(id)
@@ -177,7 +179,7 @@ func (a *app) apiNodes(w http.ResponseWriter, _ *http.Request) {
 		if stopped {
 			failure = stats.Failed[id]
 		}
-		entry := nodeControlNode{ID: id, Active: active, Available: a.nodeAvailable(id, active), Supported: supported, Configured: configured, Stopped: stopped, Restarting: restarting[id] && failure == "", Failure: failure}
+		entry := nodeControlNode{ID: id, Active: active, Available: a.nodeAvailable(id, active), Supported: supported, Configured: configured, Stopped: stopped, Restarting: restarting[id] && failure == "", Starting: restarting[id] && starting[id] && failure == "", Failure: failure}
 		if seen := a.monitor.LastSeen(id); seen.HasLastBlock && seen.LastBlock >= 0 {
 			entry.LastHeight, entry.LastSync = &seen.LastBlock, seen.SyncPercent
 		}
@@ -414,6 +416,10 @@ func (a *app) readNodeControlStatus() *nodeControlStatus {
 	} else {
 		status.ErrorCode = ""
 	}
+	if detail := hostStatusDetail(hostControlStatus{State: status.State, Detail: status.Detail}); detail != "" {
+		status.Message += " " + detail
+	}
+	status.Detail = ""
 	return &status
 }
 
@@ -423,6 +429,7 @@ var nodeControlReasons = map[string]string{
 	"unchanged":           "was not changed: it is already in that state.",
 	"validation_failed":   "was not changed: its settings did not pass validation.",
 	"replayed":            "was not changed: that request was already processed.",
+	"image_unavailable":   "was not changed: its image could not be downloaded. Check the host's internet connection, then try again.",
 	"apply_failed":        "could not be changed; the prior state was restored.",
 	"rollback_failed":     "could not be changed and its prior state could not be fully restored. Check the node.",
 }

@@ -107,6 +107,7 @@ class Helper {
     this.hold = false;
     this.outcome = () => "applied";
     this.detail = () => "";
+    this.errorCode = () => "";
     this.timer = setInterval(() => this.#tick(), 5);
     this.keepalive = setInterval(() => this.writeCapability(), 10000);
     this.writeCapability();
@@ -132,7 +133,7 @@ class Helper {
     const state = this.outcome(request);
     const status = request.action
       ? { id: request.id, action: request.action, ...(request.node ? { node: request.node } : {}), ...(request.enabled === undefined ? {} : { enabled: request.enabled }), state, ...(this.detail(request) ? { error_code: "validation_failed", detail: this.detail(request) } : {}) }
-      : { id: request.id, node: request.node, active: request.active, state };
+      : { id: request.id, node: request.node, active: request.active, state, ...(this.errorCode(request) ? { error_code: this.errorCode(request), ...(this.detail(request) ? { detail: this.detail(request) } : {}) } : {}) };
     if (state === "applied") this.#apply(request);
     writeAtomic(join(this.stateDir, "node-control.status"), JSON.stringify(status));
     unlinkSync(processing);

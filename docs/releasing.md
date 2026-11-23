@@ -117,6 +117,9 @@ RUNTIME_IMAGE_DIGESTS_FILE=/tmp/node-manager-runtime-images.json scripts/build-d
 A first installation remains inert. On an actual version upgrade, the package's
 `postinst` activates images only for an initialized, running package deployment.
 It preserves approved settings, data, volumes, and deliberately stopped services.
+It also pulls the new image of every node that already has an older image on the
+machine, so a node that was off or deleted can be activated afterwards; those
+pulls never start a container and a failure only warns.
 Activation failures are reported for retry with `node-manager package-upgrade`;
 Docker or registry outages do not leave dpkg unconfigured.
 It builds the architecture-independent package, creates and signs the feed,
