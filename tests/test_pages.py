@@ -24,7 +24,7 @@ class ProjectPageTests(unittest.TestCase):
             self.assertTrue((ROOT / path).is_file(), path)
 
     def test_readme_anchors_exist(self):
-        headings = re.findall(r"^#+ (.+)$", (ROOT / "README.md").read_text(), re.M)
+        headings = re.findall(r"^#+ (.+)$", (ROOT / "README.md").read_text(), re.MULTILINE)
         slugs = {re.sub(r"[^\w\- ]", "", heading.lower()).replace(" ", "-") for heading in headings}
         anchors = re.findall(re.escape(REPO) + r"#([\w-]+)", page_texts())
         self.assertTrue(anchors)
@@ -35,7 +35,7 @@ class ProjectPageTests(unittest.TestCase):
         html = (PAGES / "index.html").read_text()
         self.assertIn(f'<link rel="canonical" href="{SITE}">', html)
         self.assertIn(f'<meta property="og:url" content="{SITE}">', html)
-        block = re.search(r'<script type="application/ld\+json">(.*?)</script>', html, re.S)
+        block = re.search(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL)
         data = json.loads(block.group(1))
         self.assertEqual(data["url"], SITE)
         self.assertEqual(data["codeRepository"], REPO)
