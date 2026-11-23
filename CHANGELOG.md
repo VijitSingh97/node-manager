@@ -6,6 +6,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.40.2] - 2026-11-22
+
 ### Fixed
 
 - The balance index badge and bar now show on Litecoin, Dogecoin and Bitcoin
@@ -2187,7 +2189,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.40.1...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.40.2...HEAD
+[1.40.2]: https://github.com/VijitSingh97/node-manager/compare/v1.40.1...v1.40.2
 [1.40.1]: https://github.com/VijitSingh97/node-manager/compare/v1.40.0...v1.40.1
 [1.40.0]: https://github.com/VijitSingh97/node-manager/compare/v1.39.0...v1.40.0
 [1.39.0]: https://github.com/VijitSingh97/node-manager/compare/v1.38.0...v1.39.0
