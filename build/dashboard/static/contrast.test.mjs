@@ -70,7 +70,7 @@ test("accent-filled add button takes its text colour from a theme token", () => 
   assert.match(rule, /\bcolor:\s*var\(--bg\)/);
 });
 
-const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+const html = readFileSync(new URL("../testdata/index.rendered.html", import.meta.url), "utf8");
 const nodes = ["bitcoin", "monero", "tari", "litecoin", "dogecoin", "bitcoincash", "zcash"];
 
 for (const [theme, values] of Object.entries(themes)) {

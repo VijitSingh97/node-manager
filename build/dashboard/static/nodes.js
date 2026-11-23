@@ -1,4 +1,4 @@
-import { commandName, dashboardFetch as fetch } from "./session.js";
+import { commandName, CSRF_HEADERS, dashboardFetch as fetch } from "./session.js";
 
 export const NODE_IDS = ["bitcoin", "monero", "tari", "litecoin", "dogecoin", "bitcoincash", "zcash"];
 const NODES = new Set(NODE_IDS);
@@ -248,7 +248,7 @@ if (typeof document !== "undefined") {
 
   async function refreshMonero() {
     try {
-      const response = await fetch("/api/monero", { headers: { "X-Requested-With": "fetch" } });
+      const response = await fetch("/api/monero", { headers: CSRF_HEADERS });
       if (!response.ok) throw new Error("unavailable");
       renderMonero(await response.json());
     } catch {

@@ -155,7 +155,7 @@ test("applyIndexBar writes the label, the width and the accessible value", () =>
 });
 
 test("every node card carries a hidden bar, the Bitcoin one inside the replaced live block, redrawn on live-updated", async () => {
-  const [html, source] = await Promise.all(["../index.html", "./utxo-index.js"].map((file) => readFile(new URL(file, import.meta.url), "utf8")));
+  const [html, source] = await Promise.all(["../testdata/index.rendered.html", "./utxo-index.js"].map((file) => readFile(new URL(file, import.meta.url), "utf8")));
   for (const chain of ["bitcoin", "litecoin", "dogecoin", "bitcoincash"]) assert.match(html, new RegExp(`id="index-bar-${chain}" class="index-bar" hidden`));
   const live = html.slice(html.lastIndexOf('<div id="live"'), html.lastIndexOf('<section id="watch"'));
   assert.ok(live.includes('id="index-bar-bitcoin"'));
