@@ -166,7 +166,7 @@ flow("A failed host change shows the host's reason and does not stop the indepen
   await page.setChecked("#settings-launch-at-start", true);
   await page.setChecked("#settings-inbound-connections", false);
   await save(page);
-  await page.waitText("#settings-status", "Launch at start: The requested host change did not pass validation. Launch setting requires the host service. Skipped: none.");
+  await page.waitText("#settings-status", "Launch at boot: The requested host change did not pass validation. Launch setting requires the host service. Skipped: none.");
   assert.deepEqual(helper.requests.map(withoutIdentity), [{ action: "launch_at_boot", enabled: true }, { action: "inbound_connections", enabled: false }]);
   assert.equal(helper.capability.inbound_connections, false);
   assert.equal(await page.checked("#settings-launch-at-start"), false);

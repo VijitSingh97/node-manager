@@ -242,8 +242,10 @@ export function expectSettings(dash, expected = {}) {
 
 export async function answerConfirm(page, accept) {
   await page.waitFor(() => document.getElementById("confirm-dialog").open, { description: "confirm dialog to open" });
+  const opens = await page.confirmOpens();
   await page.click(accept ? "#confirm-dialog-ok" : "#confirm-dialog button[value=cancel]");
-  await page.waitFor(() => !document.getElementById("confirm-dialog").open, { description: "confirm dialog to close" });
+  // A chained confirm can reopen the dialog before a poll sees it closed.
+  await page.waitFor((count) => !document.getElementById("confirm-dialog").open || window.confirmOpens > count, { args: [opens], description: "confirm dialog to close or ask again" });
   await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 50)));
 }
 

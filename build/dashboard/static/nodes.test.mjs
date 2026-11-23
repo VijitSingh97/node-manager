@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyHover, formatBytes, formatCompactBytes, formatHashrate, formatMoneroFees, formatUpdated, formatUptime, genericNodeView, moneroView, selectionController, updateTowerProgress } from "./nodes.js";
+import { applyHover, formatBytes, formatCompactBytes, formatHashrate, formatMoneroFees, formatUpdated, formatUptime, genericNodeView, localizeUpdated, moneroView, selectionController, updateTowerProgress } from "./nodes.js";
 
 test("tower progress follows fresh node status and survives temporary outages or deactivation", () => {
   const live = { dataset: {} };
@@ -103,7 +103,7 @@ test("tower hover only records supported nodes", () => {
 
 test("Monero status does not invent metrics while disabled or unreachable", () => {
   assert.deepEqual(moneroView({ enabled: false }), { state: "Not configured", badge: "Disabled", details: false });
-  assert.deepEqual(moneroView({ enabled: true, available: false, height: 99 }), { state: "Connecting...", badge: "Connecting", details: false });
+  assert.deepEqual(moneroView({ enabled: true, available: false, height: 99 }), { state: "Connecting to Monero… Still stuck? Run ./stack doctor.", badge: "Connecting", details: false });
 });
 
 test("zero-height nodes load block one without inventing a height when it is missing", () => {
@@ -128,7 +128,7 @@ test("available Monero metrics are clamped and formatted for the status card", (
     latest_block_age_seconds: 42, fees_available: true,
     fee_estimates_atomic_per_byte: [20_000, 80_000, 320_000, 4_000_000], updated_at: 1_700_000_000,
     rpc_exposure_enabled: true, rpc_endpoint: "192.168.1.2:18081" });
-  assert.equal(view.state, "Synchronizing the Monero blockchain...");
+  assert.equal(view.state, "Synchronizing the Monero blockchain…");
   assert.equal(view.badge, "Pruned");
   assert.equal(view.blocks, "120 / 125");
   assert.equal(view.uptime, "1d 1h 1m");
@@ -171,4 +171,31 @@ test("generic node cards show host-derived size and uptime and a dash when neith
   const empty = genericNodeView(base, "Tari");
   assert.equal(empty.size, "—");
   assert.equal(empty.uptime, "—");
+});
+
+test("every chain names itself and the install command when its node is not answering", () => {
+  const down = { enabled: true, available: false };
+  for (const [view, name] of [[moneroView(down), "Monero"], ...["Tari", "Litecoin", "Dogecoin", "Bitcoin Cash", "Zcash"].map((label) => [genericNodeView(down, label), label])]) {
+    assert.equal(view.state, `Connecting to ${name}… Still stuck? Run ./stack doctor.`);
+  }
+  globalThis.document = { body: { dataset: { command: "sudo node-manager" } } };
+  try {
+    assert.match(moneroView(down).state, /Run sudo node-manager doctor\.$/);
+  } finally {
+    delete globalThis.document;
+  }
+});
+
+test("Monero LAN note follows the RPC and ZMQ rows", () => {
+  const up = { enabled: true, available: true, height: 1 };
+  assert.equal(moneroView(up).lanNote, "LAN access is off.");
+  assert.equal(moneroView({ ...up, rpc_exposure_enabled: true }).lanNote, "LAN access is on. RPC is restricted and requires your Monero login.");
+  assert.equal(moneroView({ ...up, zmq_exposure_enabled: true }).lanNote, "LAN access is on. ZMQ is for a trusted LAN.");
+});
+
+test("server-rendered Updated times switch to the browser-local format", () => {
+  const nodes = [{ dataset: { updatedAt: "1700000000" }, textContent: "10:00:00" }, { dataset: { updatedAt: "" }, textContent: "10:00:01" }];
+  localizeUpdated({ querySelectorAll: () => nodes });
+  assert.equal(nodes[0].textContent, formatUpdated(1700000000));
+  assert.equal(nodes[1].textContent, "10:00:01");
 });

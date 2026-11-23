@@ -41,7 +41,7 @@ shows recent probe output when diagnosing.
 
 ## Host readings
 
-With **Node manager usage** ticked in Settings, the usage panel at the top left
+With **Node Manager usage** ticked in Settings, the usage panel at the top left
 shows the host's temperature, fan speed, uptime and network rate as four tiles
 above the disk bars. On APT installs (amd64 and arm64) the small
 `node-manager-hostd` helper writes them every 10 seconds. New installs and
@@ -133,7 +133,7 @@ rendered runtime is retained until the file is explicitly approved once.
 
 ## Dashboard and node credentials
 
-Open the gear menu to change the dashboard login. Enter the current password,
+Open the User dialog (person icon) to change the dashboard login. Enter the current password,
 then the new password twice. It must contain 12–128 characters and no control
 characters. The old password stops working immediately; reload and sign in
 with the new one. The dashboard stores only a salted PBKDF2 hash in
@@ -358,7 +358,8 @@ first — a live copy of `chainstate/` is corrupt by construction.
     is `DEGRADED`, otherwise `UP`.
   - `GET /actuator/info` returns:
     - `app`: `name`, `version`, and `install_kind` (`apt`, `homebrew`,
-      `source`, or `unknown` without the host helper).
+      `source`, or `unknown` until the host helper has reported the install
+      type).
     - `chains`: one entry per installed node, with `name`, `active` and
       `status` (`UP`, `DEGRADED`, `DOWN`, or `OFF` when deactivated). While
       the node answers, the entry also carries `network`, `height`,
@@ -892,7 +893,7 @@ credentials, make sure you re-ran `./configure.sh` *and*
 `./stack apply` so both containers got the new values.
 
 **The dashboard rejects the password from `.env`** — a password changed in the
-gear menu takes precedence over that baseline. Use the changed password or the
+User dialog takes precedence over that baseline. Use the changed password or the
 offline recovery procedure in [Dashboard and node credentials](#dashboard-and-node-credentials).
 
 **A wallet app fails after an RPC credential reset** — reveal the new login in

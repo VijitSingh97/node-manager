@@ -226,7 +226,7 @@ interfaces and ports. All interface toggles default off. Change the folder or
 opt into an interface before confirming, then press **Save**; the host validates the folder and
 checks enabled ports for conflicts before it changes the running stack. The
 install preserves every existing node and its data. Watch progress or correct a
-failed installation in the same panel. View-only wallets are added in the
+failed installation in the same panel. Watch-only wallets are added in the
 relevant tower; setup does not ask for wallet keys or seed phrases.
 
 The **Config** section directly below Healthchecks shows the actual host
@@ -321,11 +321,12 @@ this possible; never delete it as a way to apply an edit.
    it has no host port and cannot spend. No miner starts.
 
 4. **The dashboard** at the URL printed by setup shows the configured towers. Click a tower to
-   open its chain's card. It shows a connecting state until RPC comes up,
+   open its chain's card. It shows "Connecting to" and the chain name until RPC comes up,
    then sync progress. After its wallet section, that node's settings contain
    block alerts, LAN ports, and any authenticated RPC credentials. The gear
-   menu contains node installation, launch at boot/login, Appearance, Dashboard
-   password, Telegram, and Healthchecks settings. A disabled node says **Not configured**.
+   menu contains node installation, launch at boot/login, Thermal throttle,
+   Appearance, Telegram, and Healthchecks settings; the Dashboard password is
+   in the User dialog (person icon). A disabled node says **Not configured**.
 
 Automatic binding selects a private LAN address each time configuration is
 rendered. Set `dashboard.bind_ip` to `127.0.0.1` for localhost only, or choose a

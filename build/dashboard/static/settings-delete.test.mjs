@@ -28,6 +28,8 @@ test("Delete is enabled only for an installed, deactivated node that is not the 
   assert.equal(deleteControl(view, view.nodes.litecoin).reason, "");
   assert.match(deleteControl(view, view.nodes.bitcoin).reason, /Deactivate the node first/);
   assert.match(deleteControl(view, view.nodes.zcash).reason, /not installed/);
+  assert.equal(deleteControl({ ...view, delete_supported: false }, view.nodes.litecoin).reason, "Deleting needs the installed host helper.");
+  assert.equal(deleteControl({ ...view, config_pending: true }, view.nodes.litecoin).reason, "Run the new config first.");
   const lonely = model([node("bitcoin", { last_enabled: true })]);
   assert.match(deleteControl(lonely, lonely.nodes.bitcoin).reason, /At least one node must stay installed/);
   const unflagged = model([node("bitcoin"), node("tari", { installed: false })]);

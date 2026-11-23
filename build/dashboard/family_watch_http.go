@@ -17,12 +17,12 @@ func (a *app) familyWatchCapability(id string) (bool, string) {
 		if a.cfg.dogecoinWatchWallet || a.cfg.nodes[nodeDogecoin].UTXOIndex {
 			return true, ""
 		}
-		return false, "Dogecoin Core 1.14 cannot scan the coin set for an address; turn on dogecoin.utxo_index, or set dogecoin.watch_wallet on an archival node."
+		return false, "Dogecoin Core 1.14 cannot scan the coin set for an address. Switch on the Dogecoin balance index under Settings, Balance index (dogecoin.utxo_index in config.json), or set dogecoin.watch_wallet on an archival node."
 	case nodeZcash:
 		if a.cfg.zcashAddressIndex {
 			return true, ""
 		}
-		return false, "Zcash checkpoint pruning skips the address index needed for an accurate balance."
+		return false, "Zcash checkpoint pruning skips the address index needed for an accurate balance. There is no setting for this yet."
 	case nodeTari:
 		return false, "Tari watch-only balances require a view key and wallet service."
 	default:

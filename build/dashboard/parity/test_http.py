@@ -279,7 +279,9 @@ class DashboardContracts(unittest.TestCase):
         status, body, _ = self.call('/')
         self.assertEqual(status, 200)
         bitcoin = self.bitcoin_panel(body)
-        for value in ['Bitcoin Node Status', '/Satoshi:31.1.0/', '1d 1h 1m', '123 / 123', 'Sync Progress', 'Mempool:', '42 tx', '0.4', 'v1.31.1', 'id="watch"', 'data-blocks="123"']:
+        # The frozen Python reference keeps the old label casing.
+        sync_label = 'Sync progress' if self.go_dashboard else 'Sync Progress'
+        for value in ['Bitcoin Node Status', '/Satoshi:31.1.0/', '1d 1h 1m', '123 / 123', sync_label, 'Mempool:', '42 tx', '0.4', 'v1.31.1', 'id="watch"', 'data-blocks="123"']:
             self.assertIn(value, bitcoin)
         for value in ['/static/watch.js']:
             self.assertIn(value, body)

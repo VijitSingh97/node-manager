@@ -172,7 +172,7 @@ export function credentialSettingsController(passwordDialog, root = document) {
       panels[node].reset.disabled = !enabled || !available || shouldPollCredentials(true, view.status.state);
       panels[node].status.textContent = view.status.node === node
         ? view.status.message
-        : enabled && view.requiresPassword ? "Set a dashboard password in global settings to reveal or reset RPC credentials."
+        : enabled && view.requiresPassword ? "Set a dashboard password in the User dialog to reveal or reset RPC credentials."
           : enabled && !available ? "Password reset requires the installed host helper." : "";
       if (!enabled) hideSecret(node);
     }

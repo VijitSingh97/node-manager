@@ -1,13 +1,8 @@
-import { dashboardFetch as fetch } from "./session.js";
+import { commandName, dashboardFetch as fetch } from "./session.js";
 import { el } from "./wallet-ui.js";
 
 const POLL_MS = 15000;
-export const SEED_COMMANDS = {
-  bitcoin: "./stack utxo-seed",
-  litecoin: "./stack utxo-seed litecoin",
-  bitcoincash: "./stack utxo-seed bitcoincash",
-  dogecoin: "./stack utxo-seed dogecoin",
-};
+export const seedCommand = (chain) => `${commandName()} utxo-seed${chain === "bitcoin" ? "" : ` ${chain}`}`;
 
 const CHAINS = {
   bitcoin: { card: "utxo-index", heading: "#watch h2", title: "Bitcoin balance index", api: "/api/utxo-index" },
@@ -87,7 +82,7 @@ export function indexView(status, chain = "bitcoin") {
     rows,
     progress: seeding && status.seed_progress != null ? status.seed_progress : null,
     refusals: (status.refusals || []).map(guardText),
-    command: idle && status.needs_host === true ? SEED_COMMANDS[chain] : "",
+    command: idle && status.needs_host === true ? seedCommand(chain) : "",
   };
 }
 

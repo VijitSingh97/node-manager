@@ -17,9 +17,9 @@ test("turning the balance index on needs no confirmation and turning it off asks
   assert.deepEqual(await balanceIndexPayload(true, (m) => { asked.push(m); return false; }), { action: "utxo_index", enabled: true });
   assert.deepEqual(asked, []);
   assert.equal(await balanceIndexPayload(false, (m) => { asked.push(m); return false; }), undefined);
-  assert.deepEqual(asked, [UTXO_INDEX_OFF_PROMPT]);
+  assert.deepEqual(asked, [UTXO_INDEX_OFF_PROMPT()]);
   assert.deepEqual(await balanceIndexPayload(false, () => true), { action: "utxo_index", enabled: false });
-  assert.match(UTXO_INDEX_OFF_PROMPT, /utxo-index remove/);
+  assert.match(UTXO_INDEX_OFF_PROMPT(), /utxo-index remove/);
 });
 
 test("the settings page carries none of the removed explanatory notes", async () => {
@@ -79,7 +79,7 @@ test("the Litecoin balance index switch stages its own node-scoped payload", asy
   const off = { action: "utxo_index", node: "litecoin", enabled: false };
   const asked = [];
   assert.deepEqual(await confirmedHostChanges([off], (m) => { asked.push(m); return false; }), []);
-  assert.deepEqual(asked, [UTXO_INDEX_LITECOIN_OFF_PROMPT]);
+  assert.deepEqual(asked, [UTXO_INDEX_LITECOIN_OFF_PROMPT()]);
   assert.deepEqual(await confirmedHostChanges([off], () => true), [off]);
   assert.equal(hostControlModel({ status: { action: "utxo_index", node: "litecoin", state: "applied", message: "ok" } }).status.node, "litecoin");
 });
@@ -92,8 +92,8 @@ test("the Bitcoin Cash balance index switch stages its own payload and asks befo
   const off = { action: "utxo_index", node: "bitcoincash", enabled: false };
   const asked = [];
   assert.deepEqual(await confirmedHostChanges([off], (m) => { asked.push(m); return false; }), []);
-  assert.deepEqual(asked, [UTXO_INDEX_BITCOINCASH_OFF_PROMPT]);
-  assert.match(UTXO_INDEX_BITCOINCASH_OFF_PROMPT, /utxo-index remove bitcoincash/);
+  assert.deepEqual(asked, [UTXO_INDEX_BITCOINCASH_OFF_PROMPT()]);
+  assert.match(UTXO_INDEX_BITCOINCASH_OFF_PROMPT(), /utxo-index remove bitcoincash/);
 });
 
 test("the Dogecoin balance index switch stages its own payload and asks before turning off", async () => {
@@ -104,8 +104,8 @@ test("the Dogecoin balance index switch stages its own payload and asks before t
   const off = { action: "utxo_index", node: "dogecoin", enabled: false };
   const asked = [];
   assert.deepEqual(await confirmedHostChanges([off], (m) => { asked.push(m); return false; }), []);
-  assert.deepEqual(asked, [UTXO_INDEX_DOGECOIN_OFF_PROMPT]);
-  assert.match(UTXO_INDEX_DOGECOIN_OFF_PROMPT, /utxo-index remove dogecoin/);
+  assert.deepEqual(asked, [UTXO_INDEX_DOGECOIN_OFF_PROMPT()]);
+  assert.match(UTXO_INDEX_DOGECOIN_OFF_PROMPT(), /utxo-index remove dogecoin/);
 });
 
 test("a failed host change is matched by action, node and id, and only holds back changes to the same node", () => {
@@ -144,4 +144,18 @@ test("the install dialog offers a balance index checkbox ticked by default, next
   assert.match(source, /node\.can_index && hostView\.install_index_supported/);
   assert.match(source, /installIndex\.checked = true/);
   assert.match(source, /refusal\) input\.disabled = true/);
+});
+
+test("removal commands and the launch label follow the install type", () => {
+  assert.match(UTXO_INDEX_OFF_PROMPT(), /run \.\/stack utxo-index remove\.$/);
+  for (const command of ["sudo node-manager", "node-manager"]) {
+    globalThis.document = { body: { dataset: { command } } };
+    try {
+      assert.ok(UTXO_INDEX_OFF_PROMPT().endsWith(`run ${command} utxo-index remove.`), command);
+    } finally {
+      delete globalThis.document;
+    }
+  }
+  assert.equal(hostChangeLabel({ action: "launch_at_boot" }, {}, "login"), "Launch at login");
+  assert.equal(hostChangeLabel({ action: "launch_at_boot" }, {}, "boot"), "Launch at boot");
 });

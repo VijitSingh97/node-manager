@@ -56,6 +56,7 @@ type diskInfo struct {
 
 type pageData struct {
 	NodeName             string
+	Command              string
 	PasswordEnabled      bool
 	BitcoinEnabled       bool
 	Loading              bool
@@ -83,6 +84,9 @@ type pageData struct {
 	FeeHour              string
 	NextBlock            int64
 	LastUpdate           string
+	UpdatedAt            int64
+	StateLine            string
+	LastBlock            string
 	BitcoinRPCEndpoint   string
 }
 
@@ -281,12 +285,27 @@ func (a *app) index(w http.ResponseWriter, r *http.Request) {
 		Blocks: chain.Blocks, Headers: chain.Headers, Progress: chain.VerificationProgress * 100,
 		PeersUnknown: peersErr != nil, Inbound: inbound, Outbound: len(peers) - inbound,
 		Pruned: chain.Pruned, NodeGB: gib(chain.SizeOnDisk), NodeSizeBytes: chain.SizeOnDisk,
-		NextBlock: chain.Blocks + 1, LastUpdate: time.Now().Format("15:04:05"),
+		NextBlock: chain.Blocks + 1, LastUpdate: time.Now().Format("15:04:05"), UpdatedAt: time.Now().Unix(),
 		FeeNext: "—", Fee30m: "—", FeeHour: "—",
 		BitcoinRPCEndpoint: a.cfg.bitcoinRPCEndpoint,
 	}
 	if !chain.InitialBlockDownload && chain.Blocks == chain.Headers {
 		data.Progress = 100
+	}
+	data.StateLine = "Synchronizing the Bitcoin blockchain…"
+	if !chain.InitialBlockDownload && chain.Blocks >= chain.Headers {
+		data.StateLine = "Synced"
+	}
+	data.LastBlock = "—"
+	if chain.BestBlockHash != "" {
+		var header familyBlockHeader
+		if a.rpc.call(ctx, "getblockheader", []any{chain.BestBlockHash}, &header) == nil && header.Time > 0 {
+			if age := max(0, time.Now().Unix()-header.Time); age < 60 {
+				data.LastBlock = "<1m ago"
+			} else {
+				data.LastBlock = formatUptime(float64(age)) + " ago"
+			}
+		}
 	}
 	if !chain.InitialBlockDownload {
 		var mempool mempoolInfo
@@ -328,6 +347,7 @@ func (a *app) loadingPageData() pageData {
 
 func (a *app) render(w http.ResponseWriter, data pageData) {
 	data.NodeName = a.monitor.nodeName
+	data.Command = a.commandName()
 	data.PasswordEnabled = a.hasDashboardPassword()
 	data.UpdateNote = a.monitor.UpdateNote()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

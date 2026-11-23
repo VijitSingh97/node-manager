@@ -300,7 +300,7 @@ func validHostControlShape(action, node string, enabled *bool, dataDir string, i
 		action == "apply_config" && node == "" && enabled == nil && dataDir == "" && interfaces == nil
 }
 
-func canonicalHostStatusMessage(status hostControlStatus) string {
+func canonicalHostStatusMessage(status hostControlStatus, command string) string {
 	if status.State == "applied" {
 		switch status.Action {
 		case "install":
@@ -358,7 +358,7 @@ func canonicalHostStatusMessage(status hostControlStatus) string {
 		"unsupported":        "That host action is not supported by this installation.",
 		"ownership_conflict": "The node data directory is managed by another installation.",
 		"unchanged":          "The host already has that setting.",
-		"seed_running":       "A balance index seed is running. Cancel it with utxo-seed cancel, then try again.",
+		"seed_running":       "A balance index seed is running. Cancel it with " + command + " utxo-seed cancel, then try again.",
 		"busy":               "Another balance index is seeding or its chainstate is being copied.",
 		"recently_started":   "The node started a few minutes ago; the seed waits until it has settled.",
 		"not_installed":      "That node is not installed.",
@@ -426,7 +426,7 @@ func (a *app) hostControlStatus() (*hostControlStatus, bool) {
 	if !ok {
 		return nil, false
 	}
-	status.Message = canonicalHostStatusMessage(status)
+	status.Message = canonicalHostStatusMessage(status, a.commandName())
 	status.Detail = hostStatusDetail(status)
 	status.ErrorCode = ""
 	return &status, false
@@ -516,7 +516,7 @@ func (a *app) seedHostResult(id string) (hostSeedResult, bool) {
 	if !ok || status.ID != id {
 		return hostSeedResult{}, false
 	}
-	return hostSeedResult{State: status.State, Code: status.ErrorCode, Detail: cmp.Or(hostStatusDetail(status), canonicalHostStatusMessage(status))}, true
+	return hostSeedResult{State: status.State, Code: status.ErrorCode, Detail: cmp.Or(hostStatusDetail(status), canonicalHostStatusMessage(status, a.commandName()))}, true
 }
 
 // anySeedActive reports a balance index seeding in this dashboard, so a second seed never starts beside it.
@@ -571,7 +571,7 @@ func (a *app) queueSeedHostAction(node string) (id, refusal string) {
 	capability, ok := a.hostControlCapability()
 	switch {
 	case !ok || !capability.UTXOSeedSupported:
-		return "", "automatic seeding needs the host helper; start the seed with utxo-seed"
+		return "", "automatic seeding needs the host helper; start the seed with " + a.commandName() + " utxo-seed"
 	case capability.ConfigPending:
 		return "", "a configuration change is waiting to be applied"
 	}

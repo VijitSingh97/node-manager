@@ -52,9 +52,9 @@ is required before configuration is applied. Each
 selected authenticated node gets a separate generated `admin` login, retained
 in private state. No node RPC, gRPC, or ZMQ port is exposed by default.
 
-Global Settings installs additional nodes, controls launch at login, and
-contains Appearance, Telegram, and Healthchecks. The person icon above it holds
-Account and Dashboard password. Open a
+Global Settings installs additional nodes, controls launch at login and
+Thermal throttle, and contains Appearance, Telegram, and Healthchecks. The
+person icon above it opens the User dialog with Account and Dashboard password. Open a
 tower for its block alerts, optional LAN interfaces, and RPC credentials.
 Personal view-only wallet material is separate from these service logins;
 never enter a seed phrase or private spend key.
@@ -149,7 +149,7 @@ images already on the machine. It does not download images. Run
 `node-manager pull` first when an upgrade needs new images. Use
 `node-manager doctor` for a read-only dependency, configuration, disk, node,
 and Tor report. See the [configuration reference](configuration.md) for every
-field. A dashboard password changed in the gear menu is stored as a hash in
+field. A dashboard password changed in the User dialog is stored as a hash in
 dashboard state and takes precedence over the baseline configuration; see
 [credential operations](operations.md#dashboard-and-node-credentials).
 

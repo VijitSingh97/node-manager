@@ -1,3 +1,7 @@
+export function commandName() {
+  return (typeof document !== "undefined" && document.body?.dataset.command) || "./stack";
+}
+
 function requestURL(input) {
   if (typeof window === "undefined" || typeof document === "undefined") return null;
   const value = typeof input === "string" || input instanceof URL ? input : input?.url;

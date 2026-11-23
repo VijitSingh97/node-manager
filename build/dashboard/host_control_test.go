@@ -195,7 +195,7 @@ func TestHostControlQueuesNetworkToggles(t *testing.T) {
 	}
 	disabled := false
 	for action, want := range map[string]string{"clearnet_over_tor": "Nodes now use onion peers only.", "inbound_connections": "Incoming Tor connections disabled."} {
-		if got := canonicalHostStatusMessage(hostControlStatus{Action: action, Enabled: &disabled, State: "applied"}); got != want {
+		if got := canonicalHostStatusMessage(hostControlStatus{Action: action, Enabled: &disabled, State: "applied"}, "./stack"); got != want {
 			t.Fatalf("%s message = %q", action, got)
 		}
 	}
@@ -232,13 +232,13 @@ func TestHostControlQueuesBalanceIndexToggle(t *testing.T) {
 		t.Fatalf("request = %s, %v", b, err)
 	}
 	on, off := true, false
-	if got := canonicalHostStatusMessage(hostControlStatus{Action: "utxo_index", Enabled: &off, State: "applied"}); got != "Balance index turned off." {
+	if got := canonicalHostStatusMessage(hostControlStatus{Action: "utxo_index", Enabled: &off, State: "applied"}, "./stack"); got != "Balance index turned off." {
 		t.Fatalf("off message = %q", got)
 	}
-	if got := canonicalHostStatusMessage(hostControlStatus{Action: "utxo_index", Enabled: &on, State: "applied"}); !strings.HasPrefix(got, "Balance index turned on") {
+	if got := canonicalHostStatusMessage(hostControlStatus{Action: "utxo_index", Enabled: &on, State: "applied"}, "./stack"); !strings.HasPrefix(got, "Balance index turned on") {
 		t.Fatalf("on message = %q", got)
 	}
-	if got := canonicalHostStatusMessage(hostControlStatus{Action: "utxo_index", Enabled: &off, State: "rejected", ErrorCode: "seed_running"}); !strings.Contains(got, "utxo-seed cancel") {
+	if got := canonicalHostStatusMessage(hostControlStatus{Action: "utxo_index", Enabled: &off, State: "rejected", ErrorCode: "seed_running"}, "sudo node-manager"); !strings.Contains(got, "sudo node-manager utxo-seed cancel") {
 		t.Fatalf("seed running message = %q", got)
 	}
 }
@@ -246,11 +246,11 @@ func TestHostControlQueuesBalanceIndexToggle(t *testing.T) {
 func TestHostStatusCanonicalizesHelperErrors(t *testing.T) {
 	enabled := true
 	status := hostControlStatus{Action: "launch_at_boot", Enabled: &enabled, State: "failed", Message: "untrusted host output", ErrorCode: "ownership_conflict"}
-	if got := canonicalHostStatusMessage(status); got != "The node data directory is managed by another installation." {
+	if got := canonicalHostStatusMessage(status, "./stack"); got != "The node data directory is managed by another installation." {
 		t.Fatalf("canonical message = %q", got)
 	}
 	status.ErrorCode = "invented"
-	if got := canonicalHostStatusMessage(status); got != "Host change could not be applied." {
+	if got := canonicalHostStatusMessage(status, "./stack"); got != "Host change could not be applied." {
 		t.Fatalf("unknown failure = %q", got)
 	}
 }
@@ -281,11 +281,11 @@ func TestHostControlQueuesMigrateForInstalledNodesOnly(t *testing.T) {
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("migrate with relative path = %d", response.Code)
 	}
-	applied := canonicalHostStatusMessage(hostControlStatus{Action: "migrate", State: "applied", Node: "bitcoin"})
+	applied := canonicalHostStatusMessage(hostControlStatus{Action: "migrate", State: "applied", Node: "bitcoin"}, "./stack")
 	if applied != "Bitcoin data migrated." {
 		t.Fatalf("applied message = %q", applied)
 	}
-	space := canonicalHostStatusMessage(hostControlStatus{Action: "migrate", State: "rejected", ErrorCode: "insufficient_space"})
+	space := canonicalHostStatusMessage(hostControlStatus{Action: "migrate", State: "rejected", ErrorCode: "insufficient_space"}, "./stack")
 	if space != "The destination disk does not have enough free space." {
 		t.Fatalf("space message = %q", space)
 	}
@@ -448,7 +448,7 @@ func TestHostControlDeleteStatusMessages(t *testing.T) {
 		{hostControlStatus{Action: "delete", State: "failed", ErrorCode: "delete_incomplete"}, "The node was removed from the configuration, but some of its data could not be deleted. Remove what is left by hand before installing it again."},
 		{hostControlStatus{Action: "install", State: "rejected", ErrorCode: "data_path_invalid"}, "The data folder must be a new or empty writable folder outside the app and config roots, without symbolic links."},
 	} {
-		if got := canonicalHostStatusMessage(c.status); got != c.want {
+		if got := canonicalHostStatusMessage(c.status, "./stack"); got != c.want {
 			t.Fatalf("%#v = %q, want %q", c.status, got, c.want)
 		}
 	}

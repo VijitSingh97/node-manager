@@ -1,5 +1,5 @@
 import { dashboardFetch as fetch } from "./session.js";
-import { formatAmount, joinNote, scanNote as scannedAt } from "./wallet-format.js";
+import { WATCH_COPY, formatAmount, joinNote, scanNote as scannedAt } from "./wallet-format.js";
 import { el, managerRow, renderWalletList, replaceIfChanged } from "./wallet-ui.js";
 
 const CSRF = { "X-Requested-With": "fetch" }; // blocks cross-site form posts
@@ -11,7 +11,7 @@ export function balanceLabel(w) {
     return w.balance_kind === "confirmed" ? "Pending balance…" : "Pending history…";
   }
   if (w.state === "ok" || w.state === "stale") return `${formatAmount(w.btc)} BTC`;
-  return "—"; // error / not ready
+  return w.state === "error" ? WATCH_COPY.scanFailed : "—";
 }
 
 export function totalLabel(view) {
@@ -155,12 +155,12 @@ if (typeof document !== "undefined") {
   bday.max = new Date().toISOString().slice(0, 10);
   bday.title = "Wallet birthday (optional) — bounds the first rescan";
   bday.setAttribute("aria-label", "Wallet birthday (optional)");
-  const add = el("button", null, "Add");
+  const add = el("button", null, WATCH_COPY.add);
   add.type = "submit";
   form.append(name, key, scriptType, bday, add);
   const hint = el("div", "watch-hint", watchHint(false));
 
-  card.append(el("h2", null, "Watch-only wallets"), list, form, hint, msg, warn);
+  card.append(el("h2", null, WATCH_COPY.heading), list, form, hint, msg, warn);
 
   const renderManager = (view) => {
     const access = editAccess(view);
@@ -221,7 +221,8 @@ if (typeof document !== "undefined") {
     try {
       const res = await fetch(`/api/watch/${encodeURIComponent(walletName)}`,
                              { method: "DELETE", headers: CSRF });
-      if (!res.ok) setMsg(await res.text(), true);
+      if (res.ok) setMsg(WATCH_COPY.removed);
+      else setMsg((await res.text()).trim() || WATCH_COPY.removeFailed, true);
     } catch { setMsg("Network error.", true); }
     refresh();
   }
@@ -241,11 +242,9 @@ if (typeof document !== "undefined") {
         name.value = key.value = bday.value = "";
         scriptType.value = "legacy";
         scriptType.disabled = true;
-        setMsg(last.pruned
-          ? "Added — scanning for confirmed funds. This may take a few minutes…"
-          : "Added — scanning the chain for its history…");
+        setMsg(WATCH_COPY.added);
       } else {
-        setMsg(await res.text(), true);
+        setMsg((await res.text()).trim() || WATCH_COPY.addFailed, true);
       }
     } catch { setMsg("Network error.", true); }
     add.disabled = !editingEnabled;
