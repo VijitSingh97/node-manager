@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/pbkdf2"
 	"crypto/rand"
 	"crypto/sha256"
@@ -52,10 +51,8 @@ func newDashboardAuth(stateDir, baseline string) (*dashboardAuth, error) {
 	if err != nil {
 		return nil, errors.New("dashboard password storage unavailable")
 	}
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	decoder.DisallowUnknownFields()
 	var saved savedDashboardAuth
-	if decoder.Decode(&saved) != nil || ensureJSONEnd(decoder) != nil || saved.Version != 1 || saved.Iterations != dashboardPasswordIterations || !lowerHex(saved.Salt, 32) || !lowerHex(saved.Hash, 64) {
+	if !decodeStrictBytes(b, &saved) || saved.Version != 1 || saved.Iterations != dashboardPasswordIterations || !lowerHex(saved.Salt, 32) || !lowerHex(saved.Hash, 64) {
 		return nil, errors.New("dashboard password storage unavailable")
 	}
 	auth.saved, auth.enabled, auth.hasCache = saved, true, false

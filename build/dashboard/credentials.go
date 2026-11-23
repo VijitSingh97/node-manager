@@ -1,9 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -79,9 +76,7 @@ func (a *app) credentialControlAvailable() bool {
 	var capability struct {
 		Timestamp int64 `json:"timestamp"`
 	}
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	decoder.DisallowUnknownFields()
-	return err == nil && decoder.Decode(&capability) == nil && ensureJSONEnd(decoder) == nil && capability.Timestamp > 0 && time.Since(time.Unix(capability.Timestamp, 0)) >= 0 && time.Since(time.Unix(capability.Timestamp, 0)) <= portControlCapabilityAge
+	return err == nil && decodeStrictBytes(b, &capability) && capability.Timestamp > 0 && time.Since(time.Unix(capability.Timestamp, 0)) >= 0 && time.Since(time.Unix(capability.Timestamp, 0)) <= portControlCapabilityAge
 }
 
 func (a *app) pendingCredentials() (*credentialStatus, bool) {
@@ -92,9 +87,7 @@ func (a *app) pendingCredentials() (*credentialStatus, bool) {
 		}
 		status := &credentialStatus{State: "pending", Message: "Checking password reset…"}
 		var request credentialRequest
-		decoder := json.NewDecoder(bytes.NewReader(b))
-		decoder.DisallowUnknownFields()
-		if err == nil && decoder.Decode(&request) == nil && ensureJSONEnd(decoder) == nil && validPortControlID(request.ID) && passwordNode(request.Node) && request.RequestedAt > 0 && request.RequestedAt <= time.Now().Unix()+30 && time.Now().Unix()-request.RequestedAt <= 900 {
+		if err == nil && decodeStrictBytes(b, &request) && validPortControlID(request.ID) && passwordNode(request.Node) && request.RequestedAt > 0 && request.RequestedAt <= time.Now().Unix()+30 && time.Now().Unix()-request.RequestedAt <= 900 {
 			status.ID, status.Node = request.ID, request.Node
 			status.Message = "Resetting " + nodeDisplayName(request.Node) + " RPC password…"
 			status.AffectedServices = credentialServices(request.Node)
@@ -112,9 +105,7 @@ func (a *app) credentialTransitioning(node string) bool {
 func (a *app) savedCredentialStatus() (credentialStatus, bool) {
 	b, err := readSmallFile(a.credentialPath("status"), 2048)
 	var saved credentialStatus
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	decoder.DisallowUnknownFields()
-	return saved, err == nil && decoder.Decode(&saved) == nil && ensureJSONEnd(decoder) == nil && validPortControlID(saved.ID) && passwordNode(saved.Node)
+	return saved, err == nil && decodeStrictBytes(b, &saved) && validPortControlID(saved.ID) && passwordNode(saved.Node)
 }
 
 func (a *app) controlRequestPending() bool {
@@ -228,12 +219,7 @@ func (a *app) apiCredentialsReset(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "wait for pending node changes to finish", http.StatusConflict)
 		return
 	}
-	id := make([]byte, 16)
-	if _, err := rand.Read(id); err != nil {
-		http.Error(w, "password reset unavailable", http.StatusServiceUnavailable)
-		return
-	}
-	request := credentialRequest{ID: hex.EncodeToString(id), Node: node, RequestedAt: time.Now().Unix()}
+	request := credentialRequest{ID: newRequestID(), Node: node, RequestedAt: time.Now().Unix()}
 	b, _ := json.Marshal(request)
 	if writePrivateFileAtomic(a.credentialPath("request"), append(b, '\n')) != nil {
 		http.Error(w, "password reset could not be saved", http.StatusServiceUnavailable)

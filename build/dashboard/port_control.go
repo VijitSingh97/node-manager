@@ -212,9 +212,7 @@ func (a *app) readPortControlStatus() *portControlStatus {
 		return nil
 	}
 	var status portControlStatus
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&status) != nil || ensureJSONEnd(decoder) != nil || !validPortControlID(status.ID) {
+	if !decodeStrictBytes(b, &status) || !validPortControlID(status.ID) {
 		return nil
 	}
 	if status.State != "applied" && status.State != "rejected" && status.State != "failed" {
@@ -361,12 +359,7 @@ func (a *app) apiPortControlPost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, errPortControlBusy.Error(), http.StatusConflict)
 		return
 	}
-	idBytes := make([]byte, 16)
-	if _, err := rand.Read(idBytes); err != nil {
-		http.Error(w, "port control unavailable", http.StatusServiceUnavailable)
-		return
-	}
-	request := portControlRequest{ID: hex.EncodeToString(idBytes), Changes: changes, RequestedAt: time.Now().Unix()}
+	request := portControlRequest{ID: newRequestID(), Changes: changes, RequestedAt: time.Now().Unix()}
 	b, err := json.Marshal(request)
 	if err != nil || writePrivateFileAtomic(a.portControlPath("request"), append(b, '\n')) != nil {
 		http.Error(w, "port control unavailable", http.StatusServiceUnavailable)
@@ -379,13 +372,11 @@ func (a *app) apiPortControlPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func validPortControlID(value string) bool {
-	if len(value) != 32 {
-		return false
-	}
-	for _, character := range value {
-		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
-			return false
-		}
-	}
-	return true
+	return lowerHex(value, 32)
+}
+
+func newRequestID() string {
+	raw := make([]byte, 16)
+	_, _ = rand.Read(raw)
+	return hex.EncodeToString(raw)
 }

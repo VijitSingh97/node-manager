@@ -173,7 +173,7 @@ func (s *familyWatchStore) loadImported() {
 		return
 	}
 	for _, id := range stored.Imported {
-		if validFamilyWatchID(id) {
+		if lowerHex(id, 24) {
 			s.imported[id] = true
 		}
 	}

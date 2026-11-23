@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 )
 
@@ -70,7 +69,7 @@ func (a *app) apiMoneroWatchRemove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	if !validMoneroWalletID(id) {
+	if !lowerHex(id, 24) {
 		http.Error(w, "no such wallet", http.StatusNotFound)
 		return
 	}
@@ -91,7 +90,7 @@ func (a *app) apiMoneroWatchKeyImages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	if !validMoneroWalletID(id) {
+	if !lowerHex(id, 24) {
 		http.Error(w, "no such wallet", http.StatusNotFound)
 		return
 	}
@@ -141,8 +140,4 @@ func decodeStrictJSON(w http.ResponseWriter, r *http.Request, limit int64, value
 		return false
 	}
 	return true
-}
-
-func validMoneroWalletID(id string) bool {
-	return len(id) == 24 && strings.Trim(id, "0123456789abcdef") == ""
 }
