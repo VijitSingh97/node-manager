@@ -351,7 +351,7 @@ func TestBitcoinCashIndexSeedsAPrunedNodeFromAChainstateCopy(t *testing.T) {
 	}{"with the host helper": {true, ""}, "from the command line": {false, seedModeChainstate}} {
 		rpc := &chainstateSeedRPC{best: want.BestBlock, height: uint32(want.Height), warmup: 2}
 		m, _ := newBitcoinCashSeedManager(t, tc.helper, rpc)
-		m.seedRequestedAs(t.Context(), newSeedRequestID(), tc.asked)
+		m.seedRequestedAs(t.Context(), newRequestID(), tc.asked)
 		if st := m.Status(); st.LastSeed == nil || st.LastSeed.Outcome != "ok" || st.State != utxoStateCatching {
 			t.Fatalf("%s: the seed ended as %+v, last %+v", name, st, st.LastSeed)
 		}
@@ -377,7 +377,7 @@ func TestBitcoinCashIndexSeedsAPrunedNodeFromAChainstateCopy(t *testing.T) {
 func TestBitcoinCashIndexWithoutTheHelperReplaysAndRefusesAPrunedNode(t *testing.T) {
 	rpc := &chainstateSeedRPC{best: loadBCHFixture(t).BestBlock, height: 117}
 	m, _ := newBitcoinCashSeedManager(t, false, rpc)
-	m.seedRequested(t.Context(), newSeedRequestID())
+	m.seedRequested(t.Context(), newRequestID())
 	st := m.Status()
 	if st.State != utxoStateNotSeeded || len(st.Refusals) == 0 || st.Refusals[0].Guard != "node" {
 		t.Fatalf("a pruned node was replayed or seeded: %+v", st)
@@ -414,7 +414,7 @@ func TestBitcoinCashFailedChainstateSeedDiscardsTheIndexAndCountsTowardsTheStop(
 func TestSeedRequestNamesItsModeAndRefusesOthers(t *testing.T) {
 	now := time.Now()
 	for mode, ok := range map[string]bool{"": true, seedModeChainstate: true, seedModeReplay: true, "dump": false, "Chainstate": false} {
-		raw, _ := json.Marshal(seedRequest{ID: newSeedRequestID(), RequestedAt: now.Unix(), Mode: mode})
+		raw, _ := json.Marshal(seedRequest{ID: newRequestID(), RequestedAt: now.Unix(), Mode: mode})
 		if _, refusal := validSeedRequest(raw, now); (refusal == nil) != ok {
 			t.Errorf("mode %q: refusal %+v", mode, refusal)
 		}

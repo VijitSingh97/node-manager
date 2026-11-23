@@ -166,7 +166,7 @@ func (s *familyWatchStore) load(seed familyWatchEntry) {
 		return
 	}
 	for id, balance := range cached.Balances {
-		if !validFamilyWatchID(id) || !validFamilyWatchBalance(balance, s.maxSupply) {
+		if !lowerHex(id, 24) || !validFamilyWatchBalance(balance, s.maxSupply) {
 			s.err = errFamilyWatchUnavailable
 			return
 		}

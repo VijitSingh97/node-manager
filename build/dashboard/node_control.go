@@ -2,8 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -366,9 +364,7 @@ func (a *app) pendingNodeControlStatus() (*nodeControlStatus, bool) {
 		b, err := readSmallFile(a.nodeControlPath(name), 4096)
 		if err == nil {
 			var request nodeControlRequest
-			decoder := json.NewDecoder(bytes.NewReader(b))
-			decoder.DisallowUnknownFields()
-			decoded := decoder.Decode(&request) == nil && ensureJSONEnd(decoder) == nil
+			decoded := decodeStrictBytes(b, &request)
 			configured, supported := a.nodeConfigured(request.Node)
 			now := time.Now().Unix()
 			valid := decoded && validPortControlID(request.ID) && normalizeNodeID(request.Node) != "" && configured && supported && request.RequestedAt > 0 && request.RequestedAt <= now+30 && now-request.RequestedAt <= int64(nodeControlRequestFreshFor/time.Second)
@@ -391,9 +387,7 @@ func (a *app) readNodeControlStatus() *nodeControlStatus {
 		return nil
 	}
 	var status nodeControlStatus
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&status) != nil || ensureJSONEnd(decoder) != nil || !validPortControlID(status.ID) || normalizeNodeID(status.Node) == "" {
+	if !decodeStrictBytes(b, &status) || !validPortControlID(status.ID) || normalizeNodeID(status.Node) == "" {
 		return nil
 	}
 	if status.State != "applied" && status.State != "rejected" && status.State != "failed" {
@@ -480,12 +474,7 @@ func (a *app) apiNodePower(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "node control request already pending", http.StatusConflict)
 		return
 	}
-	random := make([]byte, 16)
-	if _, err := rand.Read(random); err != nil {
-		http.Error(w, "node control unavailable", http.StatusServiceUnavailable)
-		return
-	}
-	request := nodeControlRequest{ID: hex.EncodeToString(random), Node: id, Active: *input.Active, Confirmation: input.Confirmation, RequestedAt: time.Now().Unix()}
+	request := nodeControlRequest{ID: newRequestID(), Node: id, Active: *input.Active, Confirmation: input.Confirmation, RequestedAt: time.Now().Unix()}
 	b, _ := json.Marshal(request)
 	if err := writePrivateFileAtomic(a.nodeControlPath("request"), append(b, '\n')); err != nil {
 		http.Error(w, "node control unavailable", http.StatusServiceUnavailable)

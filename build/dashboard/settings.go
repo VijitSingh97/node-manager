@@ -148,13 +148,8 @@ func loadNotificationSettings(path string, baseline notificationSettings) (notif
 		LowDiskGiB:           defaultLowDiskGiB,
 		DefaultCurrency:      defaultPriceCurrency,
 	}
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&settings); err != nil {
-		return notificationSettings{}, false, err
-	}
-	if err := ensureJSONEnd(decoder); err != nil {
-		return notificationSettings{}, false, err
+	if !decodeStrictBytes(b, &settings) {
+		return notificationSettings{}, false, errors.New("notification settings invalid")
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(b, &fields); err != nil {
@@ -240,13 +235,8 @@ func decodeSettingsUpdate(body io.Reader) (settingsUpdate, error) {
 	if err != nil {
 		return update, err
 	}
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&update); err != nil {
-		return update, err
-	}
-	if err := ensureJSONEnd(decoder); err != nil {
-		return update, err
+	if !decodeStrictBytes(b, &update) {
+		return update, errors.New("invalid notification settings")
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(b, &fields); err != nil {

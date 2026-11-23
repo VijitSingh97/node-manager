@@ -109,7 +109,7 @@ func (a *app) apiFamilyWatchRemove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	walletID := r.PathValue("id")
-	if !validFamilyWatchID(walletID) {
+	if !lowerHex(walletID, 24) {
 		http.Error(w, "no such address", http.StatusNotFound)
 		return
 	}

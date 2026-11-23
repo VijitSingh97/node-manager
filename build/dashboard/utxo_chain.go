@@ -64,7 +64,7 @@ var (
 	}
 )
 
-// utxoChains lists the chains besides Bitcoin that can keep a balance index, by node id.
+// Chains besides Bitcoin that can keep a balance index, by node id; the jq chain lists in scripts/node-control must match.
 var utxoChains = map[string]*utxoChainParams{nodeLitecoin: utxoLitecoin, nodeBitcoinCash: utxoBitcoinCash, nodeDogecoin: utxoDogecoin}
 
 func (c *utxoChainParams) dumpArgs(path string) []any {

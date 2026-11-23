@@ -228,7 +228,7 @@ func TestUtxoDogecoinChainstateSeedRegtestLive(t *testing.T) {
 	}
 	ctx := context.Background()
 	m.tick(ctx)
-	m.seedRequested(ctx, newSeedRequestID())
+	m.seedRequested(ctx, newRequestID())
 	if st := m.Status(); st.LastSeed == nil || st.LastSeed.Outcome != "ok" {
 		t.Fatalf("seed from the chainstate copy: %+v", st)
 	}

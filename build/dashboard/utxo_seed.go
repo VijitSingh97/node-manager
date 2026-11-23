@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -496,7 +494,7 @@ func (m *utxoManager) maybeAutoSeed(ctx context.Context) {
 		return
 	}
 	if replay {
-		id := newSeedRequestID()
+		id := newRequestID()
 		m.mu.Lock()
 		m.seed.AutoRequestID = id
 		m.mu.Unlock()
@@ -532,12 +530,6 @@ func (m *utxoManager) maybeAutoSeed(ctx context.Context) {
 	}
 	m.setWaiting(waitingFor(refusals))
 	m.markSeedRequest(m.lastSeedRequest(), utxoSeedRefused, refusals)
-}
-
-func newSeedRequestID() string {
-	raw := make([]byte, 16)
-	_, _ = rand.Read(raw)
-	return hex.EncodeToString(raw)
 }
 
 func (m *utxoManager) autoSeedBackedOffLocked(now time.Time) bool {
