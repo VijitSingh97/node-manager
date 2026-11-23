@@ -42,9 +42,23 @@ refresh_dashboard_id() {
 }
 dashboard_exec() { [ -n "$dashboard_id" ] && "$docker_bin" exec -u 1000 "$dashboard_id" "$@"; }
 write_status() {
-  jq -nc --arg id "$1" --arg node "$2" --argjson active "$3" --arg state "$4" --arg message "$5" --arg error_code "${6:-}" \
-    '{id:$id,node:$node,active:$active,state:$state,message:$message} | if $error_code=="" then . else .error_code=$error_code end' |
+  jq -nc --arg id "$1" --arg node "$2" --argjson active "$3" --arg state "$4" --arg message "$5" --arg error_code "${6:-}" --arg detail "${7:-}" \
+    '{id:$id,node:$node,active:$active,state:$state,message:$message} | if $error_code=="" then . else .error_code=$error_code end | if $detail=="" then . else .detail=$detail end' |
     $docker_bin exec -i -u 1000 "$dashboard_id" sh -c 'umask 077; cat > /state/.node-control.status.tmp; mv /state/.node-control.status.tmp /state/node-control.status' >/dev/null
+}
+error_detail() {
+  awk -v fallback="" '
+    { gsub(/[[:cntrl:]]\[[0-9;]*[A-Za-z]/, ""); gsub(/[[:cntrl:]]/, ""); if ($0 ~ /[^[:space:]]/) last = $0 }
+    END {
+      lower = tolower(last)
+      if (lower ~ /passw|secret|token|auth|login|cookie|phrase|seed|mnemonic|private|prv|pub[0-9a-z]|api.?key|bearer|onion|:\/\/[^\/ ]*@/) last = ""
+      n = split(last, words, /[^A-Za-z0-9+=_-]+/)
+      for (i = 1; i <= n; i++) if (length(words[i]) >= 40) last = ""
+      print (last == "" ? fallback : substr(last, 1, 240))
+    }' "$1" 2>/dev/null || true
+}
+node_label() {
+  case "$1" in (bitcoincash) printf '%s\n' "Bitcoin Cash" ;; (*) printf '%s%s\n' "$(printf '%s' "$1" | cut -c1 | tr '[:lower:]' '[:upper:]')" "$(printf '%s' "$1" | cut -c2-)" ;; esac
 }
 host_event() {
   printf '%sZ Host: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%S)" "$1" |
@@ -1215,17 +1229,9 @@ if [ "$host_request" = true ]; then
       host_cleanup_transaction=$install_transaction
       host_finish applied "Node installed." "$host_node"
     fi
-    install_detail=$(awk -v fallback="" '
-      { gsub(/[[:cntrl:]]\[[0-9;]*[A-Za-z]/, ""); gsub(/[[:cntrl:]]/, ""); if ($0 ~ /[^[:space:]]/) last = $0 }
-      END {
-        lower = tolower(last)
-        if (lower ~ /passw|secret|token|auth|login|cookie|phrase|seed|mnemonic|private|prv|pub[0-9a-z]|api.?key|bearer|onion|:\/\/[^\/ ]*@/) last = ""
-        n = split(last, words, /[^A-Za-z0-9+=_-]+/)
-        for (i = 1; i <= n; i++) if (length(words[i]) >= 40) last = ""
-        print (last == "" ? fallback : substr(last, 1, 240))
-      }' "$install_errors" 2>/dev/null || true)
+    install_detail=$(error_detail "$install_errors")
     rm -f "$install_errors"
-    case "$host_node" in (bitcoincash) host_label="Bitcoin Cash" ;; (*) host_label="$(printf '%s' "$host_node" | cut -c1 | tr '[:lower:]' '[:upper:]')$(printf '%s' "$host_node" | cut -c2-)" ;; esac
+    host_label=$(node_label "$host_node")
     host_event "$host_label install failed${install_detail:+: $install_detail}"
     restore_install_transaction ||
       host_finish failed "Node installation failed and prior configuration could not be fully restored." "$host_node" "" rollback_failed "" "$install_detail"
@@ -1655,8 +1661,16 @@ restore_services() {
     "$stack_root/stack" stop $(delete_service_names "$node") >/dev/null 2>&1
   fi
 }
+node_errors=
 rollback() {
   attempted_services=$1
+  rollback_code=${2:-apply_failed}
+  rollback_detail=
+  if [ -n "$node_errors" ]; then
+    rollback_detail=$(error_detail "$node_errors")
+    rm -f "$node_errors"
+    host_event "$(node_label "$node") activation failed${rollback_detail:+: $rollback_detail}"
+  fi
   rollback_failed=0
   mv "$backup" "$config_file" || rollback_failed=1
   if ! BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root" BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/configure.sh" >/dev/null 2>&1; then
@@ -1669,9 +1683,11 @@ rollback() {
   fi
   publish_heartbeat || true
   if [ "$rollback_failed" = 1 ]; then
-    write_status "$id" "$node" "$active" failed "Node state failed and its prior state could not be fully restored." rollback_failed
+    write_status "$id" "$node" "$active" failed "Node state failed and its prior state could not be fully restored." rollback_failed "$rollback_detail"
+  elif [ "$rollback_code" = image_unavailable ]; then
+    write_status "$id" "$node" "$active" failed "Node image could not be downloaded; prior state restored." image_unavailable "$rollback_detail"
   else
-    write_status "$id" "$node" "$active" failed "Node state could not be applied; prior state restored." apply_failed
+    write_status "$id" "$node" "$active" failed "Node state could not be applied; prior state restored." apply_failed "$rollback_detail"
   fi
   remember_seen
   clear_request
@@ -1692,10 +1708,16 @@ fi
 # stack up starts from the approved config, so approve an activation before it runs.
 if [ "$action" = up ]; then
   approve_config || rollback 0
+  node_errors=$(mktemp "$state_root/node-control/.activate-errors.XXXXXX")
+  BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root" \
+    BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" pull --policy missing "$@" >/dev/null 2>"$node_errors" || rollback 0 image_unavailable
+  : >"$node_errors"
 fi
-if ! BITCOIN_STACK_HELPER_START=1 BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" $action "$@" >/dev/null 2>&1; then
+if ! BITCOIN_STACK_HELPER_START=1 BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" $action "$@" >/dev/null 2>>"${node_errors:-/dev/null}"; then
   rollback 1
 fi
+[ -z "$node_errors" ] || rm -f "$node_errors"
+node_errors=
 if ! runtime=$(jq -c '
   . as $c |
   [("bitcoin","monero","tari","litecoin","dogecoin","bitcoincash","zcash") as $n |

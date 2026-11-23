@@ -55,6 +55,7 @@ type nodeControlStatus struct {
 	State     string `json:"state"`
 	Message   string `json:"message,omitempty"`
 	ErrorCode string `json:"error_code,omitempty"`
+	Detail    string `json:"detail,omitempty"`
 }
 
 func (a *app) nodeControlPath(name string) string {
@@ -414,6 +415,10 @@ func (a *app) readNodeControlStatus() *nodeControlStatus {
 	} else {
 		status.ErrorCode = ""
 	}
+	if detail := hostStatusDetail(hostControlStatus{State: status.State, Detail: status.Detail}); detail != "" {
+		status.Message += " " + detail
+	}
+	status.Detail = ""
 	return &status
 }
 
@@ -423,6 +428,7 @@ var nodeControlReasons = map[string]string{
 	"unchanged":           "was not changed: it is already in that state.",
 	"validation_failed":   "was not changed: its settings did not pass validation.",
 	"replayed":            "was not changed: that request was already processed.",
+	"image_unavailable":   "was not changed: its image could not be downloaded. Check the host's internet connection, then try again.",
 	"apply_failed":        "could not be changed; the prior state was restored.",
 	"rollback_failed":     "could not be changed and its prior state could not be fully restored. Check the node.",
 }

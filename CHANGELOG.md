@@ -14,6 +14,13 @@ All notable changes to this project are documented here. Format follows
   agents, and the repository has the same `llms.txt` at its root. The page is
   published with the APT feed, so it goes live with the next release (#443).
 
+### Fixed
+
+- Activating a node that was inactive during a package upgrade now downloads its
+  missing image first instead of failing with no explanation. A failed
+  activation keeps its reason, including the last error line, in the node panel
+  and the event log until the node reaches the requested state.
+
 ## [1.40.2] - 2026-11-22
 
 ### Fixed

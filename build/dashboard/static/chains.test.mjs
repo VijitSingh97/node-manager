@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {powerView,powerBadge,powerRequest,controlView,chainFeesView,nodeBecameActive,setNodeActive,nodePollDelay,nodeRefreshable} from './chains.js';
+import {powerView,powerBadge,powerRequest,controlView,chainFeesView,nodeBecameActive,setNodeActive,nodePollDelay,nodeRefreshable,powerResultMessage} from './chains.js';
 import {genericNodeView,normalizeNode} from './nodes.js';
 import {overviewLayout,previewDepth,GRID} from './tower.js';
 
@@ -145,4 +145,17 @@ test('restarting nodes are not probed by the page',()=>{
   assert.equal(nodeRefreshable('bitcoin',active),false);
   assert.equal(nodeRefreshable('monero',active),false);
   assert.equal(nodeRefreshable('litecoin',undefined),false);
+});
+test('a failed request stays visible only while the node is not in the requested state',()=>{
+  const base={id:'a'.repeat(32),node:'litecoin',active:true,message:'Litecoin was not changed: its image could not be downloaded.'};
+  const off={...active,active:false};
+  assert.equal(powerResultMessage({...base,state:'failed'},off),base.message);
+  assert.equal(powerResultMessage({...base,state:'rejected'},off),'');
+  assert.equal(powerResultMessage({...base,state:'failed'},{...active,stopped:true}),'');
+  assert.equal(powerResultMessage({...base,state:'failed'},active),'');
+  assert.equal(powerResultMessage({...base,state:'applied'},off),'');
+  assert.equal(powerResultMessage({...base,state:'pending'},off),'');
+  assert.equal(powerResultMessage({...base,state:'failed',message:''},off),'');
+  assert.equal(powerResultMessage({...base,state:'failed',active:false},off),'');
+  assert.equal(powerResultMessage(null,off),'');
 });

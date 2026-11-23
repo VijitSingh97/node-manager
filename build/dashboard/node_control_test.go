@@ -170,6 +170,48 @@ func TestNodeControlStatusUsesDashboardWordingForKnownCode(t *testing.T) {
 	}
 }
 
+func TestNodeControlStatusShowsSanitizedDetailOnlyForFailures(t *testing.T) {
+	dir := t.TempDir()
+	a := &app{cfg: config{stateDir: dir, nodes: map[string]nodeConfig{nodeLitecoin: {ID: nodeLitecoin, Enabled: true, Supported: true}}}}
+	read := func(state, code, detail string) *nodeControlStatus {
+		t.Helper()
+		body, _ := json.Marshal(map[string]any{"id": "11111111111111111111111111111111", "node": "litecoin", "active": true, "state": state, "message": "private", "error_code": code, "detail": detail})
+		if err := os.WriteFile(a.nodeControlPath("status"), body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return a.readNodeControlStatus()
+	}
+	reason := "Litecoin was not changed: its image could not be downloaded. Check the host's internet connection, then try again."
+	if got := read("failed", "image_unavailable", "Error response from daemon: manifest unknown"); got == nil || got.Message != reason+" Error response from daemon: manifest unknown" || got.ErrorCode != "image_unavailable" || got.Detail != "" {
+		t.Fatalf("status = %#v", got)
+	}
+	if got := read("rejected", "unchanged", "kept"); got == nil || !strings.HasSuffix(got.Message, " kept") {
+		t.Fatalf("status = %#v", got)
+	}
+	if got := read("applied", "", "stale detail"); got == nil || got.Message != "Litecoin activated." {
+		t.Fatalf("status = %#v", got)
+	}
+	if got := read("failed", "image_unavailable", ""); got == nil || got.Message != reason {
+		t.Fatalf("status = %#v", got)
+	}
+	got := read("failed", "apply_failed", "bad\x1b[31m\nline\u0007"+strings.Repeat("x", 400))
+	if got == nil || strings.ContainsAny(got.Message, "\x1b\n\a") || len([]rune(got.Message)) > len("Litecoin could not be changed; the prior state was restored. ")+240 {
+		t.Fatalf("status = %#v", got)
+	}
+}
+
+func TestNodeControlStatusStillRejectsUnknownFields(t *testing.T) {
+	dir := t.TempDir()
+	a := &app{cfg: config{stateDir: dir, nodes: map[string]nodeConfig{nodeLitecoin: {ID: nodeLitecoin, Enabled: true, Supported: true}}}}
+	status := `{"id":"11111111111111111111111111111111","node":"litecoin","active":true,"state":"failed","error_code":"image_unavailable","detail":"x","extra":true}`
+	if err := os.WriteFile(a.nodeControlPath("status"), []byte(status), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.readNodeControlStatus(); got != nil {
+		t.Fatalf("status = %#v", got)
+	}
+}
+
 func TestNodesReportsMalformedPrivateRequestAsPendingWithoutExposingIt(t *testing.T) {
 	dir := t.TempDir()
 	a := &app{cfg: config{bitcoinDisabled: true, dashboardPassword: "secret", stateDir: dir, nodes: map[string]nodeConfig{nodeDogecoin: {ID: nodeDogecoin, Enabled: true, Supported: true}}}}
