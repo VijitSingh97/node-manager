@@ -1,4 +1,4 @@
-import { dashboardFetch as fetch } from "./session.js";
+import { dashboardFetch as fetch, jsonRequest } from "./session.js";
 
 const paths = { health: "/actuator/health", info: "/actuator/info" };
 const unsafe = /[\u0000-\u001f\u007f-\u009f]/;
@@ -97,17 +97,12 @@ export function actuatorCurlController(root = document) {
     submit.disabled = true;
     error.textContent = "Checking password…";
     try {
-      const response = await fetch("/api/settings/actuator-curl", {
+      const { username } = await jsonRequest(fetch, "/api/settings/actuator-curl", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
-        body: JSON.stringify({ endpoint: name, password: password.value }),
+        payload: { endpoint: name, password: password.value },
+        failure: "Could not check the password.",
       });
       if (current !== generation) return;
-      if (!response.ok) {
-        const text = (await response.text()).trim();
-        throw new Error(text.length <= 200 ? text : "Could not check the password.");
-      }
-      const { username } = await response.json();
       const command = curlCommand(name, location.origin, username, password.value);
       if (await copyText(command, { exec: execCopy(dialog) })) {
         flash(name, "Copied");

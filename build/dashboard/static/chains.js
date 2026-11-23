@@ -1,5 +1,5 @@
 import { NODE_IDS, genericNodeView, updateTowerProgress } from "./nodes.js";
-import { dashboardFetch as fetch } from "./session.js";
+import { CSRF_HEADERS, dashboardFetch as fetch } from "./session.js";
 import { liveBlockElement, nodeUnreachable } from "./tower.js";
 
 export const NODE_LABELS = {
@@ -170,7 +170,7 @@ if (typeof document !== "undefined") {
     const node=state.get(id);
     if(!nodeRefreshable(id,node)) return;
     try {
-      const response=await fetch(`/api/${id}`,{headers:{"X-Requested-With":"fetch"}});
+      const response=await fetch(`/api/${id}`,{headers:CSRF_HEADERS});
       const data=await response.json();
       if(!response.ok && !data?.enabled) throw new Error("unavailable");
       renderNode(id,data);
@@ -195,7 +195,7 @@ if (typeof document !== "undefined") {
   const loadNodes=async()=>{
     clearTimeout(poll);
     try {
-      const response=await fetch("/api/nodes",{headers:{"X-Requested-With":"fetch"}});
+      const response=await fetch("/api/nodes",{headers:CSRF_HEADERS});
       if(!response.ok) throw new Error("unavailable");
       const payload=await response.json();
       control=controlView(payload);
@@ -260,7 +260,7 @@ if (typeof document !== "undefined") {
     try {body=powerRequest(node,input.value);} catch(error) {setText("node-power-error",error.message);return;}
     busy=true; updateSubmit(); updateButtons();
     try {
-      const response=await fetch(`/api/nodes/${selected}/power`,{method:"POST",headers:{"Content-Type":"application/json","X-Requested-With":"fetch"},body:JSON.stringify(body)});
+      const response=await fetch(`/api/nodes/${selected}/power`,{method:"POST",headers:{"Content-Type":"application/json",...CSRF_HEADERS},body:JSON.stringify(body)});
       if(!response.ok) throw new Error((await response.text()).trim().slice(0,200) || "The node state could not be changed.");
       const result=await response.json();
       if(!/^[0-9a-f]{32}$/.test(result?.id || "")) throw new Error("The node state request could not be confirmed.");

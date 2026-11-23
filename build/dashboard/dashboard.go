@@ -88,6 +88,7 @@ type pageData struct {
 	StateLine            string
 	LastBlock            string
 	BitcoinRPCEndpoint   string
+	Chains               []chainView
 }
 
 type app struct {
@@ -346,6 +347,7 @@ func (a *app) loadingPageData() pageData {
 }
 
 func (a *app) render(w http.ResponseWriter, data pageData) {
+	data.Chains = dashboardChains
 	data.NodeName = a.monitor.nodeName
 	data.Command = a.commandName()
 	data.PasswordEnabled = a.hasDashboardPassword()

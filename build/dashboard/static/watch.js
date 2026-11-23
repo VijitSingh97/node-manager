@@ -1,8 +1,7 @@
-import { dashboardFetch as fetch } from "./session.js";
+import { CSRF_HEADERS, dashboardFetch as fetch } from "./session.js";
 import { WATCH_COPY, formatAmount, joinNote, scanNote as scannedAt } from "./wallet-format.js";
 import { el, managerRow, renderWalletList, replaceIfChanged } from "./wallet-ui.js";
 
-const CSRF = { "X-Requested-With": "fetch" }; // blocks cross-site form posts
 const POLL_MS = 15000;
 const GENESIS_ADDRESS = "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa";
 
@@ -196,7 +195,7 @@ if (typeof document !== "undefined") {
 
   async function refresh() {
     try {
-      const res = await fetch("/api/watch", { headers: CSRF });
+      const res = await fetch("/api/watch", { headers: CSRF_HEADERS });
       if (res.ok) {
         render(await res.json());
         if (loadFailed) setMsg("");
@@ -220,7 +219,7 @@ if (typeof document !== "undefined") {
     setMsg("");
     try {
       const res = await fetch(`/api/watch/${encodeURIComponent(walletName)}`,
-                             { method: "DELETE", headers: CSRF });
+                             { method: "DELETE", headers: CSRF_HEADERS });
       if (res.ok) setMsg(WATCH_COPY.removed);
       else setMsg((await res.text()).trim() || WATCH_COPY.removeFailed, true);
     } catch { setMsg("Network error.", true); }
@@ -235,7 +234,7 @@ if (typeof document !== "undefined") {
     try {
       const res = await fetch("/api/watch", {
         method: "POST",
-        headers: { ...CSRF, "Content-Type": "application/json" },
+        headers: { ...CSRF_HEADERS, "Content-Type": "application/json" },
         body: JSON.stringify(walletPost(name.value, key.value, scriptType.value, bday.value, last.wallets)),
       });
       if (res.ok) {

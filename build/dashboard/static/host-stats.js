@@ -1,18 +1,10 @@
 import { formatBytes, formatCompactBytes, formatUptime } from "./nodes.js";
 import { NODE_LABELS } from "./chains.js";
+import { NODE_COLORS as CHAIN_COLORS } from "./tower.js";
 
 export const OTHER_COLOR = "#6e6e6e";
 
-export const NODE_COLORS = {
-  stack: "#2a9d8f",
-  bitcoin: "#f2a900",
-  monero: "#ff6600",
-  tari: "#8f5cff",
-  litecoin: "#4d8fd8",
-  dogecoin: "#b88746",
-  bitcoincash: "#36a852",
-  zcash: "#d69c35",
-};
+export const NODE_COLORS = { stack: "#2a9d8f", ...CHAIN_COLORS };
 
 function sliceLabel(id) {
   if (id === "stack") return "Node Manager itself";
