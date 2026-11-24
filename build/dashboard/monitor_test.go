@@ -1548,7 +1548,7 @@ func TestRunConfiguredNodesForwardsHostEvents(t *testing.T) {
 		return response(http.StatusOK, `{"ok":true}`), nil
 	})
 	m.tickEvery = time.Millisecond
-	line := "2026-11-10T20:01:00Z Host: thermal throttle at 91C — capped monero at 2.00 CPUs\n"
+	line := time.Now().UTC().Format(time.RFC3339) + " Host: thermal throttle at 91C — capped monero at 2.00 CPUs\n"
 	if err := os.WriteFile(m.eventsLog, []byte(line), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -1584,6 +1584,7 @@ func TestForwardHostEventsTelegramsNewHostLinesOnce(t *testing.T) {
 		messages = append(messages, payload.Text)
 		return response(http.StatusOK, `{"ok":true}`), nil
 	})
+	m.now = func() time.Time { return time.Date(2026, 11, 10, 20, 5, 0, 0, time.UTC) }
 
 	m.forwardHostEvents(t.Context())
 	append2 := func(line string) {
@@ -1604,9 +1605,9 @@ func TestForwardHostEventsTelegramsNewHostLinesOnce(t *testing.T) {
 	m.forwardHostEvents(t.Context())
 
 	want := []string{
-		"[alice] 🌡 thermal throttle at 91C — capped monero at 2.00 CPUs",
-		"[alice] 🌡 thermal throttle released at 75C — restored monero",
-		"[alice] 🔴 Zcash is not coming up: it kept failing to start for 11 minutes, so it was stopped. Last error: lacks adx",
+		"[alice] 🌡 thermal throttle at 91C — capped monero at 2.00 CPUs\n" +
+			"🌡 thermal throttle released at 75C — restored monero\n" +
+			"🔴 Zcash is not coming up: it kept failing to start for 11 minutes, so it was stopped. Last error: lacks adx",
 	}
 	if strings.Join(messages, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("messages:\n%s\nwant:\n%s", strings.Join(messages, "\n"), strings.Join(want, "\n"))
@@ -1619,12 +1620,12 @@ func TestForwardHostEventsTelegramsNewHostLinesOnce(t *testing.T) {
 
 	append2("2026-11-10T20:03:00Z Host: thermal throttle at 92C — capped bitcoin at 0.25 CPUs")
 	m.forwardHostEvents(t.Context())
-	if len(messages) != 3 {
+	if len(messages) != 1 {
 		t.Fatalf("partial line without newline was forwarded: %v", messages)
 	}
 	append2("\n")
 	m.forwardHostEvents(t.Context())
-	if len(messages) != 4 || !strings.Contains(messages[3], "capped bitcoin at 0.25 CPUs") {
+	if len(messages) != 2 || !strings.Contains(messages[1], "capped bitcoin at 0.25 CPUs") {
 		t.Fatalf("completed line was not forwarded: %v", messages)
 	}
 }
@@ -1645,6 +1646,7 @@ func TestForwardHostEventsRetriesFailedSends(t *testing.T) {
 		messages = append(messages, payload.Text)
 		return response(http.StatusOK, `{"ok":true}`), nil
 	})
+	m.now = func() time.Time { return time.Date(2026, 11, 10, 21, 5, 0, 0, time.UTC) }
 	m.forwardHostEvents(t.Context())
 	if err := os.WriteFile(m.eventsLog, []byte("2026-11-10T21:00:00Z Host: thermal throttle at 95C — capped monero at 1.00 CPUs\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -1678,10 +1680,102 @@ func TestForwardHostEventsSurvivesLogRotation(t *testing.T) {
 	if err := os.WriteFile(m.eventsLog, []byte(filler+hostLine), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	m.now = func() time.Time { return time.Date(2026, 11, 10, 21, 5, 0, 0, time.UTC) }
 	m.hostEventsOffset = int64(len(filler))
 	m.logEvent("trigger rotation")
 	m.forwardHostEvents(t.Context())
 	if len(messages) != 1 || !strings.Contains(messages[0], "capped bitcoin at 0.50 CPUs") {
 		t.Fatalf("host line lost or duplicated across rotation: %v", messages)
+	}
+}
+
+func TestForwardHostEventsSkipsOldEventsAndBatchesNewOnes(t *testing.T) {
+	var messages []string
+	m := configuredMonitor(t, func(r *http.Request) (*http.Response, error) {
+		var payload struct {
+			Text string `json:"text"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		messages = append(messages, payload.Text)
+		return response(http.StatusOK, `{"ok":true}`), nil
+	})
+	now := time.Date(2026, 11, 24, 3, 0, 0, 0, time.UTC)
+	m.now = func() time.Time { return now }
+	m.hostEventsOffset = 0
+	var log strings.Builder
+	for i := range 3 {
+		fmt.Fprintf(&log, "%s Host: thermal throttle at 90C — capped old%d at 0.50 CPUs\n", now.Add(-7*time.Hour).Format(time.RFC3339), i)
+	}
+	log.WriteString("not-a-time Host: thermal throttle at 90C — capped undated at 0.50 CPUs\n")
+	for i := range 25 {
+		fmt.Fprintf(&log, "%s Host: thermal throttle at 90C — capped new%d at 0.50 CPUs\n", now.Add(-time.Minute).Format(time.RFC3339), i)
+	}
+	if err := os.WriteFile(m.eventsLog, []byte(log.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m.forwardHostEvents(t.Context())
+	m.forwardHostEvents(t.Context())
+	if len(messages) != 1 {
+		t.Fatalf("want one batched message, got %d: %v", len(messages), messages)
+	}
+	got := messages[0]
+	if strings.Contains(got, "old") || strings.Contains(got, "undated") {
+		t.Fatalf("an old or undated host event was sent: %q", got)
+	}
+	if !strings.Contains(got, "capped new0 ") || !strings.Contains(got, "capped new19 ") || strings.Contains(got, "capped new20 ") || !strings.HasSuffix(got, "… and 5 more host events") {
+		t.Fatalf("batch not capped at 20 events: %q", got)
+	}
+	logged, err := os.ReadFile(m.eventsLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := strings.TrimSuffix(string(logged), "\n")
+	last = last[strings.LastIndexByte(last, '\n')+1:]
+	if !strings.Contains(last, "capped new0 at 0.50 CPUs | 🌡 thermal throttle") {
+		t.Fatalf("batched alert was not logged as one line: %q", last)
+	}
+}
+
+func TestForwardHostEventsRetriesPastOldCutoffAndCapsMessageSize(t *testing.T) {
+	var messages []string
+	failing := true
+	m := configuredMonitor(t, func(r *http.Request) (*http.Response, error) {
+		if failing {
+			return response(http.StatusInternalServerError, `{}`), nil
+		}
+		var payload struct {
+			Text string `json:"text"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		messages = append(messages, payload.Text)
+		return response(http.StatusOK, `{"ok":true}`), nil
+	})
+	at := time.Date(2026, 11, 24, 3, 0, 0, 0, time.UTC)
+	now := at.Add(time.Minute)
+	m.now = func() time.Time { return now }
+	m.hostEventsOffset = 0
+	var log strings.Builder
+	for i := range 20 {
+		fmt.Fprintf(&log, "%s Host: node%d is not coming up. Last error: %s\n", at.Format(time.RFC3339), i, strings.Repeat("x", 300))
+	}
+	if err := os.WriteFile(m.eventsLog, []byte(log.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m.forwardHostEvents(t.Context())
+	now = at.Add(2 * time.Hour)
+	m.forwardHostEvents(t.Context())
+	failing = false
+	m.forwardHostEvents(t.Context())
+	m.forwardHostEvents(t.Context())
+	if len(messages) != 1 {
+		t.Fatalf("want one retried message after a long failure, got %d", len(messages))
+	}
+	got := messages[0]
+	if len([]rune(got)) > 4000 || !strings.Contains(got, "node0 ") || !strings.Contains(got, "more host events") {
+		t.Fatalf("message not size-capped (%d runes): %.200q", len([]rune(got)), got)
 	}
 }

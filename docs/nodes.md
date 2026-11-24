@@ -179,7 +179,8 @@ Monero ZMQ and Tari gRPC have no password controls.
 
 Global Settings also contains launch at boot/login, Thermal throttle,
 Appearance, Telegram, and Healthchecks. The Dashboard password is in the User
-dialog (person icon). Launch at boot/login is managed by APT
+dialog (person icon), and the three-line Events button lists the
+[event log](operations.md#event-log). Launch at boot/login is managed by APT
 and Homebrew installations; source installs show it as unavailable. Turning it
 off does not stop running nodes; it controls future starts. The read-only
 **Config** section immediately below Healthchecks shows the exact host
