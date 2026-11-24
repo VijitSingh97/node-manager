@@ -141,8 +141,8 @@ func TestEventsAPIHidesSecretsFromHelperLines(t *testing.T) {
 		"rpcpassword=hunter2",
 		"xpub6CUGRUonZSQ4TWtTMmzXdrXDtyPWKiKbERr4d5qkSmh5h17C1TjvMt7DJ9Qve4dRxm91CDv6cNfKsq2mK1rMsJKhtRUPZz7MQtp3y6atC1U",
 		"vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyyd.onion",
-		"telegram token abc",
 		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"telegram token abc",
 	}
 	lines := []string{"2026-11-20T10:00:00Z Host: Bitcoin is not coming up: it kept failing to start for 10 minutes, so it was stopped. Last error: " + secrets[0]}
 	for _, secret := range secrets[1:] {
@@ -192,7 +192,7 @@ func TestEventsAPIWithoutALogIsEmpty(t *testing.T) {
 
 func TestDashboardActionsWriteEvents(t *testing.T) {
 	a, handler := testApp(t, &rpcFixture{}, "")
-	req := httptest.NewRequest(http.MethodPost, "/api/settings?scope=global", strings.NewReader(`{"alert_low_disk":false,"low_disk_gib":20,"telegram_bot_token":"123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw2","telegram_enabled":true,"telegram_chat_id":"42"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/settings?scope=global", strings.NewReader(`{"alert_low_disk":false,"low_disk_gib":20,"telegram_bot_token":"123456789:events-flow-token","telegram_enabled":true,"telegram_chat_id":"42"}`))
 	req.SetBasicAuth("admin", "dashboard-secret")
 	req.Header.Set("X-Requested-With", "fetch")
 	req.Header.Set("Content-Type", "application/json")
@@ -207,7 +207,7 @@ func TestDashboardActionsWriteEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(log), "AAHdqTcv") || strings.Contains(string(log), " 42") {
+	if strings.Contains(string(log), "events-flow-token") || strings.Contains(string(log), " 42") {
 		t.Fatalf("event log holds a settings value: %s", log)
 	}
 	_, page := eventsRequest(t, handler, "")
