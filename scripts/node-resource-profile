@@ -322,12 +322,11 @@ apply_profile() {
   echo "resource-profile: capped synced $service at ${steady_cpus} CPU and ${memory_limit_mb} MiB memory"
 }
 
-host_event() {
+resource_event() {
   echo "resource-profile: $1"
-  dashboard=$(container_id dashboard)
-  [ -n "$dashboard" ] || return 1
-  printf '%sZ Host: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%S)" "$1" |
-    "$docker_bin" exec -i -u 1000 "$dashboard" sh -c 'cat >> /state/events.log' 2>/dev/null
+  dashboard_id=$(container_id dashboard)
+  [ -n "$dashboard_id" ] || return 1
+  host_event "$1"
 }
 
 thermal_zones() {
@@ -390,7 +389,7 @@ thermal_check() {
       fi
       cpus_value=$(awk -v n="$new_nanos" 'BEGIN { printf "%.2f", n / 1000000000 }')
       "$docker_bin" update --cpus "$cpus_value" "$id" >/dev/null 2>&1 || continue
-      host_event "thermal throttle at ${temp}C — capped $service at ${cpus_value} CPUs" || true
+      resource_event "thermal throttle at ${temp}C — capped $service at ${cpus_value} CPUs" || true
     done
   elif [ "$temp" -le "$resume" ] && [ -d "$throttle_dir" ]; then
     thermal_restore "cooled to ${temp}C"
@@ -420,15 +419,8 @@ thermal_restore() {
     restored=$(current_limits "$id") || continue
     [ "${restored%% *}" = "$orig_nanos" ] || continue
     rm -f "$file" "$profile_state/$service"
-    host_event "thermal throttle released ($1) — restored $service" || true
+    resource_event "thermal throttle released ($1) — restored $service" || true
   done
-}
-
-node_label() {
-  case "$1" in
-    (bitcoincash) echo "Bitcoin Cash" ;;
-    (*) printf '%s%s\n' "$(printf '%s' "$1" | cut -c1 | tr '[:lower:]' '[:upper:]')" "$(printf '%s' "$1" | cut -c2-)" ;;
-  esac
 }
 
 failure_reason() {
@@ -466,7 +458,7 @@ EOF
       continue
     fi
     if [ -n "$stopped_id" ]; then
-      if [ "$stopped_alerted" != 1 ] && host_event "$stopped_message" >&2; then
+      if [ "$stopped_alerted" != 1 ] && resource_event "$stopped_message" >&2; then
         printf '%s\t%s\t1\t%s\t%s\n' "$id" "$started" "$stopped_reason" "$stopped_message" >"$record"
       fi
       printf '%s\t%s\n' "$service" "$stopped_reason"
@@ -499,7 +491,7 @@ EOF
       message="$(node_label "$service") is not coming up: it kept failing to start for $(((current_time - seen_at) / 60)) minutes, so it was stopped. Last error: $reason"
     fi
     alerted=0
-    host_event "$message" >&2 && alerted=1
+    resource_event "$message" >&2 && alerted=1
     printf '%s\t%s\t%s\t%s\t%s\n' "$id" "$started" "$alerted" "$reason" "$message" >"$record"
     printf '%s\t%s\n' "$service" "$reason"
   done)

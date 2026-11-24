@@ -1,5 +1,5 @@
 # shellcheck shell=sh disable=SC2154
-# Sourced by node-control, node-port-control and node-resource-profile; needs docker_bin, project_name, stack_root, state_root and config_root from the caller.
+# Sourced by node-control, node-port-control and node-resource-profile; needs docker_bin, project_name, stack_root, state_root and config_root from the caller, plus ip_bin, ifconfig_bin and host_os for host_addresses and dashboard_id for host_event.
 
 container_id() {
   "$docker_bin" ps -aq \
@@ -51,4 +51,25 @@ redact_last_line() {
       for (i = 1; i <= n; i++) if (length(words[i]) >= 40) last = ""
       print (last == "" ? fallback : substr(last, 1, 240))
     }' "$@" 2>/dev/null || true
+}
+
+node_label() {
+  case "$1" in (bitcoincash) printf '%s\n' "Bitcoin Cash" ;; (*) printf '%s%s\n' "$(printf '%s' "$1" | cut -c1 | tr '[:lower:]' '[:upper:]')" "$(printf '%s' "$1" | cut -c2-)" ;; esac
+}
+
+host_event() {
+  printf '%sZ Host: %s\n' "${2:-$(date -u +%Y-%m-%dT%H:%M:%S)}" "$1" |
+    "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c 'cat >> /state/events.log' >/dev/null 2>&1
+}
+
+host_addresses() {
+  case "$host_os" in
+    Darwin) "$ifconfig_bin" -a 2>/dev/null ;;
+    *) "$ip_bin" -o -4 addr show 2>/dev/null ;;
+  esac
+}
+
+host_has_ipv4() {
+  addresses=$(host_addresses) || return 0
+  printf '%s\n' "$addresses" | grep -Fq -e "inet $1/" -e "inet $1 "
 }

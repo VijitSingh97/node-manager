@@ -350,9 +350,11 @@ grep -q '^pending_event=.*Z Host: Tor is not working' "$wd" || fail "failed even
 tick $((T0 + 480))
 [ "$(grep -c '^pending_event=' "$wd")" = 2 ] || fail "second event was not queued behind the first"
 export FAKE_DASH_FAIL=0
+awk '/^pending_event=/ && !done { done = 1; sub(/^pending_event=[^ ]*Z Host: /, "pending_event=2030-01-02T03:04:05Z Host: ") } { print }' "$wd" >"$wd.seed" && mv "$wd.seed" "$wd"
 tick $((T0 + 520))
 [ "$(events)" = 2 ] || fail "queued events were not delivered"
 [ "$(sed -n 1p "$dash/events.log" | grep -c 'Tor is not working')" = 1 ] && [ "$(sed -n 2p "$dash/events.log" | grep -c 'clearing Tor'\''s saved state')" = 1 ] || fail "events were delivered out of order"
+[ "$(sed -n 1p "$dash/events.log" | cut -c1-26)" = "2030-01-02T03:04:05Z Host:" ] || fail "delivered event lost its queued timestamp"
 grep -q '^pending_event=' "$wd" && fail "delivered events stayed queued"
 grep -vq 'Z Host: ' "$dash/events.log" && fail "event line does not start with a timestamp and Host:"
 

@@ -46,13 +46,6 @@ write_status() {
     $docker_bin exec -i -u 1000 "$dashboard_id" sh -c 'umask 077; cat > /state/.node-control.status.tmp; mv /state/.node-control.status.tmp /state/node-control.status' >/dev/null
 }
 error_detail() { redact_last_line "" "$1"; }
-node_label() {
-  case "$1" in (bitcoincash) printf '%s\n' "Bitcoin Cash" ;; (*) printf '%s%s\n' "$(printf '%s' "$1" | cut -c1 | tr '[:lower:]' '[:upper:]')" "$(printf '%s' "$1" | cut -c2-)" ;; esac
-}
-host_event() {
-  printf '%sZ Host: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%S)" "$1" |
-    "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c 'cat >> /state/events.log' >/dev/null 2>&1 || true
-}
 tw_gate_secs=30 tw_odd_secs=600 tw_spacing=480 tw_cap=3 tw_window=21600 tw_reset_window=604800 tw_keep_snapshots=5
 tw_get() { sed -n "s/^$1=//p" "$tw_state" 2>/dev/null | head -n 1; }
 tw_getn() {
@@ -67,15 +60,12 @@ tw_set() {
 tw_queue() {
   printf 'pending_event=%sZ Host: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%S)" "$1" >>"$tw_state"
 }
-host_event_line() {
-  printf '%s\n' "$1" | "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c 'cat >> /state/events.log' >/dev/null 2>&1
-}
 tw_flush() {
   tw_sent=0
   while [ "$tw_sent" -lt 10 ]; do
     tw_line=$(sed -n 's/^pending_event=//p' "$tw_state" 2>/dev/null | head -n 1)
     [ -n "$tw_line" ] || return 0
-    host_event_line "$tw_line" || return 0
+    host_event "${tw_line#*Z Host: }" "${tw_line%%Z Host: *}" || return 0
     awk '/^pending_event=/ && !done { done = 1; next } { print }' "$tw_state" >"$tw_state.tmp" &&
       chmod 600 "$tw_state.tmp" && mv -f "$tw_state.tmp" "$tw_state" || return 0
     tw_sent=$((tw_sent + 1))
@@ -417,11 +407,11 @@ recover_failed_starts() {
     if [ -n "$entry" ] && [ "$now" -lt "$due" ]; then
       printf '%s %s\n' "$service" "$entry" >>"$recover_next"
     elif "$stack_root/stack" up --force-recreate "$service" >/dev/null 2>&1; then
-      host_event "$service failed to start (${start_error##*: }); recreated it."
+      host_event "$service failed to start (${start_error##*: }); recreated it." || true
     else
       if [ -z "$entry" ]; then
         delay=30
-        host_event "$service failed to start (${start_error##*: }); retrying until it starts."
+        host_event "$service failed to start (${start_error##*: }); retrying until it starts." || true
       elif [ "$delay" -lt 300 ]; then
         delay=$((delay * 2))
       else
@@ -436,16 +426,6 @@ recover_failed_starts() {
   else
     rm -f "$recover_next"
   fi
-}
-host_addresses() {
-  case "$host_os" in
-    Darwin) "$ifconfig_bin" -a 2>/dev/null ;;
-    *) "$ip_bin" -o -4 addr show 2>/dev/null ;;
-  esac
-}
-host_has_ipv4() {
-  addresses=$(host_addresses) || return 0
-  printf '%s\n' "$addresses" | grep -Fq -e "inet $1/" -e "inet $1 "
 }
 ipv4_number() {
   IFS=. read -r a b c d <<EOF
@@ -507,10 +487,10 @@ resume_paused_listeners() {
   [ -n "$back" ] && tor_can_restart || return 0
   if "$stack_root/stack" up tor dashboard >/dev/null 2>&1; then
     refresh_dashboard_id
-    host_event "Published LAN listeners again now that their address is back: $back."
+    host_event "Published LAN listeners again now that their address is back: $back." || true
   else
     refresh_dashboard_id
-    host_event "LAN listeners have their address back, but Tor and the dashboard could not restart yet: $back."
+    host_event "LAN listeners have their address back, but Tor and the dashboard could not restart yet: $back." || true
   fi
 }
 remember_bind_address() {
@@ -548,7 +528,7 @@ check_bind_address() {
   [ $((now - since)) -ge 60 ] && [ "${acted_on:-}" != "$bound" ] || return 0
   if [ "$new" = fixed ]; then
     remember_bind_address "$old" "$new" "$since" "$bound"
-    host_event "dashboard.bind_ip $bound is not on this host; the dashboard and LAN listeners on it stay down until the address returns or dashboard.bind_ip changes."
+    host_event "dashboard.bind_ip $bound is not on this host; the dashboard and LAN listeners on it stay down until the address returns or dashboard.bind_ip changes." || true
     return 0
   fi
   tor_can_restart || { remember_bind_address "$old"; return 0; }
@@ -585,10 +565,10 @@ check_bind_address() {
   [ -z "$paused" ] || message="$message Paused LAN listeners whose address is not on this network: $paused. Re-point them from Settings to use this network."
   if BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" up tor dashboard >/dev/null 2>&1; then
     refresh_dashboard_id
-    host_event "$message"
+    host_event "$message" || true
   else
     refresh_dashboard_id
-    host_event "$message Tor and the dashboard could not restart yet."
+    host_event "$message Tor and the dashboard could not restart yet." || true
   fi
   exec 8>&-
 }
@@ -693,12 +673,6 @@ delete_volume_names() {
     tari) printf '%s\n' tari_wallet tari_wallet_data ;;
   esac
 }
-delete_display_name() {
-  case "$1" in
-    bitcoincash) printf 'Bitcoin Cash\n' ;;
-    *) printf '%s\n' "$1" | awk '{print toupper(substr($0, 1, 1)) substr($0, 2)}' ;;
-  esac
-}
 delete_configured_dir() {
   delete_dir_value=$(env_get "$(printf '%s_DATA_DIR' "$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')")")
   [ -n "$delete_dir_value" ] || delete_dir_value=$(jq -r --arg node "$1" '.[$node].data_dir // ""' "$approved_config" 2>/dev/null || true)
@@ -795,8 +769,7 @@ delete_node_data() {
   wipe_prefix=
   [ "$wipe_node" = bitcoin ] || wipe_prefix=$wipe_node-
   dashboard_exec rm -f "/state/${wipe_prefix}utxo-seed.json" "/state/${wipe_prefix}utxo-seed.request" "/state/${wipe_prefix}utxo-seed.cancel" >/dev/null 2>&1 || wipe_failed=1
-  printf '%sZ Host: %s deleted\n' "$(date -u +%Y-%m-%dT%H:%M:%S)" "$(delete_display_name "$wipe_node")" |
-    "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c 'cat >> /state/events.log' >/dev/null 2>&1 || true
+  host_event "$(node_label "$wipe_node") deleted" || true
   [ "$wipe_failed" = 0 ]
 }
 host_platform=source
@@ -1197,7 +1170,7 @@ if [ "$host_request" = true ]; then
     install_detail=$(error_detail "$install_errors")
     rm -f "$install_errors"
     host_label=$(node_label "$host_node")
-    host_event "$host_label install failed${install_detail:+: $install_detail}"
+    host_event "$host_label install failed${install_detail:+: $install_detail}" || true
     restore_install_transaction ||
       host_finish failed "Node installation failed and prior configuration could not be fully restored." "$host_node" "" rollback_failed "" "$install_detail"
     host_finish failed "Node installation failed; prior configuration restored." "$host_node" "" apply_failed "" "$install_detail"
@@ -1628,7 +1601,7 @@ rollback() {
   if [ -n "$node_errors" ]; then
     rollback_detail=$(error_detail "$node_errors")
     rm -f "$node_errors"
-    host_event "$(node_label "$node") activation failed${rollback_detail:+: $rollback_detail}"
+    host_event "$(node_label "$node") activation failed${rollback_detail:+: $rollback_detail}" || true
   fi
   rollback_failed=0
   mv "$backup" "$config_file" || rollback_failed=1

@@ -1094,6 +1094,18 @@ restore_runtime() {
   esac
 }
 
+rollback_runtime() {
+  local failed=0
+  if [ "$had_previous_env" = 1 ]; then
+    cp "$previous_env" "$env_file"
+    if [ "$2" = 1 ]; then offline_up >/dev/null 2>&1 || failed=1; fi
+  else
+    if [ "$2" = 1 ]; then compose down >/dev/null 2>&1 || failed=1; fi
+    rm -f "$env_file"
+  fi
+  [ "$failed" = 0 ] || echo "$1 failed, and the previous runtime could not be fully restored." >&2
+}
+
 drop_runtime_snapshot() {
   rm -f "$previous_env" "$previous_approved_config" "$previous_approved_env"
 }
@@ -1159,33 +1171,17 @@ init() {
     return 1
   fi
   if ! offline_up; then
-    rollback_failed=0
-    if [ "$had_previous_env" = 1 ]; then
-      cp "$previous_env" "$env_file"
-      offline_up >/dev/null 2>&1 || rollback_failed=1
-    else
-      compose down >/dev/null 2>&1 || rollback_failed=1
-      rm -f "$env_file"
-    fi
+    rollback_runtime "Initialization" 1
     drop_runtime_snapshot
     unlock_config
-    [ "$rollback_failed" = 0 ] || echo "Initialization failed, and the previous runtime could not be fully restored." >&2
     echo "Initialization did not start; the previous runtime settings remain selected." >&2
     return 1
   fi
   if ! approve_current_config; then
-    rollback_failed=0
-    if [ "$had_previous_env" = 1 ]; then
-      cp "$previous_env" "$env_file"
-      offline_up >/dev/null 2>&1 || rollback_failed=1
-    else
-      compose down >/dev/null 2>&1 || rollback_failed=1
-      rm -f "$env_file"
-    fi
+    rollback_runtime "Initialization approval" 1
     restore_runtime approved
     drop_runtime_snapshot
     unlock_config
-    [ "$rollback_failed" = 0 ] || echo "Initialization approval failed, and the previous runtime could not be fully restored." >&2
     echo "Initialization approval failed; the new runtime was not retained." >&2
     return 1
   fi
@@ -2102,22 +2098,10 @@ case "$cmd" in
       apply_failed=1
     fi
     if [ "$apply_failed" = 1 ]; then
-      rollback_failed=0
-      if [ "$had_previous_env" = 1 ]; then
-        cp "$previous_env" "$env_file"
-        if [ "$runtime_attempted" = 1 ]; then
-          offline_up >/dev/null 2>&1 || rollback_failed=1
-        fi
-      else
-        if [ "$runtime_attempted" = 1 ]; then
-          compose down >/dev/null 2>&1 || rollback_failed=1
-        fi
-        rm -f "$env_file"
-      fi
+      rollback_runtime "New configuration" "$runtime_attempted"
       restore_runtime approved
       drop_runtime_snapshot
       unlock_config
-      [ "$rollback_failed" = 0 ] || echo "New configuration failed, and the previous runtime could not be fully restored." >&2
       echo "New configuration was not approved; the previous runtime settings remain selected." >&2
       exit 1
     fi
