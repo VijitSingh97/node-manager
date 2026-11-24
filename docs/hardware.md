@@ -113,7 +113,7 @@ on upgrade.
 | Bitcoin | about 7.5 GiB, up to about 17 GiB during the seed | 1 GiB | one `dumptxoutset` seed; 27 GB free |
 | Litecoin | about 4.5 GB (53.8 million coins on mini-1; [measurement](measurements/litecoin-index-mainnet.md)) | 1 GiB | one `dumptxoutset` seed; 27 GB free |
 | Dogecoin | not measured | 1 GiB | node stopped briefly; free space for 3 times its chainstate |
-| Bitcoin Cash | not measured | 1 GiB | node stopped briefly; free space for 3 times its chainstate |
+| Bitcoin Cash | about 5.2 GB (58.8 million coins on mini-1; [measurement](measurements/bitcoincash-index-mainnet.md)) | 1 GiB | node stopped briefly; free space for 3 times its chainstate |
 
 - Every index sets the same 1 GiB dashboard limit, whichever are on. Bitcoin Cash's
   32 MB blocks fit because a large block is applied in pieces. Seeds run one at a
