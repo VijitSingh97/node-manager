@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"math"
+	"strings"
 	"sync"
 	"time"
 )
@@ -23,6 +24,7 @@ func (a *app) recordFee(value float64) {
 
 func (a *app) startBackground(ctx context.Context) <-chan struct{} {
 	a.ctx = ctx
+	a.recordEvent("System", "", strings.TrimSpace("Node Manager "+a.cfg.version)+" started.")
 	var workers sync.WaitGroup
 	start := func(worker func()) {
 		workers.Add(1)
@@ -38,6 +40,7 @@ func (a *app) startBackground(ctx context.Context) <-chan struct{} {
 	if hasNode {
 		start(func() { a.prices.Run(ctx) })
 		start(func() { a.every(ctx, 10*time.Second, func(context.Context) { a.processNodeDeletions() }) })
+		start(func() { a.every(ctx, 10*time.Second, func(context.Context) { a.logControlResults() }) })
 	}
 	if a.familyWatch != nil && a.familyWatchWorkerWanted() {
 		start(func() { a.familyWatch.run(ctx) })

@@ -99,6 +99,7 @@ func (a *app) apiFamilyWatchAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	store.requestScan()
+	a.recordEvent("Wallet", "", nodeDisplayName(id)+" watch-only address added.")
 	writeJSON(w, map[string]any{"ok": true, "id": entry.ID})
 }
 
@@ -123,6 +124,7 @@ func (a *app) apiFamilyWatchRemove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	store.requestScan()
+	a.recordEvent("Wallet", "", nodeDisplayName(id)+" watch-only address removed.")
 	writeJSON(w, map[string]any{"ok": true})
 }
 

@@ -98,6 +98,9 @@ func (m *utxoManager) pollVerify(ctx context.Context) {
 		m.execVerify(ctx, &res, height, hash)
 	}
 	res.Finished = m.now().UTC()
+	if m.event != nil {
+		m.event(verifyEvent(res))
+	}
 	out, _ := json.Marshal(res)
 	if writePrivateFileAtomic(filepath.Join(h.stateDir, h.prefix+verifyResultName), out) != nil {
 		m.log.Print("utxo verify: result could not be written")

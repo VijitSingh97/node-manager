@@ -5,6 +5,25 @@ All notable changes to this project are documented here. Format follows
 [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+### Added
+
+- An **Events** button (three lines) between the User and Settings buttons
+  opens the dashboard's event log: node down and recovered, activations,
+  installs and deletions, host thermal and Tor actions, settings changes (field
+  names only), sign-ins, sign-outs, password changes and RPC credential reveals
+  and resets, balance index seeds and verifies, watch-only wallet changes, and
+  each dashboard start with its version. Filter it by category or node and page
+  back through older events. It reads the existing `/state/events.log` through
+  a new signed-in `GET /api/events`, and hides the text of any helper line that
+  looks like it holds a secret.
+
+### Fixed
+
+- After an upgrade to 1.40.3, Telegram no longer receives a flood of old host
+  alerts, such as thermal throttles from days ago. Only host events from the last
+  6 hours are sent, and all of a minute's host events arrive as one message
+  capped in length, so a heat spike that caps and releases several nodes sends
+  one alert instead of dozens.
 
 ## [1.40.3] - 2026-11-24
 
