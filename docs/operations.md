@@ -487,8 +487,9 @@ it needs free space for three times the chainstate and marks Bitcoin Cash as
 restarting while the node is down, so it raises no node-down alert. The dashboard
 asks for this itself on APT and Homebrew installs, and `./stack utxo-seed
 bitcoincash` does it from a source checkout. The seed reads the copy only after a
-clean stop; a copy taken while the node was flushing is refused. Seed time and
-index size on mainnet are not measured yet.
+clean stop; a copy taken while the node was flushing is refused. On mini-1 the
+first mainnet seed took 530 s and built a 5.2 GB index for 58.8 million coins
+([measurement](measurements/bitcoincash-index-mainnet.md)).
 
 An archival Bitcoin Cash node with no host helper can instead replay every block
 from genesis through the dashboard: `./stack utxo-seed bitcoincash --replay`, or
@@ -743,8 +744,9 @@ On APT and Homebrew installs the command is `node-manager utxo-index verify`.
   | Dogecoin Core 1.14.9 | `gettxoutsetinfo` | Takes no argument and always hashes the whole set, so it is the slowest |
 
   On mini-1, Litecoin took 44.5 s for `gettxoutsetinfo` and 68.6 s for the index count, 76 s for the
-  whole command ([measurement](measurements/litecoin-index-mainnet.md)). The other chains are not measured
-  yet. For Bitcoin on the same host, with bitcoind capped at 0.5 CPU, expect about 3 minutes, a guess from
+  whole command ([measurement](measurements/litecoin-index-mainnet.md)). Bitcoin Cash took 60.1 s and
+  82.5 s, 87 s in all ([measurement](measurements/bitcoincash-index-mainnet.md)). Bitcoin and Dogecoin are
+  not measured yet. For Bitcoin on the same host, with bitcoind capped at 0.5 CPU, expect about 3 minutes, a guess from
   `scantxoutset`, which makes a similar walk there in 164 seconds ([lookup bench](measurements/lookup-bench-mainnet.md)).
 - **Alerts.** In all four versions the walk reads a database snapshot without the node's main lock
   (`cs_main`). The lock is taken only for the flush before the walk and for short lookups, so the
