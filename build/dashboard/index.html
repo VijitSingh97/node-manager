@@ -10,101 +10,13 @@
 </head>
 {{if or .Loading (not .BitcoinEnabled)}}
 <body class="center-screen" data-node="" data-command="{{.Command}}">
-{{template "overview" .}}
-  <div id="bitcoin-panel" class="stack-col node-panel" data-node-panel="bitcoin" hidden>
-    <button class="node-panel-close" type="button" data-close-node aria-label="Close Bitcoin status">✕</button>
-    <section class="card node-inactive-state"><h2>Bitcoin</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>
-    {{if .BitcoinEnabled}}<div id="tower-stats" class="tower-stats" hidden></div>{{end}}
-    <div id="live"{{if .LastKnownSync}} data-sync-percent="{{printf "%.6f" .Progress}}"{{end}}><div class="loading-card{{if .LastKnownSync}} sync-card{{end}}">
-    {{if not .BitcoinEnabled}}
-    <h2>Bitcoin</h2>
-    <p>Not configured</p>
-    <p>Enable Bitcoin in config.json to start this node.</p>
-    {{else if .LastKnownSync}}
-    <h2>Bitcoin Node Syncing</h2><div class="spinner"></div>
-    <p>Waiting for a fresh response from Bitcoin Core…</p>
-    <p class="sync-percentage" role="status">Last known: {{printf "%.2f" .Progress}}% synced</p>
-    <p>Last confirmed {{.LastSyncTime}} · block {{.Blocks}} of {{.Headers}}</p>
-    {{else}}
-    <h2>Bitcoin Node Initializing</h2><div class="spinner"></div>
-    <p>Connecting to the Bitcoin node…</p>
-    {{end}}
-    {{if .BitcoinEnabled}}<p style="color: var(--muted); font-size: 0.8rem;">The dashboard will load automatically when the node is ready. Still stuck? Run {{.Command}} doctor.</p>{{end}}
-    {{if .BitcoinEnabled}}<section id="btc-price" data-price-asset="bitcoin" hidden>
-      <hr>
-      <div class="price-row">
-        <span class="price-label">Bitcoin price</span>
-        <strong id="btc-price-value" class="price-value" data-price-value>—</strong>
-        <select id="btc-price-currency" class="price-currency" data-price-currency aria-label="Bitcoin price currency"></select>
-        <span id="btc-price-status" class="price-status" data-price-status>Price unavailable</span>
-      </div>
-    </section>{{end}}
-    <p style="color: var(--faint); font-size: 0.7rem;">{{.Version}}</p>
-    </div></div>
-    {{if .BitcoinEnabled}}<section id="watch" class="card watch-card" hidden></section>
-    <section id="utxo-index" class="card watch-card" hidden></section>{{end}}
-    <section class="card node-power-card" style="--node-accent:#f2a900;--node-text:var(--nt-bitcoin)">
-      <h2>Node controls</h2>
-      <p id="bitcoin-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
-      <button type="button" class="node-power-button" data-node-power="bitcoin">Deactivate node</button>
-    </section>
-  </div>
-{{else}}
+{{- else}}
 <body class="center" data-node="" data-command="{{.Command}}">
+{{- end}}
 {{template "overview" .}}
-  <div id="bitcoin-panel" class="stack-col node-panel" data-node-panel="bitcoin" hidden>
-    <button class="node-panel-close" type="button" data-close-node aria-label="Close Bitcoin status">✕</button>
-    <section class="card node-inactive-state"><h2>Bitcoin</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>
-    <div id="tower-stats" class="tower-stats" hidden></div>
-    <div id="live" data-blocks="{{.Blocks}}" data-next-block="{{.NextBlock}}" data-sync-percent="{{printf "%.6f" .Progress}}" data-node-size="{{.NodeSizeBytes}}">
-      {{if .InitialBlockDownload}}<section class="card sync-card" aria-label="Initial blockchain synchronization">
-        <h2>Syncing Bitcoin Core</h2>
-        <p class="sync-percentage" role="status">{{printf "%.2f" .Progress}}% synced</p>
-        <p>Downloading and validating the blockchain. Pruning saves disk space as the sync continues.</p>
-      </section>{{end}}
-      <div class="card">
-        <h2>Bitcoin Node Status<span class="badge">{{if .Pruned}}Pruned{{else}}Full{{end}}</span></h2>
-        <p class="node-state">{{.StateLine}}</p>
-        <div class="row"><span class="label">Version:</span> <span>{{.CoreVersion}}</span></div>
-        <div class="row"><span class="label">Uptime:</span> <span>{{.Uptime}}</span></div>
-        <div class="row"><span class="label">Connections:</span> <span>{{if .PeersUnknown}}—{{else}}{{.Inbound}} in · {{.Outbound}} out{{end}}</span></div>
-        <hr>
-        <div class="row"><span class="label">Blocks:</span> <span>{{.Blocks}} / {{.Headers}}</span></div>
-        <div class="progress-bg"><div class="progress-fill" style="width: {{printf "%.4f" .Progress}}%"></div></div>
-        <div class="row"><span class="label">Sync progress:</span> <span>{{printf "%.4f" .Progress}}%</span></div>
-        <div id="index-bar-bitcoin" class="index-bar" hidden><div class="row"><span class="label">Balance index:</span><span class="index-bar-label"></span></div><div class="progress-bg" role="progressbar" aria-label="Balance index" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill index-bar-fill" style="width:0%"></div></div></div>
-        <div class="row"><span class="label">Latest block:</span> <span>{{.LastBlock}}</span></div>
-        <div class="row"><span class="label">Node data size:</span> <span>{{if .NodeSizeBytes}}{{printf "%.2f" .NodeGB}} GiB{{else}}—{{end}}</span></div>
-        {{if .ShowMempool}}<hr>
-        <div class="row"><span class="label">Mempool:</span> <span>{{.MempoolTxs}} tx · {{printf "%.1f" .MempoolMB}} MiB</span></div>
-        <div class="row"><span class="label">Fee sat/vB (next/30m/1h):</span> <span>{{.FeeNext}} / {{.Fee30m}} / {{.FeeHour}}</span></div>
-        <div class="spark-row"><span class="label">Fee (24h)</span><canvas class="spark" id="spark-fee"></canvas></div>{{end}}
-        <section id="btc-price" data-price-asset="bitcoin" hidden>
-          <hr>
-          <div class="price-row">
-            <span class="price-label">Bitcoin price</span>
-            <strong id="btc-price-value" class="price-value" data-price-value>—</strong>
-            <select id="btc-price-currency" class="price-currency" data-price-currency aria-label="Bitcoin price currency"></select>
-            <span id="btc-price-status" class="price-status" data-price-status>Price unavailable</span>
-          </div>
-        </section>
-        <hr>
-        <div class="row"><span class="label">RPC:</span> <span>{{if .BitcoinRPCEndpoint}}{{.BitcoinRPCEndpoint}} · LAN{{else}}Disabled{{end}}</span></div>
-        <p class="node-state">{{if .BitcoinRPCEndpoint}}LAN access is on. Use your Bitcoin RPC login.{{else}}LAN access is off.{{end}}</p>
-        <div class="footer"><span>Updated: <time data-updated-at="{{.UpdatedAt}}">{{.LastUpdate}}</time></span><span>{{.Version}}</span><span>Auto-refresh: 30s</span></div>
-      </div>
-    </div>
-    <section id="watch" class="card watch-card" hidden></section>
-    <section class="card node-power-card" style="--node-accent:#f2a900;--node-text:var(--nt-bitcoin)">
-      <h2>Node controls</h2>
-      <p id="bitcoin-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
-      <button type="button" class="node-power-button" data-node-power="bitcoin">Deactivate node</button>
-    </section>
-  </div>
-{{end}}
+{{template "bitcoinPanel" .}}
   <div id="monero-panel" class="stack-col node-panel" data-node-panel="monero" hidden>
-    <button class="node-panel-close" type="button" data-close-node aria-label="Close Monero status">✕</button>
-    <section class="card node-inactive-state"><h2>Monero</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>
+    {{template "panelHead" chain "monero"}}
     <div id="monero-tower-stats" class="tower-stats monero-wallets" hidden></div>
     <section id="monero-live" class="card monero-card">
       <h2>Monero Node Status<span id="monero-badge" class="badge monero-badge">Loading</span></h2>
@@ -142,49 +54,11 @@
       </div>
     </section>
     <section id="monero-watch" class="card watch-card monero-wallets" hidden></section>
-    <section class="card node-power-card" style="--node-accent:#ff6600;--node-text:var(--nt-monero)">
-      <h2>Node controls</h2>
-      <p id="monero-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
-      <button type="button" class="node-power-button" data-node-power="monero">Deactivate node</button>
-    </section>
+    {{template "powerCard" chain "monero"}}
   </div>
-  <div id="tari-panel" class="stack-col node-panel chain-panel" data-node-panel="tari" style="--node-accent:#8f5cff;--node-text:var(--nt-tari)" hidden>
-    <button class="node-panel-close" type="button" data-close-node aria-label="Close Tari status">✕</button>
-    <section class="card node-inactive-state"><h2>Tari</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>
-    <div class="tower-stats" data-wallet-tower="tari" hidden></div>
-    <section id="tari-live" class="card chain-card">
-      <h2>Tari Node Status<span id="tari-badge" class="badge">Loading</span></h2>
-      <p id="tari-state" class="node-state">Connecting to Tari… Still stuck? Run {{.Command}} doctor.</p>
-      <div id="tari-details" hidden>
-        <div class="row"><span class="label">Version:</span><span id="tari-version">—</span></div>
-        <div class="row"><span class="label">Uptime:</span><span id="tari-uptime">—</span></div>
-        <div class="row"><span class="label">Connections:</span><span id="tari-connections">—</span></div>
-        <hr>
-        <div class="row"><span class="label">Blocks:</span><span id="tari-blocks">—</span></div>
-        <div class="progress-bg"><div id="tari-progress" class="progress-fill" style="width:0%"></div></div>
-        <div class="row"><span class="label">Sync progress:</span><span id="tari-sync">—</span></div>
-        <div class="row"><span class="label">Node data size:</span><span id="tari-size">—</span></div>
-        <hr>
-        <div class="row"><span class="label">Mempool:</span><span id="tari-mempool">—</span></div>
-        <div class="row"><span class="label">Latest block:</span><span id="tari-last-block">—</span></div>
-        <div id="tari-fee-section" hidden><div class="row"><span id="tari-fee-unit" class="label">Fee estimates:</span><span id="tari-fees">—</span></div><div class="spark-row"><span class="label">Fee (24h)</span><canvas class="spark" id="spark-tari-fee"></canvas></div></div>
-        <section data-price-asset="tari" hidden><hr><div class="price-row"><span class="price-label">Tari price</span><strong class="price-value" data-price-value>—</strong><select class="price-currency" data-price-currency aria-label="Tari price currency"></select><span class="price-status" data-price-status>Price unavailable</span></div></section>
-        <hr>
-        <div class="row"><span class="label">gRPC:</span><span id="tari-rpc-exposure">—</span></div>
-        <div class="footer"><span id="tari-updated">Updated: —</span><span>{{.Version}}</span><span>Auto-refresh: 30s</span></div>
-      </div>
-    </section>
-    <section id="tari-watch" class="card chain-wallet-card watch-card"><h2>Watch-only wallets</h2><p class="node-state">Loading wallet service…</p></section>
-    <section class="card node-power-card" style="--node-accent:#8f5cff;--node-text:var(--nt-tari)">
-      <h2>Node controls</h2>
-      <p id="tari-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
-      <button type="button" class="node-power-button" data-node-power="tari">Deactivate node</button>
-    </section>
-  </div>
-  {{- range .Chains}}{{if .Family}}
+  {{- range .Chains}}{{if .Templated}}
   <div id="{{.ID}}-panel" class="stack-col node-panel chain-panel" data-node-panel="{{.ID}}" style="--node-accent:{{.Accent}};--node-text:var(--nt-{{.ID}})" hidden>
-    <button class="node-panel-close" type="button" data-close-node aria-label="Close {{.Label}} status">✕</button>
-    <section class="card node-inactive-state"><h2>{{.Label}}</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>
+    {{template "panelHead" .}}
     <div class="tower-stats" data-wallet-tower="{{.ID}}" hidden></div>
     <section id="{{.ID}}-live" class="card chain-card">
       <h2>{{.Label}} Node Status<span id="{{.ID}}-badge" class="badge">Loading</span></h2>
@@ -207,20 +81,22 @@
         <div id="{{.ID}}-fee-section" hidden><div class="row"><span id="{{.ID}}-fee-unit" class="label">Fee estimates:</span><span id="{{.ID}}-fees">—</span></div><div class="spark-row"><span class="label">Fee (24h)</span><canvas class="spark" id="spark-{{.ID}}-fee"></canvas></div></div>
         <section data-price-asset="{{.PriceAsset}}" hidden><hr><div class="price-row"><span class="price-label">{{.Label}} price</span><strong class="price-value" data-price-value>—</strong><select class="price-currency" data-price-currency aria-label="{{.Label}} price currency"></select><span class="price-status" data-price-status>Price unavailable</span></div></section>
         <hr>
-        <div class="row"><span class="label">RPC:</span><span id="{{.ID}}-rpc-exposure">—</span></div>
+        <div class="row"><span class="label">{{if .GRPC}}gRPC{{else}}RPC{{end}}:</span><span id="{{.ID}}-rpc-exposure">—</span></div>
+{{- if .Family}}
         <p class="node-state">LAN access is optional and uses a separate node login.</p>
+{{- end}}
         <div class="footer"><span id="{{.ID}}-updated">Updated: —</span><span>{{$.Version}}</span><span>Auto-refresh: 30s</span></div>
       </div>
     </section>
+{{- if .Family}}
     <section class="card chain-wallet-card watch-card" data-family-watch="{{.ID}}"><h2>Watch-only wallets</h2><p class="node-state" data-family-watch-status>Loading wallet capabilities…</p><div data-family-watch-list></div></section>
+{{- else}}
+    <section id="{{.ID}}-watch" class="card chain-wallet-card watch-card"><h2>Watch-only wallets</h2><p class="node-state">Loading wallet service…</p></section>
+{{- end}}
 {{- if .UTXOIndex}}
     <section id="utxo-index-{{.ID}}" class="card watch-card" hidden></section>
 {{- end}}
-    <section class="card node-power-card" style="--node-accent:{{.Accent}};--node-text:var(--nt-{{.ID}})">
-      <h2>Node controls</h2>
-      <p id="{{.ID}}-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
-      <button type="button" class="node-power-button" data-node-power="{{.ID}}">Deactivate node</button>
-    </section>
+    {{template "powerCard" .}}
   </div>
   {{- end}}{{end}}
   <button id="account-open" class="settings-open account-open" type="button" aria-label="User" title="User"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7z"/></svg></button>
@@ -331,16 +207,11 @@
             <div class="settings-port-fields"><label>Port<input type="number" min="1" max="65535" step="1" data-port-number></label></div>
           </div>
         </details>
-        <details id="settings-tari-alerts"><summary>Tari</summary>
-          <label class="settings-check"><input id="settings-tari-new-block" type="checkbox"> Alert on new blocks (up to about 720 alerts/day)</label>
-          <p class="settings-note">Several blocks found together share one alert.</p>
-          <div id="settings-port-tari-grpc" class="settings-port"><label class="settings-check"><input type="checkbox" data-port-enabled> Expose gRPC on private LAN</label><div class="settings-port-fields"><label>Port<input type="number" min="1" max="65535" step="1" data-port-number></label></div></div>
-        </details>
-        {{- range .Chains}}{{if .Family}}
+        {{- range .Chains}}{{if .Templated}}
         <details id="settings-{{.ID}}-alerts"><summary>{{.Label}}</summary>
           <label class="settings-check"><input id="settings-{{.ID}}-new-block" type="checkbox"> Alert on new blocks (up to about {{.AlertsPerDay}} alerts/day)</label>
           <p class="settings-note">Several blocks found together share one alert.</p>
-          <div id="settings-port-{{.ID}}-rpc" class="settings-port" data-credential-node="{{.ID}}"><label class="settings-check"><input type="checkbox" data-port-enabled> Expose {{.RPCName}} on private LAN</label><div class="settings-port-fields"><label>Port<input type="number" min="1" max="65535" step="1" data-port-number></label></div></div>
+          <div id="settings-port-{{.ID}}-{{if .GRPC}}grpc{{else}}rpc{{end}}" class="settings-port"{{if .Family}} data-credential-node="{{.ID}}"{{end}}><label class="settings-check"><input type="checkbox" data-port-enabled> Expose {{.RPCName}} on private LAN</label><div class="settings-port-fields"><label>Port<input type="number" min="1" max="65535" step="1" data-port-number></label></div></div>
         </details>
         {{- end}}{{end}}
       </fieldset>
@@ -446,3 +317,79 @@
     {{- end}}
   </main>
   <div id="node-close-backdrop" class="node-close-backdrop" aria-hidden="true"></div>{{end}}
+{{define "panelHead"}}<button class="node-panel-close" type="button" data-close-node aria-label="Close {{.Label}} status">✕</button>
+    <section class="card node-inactive-state"><h2>{{.Label}}</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>{{end}}{{define "powerCard"}}<section class="card node-power-card" style="--node-accent:{{.Accent}};--node-text:var(--nt-{{.ID}})">
+      <h2>Node controls</h2>
+      <p id="{{.ID}}-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
+      <button type="button" class="node-power-button" data-node-power="{{.ID}}">Deactivate node</button>
+    </section>{{end}}{{define "bitcoinPanel"}}{{$stub := or .Loading (not .BitcoinEnabled)}}  <div id="bitcoin-panel" class="stack-col node-panel" data-node-panel="bitcoin" hidden>
+    {{template "panelHead" chain "bitcoin"}}
+    {{if .BitcoinEnabled}}<div id="tower-stats" class="tower-stats" hidden></div>{{end}}
+    <div id="live"{{if $stub}}{{if .LastKnownSync}} data-sync-percent="{{printf "%.6f" .Progress}}"{{end}}{{else}} data-blocks="{{.Blocks}}" data-next-block="{{.NextBlock}}" data-sync-percent="{{printf "%.6f" .Progress}}" data-node-size="{{.NodeSizeBytes}}"{{end}}>{{if $stub}}<div class="loading-card{{if .LastKnownSync}} sync-card{{end}}">
+    {{if not .BitcoinEnabled}}
+    <h2>Bitcoin</h2>
+    <p>Not configured</p>
+    <p>Enable Bitcoin in config.json to start this node.</p>
+    {{else if .LastKnownSync}}
+    <h2>Bitcoin Node Syncing</h2><div class="spinner"></div>
+    <p>Waiting for a fresh response from Bitcoin Core…</p>
+    <p class="sync-percentage" role="status">Last known: {{printf "%.2f" .Progress}}% synced</p>
+    <p>Last confirmed {{.LastSyncTime}} · block {{.Blocks}} of {{.Headers}}</p>
+    {{else}}
+    <h2>Bitcoin Node Initializing</h2><div class="spinner"></div>
+    <p>Connecting to the Bitcoin node…</p>
+    {{end}}
+    {{if .BitcoinEnabled}}<p style="color: var(--muted); font-size: 0.8rem;">The dashboard will load automatically when the node is ready. Still stuck? Run {{.Command}} doctor.</p>{{end}}
+    {{if .BitcoinEnabled}}<section id="btc-price" data-price-asset="bitcoin" hidden>
+      <hr>
+      <div class="price-row">
+        <span class="price-label">Bitcoin price</span>
+        <strong id="btc-price-value" class="price-value" data-price-value>—</strong>
+        <select id="btc-price-currency" class="price-currency" data-price-currency aria-label="Bitcoin price currency"></select>
+        <span id="btc-price-status" class="price-status" data-price-status>Price unavailable</span>
+      </div>
+    </section>{{end}}
+    <p style="color: var(--faint); font-size: 0.7rem;">{{.Version}}</p>
+    </div></div>{{else}}
+      {{if .InitialBlockDownload}}<section class="card sync-card" aria-label="Initial blockchain synchronization">
+        <h2>Syncing Bitcoin Core</h2>
+        <p class="sync-percentage" role="status">{{printf "%.2f" .Progress}}% synced</p>
+        <p>Downloading and validating the blockchain. Pruning saves disk space as the sync continues.</p>
+      </section>{{end}}
+      <div class="card">
+        <h2>Bitcoin Node Status<span class="badge">{{if .Pruned}}Pruned{{else}}Full{{end}}</span></h2>
+        <p class="node-state">{{.StateLine}}</p>
+        <div class="row"><span class="label">Version:</span> <span>{{.CoreVersion}}</span></div>
+        <div class="row"><span class="label">Uptime:</span> <span>{{.Uptime}}</span></div>
+        <div class="row"><span class="label">Connections:</span> <span>{{if .PeersUnknown}}—{{else}}{{.Inbound}} in · {{.Outbound}} out{{end}}</span></div>
+        <hr>
+        <div class="row"><span class="label">Blocks:</span> <span>{{.Blocks}} / {{.Headers}}</span></div>
+        <div class="progress-bg"><div class="progress-fill" style="width: {{printf "%.4f" .Progress}}%"></div></div>
+        <div class="row"><span class="label">Sync progress:</span> <span>{{printf "%.4f" .Progress}}%</span></div>
+        <div id="index-bar-bitcoin" class="index-bar" hidden><div class="row"><span class="label">Balance index:</span><span class="index-bar-label"></span></div><div class="progress-bg" role="progressbar" aria-label="Balance index" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill index-bar-fill" style="width:0%"></div></div></div>
+        <div class="row"><span class="label">Latest block:</span> <span>{{.LastBlock}}</span></div>
+        <div class="row"><span class="label">Node data size:</span> <span>{{if .NodeSizeBytes}}{{printf "%.2f" .NodeGB}} GiB{{else}}—{{end}}</span></div>
+        {{if .ShowMempool}}<hr>
+        <div class="row"><span class="label">Mempool:</span> <span>{{.MempoolTxs}} tx · {{printf "%.1f" .MempoolMB}} MiB</span></div>
+        <div class="row"><span class="label">Fee sat/vB (next/30m/1h):</span> <span>{{.FeeNext}} / {{.Fee30m}} / {{.FeeHour}}</span></div>
+        <div class="spark-row"><span class="label">Fee (24h)</span><canvas class="spark" id="spark-fee"></canvas></div>{{end}}
+        <section id="btc-price" data-price-asset="bitcoin" hidden>
+          <hr>
+          <div class="price-row">
+            <span class="price-label">Bitcoin price</span>
+            <strong id="btc-price-value" class="price-value" data-price-value>—</strong>
+            <select id="btc-price-currency" class="price-currency" data-price-currency aria-label="Bitcoin price currency"></select>
+            <span id="btc-price-status" class="price-status" data-price-status>Price unavailable</span>
+          </div>
+        </section>
+        <hr>
+        <div class="row"><span class="label">RPC:</span> <span>{{if .BitcoinRPCEndpoint}}{{.BitcoinRPCEndpoint}} · LAN{{else}}Disabled{{end}}</span></div>
+        <p class="node-state">{{if .BitcoinRPCEndpoint}}LAN access is on. Use your Bitcoin RPC login.{{else}}LAN access is off.{{end}}</p>
+        <div class="footer"><span>Updated: <time data-updated-at="{{.UpdatedAt}}">{{.LastUpdate}}</time></span><span>{{.Version}}</span><span>Auto-refresh: 30s</span></div>
+      </div>
+    </div>{{end}}
+    {{if .BitcoinEnabled}}<section id="watch" class="card watch-card" hidden></section>{{if $stub}}
+    <section id="utxo-index" class="card watch-card" hidden></section>{{end}}{{end}}
+    {{template "powerCard" chain "bitcoin"}}
+  </div>
+{{end}}

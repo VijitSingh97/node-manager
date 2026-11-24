@@ -22,7 +22,13 @@ const (
 )
 
 var priceCurrencies = []string{"usd", "eur", "gbp", "inr", "cad", "aud", "jpy", "rub", "cny"}
-var priceAssets = []string{"bitcoin", "monero", "tari", "litecoin", "dogecoin", "bitcoin-cash", "zcash"}
+var priceAssets = func() []string {
+	assets := make([]string, 0, len(nodeOrder))
+	for _, id := range nodeOrder {
+		assets = append(assets, chainPages[id].priceAsset)
+	}
+	return assets
+}()
 var priceProviderAssets = map[string]string{"tari": "minotari"}
 
 type PriceCache struct {
@@ -40,6 +46,10 @@ type PriceCache struct {
 }
 
 func NewPriceCache() *PriceCache {
+	failed := make(map[string]bool, len(priceAssets))
+	for _, asset := range priceAssets {
+		failed[asset] = true
+	}
 	return &PriceCache{
 		client:         newTorHTTPClient(torProxy),
 		url:            coinGeckoPriceURL,
@@ -48,7 +58,7 @@ func NewPriceCache() *PriceCache {
 		startupRetry:   priceStartupRetry,
 		assetPrices:    make(map[string]map[string]float64),
 		assetUpdatedAt: make(map[string]int64),
-		assetFailed:    map[string]bool{"bitcoin": true, "monero": true, "tari": true, "litecoin": true, "dogecoin": true, "bitcoin-cash": true, "zcash": true},
+		assetFailed:    failed,
 	}
 }
 

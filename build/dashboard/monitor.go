@@ -271,21 +271,8 @@ func (m *Monitor) monitorStateFor(id string) *monitorState {
 }
 
 func nodeDisplayName(id string) string {
-	switch id {
-	case nodeBitcoin:
-		return "Bitcoin"
-	case nodeMonero:
-		return "Monero"
-	case nodeTari:
-		return "Tari"
-	case nodeLitecoin:
-		return "Litecoin"
-	case nodeDogecoin:
-		return "Dogecoin"
-	case nodeBitcoinCash:
-		return "Bitcoin Cash"
-	case nodeZcash:
-		return "Zcash"
+	if page, ok := chainPages[id]; ok {
+		return page.label
 	}
 	return id
 }
