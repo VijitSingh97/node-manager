@@ -26,12 +26,12 @@ for required in stack configure.sh LICENSE VERSION docker-compose.yml docker-com
   docker-compose.monero-rpc.yml docker-compose.monero-zmq.yml docker-compose.tari-wallet.yml docker-compose.tari-grpc.yml \
   docker-compose.litecoin-rpc.yml docker-compose.dogecoin-rpc.yml docker-compose.bitcoincash-rpc.yml docker-compose.zcash-rpc.yml \
   docker-compose.utxo-index.yml docker-compose.litecoin-utxo-index.yml docker-compose.bitcoincash-utxo-index.yml docker-compose.dogecoin-utxo-index.yml \
-  scripts/node-manager scripts/node-control scripts/node-port-control scripts/node-resource-profile \
+  scripts/node-manager scripts/node-control scripts/node-port-control scripts/node-resource-profile scripts/helper-common.sh \
   build/bitcoin/bitcoin.conf build/tari/config.toml build/tari/entrypoint.sh \
   build/zcash/zakurad.toml build/zcash/zakurad-address-index.toml build/zcash/healthcheck.sh; do
   grep -Fxq "$required" "$tmp/contents" || fail "release archive is missing $required"
 done
-grep -Evx 'stack|configure\.sh|LICENSE|VERSION|docker-compose[a-z.-]*\.yml|scripts/|scripts/node-(manager|control|port-control|resource-profile)|build/|build/(bitcoin|tari|zcash)/|build/bitcoin/bitcoin\.conf|build/tari/(config\.toml|entrypoint\.sh)|build/zcash/(zakurad\.toml|zakurad-address-index\.toml|healthcheck\.sh)' \
+grep -Evx 'stack|configure\.sh|LICENSE|VERSION|docker-compose[a-z.-]*\.yml|scripts/|scripts/(node-(manager|control|port-control|resource-profile)|helper-common\.sh)|build/|build/(bitcoin|tari|zcash)/|build/bitcoin/bitcoin\.conf|build/tari/(config\.toml|entrypoint\.sh)|build/zcash/(zakurad\.toml|zakurad-address-index\.toml|healthcheck\.sh)' \
   "$tmp/contents" >"$tmp/unexpected" || true
 [ ! -s "$tmp/unexpected" ] || fail "release archive includes files outside the runtime set: $(tr '\n' ' ' <"$tmp/unexpected")"
 grep -Eq '^docs(/|$)|\.go$' "$tmp/contents" && fail "release archive includes docs or Go sources"

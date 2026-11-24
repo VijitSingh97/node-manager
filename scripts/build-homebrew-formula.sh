@@ -58,7 +58,8 @@ for required in \
   node-manager/scripts/node-manager \
   node-manager/scripts/node-control \
   node-manager/scripts/node-port-control \
-  node-manager/scripts/node-resource-profile; do
+  node-manager/scripts/node-resource-profile \
+  node-manager/scripts/helper-common.sh; do
   grep -Fxq "$required" "$contents" || {
     echo "release archive is missing $required" >&2
     exit 1

@@ -1,5 +1,12 @@
 #!/bin/sh
 set -eu
+helper_common=$(dirname "$0")/helper-common.sh
+[ -r "$helper_common" ] || {
+  echo "node-control: helper-common.sh is missing next to this script." >&2
+  exit 1
+}
+# shellcheck source=scripts/helper-common.sh
+. "$helper_common"
 stack_root=${BITCOIN_STACK_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}
 state_root=${BITCOIN_STACK_STATE_DIR:-$stack_root}
 config_root=${BITCOIN_STACK_CONFIG_DIR:-$state_root}
@@ -16,15 +23,7 @@ host_arch=${NODE_CONTROL_ARCH:-$(uname -m)}
 env_get() {
   sed -n "/^$1=/h;\${x;s/^$1=//p;}" "$env_file" || true
 }
-project_name=${BITCOIN_STACK_PROJECT_NAME:-$(env_get COMPOSE_PROJECT_NAME 2>/dev/null)}
-if [ -z "$project_name" ]; then
-  case "$package_managed" in brew) project_name=bitcoin-starter-stack-brew ;; 1 | apt) project_name=bitcoin-starter-stack-apt ;; *) project_name=bitcoin-starter-stack ;; esac
-fi
-container_id() {
-  "$docker_bin" ps -aq \
-    --filter "label=com.docker.compose.project=$project_name" \
-    --filter "label=com.docker.compose.service=$1" | head -n 1
-}
+set_project_name
 service_ids() {
   "$docker_bin" ps -a --filter "label=com.docker.compose.project=$project_name" \
     --format '{{.Label "com.docker.compose.service"}} {{.ID}}' 2>/dev/null | sort || true
@@ -46,17 +45,7 @@ write_status() {
     '{id:$id,node:$node,active:$active,state:$state,message:$message} | if $error_code=="" then . else .error_code=$error_code end | if $detail=="" then . else .detail=$detail end' |
     $docker_bin exec -i -u 1000 "$dashboard_id" sh -c 'umask 077; cat > /state/.node-control.status.tmp; mv /state/.node-control.status.tmp /state/node-control.status' >/dev/null
 }
-error_detail() {
-  awk -v fallback="" '
-    { gsub(/[[:cntrl:]]\[[0-9;]*[A-Za-z]/, ""); gsub(/[[:cntrl:]]/, ""); if ($0 ~ /[^[:space:]]/) last = $0 }
-    END {
-      lower = tolower(last)
-      if (lower ~ /passw|secret|token|auth|login|cookie|phrase|seed|mnemonic|private|prv|pub[0-9a-z]|api.?key|bearer|onion|:\/\/[^\/ ]*@/) last = ""
-      n = split(last, words, /[^A-Za-z0-9+=_-]+/)
-      for (i = 1; i <= n; i++) if (length(words[i]) >= 40) last = ""
-      print (last == "" ? fallback : substr(last, 1, 240))
-    }' "$1" 2>/dev/null || true
-}
+error_detail() { redact_last_line "" "$1"; }
 node_label() {
   case "$1" in (bitcoincash) printf '%s\n' "Bitcoin Cash" ;; (*) printf '%s%s\n' "$(printf '%s' "$1" | cut -c1 | tr '[:lower:]' '[:upper:]')" "$(printf '%s' "$1" | cut -c2-)" ;; esac
 }
@@ -254,16 +243,8 @@ write_host_status() {
     if $port=="" then . else .port=$port end' |
     $docker_bin exec -i -u 1000 "$dashboard_id" sh -c 'umask 077; cat > /state/.node-control.status.tmp; mv /state/.node-control.status.tmp /state/node-control.status' >/dev/null
 }
-canonical_config() {
-  source=$1
-  if [ -f "$source" ]; then jq -S -c . "$source" 2>/dev/null; else printf '{}\n'; fi
-}
 config_revision() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum | awk '{print $1}'; else shasum -a 256 | awk '{print $1}'; fi
-}
-approve_config() {
-  BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root" \
-    BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" approve-rendered-config >/dev/null 2>&1
 }
 install_transaction=$state_root/node-control/install-transaction
 install_recovery_status=$state_root/node-control/install-recovery.status
@@ -409,11 +390,7 @@ if [ "${install_recovery_applied:-false}" = true ]; then
   transaction_id=$(jq -r .id "$install_transaction/meta.json")
   transaction_node=$(jq -r .node "$install_transaction/meta.json")
   write_host_status "$transaction_id" install applied "Node installed." "$transaction_node"
-  printf '%s\n' "$transaction_id" >>"$state_root/node-control/seen"
-  transaction_seen=$(mktemp "$state_root/node-control/.seen.XXXXXX")
-  tail -n 256 "$state_root/node-control/seen" >"$transaction_seen"
-  chmod 600 "$transaction_seen"
-  mv "$transaction_seen" "$state_root/node-control/seen"
+  remember_seen_id "$state_root/node-control/seen" "$transaction_id"
   clear_request
   rm -rf "$install_transaction"
   exit 0
@@ -639,12 +616,6 @@ restore_approved_runtime() {
     rm -f "$config_file" "$pending_copy"
   fi
   [ "$restored" = 1 ]
-}
-config_pending() {
-  current=$(canonical_config "$config_file") || return 0
-  approved=$(canonical_config "$approved_config") || return 0
-  [ -f "$approved_config" ] && [ "$current" = "$approved" ] && return 1
-  return 0
 }
 host_absolute_path() {
   case "$1" in
@@ -966,13 +937,7 @@ if [ -n "$request_state" ]; then
   [ "$read_status" = 0 ] || exit 0
 fi
 host_seen_file=$state_root/node-control/seen
-host_remember_seen() {
-  printf '%s\n' "$host_id" >>"$host_seen_file"
-  host_seen_tmp=$(mktemp "$state_root/node-control/.seen.XXXXXX")
-  tail -n 256 "$host_seen_file" >"$host_seen_tmp"
-  chmod 600 "$host_seen_tmp"
-  mv "$host_seen_tmp" "$host_seen_file"
-}
+host_remember_seen() { remember_seen_id "$host_seen_file" "$host_id"; }
 host_finish() {
   clear_migrate_progress
   host_restarted=
@@ -1605,13 +1570,7 @@ if [ -r "$seen_file" ] && grep -Fxq "$id" "$seen_file"; then
   clear_request
   exit 0
 fi
-remember_seen() {
-  printf '%s\n' "$id" >>"$seen_file"
-  seen_tmp=$(mktemp "$state_root/node-control/.seen.XXXXXX")
-  tail -n 256 "$seen_file" >"$seen_tmp"
-  chmod 600 "$seen_tmp"
-  mv "$seen_tmp" "$seen_file"
-}
+remember_seen() { remember_seen_id "$seen_file" "$id"; }
 mkdir -p "$config_root"
 exec 8>"$state_root/.config.lock"
 flock 8

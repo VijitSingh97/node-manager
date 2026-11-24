@@ -1,5 +1,12 @@
 #!/bin/sh
 set -eu
+helper_common=$(dirname "$0")/helper-common.sh
+[ -r "$helper_common" ] || {
+  echo "node-resource-profile: helper-common.sh is missing next to this script." >&2
+  exit 1
+}
+# shellcheck source=scripts/helper-common.sh
+. "$helper_common"
 
 stack_root=${BITCOIN_STACK_ROOT:-/usr/lib/node-manager}
 state_root=${BITCOIN_STACK_STATE_DIR:-/var/lib/node-manager}
@@ -429,15 +436,7 @@ failure_reason() {
     echo "It ran out of memory while starting."
     return 0
   fi
-  "$docker_bin" logs --until "$3" --tail 200 "$1" 2>&1 | awk -v fallback="It exited with an error." '
-    { gsub(/[[:cntrl:]]\[[0-9;]*[A-Za-z]/, ""); gsub(/[[:cntrl:]]/, ""); if ($0 ~ /[^[:space:]]/) last = $0 }
-    END {
-      lower = tolower(last)
-      if (lower ~ /passw|secret|token|auth|login|cookie|phrase|seed|mnemonic|private|prv|pub[0-9a-z]|api.?key|bearer|onion|:\/\/[^\/ ]*@/) last = ""
-      n = split(last, words, /[^A-Za-z0-9+=_-]+/)
-      for (i = 1; i <= n; i++) if (length(words[i]) >= 40) last = ""
-      print (last == "" ? fallback : substr(last, 1, 240))
-    }'
+  "$docker_bin" logs --until "$3" --tail 200 "$1" 2>&1 | redact_last_line "It exited with an error."
 }
 
 failed_starts=

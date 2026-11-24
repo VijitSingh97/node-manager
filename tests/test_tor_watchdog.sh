@@ -9,7 +9,7 @@ root=$tmp/root
 state=$tmp/state
 dash=$tmp/dash
 mkdir -p "$root/scripts" "$state" "$dash"
-cp scripts/node-control "$root/scripts/"
+cp scripts/node-control scripts/helper-common.sh "$root/scripts/"
 cat >"$tmp/docker" <<'EOS'
 #!/usr/bin/env bash
 set -eu

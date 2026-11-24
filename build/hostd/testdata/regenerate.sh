@@ -55,6 +55,7 @@ esac
 DOCKER
 chmod +x "$tmp/docker" "$tmp/bin/"*
 cp "$repo/scripts/node-resource-profile" "$tmp/node-resource-profile"
+cp "$repo/scripts/helper-common.sh" "$tmp/helper-common.sh"
 # shellcheck disable=SC2016
 sed -i.bak 's/^    \[ -b "\$dev" \] || continue$/    :/' "$tmp/node-resource-profile" && rm "$tmp/node-resource-profile.bak"
 grep -q '^    :$' "$tmp/node-resource-profile"

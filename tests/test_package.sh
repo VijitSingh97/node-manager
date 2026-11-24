@@ -84,6 +84,7 @@ for required in \
   ./usr/lib/node-manager/node-resource-profile \
   ./usr/lib/node-manager/node-port-control \
   ./usr/lib/node-manager/node-control \
+  ./usr/lib/node-manager/helper-common.sh \
   ./usr/lib/systemd/system/node-manager-resource-profile.service \
   ./usr/lib/systemd/system/node-manager-resource-profile.timer \
   ./usr/lib/systemd/system/node-manager-port-control.service \

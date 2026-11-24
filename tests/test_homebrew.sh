@@ -19,7 +19,7 @@ for file in build/bitcoin/bitcoin.conf build/tari/config.toml build/tari/entrypo
   build/zcash/zakurad.toml build/zcash/zakurad-address-index.toml build/zcash/healthcheck.sh; do
   printf 'fixture %s\n' "$file" >"$payload/$file"
 done
-for file in node-manager node-control node-port-control node-resource-profile; do
+for file in node-manager node-control node-port-control node-resource-profile helper-common.sh; do
   printf 'fixture\n' >"$payload/scripts/$file"
 done
 tar -czf "$archive" -C "$tmp" node-manager
