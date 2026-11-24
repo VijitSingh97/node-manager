@@ -326,7 +326,8 @@ this possible; never delete it as a way to apply an edit.
    block alerts, LAN ports, and any authenticated RPC credentials. The gear
    menu contains node installation, launch at boot/login, Thermal throttle,
    Appearance, Telegram, and Healthchecks settings; the Dashboard password is
-   in the User dialog (person icon). A disabled node says **Not configured**.
+   in the User dialog (person icon), and the three-line button below it opens
+   the event log. A disabled node says **Not configured**.
 
 Automatic binding selects a private LAN address each time configuration is
 rendered. Set `dashboard.bind_ip` to `127.0.0.1` for localhost only, or choose a
