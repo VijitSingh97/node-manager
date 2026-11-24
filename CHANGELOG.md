@@ -14,7 +14,7 @@ All notable changes to this project are documented here. Format follows
   project page instead of a 404. The page carries a search and link-preview
   description, structured data, a sitemap and an `llms.txt` summary for AI
   agents, and the repository has the same `llms.txt` at its root. The page is
-  published with the APT feed, so it goes live with the next release (#443).
+  published with the APT feed, so it goes live with this release (#443).
 
 ### Changed
 
