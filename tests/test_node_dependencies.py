@@ -73,7 +73,7 @@ class NodeDependencyTests(unittest.TestCase):
             return response([release]) if "api.github.com" in url else sums
 
         verified = []
-        updated = MODULE.litecoin_update(text, get, lambda data: verified.append(data))
+        updated = MODULE.github_release_update(text, "litecoin", get, lambda data: verified.append(data))
         self.assertEqual(verified, [sums])
         self.assertIn("litecoin-0.21.5.8", updated)
         self.assertIn("sha=" + "a" * 64, updated)
@@ -97,8 +97,9 @@ class NodeDependencyTests(unittest.TestCase):
             return response([release]) if "api.github.com" in url else sums
 
         with self.assertRaises(MODULE.UpdateError):
-            MODULE.litecoin_update(
+            MODULE.github_release_update(
                 text,
+                "litecoin",
                 get,
                 lambda _data: (_ for _ in ()).throw(MODULE.UpdateError("bad signature")),
             )
@@ -120,12 +121,71 @@ class NodeDependencyTests(unittest.TestCase):
             return response([release]) if "api.github.com" in url else sums
 
         with self.assertRaises(MODULE.UpdateError):
-            MODULE.dogecoin_update(text, get, lambda _data: (_ for _ in ()).throw(MODULE.UpdateError("bad signature")))
-        updated = MODULE.dogecoin_update(text, get, lambda _data: None)
+            MODULE.github_release_update(text, "dogecoin", get, lambda _data: (_ for _ in ()).throw(MODULE.UpdateError("bad signature")))
+        updated = MODULE.github_release_update(text, "dogecoin", get, lambda _data: None)
         self.assertIn("releases/download/v1.15.0/dogecoin-1.15.0-${archive}", updated)
         self.assertNotIn("1.14.9", updated[updated.index("FROM base AS dogecoin") :].split("\nFROM ")[0])
         self.assertIn("sha=" + "c" * 64, updated)
         self.assertIn("sha=" + "d" * 64, updated)
+
+    def test_default_verifier_pins_each_project_key_and_signer(self):
+        for name, signer, keyfile, label in (
+            ("litecoin", "D35621D53A1CC6A3456758D03620E9D387E55666", "litecoin-release.asc", "Litecoin"),
+            ("dogecoin", "DC6EF4A8BF9F1B1E4DE1EE522D3A345B98D0DC1F", "dogecoin-release.asc", "Dogecoin"),
+            ("bitcoin-cash-node", "D465135F97D0047E18E99DC321810A542031C02C", "bitcoincash-release.asc", "Bitcoin Cash"),
+            ("monero", "81AC591FE9C4B65C5806AFC3F0AF4D462A0BDF92", "monero-release.asc", "Monero"),
+        ):
+            with mock.patch.object(MODULE, "verify_signed_checksums") as verify:
+                MODULE.verifier(name)(b"data")
+            key = verify.call_args.kwargs["key"]
+            self.assertTrue(key.is_file(), key)
+            self.assertEqual(key.name, keyfile)
+            self.assertEqual(verify.call_args.kwargs["signer"], signer)
+            self.assertEqual(verify.call_args.kwargs["project"], label)
+
+    def test_updaters_default_to_their_own_project_verifier(self):
+        text = (ROOT / "build/bitcoin-family/Dockerfile").read_text()
+        release = {
+            "tag_name": "v99.0.0",
+            "draft": False,
+            "prerelease": False,
+            "assets": [{"name": "SHA256SUMS.asc", "browser_download_url": "https://github.com/checksums"}],
+        }
+        for name, label, keyfile in (
+            ("litecoin", "Litecoin", "litecoin-release.asc"),
+            ("dogecoin", "Dogecoin", "dogecoin-release.asc"),
+            ("bitcoin-cash-node", "Bitcoin Cash", "bitcoincash-release.asc"),
+        ):
+            sums = (
+                ("c" * 64) + f"  {name}-99.0.0-x86_64-linux-gnu.tar.gz\n"
+                + ("d" * 64) + f"  {name}-99.0.0-aarch64-linux-gnu.tar.gz\n"
+            ).encode()
+
+            def get(url):
+                return response([release]) if "api.github.com" in url else sums
+
+            with mock.patch.object(MODULE, "verify_signed_checksums") as verify:
+                MODULE.github_release_update(text, name, get)
+            kwargs = verify.call_args.kwargs
+            self.assertEqual((kwargs["key"].name, kwargs["project"], kwargs["signer"]), (keyfile, label, MODULE.PROJECTS[name]["signer"]))
+        monero_text = (ROOT / "build/monero/Dockerfile").read_text()
+        monero_sums = (
+            ("e" * 64) + "  monero-linux-x64-v99.0.0.0.tar.bz2\n"
+            + ("f" * 64) + "  monero-linux-armv8-v99.0.0.0.tar.bz2\n"
+        ).encode()
+        with mock.patch.object(MODULE, "verify_signed_checksums") as verify:
+            MODULE.monero_update(monero_text, lambda _url: monero_sums)
+        kwargs = verify.call_args.kwargs
+        self.assertEqual((kwargs["key"].name, kwargs["project"], kwargs["signer"]), ("monero-release.asc", "Monero", MODULE.PROJECTS["monero"]["signer"]))
+
+    def test_monero_refuses_to_downgrade(self):
+        text = (ROOT / "build/monero/Dockerfile").read_text()
+        sums = (
+            ("e" * 64) + "  monero-linux-x64-v0.0.1.0.tar.bz2\n"
+            + ("f" * 64) + "  monero-linux-armv8-v0.0.1.0.tar.bz2\n"
+        ).encode()
+        with self.assertRaisesRegex(MODULE.UpdateError, "refusing to downgrade"):
+            MODULE.monero_update(text, lambda _url: sums, lambda _data: None)
 
     def test_release_update_stays_inside_its_build_stage(self):
         text = (ROOT / "build/bitcoin-family/Dockerfile").read_text()
@@ -305,7 +365,7 @@ class NodeDependencyTests(unittest.TestCase):
             return response([release]) if "api.github.com" in url else sums
 
         verified = []
-        updated = MODULE.bitcoincash_update(text, get, lambda data: verified.append(data))
+        updated = MODULE.github_release_update(text, "bitcoin-cash-node", get, lambda data: verified.append(data))
         self.assertEqual(verified, [sums])
         self.assertIn("bitcoin-cash-node-30.0.0", updated)
         self.assertIn("sha=" + "1" * 64, updated)
