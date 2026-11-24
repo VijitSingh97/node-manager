@@ -6,6 +6,16 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.40.3] - 2026-11-24
+
+### Added
+
+- The APT feed address, https://vijitsingh97.github.io/node-manager/, opens a
+  project page instead of a 404. The page carries a search and link-preview
+  description, structured data, a sitemap and an `llms.txt` summary for AI
+  agents, and the repository has the same `llms.txt` at its root. The page is
+  published with the APT feed, so it goes live with this release (#443).
+
 ### Changed
 
 - Release tarballs and Debian packages now contain only what installs and runs
@@ -46,16 +56,6 @@ All notable changes to this project are documented here. Format follows
 - A node that was just activated now says "Starting…" until it answers, instead
   of "Restarting after a settings change…". Restarts caused by settings changes
   keep their wording.
-
-## [1.40.3] - 2026-11-23
-
-### Added
-
-- The APT feed address, https://vijitsingh97.github.io/node-manager/, opens a
-  project page instead of a 404. The page carries a search and link-preview
-  description, structured data, a sitemap and an `llms.txt` summary for AI
-  agents, and the repository has the same `llms.txt` at its root. The page is
-  published with the APT feed, so it goes live with the next release (#443).
 
 ## [1.40.2] - 2026-11-22
 
