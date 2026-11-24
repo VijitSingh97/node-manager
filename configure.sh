@@ -12,10 +12,14 @@ stack_command=${BITCOIN_STACK_COMMAND:-./stack}
 package_managed=${BITCOIN_STACK_PACKAGE_MANAGED:-0}
 BITCOIN_STACK_DATA_DIR=${BITCOIN_STACK_DATA_DIR:-}
 private_ipv4() {
-  local ip=$1 a b c d
+  local ip=$1 allow_loopback=${2:-0} a b c d octet
   [[ "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || return 1
   IFS=. read -r a b c d <<<"$ip"
-  ((10#$a == 10 || (10#$a == 172 && 10#$b >= 16 && 10#$b <= 31) || (10#$a == 192 && 10#$b == 168)))
+  for octet in "$a" "$b" "$c" "$d"; do
+    { ((${#octet} > 1)) && [[ "$octet" == 0* ]]; } && return 1
+    ((10#$octet <= 255)) || return 1
+  done
+  ((allow_loopback == 1 && 10#$a == 127 || 10#$a == 10 || (10#$a == 172 && 10#$b >= 16 && 10#$b <= 31) || (10#$a == 192 && 10#$b == 168)))
 }
 
 detect_dashboard_bind_ip() {
@@ -428,23 +432,9 @@ for exposed_password in "$litecoin_rpc_expose:$litecoin_rpc_password:litecoin" "
 done
 
 check_bind_ip() {
-  local field=$1 ip=$2 allow_loopback=$3 a b c d octet expected="a private IPv4 address"
+  local field=$1 ip=$2 allow_loopback=$3 expected="a private IPv4 address"
   [ "$allow_loopback" = "1" ] && expected="a loopback or private IPv4 address"
-  if [[ ! "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-    echo "$field must be $expected."
-    exit 1
-  fi
-  IFS=. read -r a b c d <<<"$ip"
-  for octet in "$a" "$b" "$c" "$d"; do
-    if { ((${#octet} > 1)) && [[ "$octet" == 0* ]]; } || ((10#$octet > 255)); then
-      echo "$field must be $expected."
-      exit 1
-    fi
-  done
-  if ! (((allow_loopback == 1 && 10#$a == 127) || 10#$a == 10 || (10#$a == 172 && 10#$b >= 16 && 10#$b <= 31) || (10#$a == 192 && 10#$b == 168))); then
-    echo "$field must be $expected."
-    exit 1
-  fi
+  private_ipv4 "$ip" "$allow_loopback" || { echo "$field must be $expected."; exit 1; }
 }
 if [ "$dashboard_bind_ip" = ::1 ]; then
   [ -n "$dashboard_public_url" ] || { echo "dashboard.bind_ip must be a loopback or private IPv4 address."; exit 1; }

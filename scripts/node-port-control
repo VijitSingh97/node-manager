@@ -268,15 +268,8 @@ host_tcp_listeners() {
 }
 
 host_ipv4_addresses() {
-  case "$host_os" in
-    Linux)
-      output=$($ip_bin -o -4 addr show 2>/dev/null) || return 1
-      ;;
-    Darwin)
-      output=$($ifconfig_bin -a 2>/dev/null) || return 1
-      ;;
-    *) return 1 ;;
-  esac
+  case "$host_os" in Linux | Darwin) ;; *) return 1 ;; esac
+  output=$(host_addresses) || return 1
   addresses=$(printf '%s\n' "$output" | awk '
     {
       for (i=1; i<=NF; i++) {

@@ -1589,4 +1589,23 @@ cmp -s "$config/config.json" "$tmp/drift-pending.json" || fail "a missing fixed 
 drift_nc 4130 "127.0.0.1 192.168.1.20" 192.168.1.20
 [ "$(drift_state)" = 192.168.1.20 ] || fail "a returned fixed address kept its warning record"
 
+[ "$(. scripts/helper-common.sh && node_label bitcoincash && node_label monero)" = "$(printf 'Bitcoin Cash\nMonero')" ] || fail "node_label did not name the nodes"
+helper_events=$tmp/helper-events
+helper_docker=$tmp/helper-docker
+printf '#!/bin/sh\ncat >> "%s"\n' "$helper_events" >"$helper_docker"
+chmod +x "$helper_docker"
+(. scripts/helper-common.sh && docker_bin=$helper_docker dashboard_id=x host_event "hello" && docker_bin=$helper_docker dashboard_id=x host_event "late" 2030-01-02T03:04:05)
+[ "$(sed -n 1p "$helper_events" | sed 's/^[0-9T:-]*Z Host: /Z /')" = "Z hello" ] && [ "$(sed -n 1p "$helper_events" | cut -c20)" = Z ] && [ "$(sed -n 2p "$helper_events")" = "2030-01-02T03:04:05Z Host: late" ] || fail "host_event wrote the wrong event line"
+helper_ip=$tmp/helper-ip
+printf '#!/bin/sh\necho "2: eth0    inet 192.168.1.20/24 brd 192.168.1.255 scope global eth0"\n' >"$helper_ip"
+chmod +x "$helper_ip"
+(. scripts/helper-common.sh && ip_bin=$helper_ip host_os=Linux && host_has_ipv4 192.168.1.20 && ! host_has_ipv4 192.168.1.2) || fail "host_has_ipv4 matched the wrong address"
+helper_other_ip=$tmp/helper-other-ip
+printf '#!/bin/sh\necho "2: eth0    inet 10.9.9.9/24 scope global eth0"\n' >"$helper_other_ip"
+chmod +x "$helper_other_ip"
+helper_ifconfig=$tmp/helper-ifconfig
+printf '#!/bin/sh\necho "\tinet 192.168.1.20 netmask 0xffffff00"\n' >"$helper_ifconfig"
+chmod +x "$helper_ifconfig"
+(. scripts/helper-common.sh && ip_bin=$helper_other_ip ifconfig_bin=$helper_ifconfig host_os=Darwin && host_has_ipv4 192.168.1.20 && ! host_has_ipv4 192.168.1.2) || fail "host_has_ipv4 did not use ifconfig on Darwin"
+
 echo "PASS: test_node_control.sh"

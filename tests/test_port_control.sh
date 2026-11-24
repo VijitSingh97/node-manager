@@ -634,7 +634,7 @@ scripts/node-port-control
 new_case macos-ipv6-wildcard-conflict
 jq '.monero.rpc_expose=false' "$case_root/config/config.json" >"$case_root/config/config.next"
 mv "$case_root/config/config.next" "$case_root/config/config.json"
-export PORT_CONTROL_OS=Darwin
+export PORT_CONTROL_OS=Darwin FAKE_IP_FAIL=1
 export FAKE_NETSTAT_LISTENERS='tcp6       0      0  ::.28082                *.*                    LISTEN'
 export FAKE_IFCONFIG_ADDRESSES='	inet 192.168.1.10 netmask 0xffffff00 broadcast 192.168.1.255'
 original_config=$(cat "$case_root/config/config.json")
@@ -685,6 +685,16 @@ scripts/node-port-control
 [ "$(status .error_code)" = port_check_failed ] || fail "unexpected macOS TCP protocol lacked typed status"
 [ "$(cat "$case_root/config/config.json")" = "$original_config" ] || fail "unexpected macOS TCP protocol changed config"
 [ ! -s "$FAKE_STACK_LOG" ] || fail "unexpected macOS TCP protocol invoked apply"
+
+new_case unknown-os-address-lookup
+jq '.monero.rpc_expose=false' "$case_root/config/config.json" >"$case_root/config/config.next"
+mv "$case_root/config/config.next" "$case_root/config/config.json"
+export PORT_CONTROL_OS=FreeBSD
+original_config=$(cat "$case_root/config/config.json")
+request '{"id":"30303030303030303030303030303046","changes":[{"port":"monero_rpc","enabled":true,"bind_ip":"192.168.1.10","host_port":28081}],"requested_at":1000}'
+scripts/node-port-control
+[ "$(status .error_code)" = port_check_failed ] || fail "unknown OS address lookup did not fail safely"
+[ ! -s "$FAKE_STACK_LOG" ] || fail "unknown OS address lookup invoked apply"
 
 new_case wrong-tor
 jq '.monero.rpc_expose=false' "$case_root/config/config.json" >"$case_root/config/config.next"

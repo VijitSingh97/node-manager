@@ -468,6 +468,9 @@ grep -q 'No private LAN address detected' "$tmp/auto-bind.out" || fail "loopback
 cp "$tmp/.env" "$tmp/env.before"
 [ "$(cd "$tmp" && BITCOIN_STACK_DEFAULT_BIND_IP=192.168.50.44 ./configure.sh --detect-bind-ip)" = 192.168.50.44 ] || fail "bind detection did not print the LAN address"
 [ "$(cd "$tmp" && BITCOIN_STACK_DEFAULT_BIND_IP=8.8.8.8 ./configure.sh --detect-bind-ip 2>/dev/null)" = 127.0.0.1 ] || fail "bind detection did not fall back to loopback"
+for bad_ip in 10.999.0.1 10.0.0.300 192.168.1.999 010.0.0.1; do
+  [ "$(cd "$tmp" && BITCOIN_STACK_DEFAULT_BIND_IP=$bad_ip ./configure.sh --detect-bind-ip 2>/dev/null)" = 127.0.0.1 ] || fail "bind detection accepted invalid default $bad_ip"
+done
 cmp -s "$tmp/.env" "$tmp/env.before" || fail "bind detection rendered .env"
 echo '{"dashboard":{"bind_ip":"192.168.50.42"}}' >"$tmp/config.json"
 (cd "$tmp" && BITCOIN_STACK_DEFAULT_BIND_IP=192.168.50.43 ./configure.sh) >/dev/null
