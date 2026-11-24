@@ -34,6 +34,7 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("POST /api/{node}/watch", a.apiFamilyWatchAdd)
 	mux.HandleFunc("DELETE /api/{node}/watch/{id}", a.apiFamilyWatchRemove)
 	mux.HandleFunc("GET /api/nodes", a.apiNodes)
+	mux.HandleFunc("GET /api/events", a.apiEvents)
 	mux.HandleFunc("POST /api/nodes/{node}/power", a.apiNodePower)
 	mux.HandleFunc("GET /api/settings/host", a.apiHostControlGet)
 	mux.HandleFunc("POST /api/settings/host", a.apiHostControlPost)
@@ -263,6 +264,7 @@ func (a *app) apiWatchAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	a.watch.SetPending(saved.Key, true)
 	go a.provisionForChain(saved, chain)
+	a.recordEvent("Wallet", "", "Bitcoin watch-only wallet added.")
 	writeJSON(w, map[string]any{"ok": true})
 }
 
@@ -300,6 +302,7 @@ func (a *app) apiWatchRemove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.watch.DeprovisionNameIfUnused(a.nodeRPC, a.walletRPC, entry, coreName)
+	a.recordEvent("Wallet", "", "Bitcoin watch-only wallet removed.")
 	writeJSON(w, map[string]any{"ok": true})
 }
 

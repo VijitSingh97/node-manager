@@ -4,8 +4,9 @@
 
 The gear at the bottom right opens Appearance, the Node set (node installation,
 launch at boot/login, Thermal throttle), Network, Balance index, Telegram, and
-Healthchecks. The person icon above it opens the User dialog, which holds
-Account (sign out) and Dashboard password. Each tower contains
+Healthchecks. The person icon at the top opens the User dialog, which holds
+Account (sign out) and Dashboard password, and the three-line **Events** button
+between them lists the [event log](operations.md#event-log). Each tower contains
 its own separate Alerts and LAN access sections under Node controls. Nothing in
 Settings takes effect until you press **Save**, including Install, Move data,
 Delete, Run new config and Reset to default; their dialogs only check the values.

@@ -124,6 +124,7 @@ type app struct {
 	passwordWork     *passwordWorkLimiter
 	passwordAttempts chan struct{}
 	controlMu        sync.Mutex
+	controlSeen      map[string]string
 	provisionLocks   sync.Map
 	ctx              context.Context
 }
@@ -185,6 +186,7 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 		blockRPC.client, blockRPC.maxBody = newInternalHTTPClient(2*time.Minute), 64<<20
 		a.utxo = newUtxoManager(cfg.utxoIndexDir, nil, &blockRPC, logger, utxoBitcoin)
 		a.utxo.blockWait = &blockRPC
+		a.utxo.event = a.indexEvent(nodeBitcoin)
 		a.watchWake = make(chan struct{}, 1)
 		a.utxo.onApplied = func() {
 			select {
