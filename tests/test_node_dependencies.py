@@ -161,7 +161,7 @@ class NodeDependencyTests(unittest.TestCase):
                 + ("d" * 64) + f"  {name}-99.0.0-aarch64-linux-gnu.tar.gz\n"
             ).encode()
 
-            def get(url):
+            def get(url, sums=sums):
                 return response([release]) if "api.github.com" in url else sums
 
             with mock.patch.object(MODULE, "verify_signed_checksums") as verify:
