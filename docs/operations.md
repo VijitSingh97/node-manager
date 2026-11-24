@@ -437,7 +437,8 @@ first — a live copy of `chainstate/` is corrupt by construction.
 The Litecoin balance index (`litecoin.utxo_index`) seeds the same way, through
 the same host helper, with `litecoin` after the command: `./stack utxo-seed
 litecoin`, `./stack utxo-seed litecoin cancel` and `./stack utxo-index remove
-litecoin`. Its seed time and size on mainnet are not measured yet. Only one
+litecoin`. On mini-1 its automatic seed took 346 s and the index takes 4.52 GB for
+53.8 million coins ([measurement](measurements/litecoin-index-mainnet.md)). Only one
 balance index seeds at a time; a second request is refused with the `lock`
 guard until the first finishes.
 
@@ -705,9 +706,10 @@ On APT and Homebrew installs the command is `node-manager utxo-index verify`.
   | Bitcoin Cash Node 29.2.0 | `gettxoutsetinfo none` | `ecmh`, `muhash_testing` and the default `hash_serialized_3` all hash the set |
   | Dogecoin Core 1.14.9 | `gettxoutsetinfo` | Takes no argument and always hashes the whole set, so it is the slowest |
 
-  How long this takes on mainnet has not been measured. For Bitcoin on the 2018 Mac mini with bitcoind
-  capped at 0.5 CPU, expect about 3 minutes, a guess from `scantxoutset`, which makes a similar walk there
-  in 164 seconds ([lookup bench](measurements/lookup-bench-mainnet.md)).
+  On mini-1, Litecoin took 44.5 s for `gettxoutsetinfo` and 68.6 s for the index count, 76 s for the
+  whole command ([measurement](measurements/litecoin-index-mainnet.md)). The other chains are not measured
+  yet. For Bitcoin on the same host, with bitcoind capped at 0.5 CPU, expect about 3 minutes, a guess from
+  `scantxoutset`, which makes a similar walk there in 164 seconds ([lookup bench](measurements/lookup-bench-mainnet.md)).
 - **Alerts.** In all four versions the walk reads a database snapshot without the node's main lock
   (`cs_main`). The lock is taken only for the flush before the walk and for short lookups, so the
   health probe's `getblockchaininfo` keeps answering. Node-down alerts for that chain are still held
