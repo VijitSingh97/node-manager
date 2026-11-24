@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -78,10 +77,8 @@ func (input *portControlChangeInput) UnmarshalJSON(data []byte) error {
 		HostPort *int   `json:"host_port"`
 	}
 	var wire wireInput
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&wire); err != nil {
-		return err
+	if !decodeStrictBytes(data, &wire) {
+		return errors.New("invalid port change")
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
@@ -340,11 +337,8 @@ func (a *app) apiPortControlPost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "host port control is unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxPortControlBody)
 	var input portControlInput
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&input) != nil || ensureJSONEnd(decoder) != nil {
+	if !decodeStrictBody(w, r, maxPortControlBody, &input) {
 		http.Error(w, "invalid port control request", http.StatusBadRequest)
 		return
 	}

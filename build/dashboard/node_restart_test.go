@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -47,6 +48,9 @@ func hostRequestFile(t *testing.T, a *app, action, node string, age time.Duratio
 	}
 	if action == "migrate" {
 		request.DataDir = "/srv/data"
+	}
+	if action == "apply_config" {
+		request.Revision = strings.Repeat("a", 64)
 	}
 	writeControlFile(t, a.nodeControlPath("request"), request, age)
 }

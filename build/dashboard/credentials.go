@@ -171,14 +171,11 @@ func (a *app) credentialInput(w http.ResponseWriter, r *http.Request, reset bool
 	if rejectCredentialCSRF(w, r) {
 		return "", false
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 1024)
 	var input struct {
 		Node         string `json:"node"`
 		Confirmation string `json:"confirmation,omitempty"`
 	}
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&input) != nil || ensureJSONEnd(decoder) != nil || !passwordNode(input.Node) || reset && input.Confirmation != "reset" || !reset && input.Confirmation != "" {
+	if !decodeStrictBody(w, r, 1024, &input) || !passwordNode(input.Node) || reset && input.Confirmation != "reset" || !reset && input.Confirmation != "" {
 		http.Error(w, "invalid credential request", http.StatusBadRequest)
 		return "", false
 	}

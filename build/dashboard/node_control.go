@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -94,8 +93,7 @@ func (a *app) nodeRuntime() map[string]bool {
 		return active
 	}
 	var saved map[string]bool
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	if decoder.Decode(&saved) != nil || ensureJSONEnd(decoder) != nil {
+	if !decodeStrictBytes(b, &saved) {
 		return active
 	}
 	for id := range saved {
@@ -344,18 +342,7 @@ func (a *app) fillFromHostStats(id string, status *genericNodeStatus) {
 }
 
 func (a *app) nodeControlAvailable() bool {
-	info, err := os.Stat(a.nodeControlPath("capability"))
-	if err != nil || !info.Mode().IsRegular() || info.Size() > 1024 || time.Since(info.ModTime()) < 0 || time.Since(info.ModTime()) > nodeControlCapabilityAge {
-		return false
-	}
-	b, err := os.ReadFile(a.nodeControlPath("capability"))
-	if err != nil {
-		return false
-	}
-	if string(b) == "ready\n" {
-		return true
-	}
-	_, ok := decodeHostControlCapability(b)
+	_, ok := a.hostControlCapability()
 	return ok
 }
 
@@ -438,11 +425,8 @@ func normalizeNodeID(id string) string {
 }
 
 func decodeNodeControlInput(w http.ResponseWriter, r *http.Request) (nodeControlInput, error) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1024)
 	var input nodeControlInput
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&input) != nil || ensureJSONEnd(decoder) != nil || input.Active == nil {
+	if !decodeStrictBody(w, r, 1024, &input) || input.Active == nil {
 		return input, errors.New("invalid node control request")
 	}
 	return input, nil

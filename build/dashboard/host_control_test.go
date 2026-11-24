@@ -512,3 +512,51 @@ func TestHostControlStatusShowsTheLastErrorOfAFailedInstall(t *testing.T) {
 		t.Fatalf("rejected message = %q", view.Status.Message)
 	}
 }
+
+func TestDecodeHostControlInputMatchesPendingRequestValidator(t *testing.T) {
+	rev := strings.Repeat("a", 64)
+	cases := []struct {
+		body string
+		want bool
+	}{
+		{`{"action":"delete","node":"litecoin","confirmation":"litecoin"}`, true},
+		{`{"action":"delete","node":"litecoin","confirmation":"monero"}`, false},
+		{`{"action":"delete","node":"litecoin","confirmation":"litecoin","config_revision":"` + rev + `"}`, false},
+		{`{"action":"install","node":"litecoin"}`, true},
+		{`{"action":"install","node":"litecoin","data_dir":"/srv/l","utxo_index":true}`, true},
+		{`{"action":"install","node":"monero","data_dir":"/srv/m","utxo_index":true}`, false},
+		{`{"action":"install","node":"litecoin","utxo_index":true}`, false},
+		{`{"action":"install","node":"litecoin","config_revision":"` + rev + `"}`, false},
+		{`{"action":"migrate","node":"monero","data_dir":"/srv/m"}`, true},
+		{`{"action":"migrate","node":"monero"}`, false},
+		{`{"action":"launch_at_boot","enabled":true}`, true},
+		{`{"action":"launch_at_boot","enabled":true,"config_revision":"` + rev + `"}`, false},
+		{`{"action":"launch_at_boot"}`, false},
+		{`{"action":"clearnet_over_tor","enabled":false}`, true},
+		{`{"action":"inbound_connections","enabled":true,"node":"monero"}`, false},
+		{`{"action":"utxo_index","node":"litecoin","enabled":true}`, true},
+		{`{"action":"utxo_index","node":"monero","enabled":true}`, false},
+		{`{"action":"utxo_seed","node":"bitcoin"}`, true},
+		{`{"action":"utxo_seed","node":"monero"}`, false},
+		{`{"action":"utxo_seed","node":"bitcoin","config_revision":"` + rev + `"}`, false},
+		{`{"action":"apply_config","config_revision":"` + rev + `"}`, true},
+		{`{"action":"apply_config","config_revision":"` + strings.ToUpper(rev) + `"}`, false},
+		{`{"action":"apply_config"}`, false},
+		{`{"action":"apply_config","config_revision":"` + rev + `","node":"monero"}`, false},
+		{`{"action":"bogus"}`, false},
+	}
+	for _, c := range cases {
+		r := httptest.NewRequest(http.MethodPost, "/api/settings/host", strings.NewReader(c.body))
+		if _, err := decodeHostControlInput(httptest.NewRecorder(), r); (err == nil) != c.want {
+			t.Errorf("decodeHostControlInput(%s) err=%v, want accepted=%v", c.body, err, c.want)
+		}
+		a := &app{cfg: config{stateDir: t.TempDir()}}
+		raw := strings.TrimSuffix(c.body, "}") + `,"id":"` + strings.Repeat("b", 32) + `","requested_at":1}`
+		if err := os.WriteFile(a.nodeControlPath("request"), []byte(raw), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if status, _ := a.hostControlStatus(); (status != nil) != c.want {
+			t.Errorf("pending validator(%s) = %v, want accepted=%v", c.body, status != nil, c.want)
+		}
+	}
+}

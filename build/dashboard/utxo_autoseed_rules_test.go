@@ -283,7 +283,7 @@ func TestHostControlInstallCarriesTheBalanceIndexOption(t *testing.T) {
 			t.Fatalf("%s = %d", body, code)
 		}
 	}
-	if validHostControlShape("install", nodeMonero, nil, "/srv/m", nil, "", ptrBool(true)) || !validHostControlShape("install", nodeDogecoin, nil, "/srv/d", nil, "", ptrBool(false)) {
+	if validHostControlShape("install", nodeMonero, nil, "/srv/m", nil, "", ptrBool(true), "") || !validHostControlShape("install", nodeDogecoin, nil, "/srv/d", nil, "", ptrBool(false), "") {
 		t.Fatal("request shape validation is wrong")
 	}
 }

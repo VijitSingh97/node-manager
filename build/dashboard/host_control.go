@@ -280,8 +280,8 @@ func toggleHostAction(action string) bool {
 	return action == "launch_at_boot" || action == "utxo_index" || networkHostAction(action)
 }
 
-func validHostControlShape(action, node string, enabled *bool, dataDir string, interfaces []hostInstallInterface, confirmation string, utxoIndex *bool) bool {
-	if action != "delete" && confirmation != "" || action != "install" && utxoIndex != nil || action == "install" && !validInstallIndex(node, utxoIndex, dataDir) {
+func validHostControlShape(action, node string, enabled *bool, dataDir string, interfaces []hostInstallInterface, confirmation string, utxoIndex *bool, revision string) bool {
+	if action != "delete" && confirmation != "" || action != "apply_config" && revision != "" || action != "install" && utxoIndex != nil || action == "install" && !validInstallIndex(node, utxoIndex, dataDir) {
 		return false
 	}
 	return action == "delete" && normalizeNodeID(node) != "" && confirmation == node && enabled == nil && dataDir == "" && interfaces == nil ||
@@ -290,7 +290,7 @@ func validHostControlShape(action, node string, enabled *bool, dataDir string, i
 		toggleHostAction(action) && node == "" && enabled != nil && dataDir == "" && interfaces == nil ||
 		action == "utxo_index" && utxoChains[node] != nil && enabled != nil && dataDir == "" && interfaces == nil ||
 		action == "utxo_seed" && canIndexNode(node) && enabled == nil && dataDir == "" && interfaces == nil ||
-		action == "apply_config" && node == "" && enabled == nil && dataDir == "" && interfaces == nil
+		action == "apply_config" && node == "" && enabled == nil && lowerHex(revision, 64) && dataDir == "" && interfaces == nil
 }
 
 func canonicalHostStatusMessage(status hostControlStatus, command string) string {
@@ -404,7 +404,7 @@ func (a *app) hostControlStatus() (*hostControlStatus, bool) {
 		b, err := readSmallFile(a.nodeControlPath(name), 4096)
 		if err == nil {
 			var request hostControlRequest
-			if decodeStrictBytes(b, &request) && validPortControlID(request.ID) && validHostControlShape(request.Action, request.Node, request.Enabled, request.DataDir, request.Interfaces, request.Confirm, request.UTXOIndex) {
+			if decodeStrictBytes(b, &request) && validPortControlID(request.ID) && validHostControlShape(request.Action, request.Node, request.Enabled, request.DataDir, request.Interfaces, request.Confirm, request.UTXOIndex, request.Revision) {
 				return &hostControlStatus{ID: request.ID, Action: request.Action, Node: normalizeNodeID(request.Node), Enabled: request.Enabled, State: "pending", Message: a.hostControlProcessingMessage(request)}, true
 			}
 			return nil, true
@@ -462,25 +462,8 @@ func (a *app) apiHostControlGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func decodeHostControlInput(w http.ResponseWriter, r *http.Request) (hostControlInput, error) {
-	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	var input hostControlInput
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&input) != nil || ensureJSONEnd(decoder) != nil || !validHostAction(input.Action) {
-		return input, errors.New("invalid host control request")
-	}
-	validRevision := lowerHex(input.Revision, 64)
-	if input.Action != "delete" && input.Confirm != "" || input.Action != "install" && input.UTXOIndex != nil {
-		return input, errors.New("invalid host control request")
-	}
-	legacyInstall := input.Action == "install" && input.DataDir == "" && input.Interfaces == nil && input.UTXOIndex == nil
-	configuredInstall := input.Action == "install" && validInstallOptions(normalizeNodeID(input.Node), input.DataDir, input.Interfaces) && validInstallIndex(normalizeNodeID(input.Node), input.UTXOIndex, input.DataDir)
-	deleteNode := input.Action == "delete" && normalizeNodeID(input.Node) != "" && input.Confirm == input.Node && input.Enabled == nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil
-	valid := deleteNode || (legacyInstall || configuredInstall) && normalizeNodeID(input.Node) != "" && input.Enabled == nil && input.Revision == "" ||
-		input.Action == "migrate" && normalizeNodeID(input.Node) != "" && input.Enabled == nil && input.Revision == "" && safeHostPath(input.DataDir) && input.Interfaces == nil || toggleHostAction(input.Action) && input.Node == "" && input.Enabled != nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil ||
-		input.Action == "utxo_index" && utxoChains[input.Node] != nil && input.Enabled != nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil || input.Action == "apply_config" && input.Node == "" && input.Enabled == nil && validRevision && input.DataDir == "" && input.Interfaces == nil ||
-		input.Action == "utxo_seed" && (input.Node == nodeBitcoin || utxoChains[input.Node] != nil) && input.Enabled == nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil
-	if !valid {
+	if !decodeStrictBody(w, r, 4096, &input) || !validHostAction(input.Action) || !validHostControlShape(input.Action, input.Node, input.Enabled, input.DataDir, input.Interfaces, input.Confirm, input.UTXOIndex, input.Revision) {
 		return input, errors.New("invalid host control request")
 	}
 	input.Node = normalizeNodeID(input.Node)
