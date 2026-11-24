@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
@@ -129,15 +128,4 @@ func (a *app) rejectMoneroWatchMutation(w http.ResponseWriter, r *http.Request) 
 		return true
 	}
 	return false
-}
-
-func decodeStrictJSON(w http.ResponseWriter, r *http.Request, limit int64, value any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, limit)
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(value); err != nil || ensureJSONEnd(decoder) != nil {
-		http.Error(w, "Invalid request.", http.StatusBadRequest)
-		return false
-	}
-	return true
 }

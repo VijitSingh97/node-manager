@@ -29,9 +29,7 @@ func TestNodeControlRequiresExactConfirmationAndQueuesPrivateRequest(t *testing.
 	node := nodeConfig{ID: nodeLitecoin, Name: "Litecoin", Enabled: true, Supported: true}
 	a := &app{cfg: config{bitcoinDisabled: true, dashboardPassword: "secret", stateDir: dir, dataDir: dir, nodes: map[string]nodeConfig{nodeLitecoin: node}}}
 	initializeTestDashboardAuth(t, a)
-	if err := os.WriteFile(a.nodeControlPath("capability"), []byte("ready\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeHostCapability(t, a, false)
 	for _, body := range []string{
 		`{"active":false}`, `{"active":false,"confirmation":"Deactivate"}`, `{"active":true,"confirmation":"deactivate"}`, `{"active":false,"confirmation":"deactivate","extra":true}`,
 	} {
@@ -123,9 +121,7 @@ func TestNodeControlActivationAndAvailabilityAreIndependent(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "node-runtime.json"), []byte(`{"litecoin":false}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(a.nodeControlPath("capability"), []byte("ready\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeHostCapability(t, a, false)
 	response := nodeControlHTTP(a, http.MethodPost, "/api/nodes/litecoin/power", `{"active":true,"confirmation":""}`, true)
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("activate = %d %s", response.Code, response.Body.String())
@@ -443,5 +439,42 @@ func TestNodeListCarriesTheLastHeightTheMonitorPersisted(t *testing.T) {
 	}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("last heights = %v, want %v", got, want)
+	}
+}
+
+func TestNodeControlAvailableUsesHostCapabilityReader(t *testing.T) {
+	a := &app{cfg: config{stateDir: t.TempDir()}}
+	if a.nodeControlAvailable() {
+		t.Fatal("missing capability reported available")
+	}
+	path := a.nodeControlPath("capability")
+	writeHostCapability(t, a, false)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	big := append(b, []byte(strings.Repeat(" ", 2048))...)
+	if err := os.WriteFile(path, big, 0o600); err != nil || !a.nodeControlAvailable() {
+		t.Fatalf("capability over 1024 bytes unavailable: %v", err)
+	}
+	for name, body := range map[string][]byte{"ready": []byte("ready\n"), "malformed": []byte(`{"platform":`), "oversize": append(b, []byte(strings.Repeat(" ", 20000))...)} {
+		if err := os.WriteFile(path, body, 0o600); err != nil || a.nodeControlAvailable() {
+			t.Fatalf("%s capability reported available (%v)", name, err)
+		}
+	}
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var capability hostControlCapability
+	if err := json.Unmarshal(b, &capability); err != nil {
+		t.Fatal(err)
+	}
+	capability.Timestamp = 1
+	stale, err := json.Marshal(capability)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, stale, 0o600); err != nil || a.nodeControlAvailable() {
+		t.Fatal("stale capability reported available")
 	}
 }

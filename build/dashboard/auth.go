@@ -150,15 +150,12 @@ func (a *app) apiDashboardPassword(w http.ResponseWriter, r *http.Request) {
 	if rejectCredentialCSRF(w, r) || a.rejectUnsafeSettingsHost(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	var input struct {
 		Old    string `json:"old_password"`
 		New    string `json:"new_password"`
 		Repeat string `json:"repeat_password"`
 	}
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&input) != nil || ensureJSONEnd(decoder) != nil || len(input.New) < 12 || len(input.New) > 128 || strings.IndexFunc(input.New, unicode.IsControl) >= 0 || input.New != input.Repeat {
+	if !decodeStrictBody(w, r, 4096, &input) || len(input.New) < 12 || len(input.New) > 128 || strings.IndexFunc(input.New, unicode.IsControl) >= 0 || input.New != input.Repeat {
 		http.Error(w, "use matching passwords of 12 to 128 characters without control characters", http.StatusBadRequest)
 		return
 	}

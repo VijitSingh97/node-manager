@@ -28,11 +28,11 @@ func TestNewRequestID(t *testing.T) {
 
 func TestHostControlShapeAcceptsEveryIndexableChain(t *testing.T) {
 	for node := range utxoChains {
-		if !validHostControlShape("utxo_seed", node, nil, "", nil, "", nil) {
+		if !validHostControlShape("utxo_seed", node, nil, "", nil, "", nil, "") {
 			t.Fatalf("utxo_seed rejected for %s", node)
 		}
 	}
-	if !validHostControlShape("utxo_seed", nodeBitcoin, nil, "", nil, "", nil) || validHostControlShape("utxo_seed", nodeMonero, nil, "", nil, "", nil) {
+	if !validHostControlShape("utxo_seed", nodeBitcoin, nil, "", nil, "", nil, "") || validHostControlShape("utxo_seed", nodeMonero, nil, "", nil, "", nil, "") {
 		t.Fatal("utxo_seed node set wrong")
 	}
 }

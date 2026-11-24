@@ -3,7 +3,6 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 )
@@ -51,9 +50,7 @@ func TestAnonymousTrustedLANCannotQueueNodeAndPortChanges(t *testing.T) {
 	node := nodeConfig{ID: nodeLitecoin, Name: "Litecoin", Enabled: true, Supported: true}
 	nodeApp := &app{cfg: config{bitcoinDisabled: true, dashboardPassword: "dashboard-secret", stateDir: nodeDir, nodes: map[string]nodeConfig{nodeLitecoin: node}}}
 	initializeTestDashboardAuth(t, nodeApp)
-	if err := os.WriteFile(nodeApp.nodeControlPath("capability"), []byte("ready\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeHostCapability(t, nodeApp, false)
 	nodeResponse := anonymousMutation(nodeApp.routes(), http.MethodPost, "/api/nodes/litecoin/power", `{"active":false,"confirmation":"deactivate"}`, "192.168.1.20:4321")
 	if nodeResponse.Code != http.StatusUnauthorized {
 		t.Fatalf("anonymous trusted node change = %d: %s", nodeResponse.Code, nodeResponse.Body.String())
