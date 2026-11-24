@@ -11,13 +11,49 @@ installs use `node-manager` instead of `./stack` (with `sudo` for APT). Direct
 |---|---|
 | `./stack up` / `down` / `restart [svc]` | Start / stop / restart. Bitcoin Core gets up to 5 minutes to flush on stop — let it. |
 | `./stack logs [svc]` | Follow logs (`tor`, `bitcoin`, or `dashboard`). |
-| `./stack events` | Incident history (down/recovered, failed Healthchecks pings, monitor restarts) from `/state/events.log` — survives restarts and reboots. |
+| `./stack events` | Event history from `/state/events.log` (node down and recovered, host actions, settings and sign-in changes; see [Event log](#event-log)) — survives restarts and reboots. |
 | `./stack apply` | Re-render `.env` from `config.json` and apply the changes. |
 | `./stack pull` | Download prebuilt images using the host's Docker settings. |
 | `./stack status` | Container + health summary; exits non-zero if anything is down. |
 | `./stack doctor` | Read-only health report: deps, config freshness, disk, containers, sync state, tor bootstrap, onion addresses. |
 | `./stack backup` / `restore [-y] <archive>` | See [Backup](#backup). |
 | `docker compose exec -T bitcoin bitcoin-cli -datadir=/data getblockchaininfo` | Talk to the node directly (cookie auth, no credentials needed). |
+
+## Event log
+
+The **Events** button (three lines, between the person icon and the gear) lists
+what happened on this node set, newest first. Filter it by category or node, and
+press **Show older events** to page back. It reads `/state/events.log`, the file
+`./stack events` prints, so nothing is stored twice. The file keeps about 1 MB;
+past that the dashboard drops the oldest half.
+
+| Category | What is listed |
+|---|---|
+| Nodes | Node down and recovered, monitor online, activate and deactivate results, installs, deletions and data moves, and nodes that fail to start or that the host stopped |
+| Sync and blocks | Initial sync complete, and new blocks when that node's block alert is on |
+| Host | Thermal throttle and release, low disk, Tor watchdog steps, and dashboard or LAN listener address moves |
+| Settings | Saved settings (the names of the changed fields, never their values), LAN port changes, launch at boot, the Tor network switches, and a new configuration applied with the nodes it restarted |
+| Sign-in and credentials | Browser sign-ins with the client address, sign-outs, dashboard password changes, and RPC credential reveals and resets |
+| Balance index | Turned on or off, seed started, finished, cancelled or failed, and verify results |
+| Wallets | Watch-only wallets and addresses added or removed, without the name, key or address |
+| Updates and restarts | Each dashboard start with its version, so an upgrade shows as a new version, and new releases |
+| Alert delivery | Failed Healthchecks pings |
+
+Events that need attention are labelled **Warning** or **Error**. `Host:` lines
+come from the host helpers, so the panel checks them, and any line it does not
+recognise, with the helpers' own `redact_last_line` rule: if the text mentions a
+password, token, login, seed, key or onion address, or holds a word of 40 or
+more characters or a Telegram bot token, the panel shows "Details hidden because
+they may include a secret." instead. The Telegram copy of a `Host:` line is not
+listed twice. Failed sign-in attempts are not logged, because unlimited attempts
+would push real events out of the file, and failed Telegram sends go to the
+dashboard's output only (`./stack logs dashboard`).
+
+Results that the host helper finishes while the dashboard restarts are listed
+once it is back; `/state/events_seen.json` records which results were already
+listed. The panel calls `GET /api/events` with a signed-in session (or Basic
+auth) and the `X-Requested-With: fetch` header. It takes `category`, `node`,
+`limit` (1–200, default 50) and `before`, the `next` value of the previous page.
 
 ## Health checks
 

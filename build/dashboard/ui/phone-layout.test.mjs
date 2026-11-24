@@ -26,7 +26,7 @@ flow("Phone panels keep the close button and values clear of the fixed buttons",
       const where = `${id} at ${width}px`;
       assert.equal(got.closeHit, true, where);
       assert.equal(got.overlapsToggle, false, where);
-      assert.equal(got.buttons, 2, where);
+      assert.equal(got.buttons, 3, where);
       assert.ok(got.right <= got.buttonsLeft, `${where}: panel content reaches ${got.right}px, buttons start at ${got.buttonsLeft}px`);
       assert.ok(got.scrollWidth <= width, `${where}: scrollWidth ${got.scrollWidth}`);
       await page.click(`[data-node-panel="${id}"] [data-close-node]`);

@@ -399,8 +399,10 @@ workload fits; see [hardware estimates and test evidence](hardware.md).
 The gear menu contains **Appearance**, **Node set** (with **Launch at
 boot/login** and **Thermal throttle**), **Network**, **Balance index**,
 **Telegram**, and **Healthchecks** settings;
-nothing there takes effect until you press **Save**. The person icon above the gear
-opens the User dialog, which holds **Account** and **Dashboard password**. **Node set**
+nothing there takes effect until you press **Save**. The person icon at the top of the
+corner buttons opens the User dialog, which holds **Account** and **Dashboard password**,
+and the three-line button between it and the gear opens **Events**, the
+[event log](operations.md#event-log). **Node set**
 installs an available chain through the host helper using versioned project images and
 default storage; LAN interfaces remain closed. It shows installation progress
 and errors. Pending external configuration changes appear here for explicit
