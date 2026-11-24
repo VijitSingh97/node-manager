@@ -124,9 +124,21 @@ Activation failures are reported for retry with `node-manager package-upgrade`;
 Docker or registry outages do not leave dpkg unconfigured.
 It builds the architecture-independent package, creates and signs the feed,
 verifies that feed with an isolated APT client, uploads the package and checksum
-to the GitHub Release, and deploys the feed to Pages together with the project
-page in `packaging/pages/` and the root `llms.txt`. Do not advertise APT
-availability until that Pages deployment succeeds.
+to the GitHub Release, and uploads the feed as the Pages artifact together with
+the project page in `packaging/pages/` and the root `llms.txt`. A separate
+`pages` job then deploys it. Do not advertise APT availability until that
+deployment succeeds. If only `pages` fails, use **Re-run failed jobs** within
+one day: it deploys the artifact `apt` already uploaded, which GitHub keeps for
+one day. After that, or if `apt` must run again, first delete every
+`github-pages` artifact of that run, from all attempts, because the deploy
+refuses more than one. The run page shows only the current attempt, so use the
+API:
+
+```sh
+gh api --paginate repos/{owner}/{repo}/actions/runs/RUN_ID/artifacts \
+  --jq '.artifacts[] | select(.name=="github-pages") | .id' |
+  xargs -I{} gh api -X DELETE repos/{owner}/{repo}/actions/artifacts/{}
+```
 
 The static feed omits `Valid-Until`, so releases remain installable between
 releases but old signed snapshots do not expire. Adding an expiry requires
