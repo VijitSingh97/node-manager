@@ -246,7 +246,9 @@ body:not([data-node=""]) .node-close-backdrop { display: block; }
   cursor: pointer;
 }
 .settings-open:hover, .settings-open:focus-visible { color: var(--accent); }
-.account-open { bottom: 64px; display: grid; place-items: center; padding: 0; }
+.account-open, .events-open { display: grid; place-items: center; padding: 0; }
+.account-open { bottom: 112px; }
+.events-open { bottom: 64px; }
 .settings-dialog {
   width: min(440px, calc(100vw - 64px));
   max-height: calc(100dvh - 80px);
@@ -268,7 +270,7 @@ body:not([data-node=""]) .node-close-backdrop { display: block; }
 .settings-dialog legend { color: var(--accent); }
 .settings-dialog label { display: block; margin: 12px 0; font-size: 0.9rem; }
 .settings-dialog label input:not([type="checkbox"]),
-#settings-default-currency {
+#settings-default-currency, .events-filters select {
   display: block;
   box-sizing: border-box;
   width: 100%;
@@ -847,6 +849,16 @@ hr {
 #node-power-cancel { background:var(--tag-bg); color:var(--text); }
 
 .settings-dialog [hidden] { display:none !important; }
+.events-dialog { width: min(560px, calc(100vw - 64px)); }
+.events-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0 12px; }
+.events-list { margin: 0 0 12px; padding: 0; list-style: none; }
+.events-list li { padding: 10px 0; border-top: 1px solid var(--border); }
+.events-list li:first-child { border-top: 0; }
+.event-meta { display: flex; flex-wrap: wrap; gap: 2px 10px; color: var(--muted); font-size: 0.75rem; }
+.event-severity { font-weight: bold; }
+.event-warning .event-severity { color: var(--accent); }
+.event-error .event-severity { color: var(--unreachable); }
+.settings-dialog .event-text { margin: 4px 0 0; font-size: 0.9rem; overflow-wrap: anywhere; }
 
 .node-choice { inset-block:auto; clip-path:polygon(50% 0,100% var(--tower-shoulder,50px),100% 100%,0 100%,0 var(--tower-shoulder,50px)); }
 .node-choice span { position:absolute; top:var(--label-top,150px); left:50%; transform:translateX(-50%); white-space:nowrap; }
