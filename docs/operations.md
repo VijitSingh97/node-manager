@@ -580,7 +580,7 @@ What happens:
   [Checking a balance index against the node](#checking-a-balance-index-against-the-node).
 
 To time lookups with and without the index on public test wallets, run
-`utxo-index bench`, with `--chain litecoin` for the Litecoin index; the steps
+`utxo-index bench`, with `--chain litecoin` or `--chain bitcoincash` for those indexes; the steps
 are in [the lookup benchmark](measurements/lookup-bench.md).
 
 Measured budget, from the first mainnet seed on a 2018 Mac mini with bitcoind

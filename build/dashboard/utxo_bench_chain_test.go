@@ -38,11 +38,13 @@ type benchFakeCoin struct {
 }
 
 type benchFakeNode struct {
-	coins     []benchFakeCoin
-	addresses map[string][]string
-	scripts   map[string]string
-	height    int64
-	best      string
+	coins         []benchFakeCoin
+	addresses     map[string][]string
+	scripts       map[string]string
+	height        int64
+	best          string
+	noDescriptors bool
+	aliases       map[string]string
 }
 
 type benchChainWallet struct {
@@ -58,6 +60,9 @@ func benchChainScript(label string, i int, version byte) (string, string) {
 }
 
 func (n *benchFakeNode) call(method string, params []any) (any, string) {
+	if n.noDescriptors && (method == "getdescriptorinfo" || method == "deriveaddresses") {
+		return nil, "Method not found"
+	}
 	switch method {
 	case "getdescriptorinfo":
 		desc, _ := params[0].(string)
@@ -71,8 +76,11 @@ func (n *benchFakeNode) call(method string, params []any) (any, string) {
 		return n.addresses[desc], ""
 	case "validateaddress":
 		address, _ := params[0].(string)
+		if canonical, ok := n.aliases[address]; ok {
+			address = canonical
+		}
 		script, ok := n.scripts[address]
-		return map[string]any{"isvalid": ok, "scriptPubKey": script}, ""
+		return map[string]any{"isvalid": ok, "address": address, "scriptPubKey": script}, ""
 	case "scantxoutset":
 		if params[0] == "status" {
 			return nil, ""
@@ -264,10 +272,19 @@ func TestBenchIndexMatchesScanAndIsFaster(t *testing.T) {
 	for n, id := range slices.Sorted(maps.Keys(chains)) {
 		seed := uint64(n + 1)
 		t.Run(id, func(t *testing.T) {
-			if len(chains[id].Descriptors) == 0 {
-				t.Skipf("%s has no descriptor list, so every bench wallet would fall back", id)
+			if id == nodeDogecoin {
+				t.Skip("Dogecoin Core 1.14.9 has no scantxoutset, and the command line refuses its bench")
 			}
 			m, node, wallets := benchChainFixture(t, chains[id], seed)
+			if len(chains[id].Descriptors) == 0 {
+				node.noDescriptors, node.aliases = true, map[string]string{}
+				wallets = slices.DeleteFunc(wallets, func(w benchChainWallet) bool { return w.multi })
+				for i, w := range wallets {
+					address := strings.TrimSuffix(strings.TrimPrefix(w.key, "addr("), ")")
+					node.aliases["spelled:"+address] = address
+					wallets[i].key = "addr(spelled:" + address + ")"
+				}
+			}
 			srv := httptest.NewServer(http.HandlerFunc(node.serve))
 			t.Cleanup(srv.Close)
 			a := &app{cfg: config{stateDir: t.TempDir()}}
@@ -303,6 +320,13 @@ func TestBenchIndexMatchesScanAndIsFaster(t *testing.T) {
 			if sw := res.Scan.Wallets; len(res.Failures) != 1 || !strings.HasPrefix(res.Failures[0], "wallet 1: the index and the scan differ") || sw[0].Match == nil || *sw[0].Match || sw[1].Match == nil || !*sw[1].Match {
 				t.Fatalf("a coin missing from the node did not fail the run: %q", res.Failures)
 			}
+
+			if node.noDescriptors {
+				res = benchChainRun(t, m, id, []benchChainWallet{{key: fmt.Sprintf("pkh(%s/0/<0;1>/*)", testXpub)}})
+				if len(res.Refusals) != 1 || res.Refusals[0] != "wallet 1 is not accepted as a public watch key" {
+					t.Fatalf("a descriptor on a node without descriptor calls was not refused: %q", res.Refusals)
+				}
+			}
 		})
 	}
 }
@@ -313,9 +337,25 @@ func TestBenchScanCountsBalancesAboveBitcoinSupply(t *testing.T) {
 		coins: []benchFakeCoin{{txid: strings.Repeat("cd", 32), height: 1, script: script, sats: 30_000_000 * 100_000_000}}}
 	srv := httptest.NewServer(http.HandlerFunc(n.serve))
 	defer srv.Close()
-	run, err := benchScanRPC(context.Background(), &rpcClient{url: srv.URL, client: srv.Client()}, []string{"addr(" + address + ")"})
+	run, err := benchScanRPC(context.Background(), &rpcClient{url: srv.URL, client: srv.Client()}, []any{"addr(" + address + ")"})
 	if err != nil || run.Totals != (benchTotals{1, 30_000_000 * 100_000_000}) {
 		t.Fatalf("a 30M-coin Litecoin wallet: %+v, %v", run, err)
+	}
+}
+
+func TestAddrKeyScriptTakesOnlyAnAddressTheNodeKnows(t *testing.T) {
+	address, script := benchChainScript("addr-key", 0, 0x30)
+	n := &benchFakeNode{scripts: map[string]string{address: script, "noscript": ""}}
+	srv := httptest.NewServer(http.HandlerFunc(n.serve))
+	defer srv.Close()
+	rpc := &rpcClient{url: srv.URL, client: srv.Client()}
+	if got, raw, err := addrKeyScript(context.Background(), rpc, "addr("+address+")"); err != nil || got != address || hex.EncodeToString(raw) != script {
+		t.Fatalf("addr key: %q %x %v", got, raw, err)
+	}
+	for _, key := range []string{address, "addr(" + address + ")#abcdefgh", "addr(" + address + ",x)", "addr((" + address + "))", "addr( " + address + ")", "addr(unknown)", "addr(noscript)", "addr()"} {
+		if _, _, err := addrKeyScript(context.Background(), rpc, key); err == nil {
+			t.Errorf("%q was accepted", key)
+		}
 	}
 }
 
