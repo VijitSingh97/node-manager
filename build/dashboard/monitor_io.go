@@ -118,6 +118,14 @@ func (m *Monitor) pingHealthchecks(ctx context.Context) bool {
 	m.logEvent("healthchecks ping failed: " + reason)
 	return false
 }
+
+const (
+	hostEventMaxAge   = 6 * time.Hour
+	hostEventMaxLines = 20
+	hostEventMaxBytes = 3500
+	hostEventMaxRunes = 500
+)
+
 func (m *Monitor) forwardHostEvents(ctx context.Context) {
 	m.logMu.Lock()
 	start := m.hostEventsOffset
@@ -144,27 +152,42 @@ func (m *Monitor) forwardHostEvents(ctx context.Context) {
 	m.logMu.Unlock()
 	settings := m.notificationSettings()
 	telegramOn := settings.TelegramEnabled && settings.TelegramBotToken != "" && settings.TelegramChatID != ""
-	consumed := 0
-	failed := false
+	var events []string
+	total, skipped := 0, 0
 	for rest := string(chunk); rest != ""; {
 		line, more, _ := strings.Cut(rest, "\n")
 		rest = more
-		if _, text, found := strings.Cut(line, " "); found && strings.HasPrefix(text, "Host: ") && telegramOn {
-			event := strings.TrimPrefix(text, "Host: ")
-			icon := "🔴 "
-			if strings.HasPrefix(event, "thermal ") {
-				icon = "🌡 "
-			}
-			if !m.sendTelegram(ctx, icon+event) {
-				failed = true
-				break
-			}
+		stamp, text, found := strings.Cut(line, " ")
+		if !found || !strings.HasPrefix(text, "Host: ") {
+			continue
 		}
-		consumed += len(line) + 1
+		// Only a stale saved offset or a very long outage should drop events; Tor outages must still deliver them.
+		if at, err := time.Parse(time.RFC3339, stamp); err != nil || m.now().Sub(at) > hostEventMaxAge {
+			continue
+		}
+		event := strings.TrimPrefix(text, "Host: ")
+		icon := "🔴 "
+		if strings.HasPrefix(event, "thermal ") {
+			icon = "🌡 "
+		}
+		if r := []rune(event); len(r) > hostEventMaxRunes {
+			event = string(r[:hostEventMaxRunes]) + "…"
+		}
+		event = icon + event
+		if len(events) >= hostEventMaxLines || total+len(event)+1 > hostEventMaxBytes {
+			skipped++
+			continue
+		}
+		total += len(event) + 1
+		events = append(events, event)
 	}
+	if skipped > 0 {
+		events = append(events, fmt.Sprintf("… and %d more host events", skipped))
+	}
+	failed := telegramOn && len(events) > 0 && !m.sendTelegram(ctx, strings.Join(events, "\n"))
 	m.logMu.Lock()
 	if failed {
-		m.hostEventsOffset -= int64(len(chunk) - consumed)
+		m.hostEventsOffset -= int64(len(chunk))
 		if m.hostEventsOffset < 0 {
 			m.hostEventsOffset = 0
 		}
@@ -201,7 +224,7 @@ func (m *Monitor) logEvent(text string) {
 		return
 	}
 	defer f.Close()
-	if _, err := fmt.Fprintf(f, "%s %s\n", m.now().UTC().Format(time.RFC3339), text); err != nil {
+	if _, err := fmt.Fprintf(f, "%s %s\n", m.now().UTC().Format(time.RFC3339), strings.ReplaceAll(text, "\n", " | ")); err != nil {
 		m.writeOutput("Event log write failed")
 	}
 }
