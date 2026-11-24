@@ -1599,13 +1599,13 @@ chmod +x "$helper_docker"
 helper_ip=$tmp/helper-ip
 printf '#!/bin/sh\necho "2: eth0    inet 192.168.1.20/24 brd 192.168.1.255 scope global eth0"\n' >"$helper_ip"
 chmod +x "$helper_ip"
-(. scripts/helper-common.sh && ip_bin=$helper_ip host_os=Linux && host_has_ipv4 192.168.1.20 && ! host_has_ipv4 192.168.1.2) || fail "host_has_ipv4 matched the wrong address"
+(. scripts/helper-common.sh && ip_bin=$helper_ip host_os=Linux host_has_ipv4 192.168.1.20 && ! ip_bin=$helper_ip host_os=Linux host_has_ipv4 192.168.1.2) || fail "host_has_ipv4 matched the wrong address"
 helper_other_ip=$tmp/helper-other-ip
 printf '#!/bin/sh\necho "2: eth0    inet 10.9.9.9/24 scope global eth0"\n' >"$helper_other_ip"
 chmod +x "$helper_other_ip"
 helper_ifconfig=$tmp/helper-ifconfig
 printf '#!/bin/sh\necho "\tinet 192.168.1.20 netmask 0xffffff00"\n' >"$helper_ifconfig"
 chmod +x "$helper_ifconfig"
-(. scripts/helper-common.sh && ip_bin=$helper_other_ip ifconfig_bin=$helper_ifconfig host_os=Darwin && host_has_ipv4 192.168.1.20 && ! host_has_ipv4 192.168.1.2) || fail "host_has_ipv4 did not use ifconfig on Darwin"
+(. scripts/helper-common.sh && ip_bin=$helper_other_ip ifconfig_bin=$helper_ifconfig host_os=Darwin host_has_ipv4 192.168.1.20 && ! ip_bin=$helper_other_ip ifconfig_bin=$helper_ifconfig host_os=Darwin host_has_ipv4 192.168.1.2) || fail "host_has_ipv4 did not use ifconfig on Darwin"
 
 echo "PASS: test_node_control.sh"
