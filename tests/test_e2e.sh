@@ -300,8 +300,8 @@ done
 
 watch_list=$(curl --noproxy '*' -sf -u admin:e2eDashboardSharedPassword123 "$dashboard_url/api/monero/watch") ||
   wallet_fail "watch-only API list failed"
-printf '%s' "$watch_list" | jq -e --arg id "$watch_id" '.wallets | length == 1 and .[0].id == $id and .[0].state == "pending" and .[0].balance_atomic == ""' >/dev/null ||
-  wallet_fail "initial-sync wallet did not remain safely pending: $(printf '%s' "$watch_list" | jq -c '[.wallets[]? | {state, error, balance_atomic, spending_status, scan_height, target_height}]' 2>/dev/null)"
+printf '%s' "$watch_list" | jq -e --arg id "$watch_id" '[.wallets[] | select(.example | not)] | length == 1 and .[0].id == $id and .[0].state == "pending" and .[0].balance_atomic == ""' >/dev/null ||
+  wallet_fail "initial-sync wallet did not remain safely pending: $(printf '%s' "$watch_list" | jq -c '[.wallets[]? | {id, name, example, state, error, balance_atomic, spending_status, scan_height, target_height}]' 2>/dev/null)"
 printf '%s' "$watch_list" | grep -Fq "$source_view_key" && wallet_fail "watch-only list disclosed the private view key"
 printf '%s' "$watch_list" | grep -Fq 'wallet_file' && wallet_fail "watch-only list disclosed its internal wallet filename"
 docker compose exec -T -e NEEDLE="$source_view_key" dashboard sh -c 'test "$(stat -c %a /state/monero_watch.json)" = 600 && ! grep -Fq "$NEEDLE" /state/monero_watch.json' ||
@@ -314,10 +314,10 @@ docker compose restart dashboard >/dev/null || wallet_fail "dashboard restart fa
 restarted_watch=""
 for _ in $(seq 1 30); do
   restarted_watch=$(curl --noproxy '*' -sf -u admin:e2eDashboardSharedPassword123 "$dashboard_url/api/monero/watch" || true)
-  printf '%s' "$restarted_watch" | jq -e --arg id "$watch_id" '.wallets | length == 1 and .[0].id == $id' >/dev/null 2>&1 && break
+  printf '%s' "$restarted_watch" | jq -e --arg id "$watch_id" '[.wallets[] | select(.example | not)] | length == 1 and .[0].id == $id' >/dev/null 2>&1 && break
   sleep 1
 done
-printf '%s' "$restarted_watch" | jq -e --arg id "$watch_id" '.wallets | length == 1 and .[0].id == $id' >/dev/null ||
+printf '%s' "$restarted_watch" | jq -e --arg id "$watch_id" '[.wallets[] | select(.example | not)] | length == 1 and .[0].id == $id' >/dev/null ||
   wallet_fail "watch-only roster did not survive dashboard restart"
 printf '%s' "$restarted_watch" | grep -Fq "$source_view_key" && wallet_fail "restarted API disclosed the private view key"
 
