@@ -189,5 +189,6 @@ func (a *app) apiDashboardPassword(w http.ResponseWriter, r *http.Request) {
 	auth.saved, auth.enabled, auth.cached, auth.hasCache = saved, true, sha256.Sum256([]byte(input.New)), true
 	a.sessions.revokeAll(auth.sessionBindingLocked())
 	a.clearSessionCookie(w, r)
+	a.recordEvent("Security", "", "Dashboard password changed; every session was signed out.")
 	writeJSON(w, map[string]bool{"changed": true})
 }

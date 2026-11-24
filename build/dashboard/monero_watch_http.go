@@ -60,6 +60,7 @@ func (a *app) apiMoneroWatchAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.moneroWatch.Queue(wallet.ID)
+	a.recordEvent("Wallet", "", "Monero watch-only wallet added.")
 	writeJSON(w, map[string]any{"ok": true, "id": wallet.ID})
 }
 
@@ -81,6 +82,7 @@ func (a *app) apiMoneroWatchRemove(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no such wallet", http.StatusNotFound)
 		return
 	}
+	a.recordEvent("Wallet", "", "Monero watch-only wallet removed.")
 	writeJSON(w, map[string]any{"ok": true})
 }
 

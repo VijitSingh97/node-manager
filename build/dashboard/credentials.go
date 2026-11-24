@@ -198,6 +198,7 @@ func (a *app) apiCredentialsReveal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, password, _ := a.interfaceCredentials(node)
+	a.recordEvent("Security", "", nodeDisplayName(node)+" RPC credentials revealed.")
 	writeJSON(w, map[string]string{"username": user, "password": password})
 }
 

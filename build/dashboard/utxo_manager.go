@@ -93,6 +93,7 @@ type utxoManager struct {
 	blockWait      utxoRPC
 	blockWaitRetry time.Duration
 	onApplied      func()
+	event          func(severity, text string)
 
 	host       *utxoSeedHost
 	bench      *utxoBenchHost
@@ -398,6 +399,9 @@ func (m *utxoManager) startSeed() error {
 }
 
 func (m *utxoManager) finishSeed(err error) {
+	if m.event != nil {
+		defer m.event(seedEvent(err))
+	}
 	m.mu.Lock()
 	replay := m.replayingLocked()
 	outcome := "ok"
@@ -813,6 +817,7 @@ func (a *app) newChainUtxo(node nodeConfig, chain *utxoChainParams, logger *log.
 	rpc := &rpcClient{url: node.RPCURL, user: node.RPCUser, password: node.RPCPassword, client: newInternalHTTPClient(2 * time.Minute), maxBody: 64 << 20}
 	m := newUtxoManager(node.UTXOIndexDir, nil, rpc, logger, chain)
 	m.blockWait = rpc
+	m.event = a.indexEvent(node.ID)
 	if a.cfg.stateDir != "" {
 		m.setSeedStatePath(filepath.Join(a.cfg.stateDir, node.ID+"-utxo-seed.json"))
 		dump := *rpc

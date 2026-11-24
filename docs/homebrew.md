@@ -54,7 +54,8 @@ in private state. No node RPC, gRPC, or ZMQ port is exposed by default.
 
 Global Settings installs additional nodes, controls launch at login and
 Thermal throttle, and contains Appearance, Telegram, and Healthchecks. The
-person icon above it opens the User dialog with Account and Dashboard password. Open a
+person icon at the top opens the User dialog with Account and Dashboard password, and
+the three-line button between it and Settings opens the event log. Open a
 tower for its block alerts, optional LAN interfaces, and RPC credentials.
 Personal view-only wallet material is separate from these service logins;
 never enter a seed phrase or private spend key.
