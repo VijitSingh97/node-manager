@@ -1,5 +1,5 @@
 import { NODE_LABELS } from "./chains.js";
-import { CSRF_HEADERS, dashboardFetch as fetch } from "./session.js";
+import { dashboardFetch as fetch, jsonRequest } from "./session.js";
 import { WATCH_COPY, bigSeries, formatAmount, httpsURL, joinNote, scanNote } from "./wallet-format.js";
 import { el, managerRow, renderWalletList, replaceIfChanged, safeLink } from "./wallet-ui.js";
 
@@ -96,15 +96,12 @@ if (typeof document !== "undefined") {
       message.classList.toggle("family-watch-error", error);
     };
 
-    const requestError = async (response, fallback) => (await response.text()).trim().slice(0, 200) || fallback;
-
     const remove = async (id) => {
       if (busy) return;
       busy = true;
       setMessage("");
       try {
-        const response = await fetch(`/api/${node}/watch/${encodeURIComponent(id)}`, { method: "DELETE", headers: CSRF_HEADERS });
-        if (!response.ok) throw new Error(await requestError(response, WATCH_COPY.removeFailed));
+        await jsonRequest(fetch, `/api/${node}/watch/${encodeURIComponent(id)}`, { method: "DELETE", failure: WATCH_COPY.removeFailed });
         setMessage(WATCH_COPY.removed);
         await refresh(true);
       } catch (error) {
@@ -138,9 +135,7 @@ if (typeof document !== "undefined") {
     async function refresh(force = false) {
       if (!force && panel?.dataset.nodeActive === "0") return;
       try {
-        const response = await fetch(`/api/${node}/watch`, { headers: CSRF_HEADERS });
-        if (!response.ok) throw new Error(await requestError(response, "Watch-only addresses could not be refreshed."));
-        render(await response.json());
+        render(await jsonRequest(fetch, `/api/${node}/watch`, { failure: "Watch-only addresses could not be refreshed." }));
       } catch (error) {
         status.textContent = error.message || "Watch-only addresses could not be refreshed.";
         status.classList.add("family-watch-error");
@@ -155,12 +150,7 @@ if (typeof document !== "undefined") {
       add.disabled = true;
       setMessage("");
       try {
-        const response = await fetch(`/api/${node}/watch`, {
-          method: "POST",
-          headers: { ...CSRF_HEADERS, "Content-Type": "application/json" },
-          body: JSON.stringify(familyWalletPost(node, label.value, address.value)),
-        });
-        if (!response.ok) throw new Error(await requestError(response, WATCH_COPY.addFailed));
+        await jsonRequest(fetch, `/api/${node}/watch`, { method: "POST", payload: familyWalletPost(node, label.value, address.value), failure: WATCH_COPY.addFailed });
         label.value = "";
         address.value = "";
         setMessage(WATCH_COPY.added);

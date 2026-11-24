@@ -24,15 +24,16 @@ export async function dashboardFetch(input, init) {
   return response;
 }
 
-export async function jsonRequest(fetcher, path, { method = "GET", payload, failure, definitive = false }) {
+export async function jsonRequest(fetcher, path, { method = "GET", payload, failure, definitive = false, redact = false }) {
   const response = await fetcher(path, {
     method,
-    headers: payload ? { "Content-Type": "application/json", ...CSRF_HEADERS } : {},
+    headers: { ...(payload && { "Content-Type": "application/json" }), ...CSRF_HEADERS },
     ...(payload ? { body: JSON.stringify(payload) } : {}),
   });
   if (!response.ok) {
-    const text = (await response.text()).trim();
-    const error = new Error(text.length <= 200 ? text : failure);
+    let text = (await response.text()).trim();
+    if (redact) text = text.replace(/[0-9a-f]{64}/gi, "[redacted]");
+    const error = new Error(text && text.length <= 200 ? text : failure);
     if (definitive) error.definitive = true;
     throw error;
   }

@@ -1,4 +1,4 @@
-import { commandName, CSRF_HEADERS, dashboardFetch as fetch } from "./session.js";
+import { commandName, dashboardFetch as fetch, jsonRequest } from "./session.js";
 
 export const NODE_IDS = ["bitcoin", "monero", "tari", "litecoin", "dogecoin", "bitcoincash", "zcash"];
 const NODES = new Set(NODE_IDS);
@@ -77,36 +77,6 @@ export function localizeUpdated(root) {
   }
 }
 
-export function moneroView(data) {
-  if (!data || data.enabled === false) return { state: "Not configured", badge: "Disabled", details: false };
-  if (data.available !== true) return { state: notAnswering("Monero"), badge: "Connecting", details: false };
-  const heightAvailable = typeof data.height === "number" && Number.isFinite(data.height) && data.height >= 0;
-  const height = heightAvailable ? Math.floor(data.height) : 0;
-  const target = Math.max(height, Math.floor(Number(data.target_height) || 0));
-  const progress = Math.max(0, Math.min(100, Number(data.sync_percent) || 0));
-  return {
-    state: data.synced ? "Synced" : "Synchronizing the Monero blockchain…",
-    badge: data.pruned ? "Pruned" : "Full",
-    details: true,
-    version: String(data.version || "—"),
-    uptime: data.uptime_available ? formatUptime(data.uptime_seconds) : "—",
-    connections: `${Math.max(0, Number(data.incoming_connections) || 0)} in · ${Math.max(0, Number(data.outgoing_connections) || 0)} out`,
-    blocks: `${height} / ${target}`,
-    progress,
-    size: data.database_size_available ? formatBytes(data.database_size_bytes) : "—",
-    mempool: data.mempool_txs_available ? `${Math.max(0, Math.floor(Number(data.mempool_txs) || 0))} tx${data.mempool_bytes_available ? ` · ${formatCompactBytes(data.mempool_bytes)}` : ""}` : "—",
-    difficulty: data.difficulty_available && Number.isFinite(Number(data.difficulty)) ? Math.max(0, Math.floor(Number(data.difficulty))).toLocaleString("en-US") : "—",
-    hashrate: data.hashrate_available ? formatHashrate(data.network_hashrate) : "—",
-    lastBlock: data.latest_block_available ? `${data.latest_block_age_seconds < 60 ? "<1m" : formatUptime(data.latest_block_age_seconds)} ago` : "—",
-    fees: data.fees_available ? formatMoneroFees(data.fee_estimates_atomic_per_byte) : "—",
-    rpcExposure: data.rpc_exposure_enabled ? `${String(data.rpc_endpoint || "—")} · LAN` : "Disabled",
-    zmqExposure: data.zmq_exposure_enabled ? `${String(data.zmq_endpoint || "—")} · LAN` : "Disabled",
-    lanNote: data.rpc_exposure_enabled || data.zmq_exposure_enabled ? ["LAN access is on.", data.rpc_exposure_enabled && "RPC is restricted and requires your Monero login.", data.zmq_exposure_enabled && "ZMQ is for a trusted LAN."].filter(Boolean).join(" ") : "LAN access is off.",
-    nextBlock: heightAvailable ? height + 1 : "",
-    updated: formatUpdated(data.updated_at),
-  };
-}
-
 export function genericNodeView(data, label = "Node") {
   if (!data || data.enabled === false) return { state: "Not configured", badge: "Disabled", details: false };
   if (data.available !== true) return { state: notAnswering(label), badge: "Connecting", details: false };
@@ -133,6 +103,40 @@ export function genericNodeView(data, label = "Node") {
     nextBlock: heightAvailable ? height + 1 : "",
     updated: formatUpdated(data.updated_at),
   };
+}
+
+export function moneroView(data) {
+  const view = genericNodeView(data, "Monero");
+  if (!view.details) return view;
+  return {
+    ...view,
+    connections: `${Math.max(0, Number(data.incoming_connections) || 0)} in · ${Math.max(0, Number(data.outgoing_connections) || 0)} out`,
+    difficulty: data.difficulty_available && Number.isFinite(Number(data.difficulty)) ? Math.max(0, Math.floor(Number(data.difficulty))).toLocaleString("en-US") : "—",
+    hashrate: data.hashrate_available ? formatHashrate(data.network_hashrate) : "—",
+    fees: data.fees_available ? formatMoneroFees(data.fee_estimates_atomic_per_byte) : "—",
+    zmqExposure: data.zmq_exposure_enabled ? `${String(data.zmq_endpoint || "—")} · LAN` : "Disabled",
+    lanNote: data.rpc_exposure_enabled || data.zmq_exposure_enabled ? ["LAN access is on.", data.rpc_exposure_enabled && "RPC is restricted and requires your Monero login.", data.zmq_exposure_enabled && "ZMQ is for a trusted LAN."].filter(Boolean).join(" ") : "LAN access is off.",
+  };
+}
+
+const setText = (id, value) => {
+  const element = document.getElementById(id);
+  if (element) element.textContent = value;
+};
+
+export function writeNodeRows(id, view) {
+  setText(`${id}-version`, view.version);
+  setText(`${id}-uptime`, view.uptime);
+  setText(`${id}-connections`, view.connections);
+  setText(`${id}-blocks`, view.blocks);
+  const progress = document.getElementById(`${id}-progress`);
+  if (progress) progress.style.width = `${view.progress}%`;
+  setText(`${id}-sync`, `${view.progress.toFixed(4)}%`);
+  setText(`${id}-size`, view.size);
+  setText(`${id}-mempool`, view.mempool);
+  setText(`${id}-last-block`, view.lastBlock);
+  setText(`${id}-rpc-exposure`, view.rpcExposure);
+  setText(`${id}-updated`, `Updated: ${view.updated}`);
 }
 
 export function applySelection(doc, node, focus = true) {
@@ -227,30 +231,17 @@ if (typeof document !== "undefined") {
     updateTowerProgress(live, data);
     if (!view.details) return;
     if (data.database_size_available) window.dispatchEvent(new CustomEvent("node-size", { detail: { id: "monero", bytes: Number(data.database_size_bytes) || 0 } }));
-    document.getElementById("monero-version").textContent = view.version;
-    document.getElementById("monero-uptime").textContent = view.uptime;
-    document.getElementById("monero-connections").textContent = view.connections;
-    document.getElementById("monero-blocks").textContent = view.blocks;
-    document.getElementById("monero-progress").style.width = `${view.progress}%`;
-    document.getElementById("monero-sync").textContent = `${view.progress.toFixed(4)}%`;
-    document.getElementById("monero-size").textContent = view.size;
-    document.getElementById("monero-mempool").textContent = view.mempool;
+    writeNodeRows("monero", view);
     document.getElementById("monero-difficulty").textContent = view.difficulty;
     document.getElementById("monero-hashrate").textContent = view.hashrate;
-    document.getElementById("monero-last-block").textContent = view.lastBlock;
     document.getElementById("monero-fees").textContent = view.fees;
-    document.getElementById("monero-rpc-exposure").textContent = view.rpcExposure;
     document.getElementById("monero-zmq-exposure").textContent = view.zmqExposure;
     document.getElementById("monero-lan-note").textContent = view.lanNote;
-    document.getElementById("monero-live").dataset.nextBlock = view.nextBlock;
-    document.getElementById("monero-updated").textContent = `Updated: ${view.updated}`;
   };
 
   async function refreshMonero() {
     try {
-      const response = await fetch("/api/monero", { headers: CSRF_HEADERS });
-      if (!response.ok) throw new Error("unavailable");
-      renderMonero(await response.json());
+      renderMonero(await jsonRequest(fetch, "/api/monero", { failure: "unavailable" }));
     } catch {
       renderMonero({ enabled: true, available: false });
     }

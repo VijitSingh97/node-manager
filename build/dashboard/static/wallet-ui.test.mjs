@@ -15,7 +15,7 @@ function node(tag) {
     getAttribute(name) { return this.attrs?.[name]; },
   };
 }
-const { managerRow, replaceIfChanged } = await import("./wallet-ui.js");
+const { managerRow, replaceIfChanged, walletRequest } = await import("./wallet-ui.js");
 const body = node("body");
 globalThis.document = { body, activeElement: body, createElement: node, querySelector: () => (globalThis.openDialog ? {} : null) };
 
@@ -110,4 +110,15 @@ test("a build that throws does not record the render key", () => {
   const list = node("div");
   assert.throws(() => replaceIfChanged(list, "a", () => { throw new Error("boom"); }));
   assert.equal(replaceIfChanged(list, "a", () => [rowFor()]), true);
+});
+
+test("walletRequest keeps keys out of error text and falls back on a long body", async (t) => {
+  const original = globalThis.fetch;
+  t.after(() => { globalThis.fetch = original; });
+  let body = `bad ${"b".repeat(64)}`;
+  globalThis.fetch = async () => ({ ok: false, status: 400, text: async () => body });
+  const request = walletRequest("/api/x", "down");
+  await assert.rejects(request(), { message: "bad [redacted]" });
+  body = "x".repeat(300);
+  await assert.rejects(request(), { message: "down" });
 });

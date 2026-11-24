@@ -1,5 +1,5 @@
-import { NODE_IDS, genericNodeView, updateTowerProgress } from "./nodes.js";
-import { CSRF_HEADERS, dashboardFetch as fetch } from "./session.js";
+import { NODE_IDS, genericNodeView, updateTowerProgress, writeNodeRows } from "./nodes.js";
+import { dashboardFetch as fetch, jsonRequest } from "./session.js";
 import { liveBlockElement, nodeUnreachable } from "./tower.js";
 
 export const NODE_LABELS = {
@@ -124,18 +124,7 @@ function renderNode(id, data) {
     announceNodeStatus(id);
     return;
   }
-  setText(`${id}-version`, view.version);
-  setText(`${id}-uptime`, view.uptime);
-  setText(`${id}-connections`, view.connections);
-  setText(`${id}-blocks`, view.blocks);
-  const progress = byId(`${id}-progress`);
-  if (progress) progress.style.width = `${view.progress}%`;
-  setText(`${id}-sync`, `${view.progress.toFixed(4)}%`);
-  setText(`${id}-size`, view.size);
-  setText(`${id}-mempool`, view.mempool);
-  setText(`${id}-last-block`, view.lastBlock);
-  setText(`${id}-rpc-exposure`, view.rpcExposure);
-  setText(`${id}-updated`, `Updated: ${view.updated}`);
+  writeNodeRows(id, view);
   const feeSection=byId(`${id}-fee-section`);
   if(feeSection) feeSection.hidden=data.fees_available!==true;
   const fees=chainFeesView(id,data);
@@ -170,7 +159,7 @@ if (typeof document !== "undefined") {
     const node=state.get(id);
     if(!nodeRefreshable(id,node)) return;
     try {
-      const response=await fetch(`/api/${id}`,{headers:CSRF_HEADERS});
+      const response=await fetch(`/api/${id}`);
       const data=await response.json();
       if(!response.ok && !data?.enabled) throw new Error("unavailable");
       renderNode(id,data);
@@ -195,9 +184,7 @@ if (typeof document !== "undefined") {
   const loadNodes=async()=>{
     clearTimeout(poll);
     try {
-      const response=await fetch("/api/nodes",{headers:CSRF_HEADERS});
-      if(!response.ok) throw new Error("unavailable");
-      const payload=await response.json();
+      const payload=await jsonRequest(fetch,"/api/nodes",{failure:"unavailable"});
       control=controlView(payload);
       window.dispatchEvent(new CustomEvent("host-stats-data",{detail:payload.host||null}));
       for(const id of NODE_IDS) {
@@ -260,9 +247,7 @@ if (typeof document !== "undefined") {
     try {body=powerRequest(node,input.value);} catch(error) {setText("node-power-error",error.message);return;}
     busy=true; updateSubmit(); updateButtons();
     try {
-      const response=await fetch(`/api/nodes/${selected}/power`,{method:"POST",headers:{"Content-Type":"application/json",...CSRF_HEADERS},body:JSON.stringify(body)});
-      if(!response.ok) throw new Error((await response.text()).trim().slice(0,200) || "The node state could not be changed.");
-      const result=await response.json();
+      const result=await jsonRequest(fetch,`/api/nodes/${selected}/power`,{method:"POST",payload:body,failure:"The node state could not be changed."});
       if(!/^[0-9a-f]{32}$/.test(result?.id || "")) throw new Error("The node state request could not be confirmed.");
       requestID=result.id;
       try {localStorage.setItem("nodeStackPowerRequest",requestID);} catch {}

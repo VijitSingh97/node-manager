@@ -1,6 +1,6 @@
 import { points } from "./sparkline.js";
 import { towerLayout, WIDE_MIN } from "./tower.js";
-import { CSRF_HEADERS, dashboardFetch as fetch } from "./session.js";
+import { dashboardFetch as fetch, jsonRequest } from "./session.js";
 import { watchPrice, walletCurrency } from "./prices.js";
 import { askConfirm } from "./confirm-dialog.js";
 import { fiatLabel, httpsURL, shortKey } from "./wallet-format.js";
@@ -38,18 +38,7 @@ export function el(tag, className, text) {
 }
 
 export function walletRequest(base, fallback = "Wallet service unavailable.") {
-  return async (path = "", method = "GET", body) => {
-    const response = await fetch(base + path, {
-      method,
-      headers: { "Content-Type": "application/json", ...CSRF_HEADERS },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-    });
-    if (!response.ok) {
-      const text = (await response.text()).trim().replace(/[0-9a-f]{64}/gi, "[redacted]").slice(0, 200);
-      throw new Error(text || fallback);
-    }
-    return response.json();
-  };
+  return (path = "", method = "GET", payload) => jsonRequest(fetch, base + path, { method, payload, failure: fallback, redact: true });
 }
 
 export function setMessage(node, text, error = false) {
