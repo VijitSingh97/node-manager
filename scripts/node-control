@@ -1584,7 +1584,9 @@ backup=$(mktemp "$state_root/node-control/.config.backup.XXXXXX")
 printf '%s' "$current" >"$backup"
 chmod 600 "$next" "$backup"
 mv "$next" "$config_file"
+recreate_tor() { [ "$tor_env_changed" = 0 ] || BITCOIN_STACK_HELPER_START=1 BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" up tor >/dev/null 2>>"${node_errors:-/dev/null}"; }
 restore_services() {
+  recreate_tor || rollback_failed=1
   if [ "$old_active" = true ]; then
     # shellcheck disable=SC2046
     BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" up $(up_service_names "$node") >/dev/null 2>&1
@@ -1601,6 +1603,7 @@ rollback() {
   if [ -n "$node_errors" ]; then
     rollback_detail=$(error_detail "$node_errors")
     rm -f "$node_errors"
+    node_errors=
     host_event "$(node_label "$node") activation failed${rollback_detail:+: $rollback_detail}" || true
   fi
   rollback_failed=0
@@ -1625,9 +1628,13 @@ rollback() {
   clear_request
   exit 0
 }
+tor_env() { env_get TOR_ONION_NODES; env_get ZCASH_ACTIVE; }
+old_tor_env=$(tor_env)
 if ! BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root" BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/configure.sh" >/dev/null; then
   rollback 0
 fi
+tor_env_changed=0
+[ "$(tor_env)" = "$old_tor_env" ] || tor_env_changed=1
 if [ "$active" = true ]; then
   action="up"
   # shellcheck disable=SC2046
@@ -1644,6 +1651,7 @@ if [ "$action" = up ]; then
   BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root" \
     BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" pull --policy missing "$@" >/dev/null 2>"$node_errors" || rollback 0 image_unavailable
   : >"$node_errors"
+  recreate_tor || rollback 1
 fi
 if ! BITCOIN_STACK_HELPER_START=1 BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" $action "$@" >/dev/null 2>>"${node_errors:-/dev/null}"; then
   rollback 1
@@ -1665,6 +1673,7 @@ if ! printf '%s\n' "$runtime" | $docker_bin exec -i -u 1000 "$dashboard_id" sh -
 fi
 if [ "$action" = stop ]; then
   approve_config || rollback 1
+  recreate_tor || rollback 1
 fi
 rm -f "$backup"
 publish_heartbeat || true

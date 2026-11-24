@@ -13,6 +13,22 @@ All notable changes to this project are documented here. Format follows
   cannot expand descriptors, so each Bitcoin Cash wallet in the file is one
   address written as `addr(<address>)`, and a descriptor is refused.
 
+### Fixed
+
+- Activating Bitcoin, Litecoin or Bitcoin Cash from the dashboard while
+  `network.inbound_connections` is on now publishes its inbound onion service.
+  Before, the host helper rendered the new `TOR_ONION_NODES` but left the
+  running Tor container alone, so the node waited 120 s at every start for an
+  onion address that never came, then started without one and took no
+  inbound onion peers until Tor was recreated for another reason, such as the
+  next upgrade. Activating Zcash had the same gap: Tor kept its four Zcash
+  seed relays closed. Node activation now recreates Tor before starting the
+  node whenever the onion list or Zcash's active state changes, deactivation
+  recreates it after the node stops, and a failed change recreates it again
+  with the prior values. Starting or stopping Monero, Tari or Dogecoin, or a
+  node whose change leaves those values as they were, still leaves Tor
+  running.
+
 ## [1.41.0] - 2026-11-24
 
 ### Added
