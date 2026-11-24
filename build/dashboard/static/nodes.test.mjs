@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyHover, formatBytes, formatCompactBytes, formatHashrate, formatMoneroFees, formatUpdated, formatUptime, genericNodeView, localizeUpdated, moneroView, selectionController, updateTowerProgress } from "./nodes.js";
+import { applyHover, formatBytes, formatCompactBytes, formatHashrate, formatMoneroFees, formatUpdated, formatUptime, genericNodeView, localizeUpdated, moneroView, writeNodeRows, selectionController, updateTowerProgress } from "./nodes.js";
 
 test("tower progress follows fresh node status and survives temporary outages or deactivation", () => {
   const live = { dataset: {} };
@@ -198,4 +198,28 @@ test("server-rendered Updated times switch to the browser-local format", () => {
   localizeUpdated({ querySelectorAll: () => nodes });
   assert.equal(nodes[0].textContent, formatUpdated(1700000000));
   assert.equal(nodes[1].textContent, "10:00:01");
+});
+
+test("Monero view shares the generic rows and treats a string block age like a number", () => {
+  const data = { enabled: true, available: true, height: 5, latest_block_available: true, latest_block_age_seconds: "30", incoming_connections: 2, outgoing_connections: 3 };
+  const view = moneroView(data);
+  assert.equal(view.lastBlock, "<1m ago");
+  assert.equal(view.connections, "2 in · 3 out");
+  const { connections, difficulty, hashrate, fees, zmqExposure, lanNote, ...shared } = view;
+  const generic = genericNodeView(data, "Monero");
+  delete generic.connections;
+  assert.deepEqual(shared, generic);
+});
+
+test("writeNodeRows fills the shared card rows for an id", (t) => {
+  const original = globalThis.document;
+  t.after(() => { if (original === undefined) delete globalThis.document; else globalThis.document = original; });
+  const elements = new Map();
+  globalThis.document = { getElementById: (id) => elements.get(id) ?? (elements.set(id, { style: {}, textContent: "" }), elements.get(id)) };
+  writeNodeRows("x", { version: "1", uptime: "u", connections: "c", blocks: "b", progress: 12.5, size: "s", mempool: "m", lastBlock: "l", rpcExposure: "r", updated: "t" });
+  assert.equal(elements.get("x-sync").textContent, "12.5000%");
+  assert.equal(elements.get("x-progress").style.width, "12.5%");
+  assert.equal(elements.get("x-updated").textContent, "Updated: t");
+  const text = { version: "1", uptime: "u", connections: "c", blocks: "b", size: "s", mempool: "m", "last-block": "l", "rpc-exposure": "r" };
+  for (const [row, value] of Object.entries(text)) assert.equal(elements.get(`x-${row}`).textContent, value, row);
 });

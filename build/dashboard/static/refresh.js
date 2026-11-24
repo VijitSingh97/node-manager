@@ -1,5 +1,5 @@
 // Keep persistent controls mounted while the node's status changes.
-import { CSRF_HEADERS, dashboardFetch as fetch } from "./session.js";
+import { dashboardFetch as fetch } from "./session.js";
 
 const INTERVAL_MS = 30000;
 
@@ -54,7 +54,7 @@ if (typeof document !== "undefined") {
 
   async function tick() {
     try {
-      const res = await fetch(location.pathname, { headers: CSRF_HEADERS });
+      const res = await fetch(location.pathname);
       if (!res.ok) return;
       const doc = new DOMParser().parseFromString(await res.text(), "text/html");
       if (needsFullReload(document, doc)) {

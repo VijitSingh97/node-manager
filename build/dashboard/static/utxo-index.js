@@ -1,4 +1,4 @@
-import { commandName, CSRF_HEADERS, dashboardFetch as fetch } from "./session.js";
+import { commandName, dashboardFetch as fetch, jsonRequest } from "./session.js";
 import { el } from "./wallet-ui.js";
 
 const POLL_MS = 15000;
@@ -204,8 +204,7 @@ function wire(chain) {
   };
   const refresh = async () => {
     try {
-      const res = await fetch(api, { headers: CSRF_HEADERS });
-      if (res.ok) render(await res.json());
+      render(await jsonRequest(fetch, api, { failure: "unavailable" }));
     } catch { /* next poll */ }
   };
   refresh();

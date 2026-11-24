@@ -1,4 +1,4 @@
-import { CSRF_HEADERS, dashboardFetch as fetch } from "./session.js";
+import { dashboardFetch as fetch, jsonRequest } from "./session.js";
 import { WATCH_COPY, formatAmount, joinNote, scanNote as scannedAt } from "./wallet-format.js";
 import { el, managerRow, renderWalletList, replaceIfChanged } from "./wallet-ui.js";
 
@@ -195,16 +195,14 @@ if (typeof document !== "undefined") {
 
   async function refresh() {
     try {
-      const res = await fetch("/api/watch", { headers: CSRF_HEADERS });
-      if (res.ok) {
-        render(await res.json());
-        if (loadFailed) setMsg("");
-        loadFailed = false;
-      } else {
-        loadFailed = true;
-        setMsg(await res.text(), true);
-      }
-    } catch { /* blip — next poll */ }
+      render(await jsonRequest(fetch, "/api/watch", { failure: "Watch-only wallets could not be loaded.", definitive: true }));
+      if (loadFailed) setMsg("");
+      loadFailed = false;
+    } catch (error) {
+      if (!error.definitive) return;
+      loadFailed = true;
+      setMsg(error.message, true);
+    }
   }
 
   // success/"scanning" text stays the default muted color; errors get a
@@ -218,11 +216,9 @@ if (typeof document !== "undefined") {
   async function remove(walletName) {
     setMsg("");
     try {
-      const res = await fetch(`/api/watch/${encodeURIComponent(walletName)}`,
-                             { method: "DELETE", headers: CSRF_HEADERS });
-      if (res.ok) setMsg(WATCH_COPY.removed);
-      else setMsg((await res.text()).trim() || WATCH_COPY.removeFailed, true);
-    } catch { setMsg("Network error.", true); }
+      await jsonRequest(fetch, `/api/watch/${encodeURIComponent(walletName)}`, { method: "DELETE", failure: WATCH_COPY.removeFailed, definitive: true });
+      setMsg(WATCH_COPY.removed);
+    } catch (error) { setMsg(error.definitive ? error.message : "Network error.", true); }
     refresh();
   }
 
@@ -232,20 +228,12 @@ if (typeof document !== "undefined") {
     setMsg("");
     add.disabled = true;
     try {
-      const res = await fetch("/api/watch", {
-        method: "POST",
-        headers: { ...CSRF_HEADERS, "Content-Type": "application/json" },
-        body: JSON.stringify(walletPost(name.value, key.value, scriptType.value, bday.value, last.wallets)),
-      });
-      if (res.ok) {
-        name.value = key.value = bday.value = "";
-        scriptType.value = "legacy";
-        scriptType.disabled = true;
-        setMsg(WATCH_COPY.added);
-      } else {
-        setMsg((await res.text()).trim() || WATCH_COPY.addFailed, true);
-      }
-    } catch { setMsg("Network error.", true); }
+      await jsonRequest(fetch, "/api/watch", { method: "POST", payload: walletPost(name.value, key.value, scriptType.value, bday.value, last.wallets), failure: WATCH_COPY.addFailed, definitive: true });
+      name.value = key.value = bday.value = "";
+      scriptType.value = "legacy";
+      scriptType.disabled = true;
+      setMsg(WATCH_COPY.added);
+    } catch (error) { setMsg(error.definitive ? error.message : "Network error.", true); }
     add.disabled = !editingEnabled;
     refresh();
   });
