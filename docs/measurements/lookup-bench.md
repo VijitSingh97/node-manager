@@ -22,7 +22,7 @@ The result goes to `utxo-bench.result` in the state volume (mode 600). The comma
 - For the block-latency step, `scripts/measure-block-latency.sh` is copied to the host too, and the user can run `docker`.
 - The wallet file is on the host: copy `docs/measurements/bench-wallets.json` from the repository. It holds public data only: nine well-known addresses (below) and descriptors over the BIP32 test vector 1 master xpub as `wpkh`, `sh(wpkh)`, `tr` and `pkh`, each about 2,000 scripts. Add no owner wallet to it without approval.
 
-For Litecoin, write each address as `addr(<address>)`: a bare Litecoin address is not accepted as a watch key. The `wpkh`, `sh-wpkh` and `pkh` vector rows should work unchanged, since Litecoin Core uses Bitcoin's `xpub` version bytes; `tr` falls back, because Litecoin has no Taproot. Neither has been run on a Litecoin node yet, and there is no Litecoin wallet file with checked public addresses.
+For Litecoin, write each address as `addr(<address>)`: a bare Litecoin address is not accepted as a watch key. The `wpkh`, `sh-wpkh` and `pkh` vector rows work unchanged, since Litecoin Core uses Bitcoin's `xpub` version bytes. Leave `tr` out: Litecoin has no Taproot, and a file with it is refused with `wallet N is not accepted as a public watch key`. [`litecoin-bench-wallets.json`](litecoin-bench-wallets.json) holds public Litecoin wallets: well-known rich-list and proof-of-reserves addresses, the busiest output address of each script type in a recent block range, and those three descriptors. The first run is in [Litecoin balance index on mainnet](litecoin-index-mainnet.md).
 
 The nine addresses cover every script type the index serves except Taproot, which the `tr` vector covers. Their sizes range from a few coins to thousands, and they compare one-script lookups of very different sizes. Each address was checked with a local checksum decoder and with bitcoind 32.1's `validateaddress` on 2026-11-16, and each label is stated by at least two independent sources. Most labels come from public rich lists (Arkham, Bitinfocharts) and are not confirmed by the owner. Sizes were not looked up.
 
@@ -45,7 +45,7 @@ An indexed run is light: derivation is a few batched RPC calls per wallet and th
 ```
 sudo node-manager utxo-index bench bench-wallets.json
 sudo node-manager utxo-index bench bench-wallets.json --repeat 50
-sudo node-manager utxo-index bench litecoin-wallets.json --chain litecoin
+sudo node-manager utxo-index bench litecoin-bench-wallets.json --chain litecoin
 ```
 
 A request older than two minutes is refused by the dashboard. A run is stopped after 8 minutes. With `--scan` the limit is 8 minutes plus 5 per scan, and never less than 40. A `--scan` run needs an owner-approved window and asks for confirmation, or `-y` on a non-interactive shell. `scantxoutset` walks the whole UTXO set: minutes of CPU on a 0.5-CPU node, with the node's RPC slow meanwhile, and the chain's watch scanner is held until it ends. It scans once for the whole file and once per wallet. On mini-1 one Bitcoin scan took 164 to 281 s, so the 13-wallet file takes about 40 to 65 minutes, and a file with one address and one descriptor about 10 to 15. Before it, follow the cautions in [Operations](../operations.md#seeding-the-bitcoin-balance-index): pause Tari, check the temperature, and confirm no seed or other scan is running. The command refuses when a scan or a refresh is running.
@@ -106,7 +106,7 @@ The index size is `docker system df -v` for the `utxo_index` volume. Journal byt
 
 ## Results
 
-Fill in one row per target from a run. Mark each met or not met against the number. The first run, on mini-1 with 1.36.0, is in [Balance index lookups on mainnet](lookup-bench-mainnet.md).
+Fill in one row per target from a run. Mark each met or not met against the number. The first run, on mini-1 with 1.36.0, is in [Balance index lookups on mainnet](lookup-bench-mainnet.md), and the first Litecoin run in [Litecoin balance index on mainnet](litecoin-index-mainnet.md). Then add a row to [the performance history](performance-history.md).
 
 | Target | Measured | Met |
 | --- | --- | --- |

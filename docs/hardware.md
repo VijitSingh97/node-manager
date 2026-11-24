@@ -111,7 +111,7 @@ on upgrade.
 | Index | Disk | Dashboard memory limit | While seeding |
 |---|---|---|---|
 | Bitcoin | about 7.5 GiB, up to about 17 GiB during the seed | 1 GiB | one `dumptxoutset` seed; 27 GB free |
-| Litecoin | not measured | 1 GiB | one `dumptxoutset` seed; 27 GB free |
+| Litecoin | about 4.5 GB (53.8 million coins on mini-1; [measurement](measurements/litecoin-index-mainnet.md)) | 1 GiB | one `dumptxoutset` seed; 27 GB free |
 | Dogecoin | not measured | 1 GiB | node stopped briefly; free space for 3 times its chainstate |
 | Bitcoin Cash | not measured | 1 GiB | node stopped briefly; free space for 3 times its chainstate |
 
