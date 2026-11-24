@@ -8,10 +8,11 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
-- `utxo-index bench --chain bitcoincash` times Bitcoin Cash balance lookups with
-  and without the index, as it does for Bitcoin and Litecoin. Bitcoin Cash Node
-  cannot expand descriptors, so each Bitcoin Cash wallet in the file is one
-  address written as `addr(<address>)`, and a descriptor is refused.
+- `utxo-index bench --chain bitcoincash` times Bitcoin Cash balance lookups
+  through the index, and with `--scan` against `scantxoutset` too, as it does
+  for Bitcoin and Litecoin. Bitcoin Cash Node cannot expand descriptors, so each
+  Bitcoin Cash wallet in the file is one address written as `addr(<address>)`;
+  descriptors and bare addresses are refused.
 
 ### Fixed
 
