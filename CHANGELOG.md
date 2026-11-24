@@ -5,6 +5,17 @@ All notable changes to this project are documented here. Format follows
 [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+### Added
+
+- An **Events** button (three lines) between the User and Settings buttons
+  opens the dashboard's event log: node down and recovered, activations,
+  installs and deletions, host thermal and Tor actions, settings changes (field
+  names only), sign-ins, sign-outs, password changes and RPC credential reveals
+  and resets, balance index seeds and verifies, watch-only wallet changes, and
+  each dashboard start with its version. Filter it by category or node and page
+  back through older events. It reads the existing `/state/events.log` through
+  a new signed-in `GET /api/events`, and hides the text of any helper line that
+  looks like it holds a secret.
 
 ## [1.40.3] - 2026-11-24
 

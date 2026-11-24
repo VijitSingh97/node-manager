@@ -296,6 +296,7 @@ func (a *app) loginPost(w http.ResponseWriter, r *http.Request) {
 	}
 	a.setAuthCookie(w, r, "session", token, sessionLifetime)
 	a.setAuthCookie(w, r, "login", "", -time.Second)
+	a.recordSignIn(r)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -306,6 +307,7 @@ func (a *app) logout(w http.ResponseWriter, r *http.Request) {
 	a.sessions.revoke(a.sessionToken(r))
 	a.useBrowserSignIn(w, r)
 	a.clearSessionCookie(w, r)
+	a.recordEvent("Security", "", "Signed out.")
 	writeJSON(w, map[string]bool{"signed_out": true})
 }
 

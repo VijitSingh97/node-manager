@@ -320,6 +320,17 @@
       </fieldset>
     </form>
   </dialog>
+  <button id="events-open" class="settings-open events-open" type="button" aria-label="Events" title="Events"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14"/></svg></button>
+  <dialog id="events-dialog" class="settings-dialog events-dialog" aria-labelledby="events-title">
+    <div class="settings-heading"><h2 id="events-title">Events</h2><button id="events-close" type="button" aria-label="Close events">✕</button></div>
+    <div class="events-filters">
+      <label>Category<select id="events-category"><option value="">All categories</option></select></label>
+      <label>Node<select id="events-node"><option value="">All nodes</option></select></label>
+    </div>
+    <p id="events-status" class="settings-note" role="status" aria-live="polite"></p>
+    <ol id="events-list" class="events-list" aria-labelledby="events-title" tabindex="-1"></ol>
+    <div class="settings-actions"><button id="events-more" type="button" hidden>Show older events</button></div>
+  </dialog>
   <button id="settings-open" class="settings-open" type="button" aria-label="Settings" title="Settings">⚙</button>
   <dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-title">
     <form id="settings-form">
@@ -513,6 +524,7 @@
   <script type="module" src="/static/tari-watch.js"></script>
   <script type="module" src="/static/family-watch.js"></script>
   <script type="module" src="/static/settings.js"></script>
+  <script type="module" src="/static/events.js"></script>
   <script type="module" src="/static/watch.js"></script>
   <script type="module" src="/static/utxo-index.js"></script>
 </body>
