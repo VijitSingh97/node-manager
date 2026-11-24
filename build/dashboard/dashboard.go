@@ -140,7 +140,7 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 	if err := removeLegacyUpgradeRequest(cfg.stateDir); err != nil {
 		return nil, err
 	}
-	t, err := template.ParseFiles(templatePath, filepath.Join(filepath.Dir(templatePath), "login.html"))
+	t, err := template.New(filepath.Base(templatePath)).Funcs(template.FuncMap{"chain": chainViewFor}).ParseFiles(templatePath, filepath.Join(filepath.Dir(templatePath), "login.html"))
 	if err != nil {
 		return nil, err
 	}

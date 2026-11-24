@@ -121,37 +121,34 @@ func privateLANAddress(value string) bool {
 	return err == nil && address.Is4() && address.IsPrivate()
 }
 
-func portControlLabel(id string) string {
-	switch id {
-	case "bitcoin_rpc":
-		return "Bitcoin RPC"
-	case "monero_rpc":
-		return "Monero RPC"
-	case "monero_zmq":
-		return "Monero ZMQ"
-	case "tari_grpc":
-		return "Tari gRPC"
-	case "litecoin_rpc":
-		return "Litecoin RPC"
-	case "dogecoin_rpc":
-		return "Dogecoin RPC"
-	case "bitcoincash_rpc":
-		return "Bitcoin Cash RPC"
-	case "zcash_rpc":
-		return "Zcash RPC"
+var portControlLabels = func() map[string]string {
+	labels := map[string]string{"monero_zmq": "Monero ZMQ"}
+	for _, id := range nodeOrder {
+		labels[id+"_"+strings.ToLower(rpcPortKind(id))] = nodeDisplayName(id) + " " + rpcPortKind(id)
 	}
-	return ""
+	return labels
+}()
+
+func rpcPortKind(id string) string {
+	if chainPages[id].grpc {
+		return "gRPC"
+	}
+	return "RPC"
+}
+
+func portControlLabel(id string) string {
+	return portControlLabels[id]
 }
 
 func (a *app) portControlPorts() []portControlPort {
 	ports := make([]portControlPort, 0, 8)
 	if !a.cfg.bitcoinDisabled {
-		ports = append(ports, configuredPort("bitcoin_rpc", "Bitcoin RPC", a.cfg.bitcoinRPCEndpoint, "BITCOIN_RPC_BIND_IP", "BITCOIN_RPC_PORT", "8332"))
+		ports = append(ports, configuredPort("bitcoin_rpc", portControlLabel("bitcoin_rpc"), a.cfg.bitcoinRPCEndpoint, "BITCOIN_RPC_BIND_IP", "BITCOIN_RPC_PORT", "8332"))
 	}
 	if a.cfg.moneroEnabled {
 		ports = append(ports,
-			configuredPort("monero_rpc", "Monero RPC", a.cfg.moneroRPCEndpoint, "MONERO_RPC_BIND_IP", "MONERO_RPC_PORT", "18081"),
-			configuredPort("monero_zmq", "Monero ZMQ", a.cfg.moneroZMQEndpoint, "MONERO_ZMQ_BIND_IP", "MONERO_ZMQ_PORT", "18083"),
+			configuredPort("monero_rpc", portControlLabel("monero_rpc"), a.cfg.moneroRPCEndpoint, "MONERO_RPC_BIND_IP", "MONERO_RPC_PORT", "18081"),
+			configuredPort("monero_zmq", portControlLabel("monero_zmq"), a.cfg.moneroZMQEndpoint, "MONERO_ZMQ_BIND_IP", "MONERO_ZMQ_PORT", "18083"),
 		)
 	}
 	for _, id := range []string{nodeTari, nodeLitecoin, nodeDogecoin, nodeBitcoinCash, nodeZcash} {
@@ -159,17 +156,9 @@ func (a *app) portControlPorts() []portControlPort {
 		if !ok || !node.Enabled {
 			continue
 		}
-		prefix := strings.ToUpper(id)
-		if id == nodeBitcoinCash {
-			prefix = "BITCOINCASH"
-		}
-		kind := "RPC"
-		label := node.Name + " RPC"
-		if id == nodeTari {
-			kind = "GRPC"
-			label = node.Name + " gRPC"
-		}
-		ports = append(ports, configuredPort(id+"_"+strings.ToLower(kind), label, node.RPCEndpoint, prefix+"_"+kind+"_BIND_IP", prefix+"_"+kind+"_PORT", node.DefaultPort))
+		prefix, kind := strings.ToUpper(id), strings.ToUpper(rpcPortKind(id))
+		portID := id + "_" + strings.ToLower(kind)
+		ports = append(ports, configuredPort(portID, portControlLabel(portID), node.RPCEndpoint, prefix+"_"+kind+"_BIND_IP", prefix+"_"+kind+"_PORT", node.DefaultPort))
 	}
 	return ports
 }
