@@ -5,25 +5,51 @@ All notable changes to this project are documented here. Format follows
 [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [1.41.0] - 2026-11-24
+
 ### Added
 
 - An **Events** button (three lines) between the User and Settings buttons
-  opens the dashboard's event log: node down and recovered, activations,
-  installs and deletions, host thermal and Tor actions, settings changes (field
-  names only), sign-ins, sign-outs, password changes and RPC credential reveals
-  and resets, balance index seeds and verifies, watch-only wallet changes, and
-  each dashboard start with its version. Filter it by category or node and page
-  back through older events. It reads the existing `/state/events.log` through
-  a new signed-in `GET /api/events`, and hides the text of any helper line that
-  looks like it holds a secret.
+  opens the dashboard's event log. From this version on the log also records
+  each dashboard start with its version, sign-ins with the client address,
+  sign-outs, password changes, RPC credential reveals and resets, settings
+  changes (field names only), balance index seeds and verifies, watch-only
+  wallet changes, and node installs, deletions and activations, so
+  `./stack events` shows them too. The panel also lists what the log already
+  held, such as node down and recovered, initial sync complete, low disk, and
+  host thermal and Tor actions. Filter it by category or node and page back
+  through older events; the oldest drop off once the log passes about 1 MB. It
+  reads `/state/events.log` through a new signed-in `GET /api/events`, and
+  hides the text of host and monitor lines that look like they hold a secret.
+
+### Changed
+
+- Error messages on the watch-only wallet cards (Bitcoin, Monero, Tari,
+  Litecoin, Dogecoin, Bitcoin Cash and Zcash) and in the node Activate and
+  Deactivate dialog follow one rule: a reply of 1 to 200 characters is shown,
+  and an empty or longer one is replaced by the card's own message. Before,
+  most of these cards showed a long reply cut off at 200 characters, and the
+  Bitcoin card showed it whole. The Monero and Tari cards still show any
+  64-character hex string in a reply as "[redacted]".
 
 ### Fixed
 
-- After an upgrade to 1.40.3, Telegram no longer receives a flood of old host
-  alerts, such as thermal throttles from days ago. Only host events from the last
-  6 hours are sent, and all of a minute's host events arrive as one message
-  capped in length, so a heat spike that caps and releases several nodes sends
-  one alert instead of dozens.
+- The Activate, Deactivate and Start buttons on node panels work again when
+  some of Bitcoin, Litecoin, Dogecoin and Bitcoin Cash are turned off, as in a
+  Bitcoin-only setup. The host helper's capability file has one entry for each
+  of those chains that is off, and from 1.39.0 to 1.40.3 the dashboard stopped
+  offering node power once that file passed 1 KB, usually with three or four of
+  them off, depending on install paths. The buttons then stayed greyed out with
+  "Node controls require the installed host helper." even though the helper was
+  installed and other host actions worked.
+- Telegram no longer gets a flood of old host alerts, such as thermal
+  throttles from days ago, as it could after the upgrade to 1.40.3. Host events
+  older than 6 hours are not sent, even ones that could not be delivered during
+  a longer outage, though they stay in the event log. Each minute's host events
+  arrive as one message of up to 20 events, followed by "… and N more host
+  events" when there are more, so a heat spike that caps and releases several
+  nodes sends one message a minute instead of one per node.
 
 ## [1.40.3] - 2026-11-24
 
@@ -2259,7 +2285,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.40.3...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.41.0...HEAD
+[1.41.0]: https://github.com/VijitSingh97/node-manager/compare/v1.40.3...v1.41.0
 [1.40.3]: https://github.com/VijitSingh97/node-manager/compare/v1.40.2...v1.40.3
 [1.40.2]: https://github.com/VijitSingh97/node-manager/compare/v1.40.1...v1.40.2
 [1.40.1]: https://github.com/VijitSingh97/node-manager/compare/v1.40.0...v1.40.1
