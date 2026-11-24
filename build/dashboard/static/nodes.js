@@ -119,7 +119,7 @@ export function moneroView(data) {
   };
 }
 
-const setText = (id, value) => {
+export const setText = (id, value) => {
   const element = document.getElementById(id);
   if (element) element.textContent = value;
 };

@@ -1,4 +1,4 @@
-import { NODE_IDS, genericNodeView, updateTowerProgress, writeNodeRows } from "./nodes.js";
+import { NODE_IDS, genericNodeView, setText, updateTowerProgress, writeNodeRows } from "./nodes.js";
 import { dashboardFetch as fetch, jsonRequest } from "./session.js";
 import { liveBlockElement, nodeUnreachable } from "./tower.js";
 
@@ -54,11 +54,6 @@ export function chainFeesView(id, data) {
 }
 
 function byId(id) { return document.getElementById(id); }
-
-function setText(id, value) {
-  const element = byId(id);
-  if (element) element.textContent = value;
-}
 
 function refreshNodeLabel(id) {
   const next = liveBlockElement(id)?.dataset.nextBlock;
