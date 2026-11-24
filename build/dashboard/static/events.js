@@ -1,5 +1,5 @@
 import { NODE_LABELS } from "./chains.js";
-import { CSRF_HEADERS, dashboardFetch as fetch } from "./session.js";
+import { dashboardFetch as fetch, jsonRequest } from "./session.js";
 
 export const CATEGORY_LABELS = {
   node: "Nodes",
@@ -85,9 +85,7 @@ export function eventsController(root = document) {
     }
     status.textContent = older ? "Loading older events…" : "Loading events…";
     try {
-      const response = await fetch(eventsPath({ category: category.value, node: node.value, before: older ? next : 0 }), { headers: CSRF_HEADERS });
-      if (!response.ok) throw new Error((await response.text()).trim().slice(0, 200) || `HTTP ${response.status}`);
-      const data = await response.json();
+      const data = await jsonRequest(fetch, eventsPath({ category: category.value, node: node.value, before: older ? next : 0 }), { failure: "the dashboard returned an error." });
       if (ticket !== request) return;
       list.append(...(data.events || []).map((event) => eventItem(eventView(event))));
       next = data.next || 0;
