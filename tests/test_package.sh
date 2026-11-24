@@ -2,10 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-fail() {
-  echo "FAIL: $1"
-  exit 1
-}
+# shellcheck source=tests/lib.sh
+. tests/lib.sh
 
 if ! command -v dpkg-deb >/dev/null; then
   echo "SKIP: test_package.sh (dpkg-deb not installed)"

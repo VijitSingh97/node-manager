@@ -13,10 +13,8 @@ if [ -z "${RUN_POSTSYNC:-}" ]; then
   exit 0
 fi
 
-fail() {
-  echo "FAIL: $1"
-  exit 1
-}
+# shellcheck source=tests/lib.sh
+. tests/lib.sh
 bcli() { docker compose exec -T bitcoin bitcoin-cli -datadir=/data "$@"; }
 
 info=$(bcli getblockchaininfo) || fail "bitcoind RPC unreachable"

@@ -5,7 +5,8 @@ root=$PWD
 tmp=$(mktemp -d)
 service_pid=
 trap 'if [ -n "$service_pid" ]; then kill "$service_pid" 2>/dev/null || true; wait "$service_pid" 2>/dev/null || true; fi; rm -rf "$tmp"' EXIT
-fail() { echo "FAIL: $1"; exit 1; }
+# shellcheck source=tests/lib.sh
+. tests/lib.sh
 copy_assets() {
   target=$1
   for file in build/bitcoin/bitcoin.conf build/tari/config.toml build/tari/entrypoint.sh \

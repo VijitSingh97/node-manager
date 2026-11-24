@@ -8,10 +8,8 @@ trap 'rm -rf "$tmp"' EXIT
 export BITCOIN_STACK_DEFAULT_BIND_IP=192.168.50.10
 cp configure.sh "$tmp/"
 
-fail() {
-  echo "FAIL: $1"
-  exit 1
-}
+# shellcheck source=tests/lib.sh
+. tests/lib.sh
 
 # Config values are data: a shell payload in a setting must never run.
 inj=$(mktemp -d "$tmp/inject.XXXXXX")
