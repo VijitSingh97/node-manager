@@ -37,6 +37,8 @@ if [ "${BITCOIN_STACK_VALIDATE_ONLY:-0}" != 1 ]; then
     exit 1
   fi
   printf 'DASHBOARD_PASSWORD=testpassword\n' >"$BITCOIN_STACK_STATE_DIR/.env"
+  [ -z "${FAKE_TOR_ENV:-}" ] || jq -r '"TOR_ONION_NODES=" + ([("bitcoin","litecoin","bitcoincash") as $n | select((if (.[$n]//{}|has("enabled")) then .[$n].enabled else $n=="bitcoin" end) and (if (.[$n]//{}|has("active")) then .[$n].active else true end)) | $n] | join(",")),
+    (select(has("zcash")) | "ZCASH_ACTIVE=" + (if .zcash.active == false then "0" else "1" end))' "$BITCOIN_STACK_CONFIG_DIR/config.json" >>"$BITCOIN_STACK_STATE_DIR/.env"
 fi
 EOF
 cat >"$root/stack" <<'EOF'
@@ -87,6 +89,7 @@ fi
   exit 1
 }
 [ "${FAKE_STACK_FAIL:-0}" != 1 ] || exit 1
+[ "${FAKE_STACK_FAIL_ARGS:-}" != "$*" ] || exit 1
 [ "${1:-}" != apply ] || [ ! -f "${FAKE_RECREATE_TO:-/nonexistent}" ] || cp "$FAKE_RECREATE_TO" "$FAKE_SERVICE_IDS"
 if [ "${1:-}" = apply ] || [ "${1:-}" = approve-rendered-config ]; then
   jq -S . "$BITCOIN_STACK_CONFIG_DIR/config.json" >"$BITCOIN_STACK_STATE_DIR/.approved-config.tmp"
@@ -346,6 +349,27 @@ grep -qx 'pull --policy missing monero monero-wallet' "$tmp/stack.log" || fail "
 [ "$(line_of 'pull --policy missing monero monero-wallet')" -lt "$(line_of 'up monero monero-wallet')" ] || fail "Monero activation did not pull before starting"
 
 power litecoin false
+: >"$tmp/stack.log"
+FAKE_TOR_ENV=1 power litecoin true
+[ "$(status .state)" = applied ] || fail "Litecoin was not activated with inbound Tor: $(cat "$dashboard_state/node-control.status")"
+grep -qx 'TOR_ONION_NODES=litecoin' "$state/.env" || fail "activation did not render Litecoin's onion service"
+grep -qx 'up tor' "$tmp/stack.log" || fail "activation that adds an onion service did not recreate Tor"
+[ "$(line_of 'up tor')" -lt "$(line_of 'up litecoin')" ] || fail "Tor was not recreated before the node read its onion address"
+: >"$tmp/stack.log"
+FAKE_TOR_ENV=1 power litecoin true
+! grep -qx 'up tor' "$tmp/stack.log" || fail "an unchanged onion list recreated Tor"
+: >"$tmp/stack.log"
+FAKE_TOR_ENV=1 power litecoin false
+[ "$(status .state)" = applied ] || fail "Litecoin was not deactivated with inbound Tor"
+grep -qx 'up tor' "$tmp/stack.log" || fail "deactivation that removes an onion service did not recreate Tor"
+[ "$(line_of 'stop litecoin')" -lt "$(line_of 'up tor')" ] || fail "Tor was recreated before the node stopped"
+! grep -qx up-with-unapproved-config "$tmp/stack.log" || fail "Tor was recreated from the old approved config"
+: >"$tmp/stack.log"
+FAKE_STACK_FAIL_ARGS='up litecoin' FAKE_TOR_ENV=1 power litecoin true
+[ "$(status .state):$(status .error_code)" = failed:apply_failed ] || fail "a failed onion activation was not rolled back: $(cat "$dashboard_state/node-control.status")"
+[ "$(grep -cx 'up tor' "$tmp/stack.log")" = 2 ] || fail "rollback did not recreate Tor with the prior onion list"
+grep -qx 'TOR_ONION_NODES=' "$state/.env" || fail "rollback did not restore the prior onion list"
+
 : >"$tmp/stack.log"
 FAKE_STACK_FAIL_CMD=pull FAKE_STACK_STDERR="$(printf 'Pulling litecoin\n\033[31mError response from daemon: manifest unknown\033[0m\n')" power litecoin true
 [ "$(status .state):$(status .error_code)" = failed:image_unavailable ] || fail "a failed pull lacked its typed status: $(cat "$dashboard_state/node-control.status")"
@@ -851,6 +875,13 @@ cp "$state/.env" "$state/.approved.env"
 request '{"action":"install","id":"a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2","node":"zcash","requested_at":1000}'
 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 jq -e '.zcash.enabled == true and .zcash.address_index == null' "$config/config.json" >/dev/null || fail "zcash reinstall over a used data dir did not fall back to index off"
+cp "$state/.env" "$tmp/env.keep"
+printf 'TOR_ONION_NODES=\nZCASH_ACTIVE=1\n' >>"$state/.env"
+: >"$tmp/stack.log"
+FAKE_TOR_ENV=1 power zcash false
+[ "$(status .state)" = applied ] || fail "Zcash was not deactivated: $(cat "$dashboard_state/node-control.status")"
+grep -qx 'up tor' "$tmp/stack.log" || fail "deactivating Zcash did not recreate Tor to close its seed relays"
+cp "$tmp/env.keep" "$state/.env"
 
 index_install() {
   mkdir -p "$tmp/index-data"
