@@ -8,6 +8,7 @@ import lzma
 import os
 import re
 import subprocess
+import sys
 import tarfile
 import tempfile
 import urllib.parse
@@ -15,10 +16,38 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BITCOINCASH_SIGNER = "D465135F97D0047E18E99DC321810A542031C02C"
-DOGECOIN_SIGNER = "DC6EF4A8BF9F1B1E4DE1EE522D3A345B98D0DC1F"
-LITECOIN_SIGNER = "D35621D53A1CC6A3456758D03620E9D387E55666"
-MONERO_SIGNER = "81AC591FE9C4B65C5806AFC3F0AF4D462A0BDF92"
+PROJECTS = {
+    "litecoin": {
+        "repo": "litecoin-project/litecoin",
+        "signer": "D35621D53A1CC6A3456758D03620E9D387E55666",
+        "key": "litecoin-release.asc",
+        "label": "Litecoin",
+        "stage": "litecoin",
+    },
+    "dogecoin": {
+        "repo": "dogecoin/dogecoin",
+        "signer": "DC6EF4A8BF9F1B1E4DE1EE522D3A345B98D0DC1F",
+        "key": "dogecoin-release.asc",
+        "label": "Dogecoin",
+        "stage": "dogecoin",
+    },
+    "bitcoin-cash-node": {
+        "repo": "bitcoin-cash-node/bitcoin-cash-node",
+        "signer": "D465135F97D0047E18E99DC321810A542031C02C",
+        "key": "bitcoincash-release.asc",
+        "label": "Bitcoin Cash",
+        "stage": "bitcoincash",
+        "sums_url": (
+            "https://gitlab.com/bitcoin-cash-node/announcements/-/raw/master/"
+            "release-sigs/{version}/SHA256SUMS.{version}.asc.Calin_Culianu"
+        ),
+    },
+    "monero": {
+        "signer": "81AC591FE9C4B65C5806AFC3F0AF4D462A0BDF92",
+        "key": "monero-release.asc",
+        "label": "Monero",
+    },
+}
 USER_AGENT = "node-starter-stack-dependency-updater"
 ALLOWED_HOSTS = {
     "api.github.com",
@@ -130,28 +159,14 @@ def verify_signed_checksums(data, key, signer, project):
         raise UpdateError(f"{project} checksum signature does not match the pinned release key")
 
 
-def verify_dogecoin_checksums(data):
-    verify_signed_checksums(data, ROOT / "tools/keys/dogecoin-release.asc", DOGECOIN_SIGNER, "Dogecoin")
-
-
-def verify_bitcoincash_checksums(data):
-    verify_signed_checksums(
-        data,
-        ROOT / "tools/keys/bitcoincash-release.asc",
-        BITCOINCASH_SIGNER,
-        "Bitcoin Cash",
+def verifier(name):
+    project = PROJECTS[name]
+    return functools.partial(
+        verify_signed_checksums, key=ROOT / "tools/keys" / project["key"], signer=project["signer"], project=project["label"]
     )
 
 
-def verify_litecoin_checksums(data):
-    verify_signed_checksums(data, ROOT / "tools/keys/litecoin-release.asc", LITECOIN_SIGNER, "Litecoin")
-
-
-def verify_monero_checksums(data):
-    verify_signed_checksums(data, ROOT / "tools/keys/monero-release.asc", MONERO_SIGNER, "Monero")
-
-
-def signed_digests(data, verify=verify_dogecoin_checksums):
+def signed_digests(data, verify):
     verify(data)
     text = data.decode("utf-8")
     pairs = re.findall(r"^([0-9a-f]{64})  ([^\s]+)$", text, re.MULTILINE)
@@ -165,18 +180,19 @@ def version_tuple(version):
 
 
 def current_version(text, project):
-    if project == "litecoin":
-        match = re.search(r"releases/download/v([0-9.]+)/litecoin-", text)
-    else:
-        match = re.search(r"releases/download/v([0-9.]+)/dogecoin-", text)
+    match = re.search(rf"releases/download/v([0-9.]+)/{project}-", text)
     if not match:
         raise UpdateError(f"could not find the current {project} version")
     return match.group(1)
 
 
-def replace_release(text, stage, project, old, new, amd64, arm64):
+def refuse_downgrade(project, old, new):
     if version_tuple(new) < version_tuple(old):
         raise UpdateError(f"refusing to downgrade {project} from {old} to {new}")
+
+
+def replace_release(text, stage, project, old, new, amd64, arm64):
+    refuse_downgrade(project, old, new)
     match = re.search(rf"^FROM \S+ AS {stage}$.*?(?=^FROM |\Z)", text, re.MULTILINE | re.DOTALL)
     if not match:
         raise UpdateError(f"could not find the {stage} build stage")
@@ -188,77 +204,28 @@ def replace_release(text, stage, project, old, new, amd64, arm64):
     return text[: match.start()] + updated + text[match.end() :]
 
 
-def litecoin_update(text, get=fetch, verify=verify_litecoin_checksums):
-    release, version = stable_release(releases("litecoin-project/litecoin", get))
-    amd_name = f"litecoin-{version}-x86_64-linux-gnu.tar.gz"
-    arm_name = f"litecoin-{version}-aarch64-linux-gnu.tar.gz"
-    sums_asset = asset(release, "SHA256SUMS.asc")
-    sums_url = sums_asset.get("browser_download_url")
-    if not isinstance(sums_url, str):
-        raise UpdateError("Litecoin checksum asset has no download URL")
-    sums = signed_digests(get(sums_url), verify)
+def github_release_update(text, name, get=fetch, verify=None):
+    project = PROJECTS[name]
+    label = project["label"]
+    release, version = stable_release(releases(project["repo"], get))
+    if "sums_url" in project:
+        sums_url = project["sums_url"].format(version=version)
+    else:
+        sums_url = asset(release, "SHA256SUMS.asc").get("browser_download_url")
+        if not isinstance(sums_url, str):
+            raise UpdateError(f"{label} checksum asset has no download URL")
+    sums = signed_digests(get(sums_url), verify or verifier(name))
+    amd_name = f"{name}-{version}-x86_64-linux-gnu.tar.gz"
+    arm_name = f"{name}-{version}-aarch64-linux-gnu.tar.gz"
     if amd_name not in sums or arm_name not in sums:
-        raise UpdateError("signed Litecoin checksums are missing a required Linux archive")
+        raise UpdateError(f"signed {label} checksums are missing a required Linux archive")
     return replace_release(
-        text,
-        "litecoin",
-        "litecoin",
-        current_version(text, "litecoin"),
-        version,
-        sums[amd_name],
-        sums[arm_name],
+        text, project["stage"], name, current_version(text, name), version, sums[amd_name], sums[arm_name]
     )
 
 
-def dogecoin_update(text, get=fetch, verify=verify_dogecoin_checksums):
-    release, version = stable_release(releases("dogecoin/dogecoin", get))
-    sums_asset = asset(release, "SHA256SUMS.asc")
-    sums_url = sums_asset.get("browser_download_url")
-    if not isinstance(sums_url, str):
-        raise UpdateError("Dogecoin checksum asset has no download URL")
-    sums = signed_digests(get(sums_url), verify)
-    amd_name = f"dogecoin-{version}-x86_64-linux-gnu.tar.gz"
-    arm_name = f"dogecoin-{version}-aarch64-linux-gnu.tar.gz"
-    if amd_name not in sums or arm_name not in sums:
-        raise UpdateError("signed Dogecoin checksums are missing a required Linux archive")
-    return replace_release(
-        text,
-        "dogecoin",
-        "dogecoin",
-        current_version(text, "dogecoin"),
-        version,
-        sums[amd_name],
-        sums[arm_name],
-    )
-
-
-def bitcoincash_update(text, get=fetch, verify=verify_bitcoincash_checksums):
-    _release, version = stable_release(releases("bitcoin-cash-node/bitcoin-cash-node", get))
-    sums_url = (
-        "https://gitlab.com/bitcoin-cash-node/announcements/-/raw/master/"
-        f"release-sigs/{version}/SHA256SUMS.{version}.asc.Calin_Culianu"
-    )
-    sums = signed_digests(get(sums_url), verify)
-    amd_name = f"bitcoin-cash-node-{version}-x86_64-linux-gnu.tar.gz"
-    arm_name = f"bitcoin-cash-node-{version}-aarch64-linux-gnu.tar.gz"
-    if amd_name not in sums or arm_name not in sums:
-        raise UpdateError("signed Bitcoin Cash checksums are missing a required Linux archive")
-    current = re.search(r"releases/download/v([0-9.]+)/bitcoin-cash-node-", text)
-    if not current:
-        raise UpdateError("could not find the current Bitcoin Cash version")
-    return replace_release(
-        text,
-        "bitcoincash",
-        "bitcoin-cash-node",
-        current.group(1),
-        version,
-        sums[amd_name],
-        sums[arm_name],
-    )
-
-
-def monero_update(text, get=fetch, verify=verify_monero_checksums):
-    sums = signed_digests(get("https://www.getmonero.org/downloads/hashes.txt"), verify)
+def monero_update(text, get=fetch, verify=None):
+    sums = signed_digests(get("https://www.getmonero.org/downloads/hashes.txt"), verify or verifier("monero"))
     versions = {
         match.group(1)
         for name in sums
@@ -270,8 +237,7 @@ def monero_update(text, get=fetch, verify=verify_monero_checksums):
     current = re.search(r"^ARG MONERO_VERSION=([0-9.]+)$", text, re.MULTILINE)
     if not current:
         raise UpdateError("could not find the current Monero version")
-    if version_tuple(version) < version_tuple(current.group(1)):
-        raise UpdateError(f"refusing to downgrade monero from {current.group(1)} to {version}")
+    refuse_downgrade("monero", current.group(1), version)
     names = {
         "MONERO_AMD64_SHA256": f"monero-linux-x64-v{version}.tar.bz2",
         "MONERO_ARM64_SHA256": f"monero-linux-armv8-v{version}.tar.bz2",
@@ -408,7 +374,9 @@ def main():
     args = parser.parse_args()
     for relative, transform in (
         ("build/monero/Dockerfile", monero_update),
-        ("build/bitcoin-family/Dockerfile", lambda text: debian_pins_update(bitcoincash_update(dogecoin_update(litecoin_update(text))))),
+        ("build/bitcoin-family/Dockerfile", lambda text: debian_pins_update(
+                github_release_update(github_release_update(github_release_update(text, "litecoin"), "dogecoin"), "bitcoin-cash-node")
+            )),
         ("build/tor/Dockerfile", alpine_pins_update),
     ):
         print(f"{relative}: {'; '.join(update(ROOT / relative, transform, args.apply)) or 'current'}", flush=True)
@@ -419,5 +387,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except (UpdateError, OSError, ValueError, json.JSONDecodeError) as exc:
-        print(f"node dependency update failed: {exc}", file=os.sys.stderr)
+        print(f"node dependency update failed: {exc}", file=sys.stderr)
         raise SystemExit(1)
