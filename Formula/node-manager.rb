@@ -1,9 +1,9 @@
 class NodeManager < Formula
   desc "Run private cryptocurrency nodes behind Tor"
   homepage "https://github.com/VijitSingh97/node-manager"
-  url "https://github.com/VijitSingh97/node-manager/releases/download/v1.40.2/node-manager.tar.gz"
-  version "1.40.2"
-  sha256 "91082e3525c0dd8d50f18fc0999126d206ad4dc8353d3626b263aaf5603f8d8c"
+  url "https://github.com/VijitSingh97/node-manager/releases/download/v1.40.3/node-manager.tar.gz"
+  version "1.40.3"
+  sha256 "74ea1869a764b601d20846990dd752340b1b60af9409cb726d14c551a91f6393"
   license "MIT"
 
   depends_on "bash"
@@ -15,11 +15,12 @@ class NodeManager < Formula
   end
 
   def install
-    libexec.install "stack", "configure.sh", "VERSION", ".dockerignore"
+    libexec.install "stack", "configure.sh", "VERSION"
+    prefix.install "LICENSE"
     libexec.install Dir["docker-compose*.yml"]
     libexec.install "build"
     (libexec/"scripts").install "scripts/node-manager", "scripts/node-control", "scripts/node-port-control",
-                                "scripts/node-resource-profile"
+                                "scripts/node-resource-profile", "scripts/helper-common.sh"
 
     dependency_path = [formula_opt_bin("bash"), formula_opt_bin("flock"), formula_opt_bin("jq"),
                        formula_opt_bin("openssl@3")]
