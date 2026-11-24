@@ -6,6 +6,14 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- After an upgrade to 1.40.3, Telegram no longer receives a flood of old host
+  alerts, such as thermal throttles from days ago. Only host events from the last
+  6 hours are sent, and all of a minute's host events arrive as one message
+  capped in length, so a heat spike that caps and releases several nodes sends
+  one alert instead of dozens.
+
 ## [1.40.3] - 2026-11-24
 
 ### Added
