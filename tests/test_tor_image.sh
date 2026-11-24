@@ -2,7 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-fail() { echo "FAIL: $1"; exit 1; }
+# shellcheck source=tests/lib.sh
+. tests/lib.sh
 if ! docker info >/dev/null 2>&1; then
   [ "${CI:-}" != true ] || fail "Docker is required in CI"
   echo "SKIP: test_tor_image.sh (Docker not available)"

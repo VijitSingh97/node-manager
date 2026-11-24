@@ -25,7 +25,7 @@ docker-compose contract test, Go race/vet/unit checks, the frozen Python
 reference suite, and the same HTTP contract tests against both runtimes.
 Anything the machine can't run is skipped with a `SKIP:` line. CI
 ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the same suite
-plus a full image build on every push and PR.
+on every push and PR.
 
 ### Dashboard UI flow tests
 

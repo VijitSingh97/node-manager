@@ -129,7 +129,7 @@ This does not add an external route to the Bitcoin or dashboard containers.
 Version `v1.32.0` publishes the first signed APT feed. Its dedicated signing-key
 fingerprint is `72FD 6567 54BD 7534 E274 360A 3707 0C27 30C0 B4EA`. Wait for the
 release APT job and GitHub Pages deployment to succeed. The standard
-[APT setup](../README.md#ubuntu-install-with-apt) downloads the key over HTTPS
+[APT setup](../README.md#install-on-ubuntu-apt) downloads the key over HTTPS
 and scopes it to this repository with `Signed-By`. To verify the key against the
 published fingerprint before installing it, use this optional procedure:
 

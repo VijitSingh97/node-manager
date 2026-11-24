@@ -113,7 +113,7 @@ if __name__ == "__main__":
         threading.Thread(target=rpc.serve_forever, daemon=True).start()
         env = dict(os.environ, RPC_URL="http://127.0.0.1:18091", RPC_USER="go", RPC_PASSWORD="fakepw",
                    STATE_DIR=directory, DATA_DIR=directory, PORT="18092", WATCH_WALLETS_B64="W10=",
-                   STACK_VERSION="Go dashboard preview", TELEGRAM_BOT_TOKEN="", TELEGRAM_CHAT_ID="",
+                   STACK_VERSION="preview", TELEGRAM_BOT_TOKEN="", TELEGRAM_CHAT_ID="",
                    HEALTHCHECKS_URL="", DASHBOARD_PASSWORD="fakepw")
         process = subprocess.Popen([str(binary)], cwd=dashboard, env=env)
         try:

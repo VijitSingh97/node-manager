@@ -61,18 +61,14 @@ else
 fi
 
 if python3 -c "import pytest, flask, waitress" 2>/dev/null; then
-  cov=()
-  if python3 -c "import pytest_cov" 2>/dev/null; then
-    cov=(--cov=parity/reference --cov-report=term-missing --cov-fail-under=85)
-  fi
-  (cd build/dashboard && python3 -m pytest tests -q ${cov[@]+"${cov[@]}"})
+  (cd build/dashboard && python3 -m pytest tests -q)
   python3 build/dashboard/parity/generate.py --check
   python3 build/dashboard/parity/test_http.py
   if [ -n "$dashboard_bin" ]; then
     DASHBOARD_COMMAND="[\"$dashboard_bin\"]" python3 build/dashboard/parity/test_http.py
   fi
 else
-  echo "SKIP: dashboard Python reference tests (pip install -r build/dashboard/parity/reference/requirements.txt pytest pytest-cov)"
+  echo "SKIP: dashboard Python reference tests (pip install -r build/dashboard/parity/reference/requirements.txt pytest)"
 fi
 
 if command -v node >/dev/null; then

@@ -3,10 +3,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-fail() {
-  echo "FAIL: $1"
-  exit 1
-}
+# shellcheck source=tests/lib.sh
+. tests/lib.sh
+out=$(bash -c '. tests/lib.sh; fail boom' 2>&1) && { echo "FAIL: lib.sh fail() must exit non-zero"; exit 1; }
+[ "$out" = "FAIL: boom" ] || { echo "FAIL: lib.sh fail() output: $out"; exit 1; }
 
 [ -x scripts/node-control ] || fail "source node-control helper is not executable"
 grep -Fq 'for helper in node-control node-port-control' stack ||
