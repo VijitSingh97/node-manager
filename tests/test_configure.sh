@@ -508,6 +508,19 @@ done
 jq -n '{bitcoin:{rpc_expose:true,rpc_bind_ip:"192.168.1.117",rpc_port:80},dashboard:{bind_ip:"192.168.1.117",password:"fixturepassword12"}}' >"$tmp/config.json"
 (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "RPC/dashboard host port conflict was accepted"
 
+expect_config_error() {
+  local config=$1 expected=$2 out status=0
+  printf '%s\n' "$config" >"$tmp/config.json"
+  out=$(cd "$tmp" && ./configure.sh 2>&1) || status=$?
+  [ "$status" = 1 ] || fail "configure exited $status, not 1, for: $config"
+  [ "$out" = "$expected" ] || fail "configure said '$out', not '$expected', for: $config"
+}
+expect_config_error '{"dashboard":{"password":"fixturepassword12","port":70000}}' "dashboard.port must be a whole number from 1 to 65535."
+expect_config_error '{"bitcoin":{"rpc_port":0},"dashboard":{"password":"fixturepassword12"}}' "bitcoin.rpc_port must be a whole number from 1 to 65535."
+expect_config_error '{"monero":{"rpc_port":65536},"dashboard":{"password":"fixturepassword12"}}' "monero.rpc_port must be a whole number from 1 to 65535."
+expect_config_error '{"bitcoin":{"rpc_expose":true,"rpc_bind_ip":"192.168.1.117","rpc_port":80},"dashboard":{"bind_ip":"192.168.1.117","password":"fixturepassword12","port":80}}' "bitcoin.rpc_port conflicts with the dashboard on 192.168.1.117:80."
+expect_config_error '{"bitcoin":{"enabled":true,"node_password":"longbitcoinpassword123456789","rpc_expose":true,"rpc_bind_ip":"192.168.1.118","rpc_port":28081},"monero":{"enabled":true,"node_password":"longmoneropassword123456789","rpc_expose":true,"rpc_bind_ip":"192.168.1.118","rpc_port":28081},"dashboard":{"password":"fixturepassword12"}}' "monero.rpc_port conflicts with bitcoin.rpc_port on 192.168.1.118:28081."
+
 # network settings default on; false opts out and non-booleans are rejected
 echo '{"bitcoin": {"inbound_onion": false}}' >"$tmp/config.json"
 (cd "$tmp" && ./configure.sh) >/dev/null

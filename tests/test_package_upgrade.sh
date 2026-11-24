@@ -203,6 +203,9 @@ grep -q '^rmi img006$' "$log" && fail "the cleanup removed the only image of a n
 grep -q '^rmi ghcr.io/vijitsingh97/node-manager-litecoin:1.39.0$' "$log" && fail "the cleanup removed the only tagged image of a node whose extra pull failed"
 [ ! -e "$tmp/state/.package-upgrade-pending" ] || fail "a failing extra pull left the activation pending"
 
+[ -z "$(find "$tmp/state" -name '*.before-*')" ] || fail "successful package upgrades left temporary copies behind"
+sed -i.bak 's/^STACK_VERSION=.*/STACK_VERSION=old-release/' "$tmp/state/.env" "$tmp/state/.approved.env"
+rm -f "$tmp/state/.env.bak" "$tmp/state/.approved.env.bak"
 before_env=$(cksum "$tmp/state/.env")
 before_approved=$(cksum "$tmp/state/.approved.env")
 : >"$log"
@@ -212,6 +215,7 @@ FAKE_PULL_FAIL=1 ./stack package-upgrade >/dev/null 2>"$tmp/pull-failure.log" &&
 [ "$(cksum "$tmp/state/.env")" = "$before_env" ] || fail "pull failure changed the runtime environment"
 [ "$(cksum "$tmp/state/.approved.env")" = "$before_approved" ] || fail "pull failure changed the approved environment"
 grep -q ' up -d ' "$log" && fail "pull failure touched running containers"
+[ -z "$(find "$tmp/state" -name '*.before-*')" ] || fail "pull failure left temporary copies behind"
 [ -f "$tmp/state/.package-upgrade-pending" ] || fail "pull failure did not leave a retry marker"
 [ "$(grep -o ' pull [a-z-]*$' "$log" | tr '\n' ' ')" = ' pull tor  pull tor  pull tor ' ] ||
   fail "a failing image pull was not tried exactly 3 times before activation stopped"
