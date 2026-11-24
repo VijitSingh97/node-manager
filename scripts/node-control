@@ -1586,7 +1586,7 @@ chmod 600 "$next" "$backup"
 mv "$next" "$config_file"
 recreate_tor() { [ "$tor_env_changed" = 0 ] || BITCOIN_STACK_HELPER_START=1 BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" up tor >/dev/null 2>>"${node_errors:-/dev/null}"; }
 restore_services() {
-  recreate_tor || return 1
+  recreate_tor || rollback_failed=1
   if [ "$old_active" = true ]; then
     # shellcheck disable=SC2046
     BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" up $(up_service_names "$node") >/dev/null 2>&1

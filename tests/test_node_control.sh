@@ -369,6 +369,10 @@ FAKE_STACK_FAIL_ARGS='up litecoin' FAKE_TOR_ENV=1 power litecoin true
 [ "$(status .state):$(status .error_code)" = failed:apply_failed ] || fail "a failed onion activation was not rolled back: $(cat "$dashboard_state/node-control.status")"
 [ "$(grep -cx 'up tor' "$tmp/stack.log")" = 2 ] || fail "rollback did not recreate Tor with the prior onion list"
 grep -qx 'TOR_ONION_NODES=' "$state/.env" || fail "rollback did not restore the prior onion list"
+: >"$tmp/stack.log"
+FAKE_STACK_FAIL_ARGS='up tor' FAKE_TOR_ENV=1 power litecoin true
+[ "$(status .error_code)" = rollback_failed ] || fail "a Tor that could not be restored was not reported"
+grep -qx 'stop litecoin' "$tmp/stack.log" || fail "rollback skipped the node when Tor could not be restored"
 
 : >"$tmp/stack.log"
 FAKE_STACK_FAIL_CMD=pull FAKE_STACK_STDERR="$(printf 'Pulling litecoin\n\033[31mError response from daemon: manifest unknown\033[0m\n')" power litecoin true
