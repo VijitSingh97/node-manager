@@ -301,7 +301,7 @@ done
 watch_list=$(curl --noproxy '*' -sf -u admin:e2eDashboardSharedPassword123 "$dashboard_url/api/monero/watch") ||
   wallet_fail "watch-only API list failed"
 printf '%s' "$watch_list" | jq -e --arg id "$watch_id" '.wallets | length == 1 and .[0].id == $id and .[0].state == "pending" and .[0].balance_atomic == ""' >/dev/null ||
-  wallet_fail "initial-sync wallet did not remain safely pending"
+  wallet_fail "initial-sync wallet did not remain safely pending: $(printf '%s' "$watch_list" | jq -c '[.wallets[]? | {state, error, balance_atomic, spending_status, scan_height, target_height}]' 2>/dev/null)"
 printf '%s' "$watch_list" | grep -Fq "$source_view_key" && wallet_fail "watch-only list disclosed the private view key"
 printf '%s' "$watch_list" | grep -Fq 'wallet_file' && wallet_fail "watch-only list disclosed its internal wallet filename"
 docker compose exec -T -e NEEDLE="$source_view_key" dashboard sh -c 'test "$(stat -c %a /state/monero_watch.json)" = 600 && ! grep -Fq "$NEEDLE" /state/monero_watch.json' ||
