@@ -727,7 +727,7 @@ utxo_bench_print() {
 }
 
 utxo_index_bench() {
-  local usage="Usage: $stack_command utxo-index bench <wallets.json> [--chain bitcoin|litecoin] [--scan [-y]] [--repeat N]"
+  local usage="Usage: $stack_command utxo-index bench <wallets.json> [--chain bitcoin|litecoin|bitcoincash] [--scan [-y]] [--repeat N]"
   local file='' scan=false repeat=20 assume_yes=0 chain=bitcoin
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -1010,7 +1010,7 @@ Usage: $stack_command <command> [args]
                              Seed or cancel a balance index (needs <chain>.utxo_index); bitcoincash --replay replays every block of an archival node
   utxo-index remove [litecoin] [-y]
                              Delete the balance index volume (needs <chain>.utxo_index off and applied)
-  utxo-index bench <file> [--chain bitcoin|litecoin] [--scan [-y]] [--repeat N]
+  utxo-index bench <file> [--chain bitcoin|litecoin|bitcoincash] [--scan [-y]] [--repeat N]
                              Time balance lookups for the wallets in <file> (needs the index seeded)
   utxo-index verify [--chain bitcoin|litecoin|dogecoin|bitcoincash] [-y]
                              Compare the index's coin count and total with the node's gettxoutsetinfo (run after a seed)
@@ -2240,7 +2240,7 @@ case "$cmd" in
         guard_package_containers && utxo_index_verify "$@"
         ;;
       *)
-        echo "Usage: $stack_command utxo-index remove [litecoin | bitcoincash | dogecoin] [-y] | bench <wallets.json> [--chain bitcoin|litecoin] [--scan [-y]] [--repeat N] | verify [--chain bitcoin|litecoin|dogecoin|bitcoincash] [-y]" >&2
+        echo "Usage: $stack_command utxo-index remove [litecoin | bitcoincash | dogecoin] [-y] | bench <wallets.json> [--chain bitcoin|litecoin|bitcoincash] [--scan [-y]] [--repeat N] | verify [--chain bitcoin|litecoin|dogecoin|bitcoincash] [-y]" >&2
         exit 1
         ;;
     esac
