@@ -6,6 +6,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.42.1] - 2026-11-25
+
 ### Fixed
 
 - `utxo-index bench --chain bitcoincash --scan` now compares each wallet's
@@ -2320,7 +2322,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.42.0...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.42.1...HEAD
+[1.42.1]: https://github.com/VijitSingh97/node-manager/compare/v1.42.0...v1.42.1
 [1.42.0]: https://github.com/VijitSingh97/node-manager/compare/v1.41.0...v1.42.0
 [1.41.0]: https://github.com/VijitSingh97/node-manager/compare/v1.40.3...v1.41.0
 [1.40.3]: https://github.com/VijitSingh97/node-manager/compare/v1.40.2...v1.40.3
