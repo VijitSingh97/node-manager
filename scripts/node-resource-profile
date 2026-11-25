@@ -173,8 +173,8 @@ zcash_synced() {
   printf '%s\n%s\n' "$info" "$header" | jq -se --argjson now "$current_time" '
     length == 2 and .[0].error == null and (.[0].result | type == "object") and
     (.[0].result.blocks | type == "number") and .[0].result.blocks > 0 and
-    (.[0].result.estimatedheight | type == "number") and
-    .[0].result.blocks + 1 >= .[0].result.estimatedheight and
+    (.[0].result.headers | type == "number") and
+    .[0].result.blocks >= .[0].result.headers and
     (.[0].result.verificationprogress | type == "number") and
     .[0].result.verificationprogress >= 0.999999 and
     .[1].error == null and (.[1].result.time | type == "number") and

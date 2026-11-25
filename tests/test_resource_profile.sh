@@ -74,7 +74,7 @@ if [ "$1" = compose ]; then
           if printf '%s' "$*" | grep -q getblockheader; then
             printf '%s\n' "{\"result\":{\"time\":${RESOURCE_NOW_EPOCH}},\"error\":null}"
           elif [ "${FAKE_ZCASH_SYNCED:-0}" = 1 ]; then
-            printf '%s\n' '{"result":{"blocks":100,"headers":100,"estimatedheight":100,"verificationprogress":1.0,"bestblockhash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pruned":true},"error":null}'
+            printf '%s\n' '{"result":{"blocks":3500000,"headers":3500000,"estimatedheight":3500002,"verificationprogress":0.9999994285717,"bestblockhash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pruned":true},"error":null}'
           else
             printf '%s\n' '{"result":{"blocks":50,"headers":100,"estimatedheight":100,"verificationprogress":0.5,"bestblockhash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pruned":true},"error":null}'
           fi

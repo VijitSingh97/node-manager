@@ -200,6 +200,11 @@ type zcashBlockchainInfo struct {
 	SizeOnDisk           int64   `json:"size_on_disk"`
 }
 
+// Zakura's estimatedheight runs ahead of a synced tip once the newest block is 75 s old, so only headers bound the tip.
+func (c zcashBlockchainInfo) atTip() bool {
+	return c.BestBlockHash != "" && c.Blocks >= c.Headers && c.VerificationProgress >= 0.999999
+}
+
 type zcashStandardFee struct {
 	StandardFee int64 `json:"standard_fee"`
 }
@@ -303,9 +308,9 @@ func (a *app) fetchZcashStatus(ctx context.Context, node nodeConfig, status gene
 			status.LatestBlockAgeSeconds = max(0, time.Now().Unix()-header.Time)
 		}
 	}
-	status.Synced = status.Height >= status.TargetHeight && chain.VerificationProgress >= 0.999999 && status.LatestBlockAvailable && status.LatestBlockAgeSeconds <= int64((30*time.Minute)/time.Second)
+	status.Synced = chain.atTip() && status.LatestBlockAvailable && status.LatestBlockAgeSeconds <= int64((30*time.Minute)/time.Second)
 	if status.Synced {
-		status.SyncPercent = 100
+		status.SyncPercent, status.TargetHeight = 100, status.Height
 	}
 	var fee zcashStandardFee
 	if rpc.call(ctx, "getstandardfee", nil, &fee) == nil && fee.StandardFee > 0 {
