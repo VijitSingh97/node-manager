@@ -120,12 +120,14 @@ that makes `tor_egress` Tor's deterministic default route.
   never turns the stack into a clearnet beacon.
 - **All coin prices use the same Tor proxy.** Background CoinGecko requests every five
   minutes cache nine fiat quotes; page loads and currency changes only read the
-  cache. Initial failures retry sooner while Tor starts. DNS resolves through Tor,
-  TLS is verified, and failures never fall back to
-  a direct connection. Quotes become stale after a failed fetch or fifteen minutes.
-  The last good quotes are saved in the dashboard state directory (`prices.json`)
-  and loaded at startup as stale, so a restart never blanks the prices; the page
-  checks every 10 seconds while they are unavailable or stale.
+  cache. A failed request is logged and retried on a fresh Tor circuit after 10
+  seconds, doubling up to five minutes. DNS resolves through Tor, TLS is
+  verified, and failures never fall back to a direct connection. A quote is
+  stale once CoinGecko's timestamp for it is more than fifteen minutes old, and
+  the page then labels it "price stale". The last good quotes are saved in the
+  dashboard state directory (`prices.json`) and loaded at startup with their
+  timestamps, so a restart never blanks the prices; the page checks every 10
+  seconds while they are unavailable or stale.
 
 ## Trust boundaries — and non-boundaries
 

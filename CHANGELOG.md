@@ -16,6 +16,15 @@ All notable changes to this project are documented here. Format follows
   rule that compares `blocks` with `headers`, alongside the existing
   verification-progress and tip-age checks, and the compact resource
   profile's readiness check makes the same comparison.
+- Coin prices no longer turn stale after one failed price refresh. A price is
+  stale only when CoinGecko's timestamp for it is more than 15 minutes old, so
+  a refresh that fails over Tor, or a dashboard restart, no longer marks every
+  tower and wallet price stale for five to ten minutes. The label now reads
+  "price stale" rather than "stale", so it is not mistaken for a node falling
+  behind. A failed refresh is retried after 10 seconds on a fresh Tor circuit,
+  doubling up to five minutes, instead of five minutes later, and the
+  dashboard log records each failure and the recovery. The actuator's `tor`
+  component still reports `DEGRADED` after a failed refresh.
 
 ## [1.42.1] - 2026-11-25
 

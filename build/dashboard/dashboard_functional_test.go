@@ -235,7 +235,7 @@ func TestDashboardKeepsOnlyLastConfirmedInProgressSyncForRPCFailures(t *testing.
 	}
 }
 
-func TestDashboardPricesExposeFreshUnavailableAndCachedStaleStates(t *testing.T) {
+func TestDashboardPricesExposeFreshUnavailableAndFailedRefreshStates(t *testing.T) {
 	fixture := newDashboardFixture(t)
 	now := time.Unix(1_800_000_000, 0)
 	fixture.app.prices.now = func() time.Time { return now }
@@ -264,8 +264,8 @@ func TestDashboardPricesExposeFreshUnavailableAndCachedStaleStates(t *testing.T)
 		t.Fatal("provider failure unexpectedly succeeded")
 	}
 	cached := responseJSON(t, fixture.request(t, http.MethodGet, "/api/prices"))
-	if cached["available"] != true || cached["stale"] != true || cached["updated_at"] != float64(1_800_000_000) {
-		t.Fatalf("cached stale prices = %#v", cached)
+	if cached["available"] != true || cached["stale"] != false || cached["refresh_failed"] != true || cached["updated_at"] != float64(1_800_000_000) {
+		t.Fatalf("prices after a failed refresh = %#v", cached)
 	}
 
 	empty := newDashboardFixture(t)

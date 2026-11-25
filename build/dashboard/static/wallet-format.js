@@ -33,7 +33,7 @@ export function fiatLabel(amount, price, currency) {
   const value = typeof amount === "number" ? amount : parseFloat(amount);
   const rate = Number(price?.prices?.[normalizeCurrency(currency).toLowerCase()]);
   if (price?.available !== true || !Number.isFinite(value) || !Number.isFinite(rate) || rate <= 0) return "";
-  return `≈ ${formatPrice(value * rate, currency)}${price.stale ? " · stale" : ""}`;
+  return `≈ ${formatPrice(value * rate, currency)}${price.stale ? " · price stale" : ""}`;
 }
 
 export function scanNote(time) {

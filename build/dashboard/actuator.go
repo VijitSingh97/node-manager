@@ -182,7 +182,7 @@ func (a *app) healthComponents() map[string]actuatorComponent {
 	}
 	if len(chains) > 0 && a.prices != nil {
 		tor := actuatorComponent{Status: statusUp}
-		if a.prices.SnapshotAsset("bitcoin")["stale"] == true {
+		if price := a.prices.SnapshotAsset("bitcoin"); price["stale"] == true || price["refresh_failed"] == true {
 			tor.Status = statusDegraded
 		}
 		components["tor"] = tor

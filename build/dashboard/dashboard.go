@@ -174,6 +174,7 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 		a.log.Print("notification settings unavailable; alerts disabled until the state file is repaired and the dashboard restarts")
 	}
 	a.prices = NewPriceCache()
+	a.prices.log = a.log
 	if cfg.stateDir != "" {
 		a.prices.Persist(filepath.Join(cfg.stateDir, "prices.json"))
 	}

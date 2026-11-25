@@ -64,13 +64,17 @@ test("priceView renders current and stale cached prices", () => {
     updated_at: 1_700_000_000,
     prices: { eur: 51000 },
   }, "EUR", () => "yesterday");
-  assert.equal(stale.status, "Stale · as of yesterday");
+  assert.equal(stale.status, "Price stale · as of yesterday");
   assert.match(towerPriceView({
     available: true,
     stale: true,
     updated_at: 1_700_000_000,
     prices: { eur: 51000 },
-  }, "EUR").text, / · stale$/);
+  }, "EUR").text, / · price stale$/);
+
+  const failedButFresh = { available: true, stale: false, refresh_failed: true, updated_at: 1_700_000_000, prices: { eur: 51000 } };
+  assert.equal(priceView(failedButFresh, "EUR", () => "just now").status, "As of just now");
+  assert.doesNotMatch(towerPriceView(failedButFresh, "EUR").text, /stale/);
 });
 
 test("priceView never renders zero for unavailable or bad data", () => {
@@ -129,7 +133,7 @@ test("priceView labels a scaled quantity and keeps whole-unit prices plain", () 
   assert.equal(towerPriceView(data(0.0008032), "USD").text, `${formatPrice(8.032, "USD")} per ${(10000).toLocaleString()}`);
   assert.equal(towerPriceView(data(2), "USD").text, formatPrice(2, "USD"));
   assert.equal(towerPriceView({ ...data(0.15), stale: true }, "USD").text,
-    `${formatPrice(1.5, "USD")} per ${(10).toLocaleString()} · stale`);
+    `${formatPrice(1.5, "USD")} per ${(10).toLocaleString()} · price stale`);
 });
 
 test("priceView rescales from the selected currency's quote", () => {
