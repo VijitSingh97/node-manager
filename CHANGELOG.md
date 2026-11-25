@@ -6,6 +6,15 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `utxo-index bench --chain bitcoincash --scan` now compares each wallet's
+  scan with the index. In 1.42.0 such a run stopped with `refused: the batched
+  scan failed or timed out` whenever the scan found a coin: Bitcoin Cash Node's
+  `scantxoutset` reports how many coins it searched as `searched_items` rather
+  than `txouts` and gives no `desc` for each coin, and the bench refused both.
+  Runs without `--scan` were not affected.
+
 ## [1.42.0] - 2026-11-24
 
 ### Added

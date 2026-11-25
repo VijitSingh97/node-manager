@@ -109,12 +109,23 @@ func (n *benchFakeNode) scan(objects []any) map[string]any {
 	var total int64
 	for _, c := range n.coins {
 		if needles[c.script] {
-			unspents = append(unspents, map[string]any{"txid": c.txid, "vout": 0, "scriptPubKey": c.script, "desc": "raw(" + c.script + ")#benchsum", "amount": float64(c.sats) / 1e8, "height": c.height})
+			unspent := map[string]any{"txid": c.txid, "vout": 0, "scriptPubKey": c.script, "amount": float64(c.sats) / 1e8, "height": c.height}
+			if !n.noDescriptors {
+				unspent["desc"] = "raw(" + c.script + ")#benchsum"
+			}
+			unspents = append(unspents, unspent)
 			total += c.sats
 		}
 	}
 	time.Sleep(time.Duration(len(n.coins))*benchScanCoinCost - time.Since(started))
-	return map[string]any{"success": true, "txouts": len(n.coins), "height": n.height, "bestblock": n.best, "unspents": unspents, "total_amount": float64(total) / 1e8}
+	result := map[string]any{"success": true, "height": n.height, "bestblock": n.best, "unspents": unspents, "total_amount": float64(total) / 1e8}
+	// Bitcoin Cash Node 29.2.0 names the count searched_items and gives no desc per coin.
+	if n.noDescriptors {
+		result["searched_items"] = len(n.coins)
+	} else {
+		result["txouts"] = len(n.coins)
+	}
+	return result
 }
 
 func (n *benchFakeNode) serve(w http.ResponseWriter, r *http.Request) {
