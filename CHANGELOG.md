@@ -6,6 +6,17 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A synced Zcash node no longer drops out of Synced as soon as its newest
+  block is 75 s old. Zakura's `estimatedheight` adds a block for every 75 s
+  since the tip, and the status card, the watch-balance refresh and the fee
+  sample all required `blocks` to reach it, so between blocks the node read as
+  behind and watch balances and fee samples were skipped. They now share one
+  rule that compares `blocks` with `headers`, alongside the existing
+  verification-progress and tip-age checks, and the compact resource
+  profile's readiness check makes the same comparison.
+
 ## [1.42.1] - 2026-11-25
 
 ### Fixed

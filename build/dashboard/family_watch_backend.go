@@ -130,7 +130,7 @@ func zcashFamilyWatchBackend() familyWatchBackend {
 		refreshOnTip: true,
 		ready: func(ctx context.Context, s *familyWatchStore, now int64) (familyWatchTip, bool) {
 			var chain zcashBlockchainInfo
-			if s.rpc.call(ctx, "getblockchaininfo", nil, &chain) != nil || chain.BestBlockHash == "" || chain.Blocks < max(chain.Headers, chain.EstimatedHeight) || chain.VerificationProgress < 0.999999 {
+			if s.rpc.call(ctx, "getblockchaininfo", nil, &chain) != nil || !chain.atTip() {
 				return familyWatchTip{}, false
 			}
 			return familyWatchTip{chain.Blocks, chain.BestBlockHash}, s.tipFresh(ctx, chain.BestBlockHash, now)
