@@ -1,0 +1,66 @@
+[
+  {
+    "key": "addr(bitcoincash:qrmfkegyf83zh5kauzwgygf82sdahd5a55x9wse7ve)",
+    "name": "Blockchair rich list rank 1 (read 2026-11-24 at 978,835)"
+  },
+  {
+    "key": "addr(bitcoincash:qrwcmu77ltr3dn0hymy58gvcg3qys4hp2qn4e0z839)",
+    "name": "Blockchair rich list rank 2 (read 2026-11-24 at 978,835)"
+  },
+  {
+    "key": "addr(bitcoincash:qrqdjfasx7tur4un4v8zut6vdd0glhktzyv0cpurlk)",
+    "name": "Blockchair rich list rank 3 (read 2026-11-24 at 978,835)"
+  },
+  {
+    "key": "addr(bitcoincash:qre24q38ghy6k3pegpyvtxahu8q8hqmxmqqn28z85p)",
+    "name": "Blockchair rich list rank 4 (read 2026-11-24 at 978,835)"
+  },
+  {
+    "key": "addr(bitcoincash:pqvm5jv4zhy38dkzrx0md73c3sujhkmg4yhlmhhmfm)",
+    "name": "Blockchair rich list rank 5 (P2SH) (read 2026-11-24 at 978,835)"
+  },
+  {
+    "key": "addr(bitcoincash:qpug04qa7xwkg44mytstlcpgelld2ucpg5df99ph8e)",
+    "name": "Blockchair rich list rank 6 (read 2026-11-24 at 978,835)"
+  },
+  {
+    "key": "addr(bitcoincash:pzmkhz2klyw6jtmqgz44kzznk54lcujw8ss3ssqqgf)",
+    "name": "Blockchair rich list rank 9 (P2SH) (read 2026-11-24 at 978,835)"
+  },
+  {
+    "key": "addr(BITCOINCASH:PQTDJP63SWYPEP62KYFXZH2K6KPQ5WEYDVFQS9WPK2)",
+    "name": "Blockchair rich list rank 25 (P2SH) (read 2026-11-24 at 978,835), written in uppercase"
+  },
+  {
+    "key": "addr(bitcoincash:qzg0y2znj5vex92q7rsaufwmcqynfxx855d866cy6t)",
+    "name": "Busiest P2PKH output address in blocks 978535-978834 (24538 outputs)"
+  },
+  {
+    "key": "addr(bitcoincash:qzm7udhe2autnpc7dcr7xnhzn5tl08ac4y5dh0tzqa)",
+    "name": "Second busiest P2PKH output address in blocks 978535-978834 (7563 outputs)"
+  },
+  {
+    "key": "addr(bitcoincash:qqn6ncyfajnd560xa4k4kd43uza87x0sxs05yfhfek)",
+    "name": "Third busiest P2PKH output address in blocks 978535-978834 (2775 outputs)"
+  },
+  {
+    "key": "addr(bitcoincash:ppwtyt2ws8f76sve85ghc9es3f54s623nyr4v98wjv)",
+    "name": "Busiest P2SH output address in blocks 978535-978834 (159 outputs)"
+  },
+  {
+    "key": "addr(bitcoincash:pzzjm44pd697urusd6vcfmdljwdj570zuvxwuezdkt)",
+    "name": "Second busiest P2SH output address in blocks 978535-978834 (33 outputs)"
+  },
+  {
+    "key": "addr(bitcoincash:pdws0e456rwhzuxahv5jduryn493prvjrmu6ksegq052m5g048jp2tl4l6chh)",
+    "name": "Busiest P2SH32 output address in blocks 978535-978834 (2062 outputs)"
+  },
+  {
+    "key": "addr(bitcoincash:pwny5efsj93n9xqxyad94xdj0pfykgdyv4vau3l0ensf35lttv4qu2xrs36wh)",
+    "name": "Second busiest P2SH32 output address in blocks 978535-978834 (818 outputs)"
+  },
+  {
+    "key": "addr(qzm7udhe2autnpc7dcr7xnhzn5tl08ac4y5dh0tzqa)",
+    "name": "Second busiest P2PKH output address in blocks 978535-978834, written without the bitcoincash: prefix"
+  }
+]
