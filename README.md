@@ -21,6 +21,63 @@ Manager never accepts a seed phrase or private spend key.
 
 </div>
 
+## Highlights
+
+- **Balances in milliseconds.** An optional balance index keeps a local copy of
+  your node's coin set, so a watched wallet's balance is a database read
+  instead of a full `scantxoutset` walk of the chain. Measured on the reference
+  node, a 4-core, 7.6 GiB Mac mini:
+
+  | Chain | One address by full scan | Same address from the index (median) |
+  | --- | --- | --- |
+  | Bitcoin | 163.6 s | about 0.1 s (the genesis address, 83,490 coins) |
+  | Litecoin | 39 to 58 s | 5 to 8 ms (6,526 coins) |
+  | Bitcoin Cash | 44 to 82 s | 7.4 ms or less (6,667 coins) |
+
+  The index and the scan agreed on every wallet tested (13 on Bitcoin, 16 on
+  Litecoin, 16 on Bitcoin Cash), and the public addresses among them matched
+  block explorers. A new Bitcoin block reached watched balances in about 5 s
+  (median of 12 blocks). Indexes exist for Bitcoin (pruned nodes), Litecoin,
+  Bitcoin Cash and Dogecoin. APT and Homebrew installs seed each one from the
+  node once it has synced (a source checkout seeds by hand); a Bitcoin seed
+  takes about 20 minutes, with its RPC down for about 5. Disk is about 4.5 GB
+  for Litecoin, 5.2 GB for Bitcoin Cash and 7.5 GiB for Bitcoin, which needs up
+  to about 17 GiB while it seeds; Dogecoin's index is not measured yet. See
+  [Watch-only wallets](docs/watch-only.md) and the
+  [performance history](docs/measurements/performance-history.md).
+- **Tor-only at runtime.** The nodes, wallet services and dashboard share an
+  internal Docker network with no route out; only the Tor container reaches the
+  internet. Bitcoin, Litecoin, Dogecoin, Bitcoin Cash and Tari reach clearnet
+  peers through Tor exits, or onion peers only with one setting; Monero and
+  Zcash always go through Tor exits. Bitcoin, Litecoin and Bitcoin Cash accept
+  inbound peers through their own onion services without port forwarding. Prices, alerts and
+  release checks go over Tor too; package and image downloads use the host's
+  connection. [Tor boundary](docs/tor-boundary.md) lists every egress path and
+  the test that guards it.
+- **View-only wallets on every chain.** Watch Bitcoin xpubs, descriptors and
+  addresses; Litecoin, Bitcoin Cash, Dogecoin and Zcash addresses; and Monero
+  and Tari wallets by their view keys. Balances come from your own node, wallet
+  keys and addresses never go to an outside service, and seed phrases and
+  spend keys are refused. Dogecoin and Zcash watching uses indexes that
+  dashboard installs turn on. Zcash watches transparent addresses only, Monero
+  shows received amounts until you import key images, and Litecoin balances
+  leave out MWEB funds.
+- **Seven chains, pruned by default.** Install, activate and deactivate
+  Bitcoin, Monero, Tari, Litecoin, Dogecoin, Bitcoin Cash and Zcash from the
+  dashboard. Every chain runs pruned by default: plan 28 to 56 GiB for a
+  default Bitcoin node instead of about 840 GiB archival.
+  [Node storage and resources](docs/nodes.md) gives each chain's disk plan and
+  how far it has been tested.
+- **Made for small, always-on hardware.** After initial sync, fresh APT
+  installs (and Homebrew with its optional service) cap each node at about
+  1 CPU and 2 to 4 GiB, an experimental compact profile. An optional Linux
+  thermal throttle halves node CPU caps when the host runs hot instead of
+  stopping anything.
+- **It watches itself.** Optional Telegram alerts (node down and recovered,
+  sync complete, low disk, new release), a Healthchecks dead-man's switch, an
+  event log in the dashboard, and opt-in health endpoints for your own
+  monitors. Alerts and pings go over Tor.
+
 ## Requirements
 
 Ubuntu 24.04 (APT or source) or macOS (Homebrew), with Docker Engine or Docker
