@@ -6,6 +6,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.42.2] - 2026-11-25
+
 ### Fixed
 
 - A synced Zcash node no longer drops out of Synced as soon as its newest
@@ -2342,7 +2344,8 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.42.1...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.42.2...HEAD
+[1.42.2]: https://github.com/VijitSingh97/node-manager/compare/v1.42.1...v1.42.2
 [1.42.1]: https://github.com/VijitSingh97/node-manager/compare/v1.42.0...v1.42.1
 [1.42.0]: https://github.com/VijitSingh97/node-manager/compare/v1.41.0...v1.42.0
 [1.41.0]: https://github.com/VijitSingh97/node-manager/compare/v1.40.3...v1.41.0
