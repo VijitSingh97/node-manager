@@ -187,6 +187,21 @@ func TestActuatorHealthReportsComponentsToTheActuatorLogin(t *testing.T) {
 		t.Fatalf("synced health = %v", synced)
 	}
 
+	a.prices.mu.Lock()
+	a.prices.assetFailed["bitcoin"] = true
+	a.prices.mu.Unlock()
+	if failed := health(http.StatusOK); failed["status"] != statusDegraded || component(t, failed, "tor")["status"] != statusDegraded {
+		t.Fatalf("health after a failed price refresh = %v", failed)
+	}
+	freshPrices(a)
+	a.prices.mu.Lock()
+	a.prices.assetUpdatedAt["bitcoin"] = time.Now().Add(-16 * time.Minute).Unix()
+	a.prices.mu.Unlock()
+	if old := health(http.StatusOK); component(t, old, "tor")["status"] != statusDegraded {
+		t.Fatalf("health with a 16-minute-old price = %v", old)
+	}
+	freshPrices(a)
+
 	if err := os.WriteFile(filepath.Join(a.cfg.stateDir, "node-runtime.json"), []byte(`{"bitcoin":true}`), 0o600); err != nil {
 		t.Fatal(err)
 	}

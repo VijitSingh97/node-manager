@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -24,6 +26,7 @@ func priceResponse(updatedAt int64) string {
 func priceCacheForTest(now time.Time, handler roundTripFunc) *PriceCache {
 	cache := NewPriceCache()
 	cache.client = &http.Client{Transport: handler}
+	cache.freshClient = func() *http.Client { return cache.client }
 	cache.now = func() time.Time { return now }
 	cache.url = "https://provider.test/simple/price?fixed=true"
 	return cache
@@ -57,6 +60,9 @@ func TestNewPriceCacheUsesFixedCoinGeckoURLAndTorClient(t *testing.T) {
 	}
 	if cache.client == nil || cache.client.Transport == nil || cache.client.Timeout != 30*time.Second {
 		t.Fatalf("provider client = %#v", cache.client)
+	}
+	if fresh := cache.freshClient(); fresh == nil || fresh == cache.client || fresh.Transport == nil || fresh.Timeout != 30*time.Second {
+		t.Fatalf("retry client = %#v", fresh)
 	}
 	if cache.refreshEvery != 5*time.Minute {
 		t.Fatalf("refresh interval = %s", cache.refreshEvery)
@@ -172,7 +178,7 @@ func TestPriceCacheKeepsBitcoinCompatibleWhenMoneroQuoteIsMissing(t *testing.T) 
 	}
 }
 
-func TestPartialRefreshMarksRetainedMoneroQuoteStaleButBitcoinFresh(t *testing.T) {
+func TestPartialRefreshKeepsRetainedMoneroQuoteUntilItAges(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	currentBody := priceResponse(now.Unix())
 	cache := priceCacheForTest(now, func(*http.Request) (*http.Response, error) {
@@ -189,16 +195,20 @@ func TestPartialRefreshMarksRetainedMoneroQuoteStaleButBitcoinFresh(t *testing.T
 		t.Fatal(err)
 	}
 	bitcoin := cache.Snapshot()
-	if bitcoin["available"] != true || bitcoin["stale"] != false || bitcoin["updated_at"] != now.Unix() {
+	if bitcoin["available"] != true || bitcoin["stale"] != false || bitcoin["refresh_failed"] != false || bitcoin["updated_at"] != now.Unix() {
 		t.Fatalf("bitcoin snapshot = %#v", bitcoin)
 	}
 	monero := cache.SnapshotAsset("monero")
-	if monero["available"] != true || monero["stale"] != true || monero["updated_at"] != now.Add(-time.Minute).Unix() || monero["prices"].(map[string]float64)["usd"] != 350 {
+	if monero["available"] != true || monero["stale"] != false || monero["refresh_failed"] != true || monero["updated_at"] != now.Add(-time.Minute).Unix() || monero["prices"].(map[string]float64)["usd"] != 350 {
 		t.Fatalf("retained Monero snapshot = %#v", monero)
+	}
+	cache.now = func() time.Time { return now.Add(14*time.Minute + time.Second) }
+	if monero := cache.SnapshotAsset("monero"); monero["stale"] != true {
+		t.Fatalf("aged Monero snapshot = %#v", monero)
 	}
 }
 
-func TestInvalidMoneroRefreshMarksRetainedQuoteStale(t *testing.T) {
+func TestInvalidMoneroRefreshKeepsRetainedQuoteAndFlagsTheFailure(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	body := priceResponse(now.Unix())
 	cache := priceCacheForTest(now, func(*http.Request) (*http.Response, error) {
@@ -213,7 +223,7 @@ func TestInvalidMoneroRefreshMarksRetainedQuoteStale(t *testing.T) {
 	if err := cache.refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if bitcoin, monero := cache.Snapshot(), cache.SnapshotAsset("monero"); bitcoin["stale"] != false || monero["available"] != true || monero["stale"] != true || monero["prices"].(map[string]float64)["usd"] != 350 {
+	if bitcoin, monero := cache.Snapshot(), cache.SnapshotAsset("monero"); bitcoin["stale"] != false || monero["available"] != true || monero["stale"] != false || monero["refresh_failed"] != true || monero["prices"].(map[string]float64)["usd"] != 350 {
 		t.Fatalf("snapshots = bitcoin %#v, monero %#v", bitcoin, monero)
 	}
 }
@@ -352,7 +362,95 @@ func TestPriceCacheRunStopsWhileWaitingToRetry(t *testing.T) {
 	}
 }
 
-func TestPriceCacheRetainsLastSuccessAndMarksFailuresOrAgeStale(t *testing.T) {
+func TestPriceCacheRetriesALaterFailureSoonOnAFreshClient(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	var calls atomic.Int32
+	failedAt := make(chan time.Time, 1)
+	cache := priceCacheForTest(now, func(*http.Request) (*http.Response, error) {
+		if calls.Add(1) == 2 {
+			failedAt <- time.Now()
+			return nil, errors.New("exit refused")
+		}
+		return response(http.StatusOK, priceResponse(now.Unix())), nil
+	})
+	retried := make(chan time.Time, 1)
+	cache.freshClient = func() *http.Client {
+		return &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			retried <- time.Now()
+			return response(http.StatusOK, priceResponse(now.Unix())), nil
+		})}
+	}
+	cache.refreshEvery = 400 * time.Millisecond
+	cache.startupRetry = time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		cache.Run(ctx)
+		close(done)
+	}()
+	var failure, retry time.Time
+	select {
+	case failure = <-failedAt:
+	case <-time.After(2 * time.Second):
+		t.Fatal("scheduled refresh did not run")
+	}
+	select {
+	case retry = <-retried:
+	case <-time.After(2 * time.Second):
+		t.Fatal("failed refresh was not retried on a fresh client")
+	}
+	cancel()
+	<-done
+	if gap := retry.Sub(failure); gap >= cache.refreshEvery/2 {
+		t.Fatalf("retry came %s after the failure, want well under the %s refresh interval", gap, cache.refreshEvery)
+	}
+}
+
+func TestPriceCacheRetryBacksOffCapsResetsAndLogs(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	var calls atomic.Int32
+	cache := priceCacheForTest(now, func(*http.Request) (*http.Response, error) {
+		if n := calls.Add(1); n <= 4 || n == 6 {
+			return response(http.StatusTooManyRequests, "slow down"), nil
+		}
+		return response(http.StatusOK, priceResponse(now.Unix())), nil
+	})
+	var logged bytes.Buffer
+	cache.log = log.New(&logged, "", 0)
+	cache.startupRetry = time.Millisecond
+	cache.refreshEvery = 4 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		cache.Run(ctx)
+		close(done)
+	}()
+	deadline := time.After(2 * time.Second)
+	for calls.Load() < 8 {
+		select {
+		case <-deadline:
+			t.Fatal("price refreshes stopped")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	cancel()
+	<-done
+	want := []string{
+		"prices: refresh failed, retrying in 1ms on a new Tor circuit: price provider returned HTTP 429",
+		"prices: refresh failed, retrying in 2ms on a new Tor circuit: price provider returned HTTP 429",
+		"prices: refresh failed, retrying in 4ms on a new Tor circuit: price provider returned HTTP 429",
+		"prices: refresh failed, retrying in 4ms on a new Tor circuit: price provider returned HTTP 429",
+		"prices: refresh recovered (failed attempts: 4)",
+		"prices: refresh failed, retrying in 1ms on a new Tor circuit: price provider returned HTTP 429",
+		"prices: refresh recovered (failed attempts: 1)",
+	}
+	if got := strings.Split(strings.TrimSpace(logged.String()), "\n"); len(got) < len(want) || strings.Join(got[:len(want)], "\n") != strings.Join(want, "\n") {
+		t.Fatalf("price log =\n%s", logged.String())
+	}
+}
+
+func TestPriceCacheRetainsLastSuccessAndMarksOnlyOldPricesStale(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	var fail atomic.Bool
 	cache := priceCacheForTest(now, func(*http.Request) (*http.Response, error) {
@@ -368,19 +466,24 @@ func TestPriceCacheRetainsLastSuccessAndMarksFailuresOrAgeStale(t *testing.T) {
 	if err := cache.refresh(context.Background()); err == nil {
 		t.Fatal("refresh succeeded during provider failure")
 	}
-	if snapshot := cache.Snapshot(); snapshot["stale"] != true || snapshot["available"] != true || snapshot["updated_at"] != now.Unix() {
+	if snapshot := cache.Snapshot(); snapshot["stale"] != false || snapshot["refresh_failed"] != true || snapshot["available"] != true || snapshot["updated_at"] != now.Unix() {
 		t.Fatalf("failure snapshot = %#v", snapshot)
 	}
 
 	fail.Store(false)
 	cache.now = func() time.Time { return now.Add(15 * time.Minute) }
-	if snapshot := cache.Snapshot(); snapshot["stale"] != true {
+	if snapshot := cache.Snapshot(); snapshot["stale"] != false || snapshot["refresh_failed"] != true {
 		t.Fatalf("failed snapshot at age boundary = %#v", snapshot)
 	}
+	cache.now = func() time.Time { return now.Add(15*time.Minute + time.Second) }
+	if snapshot := cache.Snapshot(); snapshot["stale"] != true {
+		t.Fatalf("failed snapshot past age boundary = %#v", snapshot)
+	}
+	cache.now = func() time.Time { return now.Add(15 * time.Minute) }
 	if err := cache.refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if snapshot := cache.Snapshot(); snapshot["stale"] != false {
+	if snapshot := cache.Snapshot(); snapshot["stale"] != false || snapshot["refresh_failed"] != false {
 		t.Fatalf("healthy snapshot at age boundary = %#v", snapshot)
 	}
 	cache.now = func() time.Time { return now.Add(15*time.Minute + time.Second) }
@@ -487,15 +590,20 @@ func TestPriceCachePersistsLastGoodPricesAcrossRestart(t *testing.T) {
 	restarted.Persist(path)
 	for _, asset := range priceAssets {
 		snapshot := restarted.SnapshotAsset(asset)
-		if snapshot["available"] != true || snapshot["stale"] != true || snapshot["updated_at"] != now.Unix() || len(snapshot["prices"].(map[string]float64)) != len(priceCurrencies) {
+		if snapshot["available"] != true || snapshot["stale"] != false || snapshot["refresh_failed"] != true || snapshot["updated_at"] != now.Unix() || len(snapshot["prices"].(map[string]float64)) != len(priceCurrencies) {
 			t.Fatalf("%s after restart = %#v", asset, snapshot)
 		}
 	}
 	if restarted.refresh(t.Context()) == nil {
 		t.Fatal("refresh unexpectedly succeeded")
 	}
-	if snapshot := restarted.Snapshot(); snapshot["available"] != true || snapshot["stale"] != true {
+	if snapshot := restarted.Snapshot(); snapshot["available"] != true || snapshot["stale"] != false || snapshot["refresh_failed"] != true {
 		t.Fatalf("failed refresh dropped the loaded prices: %#v", snapshot)
+	}
+	late := priceCacheForTest(now.Add(16*time.Minute), nil)
+	late.Persist(path)
+	if snapshot := late.Snapshot(); snapshot["available"] != true || snapshot["stale"] != true {
+		t.Fatalf("prices saved 16 minutes before the restart = %#v", snapshot)
 	}
 
 	later := now.Add(2 * time.Minute)
@@ -506,7 +614,7 @@ func TestPriceCachePersistsLastGoodPricesAcrossRestart(t *testing.T) {
 	if err := restarted.refresh(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if snapshot := restarted.Snapshot(); snapshot["stale"] != false || snapshot["updated_at"] != later.Unix() {
+	if snapshot := restarted.Snapshot(); snapshot["stale"] != false || snapshot["refresh_failed"] != false || snapshot["updated_at"] != later.Unix() {
 		t.Fatalf("fresh fetch did not replace the loaded prices: %#v", snapshot)
 	}
 }

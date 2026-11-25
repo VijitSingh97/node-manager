@@ -33,7 +33,8 @@ test("fiat labels follow the price feed and currency", () => {
   const price = { available: true, prices: { usd: 100000, eur: 90000 } };
   assert.equal(fiatLabel("2", price, "USD"), `≈ ${formatPrice(200000, "USD")}`);
   assert.equal(fiatLabel("2", price, "EUR"), `≈ ${formatPrice(180000, "EUR")}`);
-  assert.equal(fiatLabel("2", { ...price, stale: true }, "USD"), `≈ ${formatPrice(200000, "USD")} · stale`);
+  assert.equal(fiatLabel("2", { ...price, stale: true }, "USD"), `≈ ${formatPrice(200000, "USD")} · price stale`);
+  assert.equal(fiatLabel("2", { ...price, stale: false, refresh_failed: true }, "USD"), `≈ ${formatPrice(200000, "USD")}`);
   assert.equal(fiatLabel("2", { available: false }, "USD"), "");
   assert.equal(fiatLabel("2", { available: true, prices: {} }, "USD"), "");
   assert.equal(fiatLabel(null, price, "USD"), "");
