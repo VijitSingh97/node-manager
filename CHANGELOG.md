@@ -38,9 +38,30 @@ All notable changes to this project are documented here. Format follows
   mining payouts; issue 494), and the Litecoin, Bitcoin Cash and Dogecoin
   cards now say so. A second index key for those outputs needs a new seed and
   is not built yet.
+- CI now runs the real Monero 0.18.5.4 daemon on regtest with two
+  `monero-wallet-rpc` services: it mines to a known address, adds that address
+  as a view-only watch wallet, imports key images, checks the verified balance,
+  and mines blocks between refreshes. The job fails if the test is skipped. The
+  wallet service needs `allow-mismatched-daemon-version` for regtest, which
+  production does not use.
+- The native-node CI job now logs the optional status fields each chain serves
+  and fails if Monero (mempool), Tari (connections, mempool) or Zcash (fees,
+  connections) stops reporting its required fields as available. A separate
+  check proves a renamed field is caught. Monero's fee estimate is checked on
+  the regtest daemon instead: the mainnet node in this job never syncs past the
+  2021 hard fork, before which monerod returns no fee tiers.
+- The Tari wallet gRPC probe can now wait for the dashboard's balance
+  conditions (online, initial validation done, scanned height within two blocks
+  of the node) and assert the balance total, and `docs/releasing.md` describes
+  this as a pre-release check against a funded watch wallet.
 
 ### Fixed
 
+- A Monero watch wallet no longer loses its balance for a refresh when a block
+  arrives between the node and the wallet service catching up. A wallet one
+  block behind the node now refreshes to the tip and keeps its verified
+  balance; a wallet further behind still waits as before. A real regtest run
+  showed the balance blanking in this window.
 - A pruned Bitcoin node no longer fails every watched wallet in a scan when a
   `combo()` wallet has a coin paid straight to its public key. Core reports
   that coin as `pk(...)`, which the dashboard could not turn into an address,

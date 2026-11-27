@@ -17,6 +17,8 @@ case "$chain" in
     ;;
 esac
 
+source tests/native_required_fields.sh
+
 for tool in docker jq curl openssl python3; do
   if ! command -v "$tool" >/dev/null; then
     echo "FAIL: $tool is required" >&2
@@ -361,11 +363,19 @@ deadline=$((SECONDS + smoke_timeout))
 while [ "$SECONDS" -lt "$deadline" ]; do
   printf 'user = "admin:%s"\nsilent\nshow-error\nmax-time = 10\n' "$dashboard_secret" |
     curl --config - "$dashboard_url" >"$status_file" 2>/dev/null || true
-  jq -e '.enabled == true and .available == true' "$status_file" >/dev/null 2>&1 && break
+  if jq -e '.enabled == true and .available == true' "$status_file" >/dev/null 2>&1; then
+    missing_required=$(native_required_missing "$chain" "$status_file")
+    [ -z "$missing_required" ] && break
+  fi
   sleep 5
 done
 jq -e '.enabled == true and .available == true' "$status_file" >/dev/null 2>&1 ||
   fail "$chain did not become available through the dashboard collector"
+
+jq -c '{fee_unit, fees_available, connections_available, mempool_txs_available, uptime_available, database_size_available, pruned_available}' "$status_file" |
+  sed "s/^/$chain optional fields: /"
+missing_required=$(native_required_missing "$chain" "$status_file")
+[ -z "$missing_required" ] || fail "$chain collector does not serve required fields at this tip: $missing_required (last snapshot: $(jq -c . "$status_file" 2>/dev/null))"
 
 if [ "$chain" = monero ]; then
   jq -e '

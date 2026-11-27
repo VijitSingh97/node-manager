@@ -23,7 +23,9 @@ tests/test_resource_profile.sh
 tests/test_port_control.sh
 tests/test_node_control.sh
 tests/test_zcash.sh
+tests/test_native_required_fields.sh
 tests/test_native_nodes.sh
+tests/test_monero_regtest.sh
 tests/test_apt.sh
 tests/test_compose.sh
 tests/test_tor_supervisor.sh
@@ -48,6 +50,7 @@ if command -v go >/dev/null; then
   )
   (cd build/dashboard && go build -o "$work/dashboard" .)
   dashboard_bin="$work/dashboard"
+  (cd tests && go test -count=1 tari_probe_gate.go tari_probe_gate_test.go)
   for module in tari-wallet hostd; do
     (
       cd "build/$module"
