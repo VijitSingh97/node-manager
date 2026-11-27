@@ -384,3 +384,39 @@ func TestMoneroRPCIncrementsNonceCountOnReusedServerNonce(t *testing.T) {
 		t.Fatalf("nonce counts did not increment on a reused nonce: %v", authed)
 	}
 }
+
+func TestMoneroAPIStaleTipIsNotSynced(t *testing.T) {
+	for name, tc := range map[string]struct {
+		age    time.Duration
+		synced bool
+	}{"fresh": {2 * time.Minute, true}, "stale": {3 * time.Hour, false}, "slightly ahead": {-30 * time.Second, true}, "header call fails": {0, true}} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var rpcRequest struct {
+					Method string `json:"method"`
+				}
+				_ = json.NewDecoder(r.Body).Decode(&rpcRequest)
+				result := map[string]any{}
+				switch rpcRequest.Method {
+				case "get_info":
+					result = map[string]any{"synchronized": true, "height": 3_500_000, "target_height": 0}
+				case "get_last_block_header":
+					if tc.age == 0 {
+						w.WriteHeader(http.StatusInternalServerError)
+						return
+					}
+					result = map[string]any{"block_header": map[string]any{"timestamp": time.Now().Add(-tc.age).Unix()}}
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"result": result})
+			}))
+			defer server.Close()
+			a, _ := testApp(t, &rpcFixture{}, "dashboard-secret")
+			a.cfg.moneroEnabled, a.cfg.moneroRPCURL = true, server.URL
+			response := request(t, a.routes(), http.MethodGet, "/api/monero", "dashboard-secret")
+			var status moneroStatus
+			if json.Unmarshal(response.Body.Bytes(), &status) != nil || status.Synced != tc.synced {
+				t.Fatalf("status = %#v", status)
+			}
+		})
+	}
+}

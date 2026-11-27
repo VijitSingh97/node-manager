@@ -103,7 +103,7 @@ func (a *app) metrics(w http.ResponseWriter, r *http.Request) {
 	gauge("bitcoin_uptime_seconds", uptime)
 	gauge("bitcoin_connections", network.Connections)
 	fmt.Fprintf(w, "# TYPE bitcoin_peers gauge\nbitcoin_peers{direction=\"in\"} %d\nbitcoin_peers{direction=\"out\"} %d\n", inbound, len(peers)-inbound)
-	if !chain.InitialBlockDownload {
+	if !chainBehind(chain.InitialBlockDownload, chain.Blocks, chain.Headers, a.chainTipTime(ctx, nodeBitcoin, a.rpc, chain.BestBlockHash), time.Now()) {
 		var mempool mempoolInfo
 		if a.rpc.call(ctx, "getmempoolinfo", []any{}, &mempool) == nil {
 			gauge("bitcoin_mempool_txs", mempool.Size)
@@ -175,8 +175,7 @@ func (a *app) apiWatchList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "set dashboard.password to access watch-only wallets", 403)
 		return
 	}
-	var chain blockchainInfo
-	_ = a.rpc.call(r.Context(), "getblockchaininfo", nil, &chain)
+	chain, _ := a.readBitcoinChain(r.Context())
 	view := a.watch.ListWithChain(a.walletRPC, chain)
 	view["has_password"] = a.hasDashboardPassword()
 	view["can_configure"] = a.configurationAllowed(r)
@@ -238,8 +237,7 @@ func (a *app) apiWatchAdd(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "A valid public key, address, or descriptor is required.", 400)
 		return
 	}
-	var chain blockchainInfo
-	_ = a.rpc.call(r.Context(), "getblockchaininfo", nil, &chain)
+	chain, _ := a.readBitcoinChain(r.Context())
 	if chain.Pruned {
 		for _, desc := range validated {
 			params := []any{desc.desc}

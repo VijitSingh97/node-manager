@@ -478,3 +478,29 @@ func TestNodeControlAvailableUsesHostCapabilityReader(t *testing.T) {
 		t.Fatal("stale capability reported available")
 	}
 }
+
+func TestNodesReportConfiguredSteadyCaps(t *testing.T) {
+	dir := t.TempDir()
+	node := nodeConfig{ID: nodeLitecoin, Name: "Litecoin", Enabled: true, Supported: true, SteadyCPUs: 1.5, SteadyMemLimitMB: 3072}
+	a := &app{cfg: config{bitcoinDisabled: true, dashboardPassword: "secret", stateDir: dir, dataDir: dir, nodes: map[string]nodeConfig{nodeLitecoin: node}}}
+	initializeTestDashboardAuth(t, a)
+	response := nodeControlHTTP(a, http.MethodGet, "/api/nodes", "", false)
+	var view struct {
+		Nodes []map[string]any `json:"nodes"`
+	}
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &view) != nil {
+		t.Fatalf("nodes view = %d %s", response.Code, response.Body.String())
+	}
+	for _, n := range view.Nodes {
+		switch n["id"] {
+		case nodeLitecoin:
+			if n["steady_cpus"] != 1.5 || n["steady_mem_limit_mb"] != 3072.0 {
+				t.Fatalf("litecoin caps = %#v", n)
+			}
+		case nodeBitcoin:
+			if _, ok := n["steady_cpus"]; ok {
+				t.Fatalf("unconfigured caps must be omitted: %#v", n)
+			}
+		}
+	}
+}

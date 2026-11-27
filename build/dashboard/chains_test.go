@@ -170,7 +170,7 @@ func TestBitcoinFamilyStatusUsesOnlyPublicNodeRPC(t *testing.T) {
 				t.Fatalf("status response = %d %s", response.Code, response.Body.String())
 			}
 			walletViewSupported := tc.id == nodeLitecoin || tc.id == nodeBitcoinCash
-			if !status.Available || status.Synced || status.Height != 100 || status.TargetHeight != 120 || status.SyncPercent != 50 || !status.Pruned || !status.PrunedAvailable || status.Version != tc.version || !status.ConnectionsAvailable || !status.ConnectionsSplitAvailable || status.IncomingConnections != 1 || status.OutgoingConnections != 1 || !status.MempoolBytesAvailable || !status.FeesAvailable || status.FeeUnit != tc.unit || status.FeeEstimates[0] != tc.fee || status.WalletViewSupported != walletViewSupported || status.SteadyCPUs != 1 || status.SteadyMemLimitMB != 4096 || status.ResourceProfile != "compact" {
+			if !status.Available || status.Synced || status.Height != 100 || status.TargetHeight != 120 || status.SyncPercent != 50 || !status.Pruned || !status.PrunedAvailable || status.Version != tc.version || !status.ConnectionsAvailable || !status.ConnectionsSplitAvailable || status.IncomingConnections != 1 || status.OutgoingConnections != 1 || !status.MempoolBytesAvailable || status.FeesAvailable || status.WalletViewSupported != walletViewSupported || status.SteadyCPUs != 1 || status.SteadyMemLimitMB != 4096 || status.ResourceProfile != "compact" {
 				t.Fatalf("status = %#v", status)
 			}
 		})
@@ -289,5 +289,43 @@ func TestAdditionalNodePortControlsUseChainSpecificIdentifiers(t *testing.T) {
 	}
 	if !ports[0].Enabled || ports[1].Enabled {
 		t.Fatalf("exposure state = %#v", ports)
+	}
+}
+
+func TestBitcoinFamilyStatusStaleTipIsNotSyncedAndHidesFees(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		age    time.Duration
+		synced bool
+	}{{"fresh", time.Minute, true}, {"stale", 3 * time.Hour, false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var request struct {
+					Method string `json:"method"`
+				}
+				_ = json.NewDecoder(r.Body).Decode(&request)
+				var result any
+				switch request.Method {
+				case "getblockchaininfo":
+					result = map[string]any{"blocks": 100, "headers": 100, "bestblockhash": "tip", "verificationprogress": 1, "initialblockdownload": false}
+				case "getblockheader":
+					result = map[string]any{"time": time.Now().Add(-tc.age).Unix()}
+				case "estimatesmartfee":
+					result = map[string]any{"feerate": .00001}
+				}
+				writeJSON(w, map[string]any{"result": result, "error": nil})
+			}))
+			defer server.Close()
+			node := nodeConfig{ID: nodeLitecoin, Name: "Litecoin", Enabled: true, Supported: true, Protocol: "bitcoin-json-rpc", RPCURL: server.URL, DataDir: t.TempDir()}
+			a := &app{cfg: config{stateDir: node.DataDir, nodes: map[string]nodeConfig{nodeLitecoin: node}}}
+			request := httptest.NewRequest(http.MethodGet, "/api/litecoin", nil)
+			request.SetPathValue("node", nodeLitecoin)
+			response := httptest.NewRecorder()
+			a.apiAdditionalNode(response, request)
+			var status genericNodeStatus
+			if json.Unmarshal(response.Body.Bytes(), &status) != nil || status.Synced != tc.synced || status.FeesAvailable != tc.synced {
+				t.Fatalf("status = %#v", status)
+			}
+		})
 	}
 }

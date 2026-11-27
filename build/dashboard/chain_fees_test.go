@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestFamilyFeeHistoryUsesNativeUnitsAndSkipsUnavailable(t *testing.T) {
@@ -20,12 +21,12 @@ func TestFamilyFeeHistoryUsesNativeUnitsAndSkipsUnavailable(t *testing.T) {
 	} {
 		t.Run(tc.id, func(t *testing.T) {
 			var rate atomic.Int64
-			var syncing atomic.Bool
+			var syncing, stale atomic.Bool
 			rate.Store(1)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var request struct {
 					Method string `json:"method"`
-					Params []int  `json:"params"`
+					Params []any  `json:"params"`
 				}
 				if json.NewDecoder(r.Body).Decode(&request) != nil {
 					t.Error("invalid RPC request")
@@ -34,14 +35,20 @@ func TestFamilyFeeHistoryUsesNativeUnitsAndSkipsUnavailable(t *testing.T) {
 				var result any
 				switch request.Method {
 				case "getblockchaininfo":
-					result = map[string]any{"blocks": 100, "headers": 100, "initialblockdownload": syncing.Load()}
+					result = map[string]any{"blocks": 100, "headers": 100, "bestblockhash": map[bool]string{false: "tip", true: "old-tip"}[stale.Load()], "initialblockdownload": syncing.Load()}
+				case "getblockheader":
+					age := time.Minute
+					if stale.Load() {
+						age = 3 * time.Hour
+					}
+					result = map[string]any{"time": time.Now().Add(-age).Unix()}
 				case "estimatefee":
 					if tc.id != nodeBitcoinCash || len(request.Params) != 0 {
 						t.Errorf("wrong native fee method or parameters: %#v", request)
 					}
 					result = float64(rate.Load()) / 100000
 				case "estimatesmartfee":
-					if tc.id == nodeBitcoinCash || len(request.Params) != 1 || request.Params[0] != 1 {
+					if tc.id == nodeBitcoinCash || len(request.Params) != 1 || request.Params[0] != float64(1) {
 						t.Errorf("wrong native fee method or parameters: %#v", request)
 					}
 					result = map[string]any{"feerate": float64(rate.Load()) / 100000}
@@ -60,6 +67,9 @@ func TestFamilyFeeHistoryUsesNativeUnitsAndSkipsUnavailable(t *testing.T) {
 			a.sampleAdditionalFee(context.Background(), tc.id, node)
 			syncing.Store(true)
 			rate.Store(10)
+			a.sampleAdditionalFee(context.Background(), tc.id, node)
+			syncing.Store(false)
+			stale.Store(true)
 			a.sampleAdditionalFee(context.Background(), tc.id, node)
 			request := httptest.NewRequest(http.MethodGet, "/api/"+tc.id+"/fees", nil)
 			request.SetPathValue("node", tc.id)
