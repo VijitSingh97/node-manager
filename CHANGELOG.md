@@ -8,6 +8,17 @@ All notable changes to this project are documented here. Format follows
 
 ### Fixed
 
+- The balance index no longer says "ready" while its own node is behind the
+  network. After a Bitcoin node had been offline for days, the tower read
+  "Synchronizing the Bitcoin blockchain" while the index showed a full green
+  "ready" bar, because the index only compared itself with the node's blocks,
+  never with its headers. It now reports "catching up" with the number of
+  blocks still to go (or "waiting for the node to sync" during the initial
+  download), and returns to ready by itself once the node has caught up. While
+  the node syncs, pruned wallets keep their cached balances instead of running
+  a full scan on every block. Index log lines for Litecoin, Bitcoin Cash and
+  Dogecoin now name the chain so they can be told apart.
+
 - Family-chain watch wallets no longer show "Cached balance; a fresh scan is
   unavailable" while the balance index is serving them fine. On Dogecoin
   without the Core watch wallet, the public example was skipped from every
