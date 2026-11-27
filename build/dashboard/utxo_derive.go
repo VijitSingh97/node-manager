@@ -151,7 +151,7 @@ func batchChunks(ctx context.Context, rpc *rpcClient, calls []rpcBatchCall) ([]r
 	return out, nil
 }
 
-// One batched call per chunk of descriptors; a wallet that cannot be turned into a complete script set is marked Fallback for the scantxoutset path.
+// A wallet that cannot be turned into a complete script set is marked Fallback for the scantxoutset path.
 func resolveWalletScripts(ctx context.Context, rpc *rpcClient, chain *utxoChainParams, keys []string, onChunk func([][]byte)) ([]walletScripts, error) {
 	var infoCalls []rpcBatchCall
 	var owners []int
@@ -203,7 +203,7 @@ func resolveWalletScripts(ctx context.Context, rpc *rpcClient, chain *utxoChainP
 		derivations = append(derivations, walletDerivation{w, info.Descriptor, *info.IsRange})
 	}
 	before := make([]int, len(result))
-	// Sequential chunks let onChunk's lookup overlap the next derivation; parallel calls were slower (#370).
+	// Sequential chunks let onChunk's lookup overlap the next derivation without parallel RPC calls contending in bitcoind.
 	for start := deriveRangeStart; start <= deriveRangeEnd; start += deriveChunkSize {
 		for w := range result {
 			before[w] = len(result[w].Scripts)
