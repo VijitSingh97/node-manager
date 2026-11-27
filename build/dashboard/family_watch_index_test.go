@@ -208,14 +208,87 @@ func TestDogecoinIndexOnlyServesAndRefreshesTheExample(t *testing.T) {
 	}
 }
 
-func TestDogecoinWatchWalletNodeNeverRecordsTheExampleFromTheIndex(t *testing.T) {
+func TestDogecoinWatchWalletNodeServesTheExampleFromTheIndexWithoutImporting(t *testing.T) {
 	now := time.Unix(2_000_000_000, 0)
 	example := familyWatchEntry{ID: "wallet-example", Label: "Example", Address: "address-a", Example: true}
-	manager, store, _ := readyDogecoinIndexStore(t, &now, dogecoinSkipsExample(t, true), example)
+	manager, store, fixture := readyDogecoinIndexStore(t, &now, dogecoinSkipsExample(t, true), example)
+	store.backend = dogecoinFamilyWatchBackend()
 	manager.scanNode(t.Context(), nodeDogecoin, store)
 	views, _ := store.list(false)
-	if v := views[0]; v.State != "unscanned" || v.Amount != nil || len(store.balances) != 0 {
-		t.Fatalf("example = %+v balances=%v", v, store.balances)
+	if v := views[0]; v.State != "ok" || v.Amount == nil {
+		t.Fatalf("example = %+v", v)
+	}
+	for _, method := range fixture.scans() {
+		t.Fatalf("example reached a scan: %s", method)
+	}
+}
+
+func TestDogecoinExampleReadsUnscannedOnlyWithoutACachedBalance(t *testing.T) {
+	example := familyWatchEntry{ID: "wallet-example", Label: "Example", Address: "address-a", Example: true}
+	store := &familyWatchStore{wallets: []familyWatchEntry{example}, balances: map[string]familyWatchBalance{}, states: map[string]string{}, skipExample: true}
+	if views, _ := store.list(false); views[0].State != "unscanned" {
+		t.Fatalf("no balance: %+v", views[0])
+	}
+	store.balances[example.ID] = familyWatchBalance{Amount: "1", ScanTime: 1}
+	if views, _ := store.list(false); views[0].State != "stale" || views[0].Amount == nil {
+		t.Fatalf("cached balance: %+v", views[0])
+	}
+}
+
+func TestDogecoinIndexServesWalletsWhileAnImportRescanRuns(t *testing.T) {
+	now := time.Unix(2_000_000_000, 0)
+	wallet := familyWatchEntry{ID: "wallet-a", Label: "A", Address: "address-a"}
+	manager, store, _ := readyDogecoinIndexStore(t, &now, false, wallet)
+	store.backend, store.importing = dogecoinFamilyWatchBackend(), "address-b"
+	manager.scanNode(t.Context(), nodeDogecoin, store)
+	if views, _ := store.list(false); views[0].State != "ok" || views[0].Amount == nil {
+		t.Fatalf("an import rescan blocked an index-served wallet: %+v", views[0])
+	}
+}
+
+func TestDogecoinIndexOnlyWithoutAnIndexManagerSaysSo(t *testing.T) {
+	now := time.Unix(2_000_000_000, 0)
+	wallet := familyWatchEntry{ID: "wallet-a", Label: "A", Address: "address-a"}
+	manager, store, _ := newFamilyScanTest(t, now, wallet)
+	store.backend, store.indexOnly = dogecoinIndexFamilyWatchBackend(), true
+	manager.app.cfg.nodes[nodeDogecoin] = nodeConfig{ID: nodeDogecoin, Enabled: true, Active: true, ActiveSet: true}
+	manager.stores = map[string]*familyWatchStore{nodeDogecoin: store}
+	manager.scanNode(t.Context(), nodeDogecoin, store)
+	if views, _ := store.list(false); views[0].State != "index_off" {
+		t.Fatalf("state = %+v", views[0])
+	}
+}
+
+func TestFamilyWatchCacheWriteFailureDoesNotLatchTheStore(t *testing.T) {
+	now := time.Unix(2_000_000_000, 0)
+	wallet := familyWatchEntry{ID: "wallet-a", Label: "A", Address: "address-a"}
+	manager, store, _ := readyDogecoinIndexStore(t, &now, false, wallet)
+	good := store.cachePath
+	store.cachePath = t.TempDir()
+	manager.scanNode(t.Context(), nodeDogecoin, store)
+	if store.Err() != nil {
+		t.Fatalf("one failed cache write latched the store: %v", store.Err())
+	}
+	if views, err := store.list(false); err != nil || views[0].State != "stale" {
+		t.Fatalf("after a failed write: %+v, %v", views, err)
+	}
+	store.cachePath = good
+	manager.scanNode(t.Context(), nodeDogecoin, store)
+	if views, _ := store.list(false); views[0].State != "ok" {
+		t.Fatalf("the next pass did not retry the write: %+v", views[0])
+	}
+}
+
+func TestFamilyIndexRefreshLogsOnlyWhenTheHeightChanges(t *testing.T) {
+	now := time.Unix(2_000_000_000, 0)
+	wallet := familyWatchEntry{ID: "wallet-a", Label: "A", Address: "address-a"}
+	manager, store, _ := readyDogecoinIndexStore(t, &now, false, wallet)
+	var logs strings.Builder
+	store.chain, store.logf = nodeDogecoin, func(format string, args ...any) { fmt.Fprintf(&logs, format+"\n", args...) }
+	manager.scanNode(t.Context(), nodeDogecoin, store)
+	manager.scanNode(t.Context(), nodeDogecoin, store)
+	if got := strings.Count(logs.String(), "dogecoin watch index: outcome=ok wallets=1 height=100 took="); got != 1 || strings.Count(logs.String(), "\n") != 1 {
+		t.Fatalf("log = %q", logs.String())
 	}
 }
 

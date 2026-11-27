@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -23,11 +24,13 @@ const (
 	maxMoneroWatchWallets = 8
 	maxMoneroWatchHistory = 288
 	moneroRefreshTimeout  = 30 * time.Minute
+	moneroTipMaxAge       = 30 * time.Minute
 )
 
 var (
 	errMoneroWatchUnavailable = errors.New("Monero watch-only wallet storage unavailable")
 	errMoneroScanPending      = errors.New("Monero watch-only wallet scan pending")
+	errMoneroNotAtTip         = errors.New("Monero node is not at the chain tip")
 	moneroNamePattern         = regexp.MustCompile(`^[[:print:]]{1,40}$`)
 	moneroAddressPattern      = regexp.MustCompile(`^4[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]{94}$`)
 	hex64Pattern              = regexp.MustCompile(`^[0-9a-fA-F]{64}$`)
@@ -143,19 +146,41 @@ func NewMoneroWatchStore(cfg config) *MoneroWatchStore {
 		wallet.WalletFile = record.WalletFile
 		wallet.State = "pending"
 		wallet.Error = ""
-		wallet.KeyImages.Complete = false
-		wallet.BalanceAtomic, wallet.BalanceXMR, wallet.UnlockedBalanceAtomic = "", "", ""
-		if wallet.KeyImages.Present {
-			wallet.SpendingStatus = "stale"
-		} else {
-			wallet.SpendingStatus = "unknown"
+		if !decimalAtomic(wallet.BalanceAtomic) || !decimalAtomic(wallet.UnlockedBalanceAtomic) || wallet.BalanceXMR != formatXMR(parseAtomic(wallet.BalanceAtomic)) {
+			wallet.KeyImages.Complete = false
 		}
+		wallet.markStale()
 	}
 	s.wallets = make([]MoneroWatchWallet, len(stored.Wallets))
 	for i := range stored.Wallets {
 		s.wallets[i] = stored.Wallets[i].MoneroWatchWallet
 	}
 	return s
+}
+
+func parseAtomic(value string) uint64 {
+	atomic, _ := strconv.ParseUint(value, 10, 64)
+	return atomic
+}
+
+// A balance verified with a complete key-image set stays visible, marked stale, until the key images or the wallet change.
+func (w *MoneroWatchWallet) markStale() {
+	if w.Example || !w.KeyImages.Complete || w.BalanceAtomic == "" {
+		w.KeyImages.Complete = false
+		w.BalanceAtomic, w.BalanceXMR, w.UnlockedBalanceAtomic = "", "", ""
+	}
+	w.SpendingStatus = "unknown"
+	if w.KeyImages.Present {
+		w.SpendingStatus = "stale"
+	}
+}
+
+func (s *MoneroWatchStore) markInactive() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.wallets {
+		s.wallets[i].markStale()
+	}
 }
 
 func (s *MoneroWatchStore) Err() error {
@@ -196,9 +221,6 @@ func (s *MoneroWatchStore) add(ctx context.Context, name, address, viewKey strin
 	}
 	if s.Err() != nil {
 		return MoneroWatchWallet{}, errMoneroWatchUnavailable
-	}
-	if s.isRPCPoisoned() {
-		return MoneroWatchWallet{}, errors.New("Monero wallet service requires a dashboard restart after an interrupted operation")
 	}
 	s.mu.RLock()
 	if len(s.wallets) >= maxMoneroWatchWallets {
@@ -324,6 +346,7 @@ func (s *MoneroWatchStore) ImportKeyImages(ctx context.Context, id string, uploa
 	if wallet.Example {
 		return errors.New("The public Monero example does not accept key images.")
 	}
+	sent := false
 	if err := s.serialized(ctx, func(ctx context.Context) error {
 		if err := s.openWallet(ctx, wallet); err != nil {
 			return err
@@ -331,11 +354,25 @@ func (s *MoneroWatchStore) ImportKeyImages(ctx context.Context, id string, uploa
 		var result struct {
 			Height uint64 `json:"height"`
 		}
+		sent = true
 		if err := s.walletCall(ctx, "import_key_images", upload, &result); err != nil {
 			return errors.New("Monero wallet service could not import the signed key images")
 		}
 		return s.walletCall(ctx, "store", map[string]any{}, nil)
 	}); err != nil {
+		if sent {
+			s.mu.Lock()
+			for i := range s.wallets {
+				if s.wallets[i].ID == id {
+					s.wallets[i].KeyImages.Complete = false
+					s.wallets[i].BalanceAtomic, s.wallets[i].BalanceXMR, s.wallets[i].UnlockedBalanceAtomic = "", "", ""
+					s.wallets[i].SpendingStatus = "stale"
+					_ = s.saveLocked()
+					break
+				}
+			}
+			s.mu.Unlock()
+		}
 		return err
 	}
 	s.mu.Lock()
@@ -377,13 +414,14 @@ func (s *MoneroWatchStore) run(ctx context.Context, active func() bool) {
 		case <-ctx.Done():
 			return
 		case id := <-s.queue:
-			if active() {
-				if wallet, ok := s.walletByID(id); ok {
-					s.refresh(ctx, wallet)
-				}
+			if !active() {
+				s.markInactive()
+			} else if wallet, ok := s.walletByID(id); ok {
+				s.refresh(ctx, wallet)
 			}
 		case <-ticker.C:
 			if !active() {
+				s.markInactive()
 				continue
 			}
 			s.ensurePublicExample(ctx)
@@ -424,8 +462,9 @@ func (s *MoneroWatchStore) refresh(parent context.Context, wallet MoneroWatchWal
 		targetHeight = daemonInfo.Height
 	}
 	snapshot.daemonHeight = targetHeight
-	if !daemonInfo.Synchronized || daemonInfo.BusySyncing || targetHeight == 0 {
-		s.applyRefresh(wallet.ID, snapshot, errMoneroScanPending)
+	var last moneroLastBlock
+	if !daemonInfo.Synchronized || daemonInfo.BusySyncing || targetHeight == 0 || s.daemon.call(ctx, "get_last_block_header", &last) != nil || last.BlockHeader.Timestamp == 0 || s.now().Unix()-int64(last.BlockHeader.Timestamp) > int64(moneroTipMaxAge/time.Second) {
+		s.applyRefresh(wallet.ID, snapshot, errMoneroNotAtTip)
 		return
 	}
 	err := s.serialized(ctx, func(ctx context.Context) error {
@@ -499,24 +538,20 @@ func (s *MoneroWatchStore) applyRefresh(id string, snapshot moneroWalletSnapshot
 		}
 		if refreshErr != nil {
 			wallet.State = "error"
-			if errors.Is(refreshErr, errMoneroScanPending) {
+			if errors.Is(refreshErr, errMoneroScanPending) || errors.Is(refreshErr, errMoneroNotAtTip) {
 				wallet.State = "pending"
 			}
 			if snapshot.walletHeight > 0 {
 				wallet.ScanHeight, wallet.TargetHeight = snapshot.walletHeight, snapshot.daemonHeight
 			}
-			wallet.KeyImages.Complete = false
-			wallet.BalanceAtomic, wallet.BalanceXMR, wallet.UnlockedBalanceAtomic = "", "", ""
-			if wallet.KeyImages.Present {
-				wallet.SpendingStatus = "stale"
-			} else {
-				wallet.SpendingStatus = "unknown"
-			}
+			wallet.markStale()
 			switch {
+			case errors.Is(refreshErr, errMoneroNotAtTip):
+				wallet.Error = "Monero node is not at the chain tip"
 			case errors.Is(refreshErr, errMoneroScanPending):
 				wallet.Error = "Monero wallet scan is still pending."
 			case errors.Is(refreshErr, context.Canceled), errors.Is(refreshErr, context.DeadlineExceeded), s.rpcPoisoned:
-				wallet.Error = "Monero wallet service needs a dashboard restart after an interrupted operation."
+				wallet.Error = "Monero wallet service was interrupted and will be retried."
 			default:
 				wallet.Error = "Monero wallet refresh failed."
 			}
@@ -621,27 +656,39 @@ func (s *MoneroWatchStore) openWallet(ctx context.Context, wallet MoneroWatchWal
 	return nil
 }
 
+var errMoneroInterrupted = errors.New("Monero wallet service is unavailable after an interrupted operation")
+
 func (s *MoneroWatchStore) serialized(ctx context.Context, fn func(context.Context) error) error {
-	if s.isRPCPoisoned() {
-		return errors.New("Monero wallet service requires a dashboard restart after an interrupted operation")
-	}
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-s.gate:
 	}
 	defer func() { s.gate <- struct{}{} }()
-	if s.isRPCPoisoned() {
-		return errors.New("Monero wallet service requires a dashboard restart after an interrupted operation")
+	if s.isRPCPoisoned() && !s.recoverRPC(ctx) {
+		return errMoneroInterrupted
 	}
 	err := fn(ctx)
 	if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, errMoneroRemoteUnknown) {
 		s.poisonRPC(errors.Join(err, ctx.Err()))
 	}
 	if s.isRPCPoisoned() {
-		return fmt.Errorf("Monero wallet service requires a dashboard restart after an interrupted operation: %w", errors.Join(errMoneroRemoteUnknown, err))
+		return fmt.Errorf("%w: %w", errMoneroInterrupted, errors.Join(errMoneroRemoteUnknown, err))
 	}
 	return err
+}
+
+// Every refresh reopens or re-verifies the wallet identity, so a reachable sidecar is safe to use again.
+func (s *MoneroWatchStore) recoverRPC(ctx context.Context) bool {
+	probe, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if s.walletCall(probe, "get_version", map[string]any{}, nil) != nil {
+		return false
+	}
+	s.mu.Lock()
+	s.rpcPoisoned = false
+	s.mu.Unlock()
+	return true
 }
 
 func (s *MoneroWatchStore) poisonRPC(cause error) {
@@ -650,14 +697,12 @@ func (s *MoneroWatchStore) poisonRPC(cause error) {
 	if s.rpcPoisoned {
 		return
 	}
-	log.Printf("Monero wallet service stopped until the dashboard restarts: %v", cause)
+	log.Printf("Monero wallet service paused until the wallet RPC answers again: %v", cause)
 	s.rpcPoisoned = true
 	for i := range s.wallets {
 		wallet := &s.wallets[i]
-		wallet.State, wallet.SpendingStatus = "error", "stale"
-		wallet.KeyImages.Complete = false
-		wallet.BalanceAtomic, wallet.BalanceXMR, wallet.UnlockedBalanceAtomic = "", "", ""
-		wallet.Error = "Restart the dashboard after an interrupted wallet operation."
+		wallet.State, wallet.Error = "error", "Monero wallet service was interrupted and will be retried."
+		wallet.markStale()
 	}
 	_ = s.saveLocked()
 }
@@ -669,7 +714,7 @@ func (s *MoneroWatchStore) isRPCPoisoned() bool {
 }
 
 // A lost reply to one of these leaves nothing ambiguous: the next refresh checks which wallet is open and re-reads.
-var moneroRetryableWalletMethods = map[string]bool{"close_wallet": true, "open_wallet": true, "get_address": true, "get_height": true, "get_balance": true, "get_accounts": true, "incoming_transfers": true, "auto_refresh": true}
+var moneroRetryableWalletMethods = map[string]bool{"close_wallet": true, "open_wallet": true, "get_address": true, "get_height": true, "get_balance": true, "get_accounts": true, "incoming_transfers": true, "auto_refresh": true, "get_version": true}
 
 func (s *MoneroWatchStore) walletCall(ctx context.Context, method string, params any, out any) (callErr error) {
 	defer func() {
@@ -683,7 +728,7 @@ func (s *MoneroWatchStore) walletCall(ctx context.Context, method string, params
 		s.poisonRPC(fmt.Errorf("%s: %w", method, callErr))
 	}()
 	switch method {
-	case "close_wallet", "open_wallet", "generate_from_keys", "get_address", "get_height", "get_accounts", "get_balance", "incoming_transfers", "import_key_images", "query_key", "refresh", "auto_refresh", "store":
+	case "close_wallet", "open_wallet", "generate_from_keys", "get_version", "get_address", "get_height", "get_accounts", "get_balance", "incoming_transfers", "import_key_images", "query_key", "refresh", "auto_refresh", "store":
 	default:
 		return errors.New("unsupported Monero wallet RPC method")
 	}

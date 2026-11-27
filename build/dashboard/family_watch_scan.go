@@ -83,7 +83,7 @@ func (m *familyWatchManager) scanNode(parent context.Context, id string, store *
 				store.markFailed(wallet.ID)
 			}
 		}
-		m.logScan(id, outcome, started)
+		m.logScan(id, outcome, started, result.Height)
 		return
 	}
 	for _, wallet := range due {
@@ -99,16 +99,16 @@ func (m *familyWatchManager) scanNode(parent context.Context, id string, store *
 		}
 		if outcome != "ok" {
 			store.markFailed(wallet.ID)
-			m.logScan(id, outcome, started)
+			m.logScan(id, outcome, started, result.Height)
 			continue
 		}
 		store.record(wallet.ID, result.Atomic, result.Height, result.Best)
-		m.logScan(id, "ok", started)
+		m.logScan(id, "ok", started, result.Height)
 	}
 }
 
-func (m *familyWatchManager) logScan(chain, outcome string, started time.Time) {
-	m.app.log.Printf("%s watch scan: outcome=%s scan=%.1fs", chain, outcome, time.Since(started).Seconds())
+func (m *familyWatchManager) logScan(chain, outcome string, started time.Time, height int64) {
+	m.app.log.Printf("%s watch scan: outcome=%s scan=%.1fs height=%d", chain, outcome, time.Since(started).Seconds(), height)
 }
 
 func familyWatchWarningsClear(raw json.RawMessage) bool {
@@ -144,14 +144,16 @@ func (s *familyWatchStore) markWaiting() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, wallet := range s.wallets {
-		if wallet.Example && s.skipExample {
-			continue
-		}
-		if _, ok := s.balances[wallet.ID]; ok {
+		_, cached := s.balances[wallet.ID]
+		switch {
+		case cached:
 			s.states[wallet.ID] = "stale"
-		} else if s.importing != "" {
+		case wallet.Example && s.skipExample:
+		case s.importing != "":
 			s.states[wallet.ID] = "rescanning"
-		} else {
+		case s.indexOnly && s.index == nil:
+			s.states[wallet.ID] = "index_off"
+		default:
 			s.states[wallet.ID] = "waiting"
 		}
 	}
@@ -189,8 +191,10 @@ func (s *familyWatchStore) record(id, amount string, height int64, bestBlock str
 		}
 		s.balances[id], s.states[id] = balance, "ok"
 		if err := s.saveCacheLocked(); err != nil {
-			s.err = err
 			s.states[id] = "stale"
+			if s.logf != nil {
+				s.logf("%s watch cache not saved; will retry on the next pass", s.chain)
+			}
 		}
 		return
 	}
@@ -208,13 +212,9 @@ func (s *familyWatchStore) fromIndex(ctx context.Context, tip familyWatchTip, no
 	if s.index == nil {
 		return false
 	}
+	started := time.Now()
 	s.mu.RLock()
-	wallets := make([]familyWatchEntry, 0, len(s.wallets))
-	for _, wallet := range s.wallets {
-		if !(wallet.Example && s.skipExample) {
-			wallets = append(wallets, wallet)
-		}
-	}
+	wallets := append([]familyWatchEntry(nil), s.wallets...)
 	s.mu.RUnlock()
 	hashes := make(map[string][utxoPrefixLen]byte, len(wallets))
 	scripts := make([][]byte, 0, len(wallets))
@@ -249,10 +249,15 @@ func (s *familyWatchStore) fromIndex(ctx context.Context, tip familyWatchTip, no
 	for _, wallet := range wallets {
 		s.mu.RLock()
 		balance, cached := s.balances[wallet.ID]
+		state := s.states[wallet.ID]
 		s.mu.RUnlock()
-		if due[wallet.ID] || !cached || balance.Amount != amounts[wallet.ID] {
+		if due[wallet.ID] || !cached || state != "ok" || balance.Amount != amounts[wallet.ID] {
 			s.record(wallet.ID, amounts[wallet.ID], int64(height), tip.Best)
 		}
+	}
+	if s.logf != nil && int64(height) != s.loggedHeight {
+		s.loggedHeight = int64(height)
+		s.logf("%s watch index: outcome=ok wallets=%d height=%d took=%.3fs", s.chain, len(wallets), height, time.Since(started).Seconds())
 	}
 	return true
 }

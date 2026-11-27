@@ -42,7 +42,7 @@ func dogecoinFamilyWatchBackend() familyWatchBackend {
 	base := utxoFamilyWatchBackend(false)
 	return familyWatchBackend{
 		ready: func(ctx context.Context, s *familyWatchStore, now int64) (familyWatchTip, bool) {
-			if s.rescanActive() {
+			if s.index == nil && s.rescanActive() {
 				return familyWatchTip{}, false
 			}
 			return base.ready(ctx, s, now)

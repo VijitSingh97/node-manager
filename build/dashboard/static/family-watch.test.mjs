@@ -81,3 +81,7 @@ test("the Litecoin watch says MWEB funds are not counted", () => {
   assert.match(SCOPE_NOTES.bitcoincash, /P2PK/);
   assert.deepEqual(Object.keys(SCOPE_NOTES), ["litecoin", "bitcoincash", "dogecoin"]);
 });
+
+test("a missing balance index is named instead of reading as a sync wait", () => {
+  assert.match(familyRow({ state: "index_off", amount: null }, "dogecoin").stateText, /balance index is not running/);
+});

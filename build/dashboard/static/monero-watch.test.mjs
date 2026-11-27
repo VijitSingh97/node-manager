@@ -67,3 +67,20 @@ test("signed key-image uploads accept native RPC exports and reject malformed si
   assert.throws(() => keyImagesImport({ signed_key_images: [{ key_image: "a", signature: "b" }] }));
   assert.throws(() => keyImagesImport({ offset: -1, signed_key_images }));
 });
+
+test("a stale wallet keeps its last verified balance and the total still counts it", () => {
+  const wallet = { state: "pending", received_atomic: "2000000000000", balance_atomic: "1250000000000", spending_status: "stale", key_images: { complete: true }, scan_height: 50, target_height: 100 };
+  const row = moneroRow(wallet);
+  assert.equal(row.amount, "1.25");
+  assert.equal(row.stale, true);
+  assert.equal(row.verified, false);
+  assert.match(row.status, /Scanning · 50\.0%/);
+  assert.match(row.status, /Waiting for a fresh scan/);
+  assert.equal(moneroRow({ ...wallet, state: "ready" }).status.includes("Last verified balance"), true);
+  assert.equal(moneroTotal([{ ...wallet, state: "ready" }]).text, "1.25 XMR");
+  assert.equal(moneroTotal([{ ...wallet, state: "ready" }]).reason, "Includes last verified balances awaiting a fresh scan");
+  const tip = moneroRow({ ...wallet, error: "Monero node is not at the chain tip" });
+  assert.doesNotMatch(tip.status, /%/);
+  assert.match(tip.status, /not at the chain tip/);
+  assert.equal(moneroRow({ ...wallet, balance_atomic: "" }).amount, "");
+});

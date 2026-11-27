@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { WATCH_COPY, atomicToDecimal, bigSeries, fiatLabel, formatAmount, groupDigits, httpsURL, joinNote, scanNote, shortKey } from "./wallet-format.js";
+import { WATCH_COPY, atomicToDecimal, bigSeries, fiatLabel, formatAmount, groupDigits, httpsURL, joinNote, scanNote, shortKey, staleWallets } from "./wallet-format.js";
 import { rowView } from "./wallet-ui.js";
 import { balanceLabel } from "./watch.js";
 import { moneroRow } from "./monero-watch.js";
@@ -83,4 +83,11 @@ test("every watch-only card shows the same scan-failure text", () => {
   assert.equal(moneroRow({ state: "error" }).stateText, WATCH_COPY.scanFailed);
   assert.equal(tariRow({ state: "error" }).stateText, WATCH_COPY.scanFailed);
   assert.equal(familyRow({ state: "error" }, "litecoin").stateText, WATCH_COPY.scanFailed);
+});
+
+test("an inactive chain marks its ok wallets stale and leaves the rest alone", () => {
+  const data = { active: true, wallets: [{ id: "a", state: "ok", amount: "1.00000000" }, { id: "b", state: "ready" }, { id: "c", state: "error" }] };
+  assert.deepEqual(staleWallets(data).wallets.map((wallet) => wallet.state), ["stale", "stale", "error"]);
+  assert.equal(data.wallets[0].state, "ok");
+  assert.deepEqual(staleWallets(undefined), { wallets: [] });
 });
