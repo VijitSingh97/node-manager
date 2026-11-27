@@ -6,6 +6,16 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- `node-manager utxo-index bench --chain dogecoin` now runs the index lookup
+  bench for Dogecoin. The command line refused it, although the dashboard
+  already set up a bench for every indexed chain. Wallets are `addr(<address>)`
+  keys, as for Bitcoin Cash. `--scan` is still refused, with a message that
+  Dogecoin Core 1.14.9 has no `scantxoutset` and that
+  `utxo-index verify --chain dogecoin` is the full check; the dashboard refuses
+  a Dogecoin scan too.
+
 ## [1.42.2] - 2026-11-25
 
 ### Fixed

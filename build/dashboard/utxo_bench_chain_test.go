@@ -252,7 +252,12 @@ func benchChainFixture(t *testing.T, chain *utxoChainParams, seed uint64) (*utxo
 
 func benchChainRun(t *testing.T, m *utxoManager, id string, wallets []benchChainWallet) benchResult {
 	t.Helper()
-	req := benchRequest{ID: benchTestID(len(wallets)), Chain: id, RequestedAt: time.Now().Unix(), Repeat: 20, Scan: true}
+	return benchChainRunScan(t, m, id, wallets, true)
+}
+
+func benchChainRunScan(t *testing.T, m *utxoManager, id string, wallets []benchChainWallet, scan bool) benchResult {
+	t.Helper()
+	req := benchRequest{ID: benchTestID(len(wallets)), Chain: id, RequestedAt: time.Now().Unix(), Repeat: 20, Scan: scan}
 	for i, w := range wallets {
 		req.Wallets = append(req.Wallets, benchWallet{Name: fmt.Sprintf("w%d", i), Key: w.key})
 	}
@@ -284,7 +289,7 @@ func TestBenchIndexMatchesScanAndIsFaster(t *testing.T) {
 		seed := uint64(n + 1)
 		t.Run(id, func(t *testing.T) {
 			if id == nodeDogecoin {
-				t.Skip("Dogecoin Core 1.14.9 has no scantxoutset, and the command line refuses its bench")
+				t.Skip("Dogecoin Core 1.14.9 has no scantxoutset; TestBenchDogecoinRunsWithoutScan covers its bench")
 			}
 			m, node, wallets := benchChainFixture(t, chains[id], seed)
 			if len(chains[id].Descriptors) == 0 {
@@ -342,6 +347,32 @@ func TestBenchIndexMatchesScanAndIsFaster(t *testing.T) {
 	}
 }
 
+func TestBenchDogecoinRunsWithoutScan(t *testing.T) {
+	m, node, wallets := benchChainFixture(t, utxoDogecoin, 7)
+	node.noDescriptors, node.aliases = true, map[string]string{}
+	wallets = slices.DeleteFunc(wallets, func(w benchChainWallet) bool { return w.multi })
+	srv := httptest.NewServer(http.HandlerFunc(node.serve))
+	t.Cleanup(srv.Close)
+	a := &app{cfg: config{stateDir: t.TempDir()}}
+	m.configureBench(a.chainBenchHost(nodeDogecoin, &rpcClient{url: srv.URL, client: srv.Client()}, utxoDogecoin, func() bool { return true }, func() {}))
+
+	res := benchChainRunScan(t, m, nodeDogecoin, wallets, false)
+	if len(res.Refusals) != 0 || len(res.Failures) != 0 || res.Chain != nodeDogecoin || res.Scan != nil || len(res.Wallets) != len(wallets) || len(res.Batches) == 0 {
+		t.Fatalf("result = %+v", res)
+	}
+	for i, w := range wallets {
+		got := res.Wallets[i]
+		if got.Fallback || got.Lookup == nil || got.Scripts != 1 || (benchTotals{got.Coins, got.Sats}) != w.want {
+			t.Fatalf("wallet %d: %+v, want %+v", i, got, w.want)
+		}
+	}
+
+	res = benchChainRunScan(t, m, nodeDogecoin, wallets, true)
+	if res.Scan != nil || len(res.Refusals) != 1 || !strings.Contains(res.Refusals[0], "no scan to compare against") || len(res.Wallets) != len(wallets) {
+		t.Fatalf("a Dogecoin scan was not refused: %+v", res)
+	}
+}
+
 func TestBenchScanCountsBalancesAboveBitcoinSupply(t *testing.T) {
 	address, script := benchChainScript("rich", 0, 0x30)
 	n := &benchFakeNode{addresses: map[string][]string{"addr(" + address + ")": {address}}, scripts: map[string]string{address: script}, height: 1, best: strings.Repeat("ab", 32),
@@ -375,7 +406,7 @@ func TestEveryIndexedChainStartsItsBench(t *testing.T) {
 		a := &app{cfg: config{stateDir: t.TempDir()}, familyWatch: &familyWatchManager{stores: map[string]*familyWatchStore{}}}
 		m := a.newChainUtxo(nodeConfig{ID: id, RPCURL: "http://127.0.0.1:1", DataDir: t.TempDir(), UTXOIndexDir: t.TempDir()}, chain, log.New(io.Discard, "", 0))
 		t.Cleanup(func() { _ = m.store.Close() })
-		if h := m.bench; h == nil || h.chain != id || h.prefix != id+"-" || h.stateDir != a.cfg.stateDir || h.validate == nil || h.resolve == nil || h.scan == nil || h.txOutSet == nil {
+		if h := m.bench; h == nil || h.chain != id || h.prefix != id+"-" || h.stateDir != a.cfg.stateDir || h.validate == nil || h.resolve == nil || (h.scan == nil) != (id == nodeDogecoin) || h.txOutSet == nil {
 			t.Fatalf("%s bench host = %+v", id, h)
 		}
 	}
