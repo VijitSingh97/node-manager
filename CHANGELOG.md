@@ -43,11 +43,43 @@ All notable changes to this project are documented here. Format follows
   unavailable" while the balance index is serving them fine. On Dogecoin
   without the Core watch wallet, the public example was skipped from every
   refresh, so its balance froze at the first index seed and read stale
-  forever; it is now served and refreshed hourly like any other wallet, and a
-  watch-wallet node no longer records an example balance it would never show.
+  forever; it is now served and refreshed hourly like any other wallet, and
+  only the node's own watch-wallet import skips the example.
   On every chain, a dashboard restart also left each wallet read as stale for
   up to an hour, because balances younger than an hour were not re-checked;
   the first pass after a start now confirms every cached balance.
+  On Dogecoin with both the watch wallet and the balance index on, the index
+  now serves the example and an address import rescan no longer turns every
+  wallet stale; the example reads "not scanned" only when it has no balance.
+  When the Dogecoin balance index cannot start, the card says so instead of
+  waiting for node sync forever.
+- A single failed cache write no longer latches a watch store into an error
+  until the dashboard restarts, on Litecoin, Bitcoin Cash, Dogecoin, Zcash,
+  Tari and the Bitcoin pruned-scan cache. The wallets read stale and the write
+  is retried on the next pass; only a corrupt or unreadable file still stops
+  the store. An archival Bitcoin wallet whose provisioning stopped halfway is
+  retried with a growing delay.
+- Monero watch-only wallets keep their last verified balance, marked stale,
+  across a dashboard restart, while the node is syncing, behind the tip,
+  deactivated, or after a failed refresh, instead of showing "Pending scan".
+  The wallet service now resumes by itself after a wallet-RPC restart or a
+  timed-out refresh, instead of staying in error until the dashboard restarts,
+  and a refresh waits for a Monero tip under 30 minutes old, saying "Monero
+  node is not at the chain tip" instead of a scan percentage. The Monero total
+  says when it includes last verified balances, and a key-image import whose
+  outcome is unknown clears the kept balance.
+- Litecoin, Bitcoin Cash, Dogecoin and Tari wallet cards mark their rows stale
+  when the node is deactivated, instead of keeping the last "ok".
+- The Zcash address watch now recognises Zakura's real "transparent address and
+  spender indexes are unavailable" message and logs `outcome=index_unavailable`
+  for it (#485).
+- The family-chain balance index now logs `<chain> watch index: outcome=ok` with
+  the height on each new block, and scan lines carry the height.
+
+### Added
+
+- `scripts/measure-block-latency.sh --chain` measures block-to-balance latency
+  for Litecoin, Bitcoin Cash and Dogecoin as well as Bitcoin.
 
 ## [1.42.2] - 2026-11-25
 

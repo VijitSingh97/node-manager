@@ -34,7 +34,9 @@ or key, for example `watch scan: outcome=ok trigger=add wallets=1 outpoints=7 he
 scan=84.2s waited=86.0s`. `scan` is the `scantxoutset` call itself and `waited`
 is the time from the wallet being queued (by **Add wallet**, or by a new block) to the
 result. Litecoin and the other family chains log one `<chain> watch scan:` line
-per address scan. Read them with
+per address scan, with the `height` it covered, and, when their balance index
+serves a refresh, one `<chain> watch index: outcome=ok wallets=N height=H took=...`
+line per new block height. Read them with
 `docker logs bitcoin-starter-stack-apt-dashboard-1 2>&1 | grep 'watch scan'`.
 
 The public wallet list, confirmed scan cache, and balance snapshots persist across
@@ -63,9 +65,13 @@ cannot be written or the roster cannot be read, the manager reports an error and
 preserves the existing file. A damaged roster is never reset to an empty list.
 Restart the dashboard after correcting the file or state-volume problem.
 
-If the saved scan cache is corrupt, unreadable, or unwritable, the dashboard
+If the saved scan cache is corrupt or unreadable, the dashboard
 reports it as unavailable and stops expensive scans until storage is repaired
 and the dashboard restarts. The wallet list and snapshot history stay intact.
+A single failed cache write is not fatal: the affected wallets show as stale and
+the write is retried on the next pass. Litecoin, Bitcoin Cash, Dogecoin, Zcash and
+Tari handle a failed write the same way, and an archival Bitcoin wallet whose
+provisioning stopped halfway is retried with a growing delay.
 The rebuildable `watch_scan_cache.json` can be backed up and removed from the
 state volume to request a new scan; keep `wallets.json` and
 `balance_history.json` intact.
@@ -196,6 +202,18 @@ view-only flows cannot export key images; in that case keep using received-only
 amounts. Import key images again after receiving or spending, because new outputs
 need new coverage. A snapshot is marked verified/current only after the wallet is
 fully scanned and fresh key-image coverage is complete.
+
+The last verified balance is kept, marked stale, across a dashboard restart, while
+the Monero node is syncing, not at the chain tip (its newest block is over 30
+minutes old), or deactivated, and after a failed or interrupted refresh. It is
+replaced by the next fresh scan and cleared only when new key images arrive or a
+new output breaks the coverage. If the wallet RPC is restarted or a refresh times
+out, the dashboard checks the wallet service again on the next tick and resumes
+by itself. This relies on `monero-wallet-rpc` serving one request at a time, which
+holds for the pinned v0.18.5.4 (`wallet_rpc_server.cpp` runs the server with
+`run(1, true)` under a "do not start this server in more than 1 thread" comment).
+A key-image import whose outcome is unknown clears the kept balance until the next
+fresh scan.
 
 The stack uses Monero's authenticated
 [`generate_from_keys`, `get_balance`, and `import_key_images` wallet RPCs](https://docs.getmonero.org/rpc-library/wallet-rpc/)
@@ -365,9 +383,14 @@ Limits to accept before enabling it:
 
 The dashboard seeds the Dogecoin Foundation address from the
 [Foundation's About page](https://foundation.dogecoin.com/about/) as a public
-example, excluded from personal totals. With the option on it is never imported
-or scanned, so it does not delay your own addresses. Without the option the
-balance index serves it like any other wallet and refreshes it hourly.
+example, excluded from personal totals. It is never imported into the node wallet,
+so it does not delay your own addresses. The balance index serves it like any
+other wallet and refreshes it hourly; with the option on and no index it shows
+as not scanned. With the option and `dogecoin.utxo_index` both on, an address
+import rescan no longer holds back wallets the index can serve. When
+`dogecoin.utxo_index` is on but the index cannot start (for example its directory
+overlaps another), the wallets say the balance index is not running instead of
+waiting for node sync.
 
 ## Zcash transparent addresses
 
@@ -388,6 +411,8 @@ Limits to accept when the index is on, or before enabling it later:
   `.env` shows Zcash running without it there; point `data_dir` at a new directory instead.
 - If the node reports the transparent indexes as unavailable, the dashboard logs
   `outcome=index_unavailable` and shows Error; resync with a fresh `zcash.data_dir`.
+  Zakura words this as "transparent address and spender indexes are unavailable";
+  any other balance error logs `outcome=failed`.
 - Each balance is accepted only if the node's best block hash is unchanged across the
   lookup; a block arriving mid-scan makes that scan fail and retry on the next cycle.
 - Upstream calls disabling checkpoint sync slower and less secure against some

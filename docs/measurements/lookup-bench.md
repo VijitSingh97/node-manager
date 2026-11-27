@@ -80,7 +80,7 @@ New block to balance, over a window of live blocks:
 scripts/measure-block-latency.sh --since 2026-11-16T06:00:00Z
 ```
 
-It reads bitcoind's `UpdateTip` lines and the dashboard's `watch index: outcome=ok` and `watch block update:` lines, matches each block to the first wallet refresh at that height or higher, and prints counts, median, p90 and max for refreshes served by the index, those that fell back to the block update, and all of them. Medians and p90 are nearest-rank. Keep the window to blocks after the node is synced. Dashboard logs keep 3 x 10 MB, so use a window that fits them: the script warns when the logs start after `--since`, and it exits non-zero when it parses no blocks or no refresh lines.
+`--chain litecoin|bitcoincash|dogecoin` measures that node instead, reading its `debug.log` and the dashboard's `<chain> watch index: outcome=ok` lines (those chains have no block update fallback). It reads bitcoind's `UpdateTip` lines and the dashboard's `watch index: outcome=ok` and `watch block update:` lines, matches each block to the first wallet refresh at that height or higher, and prints counts, median, p90 and max for refreshes served by the index, those that fell back to the block update, and all of them. Medians and p90 are nearest-rank. Keep the window to blocks after the node is synced. Dashboard logs keep 3 x 10 MB, so use a window that fits them: the script warns when the logs start after `--since`, and it exits non-zero when it parses no blocks or no refresh lines.
 
 Restart to ready: restart the dashboard (`sudo node-manager restart dashboard`) and take the time from the container start to the `utxo index: state=ready` log line. For the full-host figure, restart bitcoind as well, with the owner's approval.
 

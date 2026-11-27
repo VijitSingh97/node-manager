@@ -103,8 +103,8 @@ address; pruned APT and Homebrew installs default to no Bitcoin example. Public
 examples are excluded from personal totals. Tari has no example, because no organisation publishes a Tari view key, and accepts one
 imported view-only wallet. Zcash adds the Zcash Community Grants example only with
 `zcash.address_index`. Dogecoin adds the Dogecoin Foundation example with
-`dogecoin.utxo_index` or `dogecoin.watch_wallet`. The balance index serves it, except
-with `dogecoin.watch_wallet`, where it is never scanned and shows as unscanned.
+`dogecoin.utxo_index` or `dogecoin.watch_wallet`. The balance index serves it; with
+only `dogecoin.watch_wallet` it is never imported or scanned and shows as unscanned.
 
 Litecoin and Bitcoin Cash use their native `scantxoutset` RPC after sync. The
 dashboard caches the confirmed result for an hour (Zcash refreshes on each new

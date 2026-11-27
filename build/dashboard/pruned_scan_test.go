@@ -619,7 +619,7 @@ func TestPrunedScanCacheReadFailuresDisableScans(t *testing.T) {
 	}
 }
 
-func TestPrunedScanCacheWriteFailureStopsRetriesAndKeepsPriorCacheStale(t *testing.T) {
+func TestPrunedScanCacheWriteFailureBacksOffKeepsPriorCacheStaleAndRecovers(t *testing.T) {
 	oldBlock := strings.Repeat("8", 64)
 	newBlock := strings.Repeat("9", 64)
 	mock := &prunedRPCMock{bestBlock: newBlock, result: validPrunedScan(newBlock)}
@@ -636,13 +636,6 @@ func TestPrunedScanCacheWriteFailureStopsRetriesAndKeepsPriorCacheStale(t *testi
 	t.Cleanup(func() { writeScanFile = originalWrite })
 	a.scanner.now = func() time.Time { return time.Now().Add(2 * time.Hour) }
 	a.scanner.refresh(a.watch.Entries(), blockchainInfo{Pruned: true, BestBlockHash: newBlock})
-	deadline := time.Now().Add(time.Second)
-	for a.watch.ScanErr() == nil && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-	if a.watch.ScanErr() == nil {
-		t.Fatal("scan cache write failure was not retained")
-	}
 	waitPrunedScannerIdle(t, a.scanner)
 	response := request(t, handler, http.MethodGet, "/api/watch", "secret")
 	var view map[string]any
@@ -650,17 +643,27 @@ func TestPrunedScanCacheWriteFailureStopsRetriesAndKeepsPriorCacheStale(t *testi
 		t.Fatal(err)
 	}
 	row := view["wallets"].([]any)[0].(map[string]any)
-	if view["scan_cache_unavailable"] != true || view["total_reason"] != "scan_cache_unavailable" || row["state"] != "stale" || row["btc"] != "1" {
-		t.Fatalf("write failure view = %#v", view)
+	if a.watch.ScanErr() != nil || view["scan_cache_unavailable"] == true || row["state"] != "stale" || row["btc"] != "1" {
+		t.Fatalf("write failure view = %#v err=%v", view, a.watch.ScanErr())
 	}
 	a.scanner.refresh(a.watch.Entries(), blockchainInfo{Pruned: true, BestBlockHash: newBlock})
-	a.watch.SetPending(entry.Key, true)
-	a.provisionForChain(entry, blockchainInfo{Pruned: true, BestBlockHash: newBlock})
-	time.Sleep(10 * time.Millisecond)
+	waitPrunedScannerIdle(t, a.scanner)
 	mock.mu.Lock()
-	defer mock.mu.Unlock()
-	if mock.startCalls != 1 {
-		t.Fatalf("write failure retried scan %d times", mock.startCalls)
+	calls := mock.startCalls
+	mock.mu.Unlock()
+	if calls != 1 {
+		t.Fatalf("write failure retried scan %d times", calls)
+	}
+	writeScanFile = originalWrite
+	a.scanner.now = func() time.Time { return time.Now().Add(4 * time.Hour) }
+	a.scanner.refresh(a.watch.Entries(), blockchainInfo{Pruned: true, BestBlockHash: newBlock})
+	waitPrunedScannerIdle(t, a.scanner)
+	response = request(t, handler, http.MethodGet, "/api/watch", "secret")
+	if err := json.Unmarshal(response.Body.Bytes(), &view); err != nil {
+		t.Fatal(err)
+	}
+	if row = view["wallets"].([]any)[0].(map[string]any); row["state"] != "ok" || a.watch.ScanErr() != nil {
+		t.Fatalf("the scan did not recover after the disk did: %#v", row)
 	}
 }
 

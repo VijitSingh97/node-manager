@@ -79,3 +79,7 @@ test("the Litecoin watch says MWEB funds are not counted", () => {
   assert.equal(SCOPE_NOTES.litecoin, "Balances cover transparent outputs only. Funds inside MWEB are not counted, and the peg-in pool shows as one non-wallet coin.");
   assert.deepEqual(Object.keys(SCOPE_NOTES), ["litecoin"]);
 });
+
+test("a missing balance index is named instead of reading as a sync wait", () => {
+  assert.match(familyRow({ state: "index_off", amount: null }, "dogecoin").stateText, /balance index is not running/);
+});

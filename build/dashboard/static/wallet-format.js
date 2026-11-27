@@ -42,6 +42,10 @@ export function scanNote(time) {
   return Number.isFinite(date.getTime()) ? `Scanned ${date.toLocaleString()}` : "";
 }
 
+export function staleWallets(data) {
+  return { ...data, wallets: (data?.wallets || []).map((wallet) => (wallet?.state === "ok" || wallet?.state === "ready" ? { ...wallet, state: "stale" } : wallet)) };
+}
+
 export function joinNote(parts) {
   return parts.filter(Boolean).join(" · ");
 }

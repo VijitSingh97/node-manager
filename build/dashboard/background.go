@@ -342,11 +342,41 @@ func (a *app) provisionState(entry WatchEntry, pruned, initialBlockDownload bool
 			return
 		}
 		a.watch.ClearPendingIfCurrent(entry)
+		id := watchKeyID(entry.Key)
+		previous, _ := a.provisionRetries.Load(id)
+		retry, _ := previous.(provisionRetry)
+		a.provisionRetries.Store(id, provisionRetry{last: time.Now(), failures: retry.failures + 1})
 		return
 	}
+	a.provisionRetries.Delete(watchKeyID(entry.Key))
 	a.watch.ClearPendingIfCurrent(entry)
 	if !a.watch.SetCoreWalletIfCurrent(entry, name) {
 		a.watch.DeprovisionNameIfUnused(a.nodeRPC, a.walletRPC, entry, name)
+	}
+}
+
+type provisionRetry struct {
+	last     time.Time
+	failures int
+}
+
+func (a *app) retryProvision(entries []WatchEntry, chain blockchainInfo, now time.Time) {
+	if chain.Pruned || chain.InitialBlockDownload || !a.nodeWorkerRunnable(nodeBitcoin, true) {
+		return
+	}
+	for _, entry := range entries {
+		id := watchKeyID(entry.Key)
+		value, failed := a.provisionRetries.Load(id)
+		if !failed {
+			continue
+		}
+		retry := value.(provisionRetry)
+		if a.watch.hasResolvedWallet(a.walletRPC, entry) {
+			a.provisionRetries.Delete(id)
+		} else if now.Sub(retry.last) >= scanRetryDelay(retry.failures) {
+			a.watch.SetPending(entry.Key, true)
+			a.provisionState(entry, false, false)
+		}
 	}
 }
 
@@ -361,7 +391,9 @@ func (a *app) refreshWatchLoop(ctx context.Context) {
 		}
 		var info blockchainInfo
 		if a.rpc.call(ctx, "getblockchaininfo", nil, &info) == nil {
-			a.scanner.refresh(a.watch.Entries(), info)
+			entries := a.watch.Entries()
+			a.scanner.refresh(entries, info)
+			a.retryProvision(entries, info, time.Now())
 		}
 	})
 }

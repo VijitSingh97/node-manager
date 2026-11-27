@@ -85,6 +85,9 @@ type familyWatchStore struct {
 	retryAt      map[string]int64
 	importedPath string
 	skipExample  bool
+	indexOnly    bool
+	chain        string
+	loggedHeight int64
 	logf         func(format string, args ...any)
 	maxWallets   int
 	index        *utxoManager
@@ -101,6 +104,7 @@ func newFamilyWatchManager(a *app) *familyWatchManager {
 	for _, id := range a.familyWatchNodes() {
 		node := a.cfg.nodes[id]
 		store := &familyWatchStore{
+			chain:      id,
 			rosterPath: filepath.Join(a.cfg.stateDir, "family_watch_"+id+".json"), cachePath: filepath.Join(a.cfg.stateDir, "family_watch_"+id+"_cache.json"),
 			balances: make(map[string]familyWatchBalance), states: make(map[string]string), trigger: make(chan struct{}, 1), now: time.Now,
 			// One batched scan lists every coin of every due wallet, well past the default 4 MiB for busy addresses.
@@ -122,7 +126,7 @@ func newFamilyWatchManager(a *app) *familyWatchManager {
 				store.maxWallets = maxIndexedWatchWallets
 			}
 			if !a.cfg.dogecoinWatchWallet {
-				store.backend = dogecoinIndexFamilyWatchBackend()
+				store.backend, store.indexOnly = dogecoinIndexFamilyWatchBackend(), true
 				break
 			}
 			store.imported, store.retryAt = make(map[string]bool), make(map[string]int64)
@@ -259,10 +263,11 @@ func (s *familyWatchStore) list(publicOnly bool) ([]familyWatchWalletView, error
 		if view.State == "" {
 			view.State = "pending"
 		}
-		if wallet.Example && s.skipExample {
+		balance, cached := s.balances[wallet.ID]
+		if wallet.Example && s.skipExample && !cached {
 			view.State = "unscanned"
 		}
-		if balance, ok := s.balances[wallet.ID]; ok {
+		if cached {
 			amount := formatFamilyWatchAmount(balance.Amount)
 			view.Amount, view.ScanHeight, view.ScanTime = &amount, balance.ScanHeight, balance.ScanTime
 			view.History = append(view.History, balance.History...)
@@ -301,7 +306,6 @@ func (s *familyWatchStore) add(label, address string) (familyWatchEntry, error) 
 	s.wallets = append(s.wallets, entry)
 	if err := s.saveRosterLocked(); err != nil {
 		s.wallets = s.wallets[:len(s.wallets)-1]
-		s.err = err
 		return familyWatchEntry{}, err
 	}
 	s.states[id] = "pending"
@@ -326,13 +330,11 @@ func (s *familyWatchStore) remove(id string) (bool, error) {
 		delete(s.states, id)
 		if err := s.saveCacheLocked(); err != nil {
 			s.restoreRemovedLocked(previous, id, balance, hadBalance, state, hadState)
-			s.err = err
 			return false, err
 		}
 		if err := s.saveRosterLocked(); err != nil {
 			s.restoreRemovedLocked(previous, id, balance, hadBalance, state, hadState)
 			_ = s.saveCacheLocked()
-			s.err = err
 			return false, err
 		}
 		return true, nil

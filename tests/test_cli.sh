@@ -1117,9 +1117,9 @@ cat >"$tmp/block.log" <<'EOF'
 2026-11-15T06:40:00Z UpdateTip: new best=dd height=103 version=0x1 log2_work=1 tx=1 date='x' progress=1.0 cache=1.0MiB(1txo)
 EOF
 cat >"$tmp/dash.log" <<'EOF'
-2026-11-15T06:30:20.123456789Z 2026/11/15 06:30:20 watch index: outcome=ok outpoints=7 height=100 took=0.500s
+2026-11-15T06:30:20.123456789Z 2026/11/15 06:30:20 go-dashboard: watch index: outcome=ok outpoints=7 height=100 took=0.500s
 2026-11-15T06:31:40.000000001Z 2026/11/15 06:31:40 watch block update: wallets=2 blocks=1 height=101 took=2.0s
-2026-11-15T06:33:30.5Z 2026/11/15 06:33:30 watch index: outcome=ok outpoints=7 height=102 took=0.100s
+2026-11-15T06:33:30.5Z 2026/11/15 06:33:30 go-dashboard: watch index: outcome=ok outpoints=7 height=102 took=0.100s
 EOF
 "$repo_root/scripts/measure-block-latency.sh" --since 2026-11-15T06:00:00Z --bitcoin-log "$tmp/block.log" --dashboard-log "$tmp/dash.log" >"$tmp/latency.out" || fail "measure-block-latency.sh failed"
 grep -q 'Blocks seen: 4, matched to a refresh: 3, with no refresh yet: 1' "$tmp/latency.out" || fail "measure-block-latency.sh miscounted the blocks"
@@ -1127,6 +1127,20 @@ grep -Eq 'Served by the index  *2  *20.0  *90.0  *90.0' "$tmp/latency.out" || fa
 grep -Eq 'Fell back to the block update  *1  *40.0  *40.0  *40.0' "$tmp/latency.out" || fail "measure-block-latency.sh got the block update row wrong"
 grep -Eq '^All  *3  *40.0  *90.0  *90.0' "$tmp/latency.out" || fail "measure-block-latency.sh got the overall row wrong"
 "$repo_root/scripts/measure-block-latency.sh" --bitcoin-log "$tmp/block.log" --dashboard-log "$tmp/dash.log" >/dev/null 2>&1 && fail "measure-block-latency.sh ran without --since"
+cat >"$tmp/doge-block.log" <<'EOF'
+2026-11-15 06:30:00 UpdateTip: new best=aa height=100 version=0x1 log2_work=1 tx=1 date='x' progress=1.0 cache=1.0MiB(1txo)
+2026-11-15 06:31:00 UpdateTip: new best=bb height=101 version=0x1 log2_work=1 tx=1 date='x' progress=1.0 cache=1.0MiB(1txo)
+EOF
+cat >"$tmp/doge-dash.log" <<'EOF'
+2026-11-15T06:30:20.1Z 2026/11/15 06:30:20 go-dashboard: dogecoin watch index: outcome=ok wallets=2 height=100 took=0.020s
+2026-11-15T06:31:10.1Z 2026/11/15 06:31:10 go-dashboard: litecoin watch index: outcome=ok wallets=2 height=101 took=0.020s
+2026-11-15T06:31:45.1Z 2026/11/15 06:31:45 go-dashboard: dogecoin watch index: outcome=ok wallets=2 height=101 took=0.020s
+EOF
+"$repo_root/scripts/measure-block-latency.sh" --chain dogecoin --since 2026-11-15T06:00:00Z --bitcoin-log "$tmp/doge-block.log" --dashboard-log "$tmp/doge-dash.log" >"$tmp/doge-latency.out" || fail "measure-block-latency.sh --chain dogecoin failed"
+grep -q 'Blocks seen: 2, matched to a refresh: 2, with no refresh yet: 0' "$tmp/doge-latency.out" || fail "measure-block-latency.sh --chain dogecoin miscounted the blocks"
+grep -Eq 'Served by the index  *2  *20.0  *45.0  *45.0' "$tmp/doge-latency.out" || fail "measure-block-latency.sh --chain dogecoin matched another chain's refresh or misread the log time"
+"$repo_root/scripts/measure-block-latency.sh" --since 2026-11-15T06:00:00Z --bitcoin-log "$tmp/block.log" --dashboard-log "$tmp/doge-dash.log" >/dev/null 2>&1 && fail "measure-block-latency.sh counted another chain's refresh lines as Bitcoin's"
+"$repo_root/scripts/measure-block-latency.sh" --chain zcash --since 2026-11-15T06:00:00Z --bitcoin-log "$tmp/block.log" --dashboard-log "$tmp/dash.log" >/dev/null 2>&1 && fail "measure-block-latency.sh accepted an unsupported chain"
 
 # stop, down and restart open a parked dump once; a running seed is cancelled first.
 for action in stop down restart; do

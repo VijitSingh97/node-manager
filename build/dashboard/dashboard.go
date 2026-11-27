@@ -126,6 +126,7 @@ type app struct {
 	controlMu        sync.Mutex
 	controlSeen      map[string]string
 	provisionLocks   sync.Map
+	provisionRetries sync.Map
 	ctx              context.Context
 }
 

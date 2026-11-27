@@ -124,11 +124,7 @@ func (s *WatchStore) saveScanCacheLocked() error {
 	if err != nil {
 		return err
 	}
-	if err := writeScanFile(s.scanPath, b); err != nil {
-		s.scanErr = ErrScanCacheUnavailable
-		return err
-	}
-	return nil
+	return writeScanFile(s.scanPath, b)
 }
 
 func (s *WatchStore) scanSnapshot(entry WatchEntry) (prunedScanCache, string, bool) {

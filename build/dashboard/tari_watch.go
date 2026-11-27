@@ -507,7 +507,6 @@ func (s *TariWatchStore) refresh(ctx context.Context, node tariWatchNodeSnapshot
 	}
 	if s.saveLocked() != nil {
 		s.wallet.State = "stale"
-		s.err = errTariWatchUnavailable
 	}
 }
 
