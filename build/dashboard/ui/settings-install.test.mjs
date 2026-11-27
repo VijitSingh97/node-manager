@@ -91,6 +91,30 @@ flow("Install dialog rejects a blank or relative data folder and Cancel stages n
   assert.equal(helper.requests.length, 0);
 });
 
+flow("Install warns about low free memory with the sync budget and stays enabled", { hostStats: { host_mem_bytes: 7 * 2 ** 30 } }, async ({ page }) => {
+  await openHostSettings(page);
+  await page.click(rowButton("monero"));
+  await page.waitText("#settings-install-warning", /Monero is expected to need 5\.0 GiB of memory and 2\.5 CPUs.*You can still install it\.$/);
+  assert.equal(await page.disabled("#settings-install-submit"), false);
+});
+
+flow("Install warning appears when host stats arrive after the dialog opened", async ({ dash, page }) => {
+  await openHostSettings(page);
+  await page.click(rowButton("monero"));
+  await page.waitVisible("#settings-install-dialog");
+  assert.equal(await page.visible("#settings-install-warning"), false);
+  dash.writeHostStats({ host_mem_bytes: 7 * 2 ** 30 });
+  await page.evaluate(() => window.dispatchEvent(new Event("node-catalog-updated")));
+  await page.waitText("#settings-install-warning", /Monero is expected to need 5\.0 GiB of memory/);
+});
+
+flow("Install shows no resource warning when the host has room", { hostStats: true }, async ({ page }) => {
+  await openHostSettings(page);
+  await page.click(rowButton("litecoin"));
+  await page.waitVisible("#settings-install-dialog");
+  assert.equal(await page.visible("#settings-install-warning"), false);
+});
+
 flow("Install stages with every interface closed, can be undone, and installs on Save", async ({ page, helper }) => {
   await openHostSettings(page);
   await page.click(rowButton("monero"));

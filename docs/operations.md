@@ -527,6 +527,8 @@ for the node to sync, building with a percentage, catching up, or ready.
   node starting, or beside another index's seed or chainstate copy. These waits are
   re-checked every 30 seconds, cost nothing and are not failures. The host helper
   makes the last two checks itself and refuses before it stops any node.
+- A seed also waits while the host has under 512 MiB of memory available or the
+  dashboard's memory limit is under 512 MiB, rechecked every 30 seconds.
 - A seed that starts and then fails, is cut short by a dashboard restart, or whose
   host preparation fails (for example a chainstate copy that could not be taken)
   is retried after 6 hours, then 24 hours, and not again after a third failure; the

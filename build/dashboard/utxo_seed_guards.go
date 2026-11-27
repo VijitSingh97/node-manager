@@ -21,6 +21,8 @@ const (
 	seedMaxCPU       = 0.5
 	seedMinFreeBytes = 27_000_000_000
 	seedMaxTipAge    = 2 * time.Hour
+	seedMinMemAvail  = 512 << 20
+	seedMinMemLimit  = 512 << 20
 
 	seedThermalGlob = "/sys/class/thermal/thermal_zone*/temp"
 	seedCgroupRoot  = "/sys/fs/cgroup"
@@ -44,6 +46,9 @@ type seedGuardInput struct {
 	CPUErr          error
 	FreeBytes       uint64
 	FreeErr         error
+	MemAvailBytes   uint64
+	MemErr          error
+	MemLimitBytes   uint64
 	Chain           blockchainInfo
 	TipTime         time.Time
 	ChainErr        error
@@ -80,6 +85,7 @@ func evaluateSeedGuards(in seedGuardInput) []seedRefusal {
 		thermalStartGuard(in.TempC, in.TempErr),
 		cpuGuard(in.CPUs, in.CPUErr),
 		freeSpaceGuard(in.FreeBytes, need, cmp.Or(in.FreeErr, chainstateErr(in))),
+		memoryGuard(in.MemAvailBytes, in.MemLimitBytes),
 		nodeGuard(in.Chain, in.TipTime, in.Now, in.ChainErr),
 	}
 	switch {
@@ -153,6 +159,16 @@ func freeSpaceGuard(free, need uint64, err error) *seedRefusal {
 	}
 	if free < need {
 		return &seedRefusal{"free_space", fmt.Sprintf("%.1f GB free, %.0f GB needed", float64(free)/1e9, float64(need)/1e9)}
+	}
+	return nil
+}
+
+func memoryGuard(avail, limit uint64) *seedRefusal {
+	switch {
+	case avail > 0 && avail < seedMinMemAvail:
+		return &seedRefusal{"memory", fmt.Sprintf("%d MiB of host memory available, %d MiB needed", avail>>20, seedMinMemAvail>>20)}
+	case limit > 0 && limit < seedMinMemLimit:
+		return &seedRefusal{"memory", fmt.Sprintf("dashboard memory limit is %d MiB, %d MiB needed", limit>>20, seedMinMemLimit>>20)}
 	}
 	return nil
 }
@@ -246,6 +262,34 @@ func readCPULimit(root string) (float64, error) {
 	return 0, errors.New("no cgroup cpu limit found")
 }
 
+func readMemLimit(root string) uint64 {
+	for _, name := range []string{"memory.max", "memory/memory.limit_in_bytes"} {
+		raw, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			continue
+		}
+		if n, err := strconv.ParseUint(strings.TrimSpace(string(raw)), 10, 64); err == nil && n < 1<<50 {
+			return n
+		}
+		return 0
+	}
+	return 0
+}
+
+func readMemAvailable(path string) (uint64, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if f := strings.Fields(line); len(f) >= 2 && f[0] == "MemAvailable:" {
+			kb, err := strconv.ParseUint(f[1], 10, 64)
+			return kb << 10, err
+		}
+	}
+	return 0, errors.New("MemAvailable missing")
+}
+
 func readActiveRPCMethods(ctx context.Context, rpc utxoRPC) ([]string, error) {
 	var info struct {
 		Active []struct {
@@ -285,6 +329,8 @@ func (m *utxoManager) gatherSeedGuards(ctx context.Context) seedGuardInput {
 	}
 	in.TempC, in.TempErr = m.temp()
 	in.CPUs, in.CPUErr = readCPULimit(seedCgroupRoot)
+	in.MemAvailBytes, in.MemErr = readMemAvailable("/proc/meminfo")
+	in.MemLimitBytes = readMemLimit(seedCgroupRoot)
 	in.Chain, in.TipTime, in.ChainErr = readSeedChain(ctx, m.rpc)
 	if m.chain.Chainstate && m.host != nil {
 		// Without the chainstate's size the space a seed needs is unknown, so it counts as unreadable free space.

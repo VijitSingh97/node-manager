@@ -1377,6 +1377,23 @@ pull_images() {
   compose pull "$@"
 }
 
+resource_advisory() {
+  [ "${BITCOIN_STACK_HELPER_START:-}" != 1 ] || return 0
+  local node upper need_mb=0 nodes=0 total_bytes
+  for node in bitcoin monero tari litecoin dogecoin bitcoincash zcash; do
+    if [ $# -gt 0 ] && [[ " $* " != *" $node "* ]]; then continue; fi
+    upper=$(printf '%s' "$node" | tr '[:lower:]' '[:upper:]')
+    [ "$(env_get "${upper}_ENABLED")" = 1 ] && [ "$(env_get "${upper}_ACTIVE")" != 0 ] || continue
+    nodes=$((nodes + 1))
+    need_mb=$((need_mb + 4096))
+    case "$node" in monero) need_mb=$((need_mb + 1024)) ;; tari) need_mb=$((need_mb + 512)) ;; esac
+  done
+  total_bytes=$(docker info --format '{{.MemTotal}}' 2>/dev/null) || return 0
+  case "$total_bytes" in '' | *[!0-9]*) return 0 ;; esac
+  [ "$need_mb" -le $((total_bytes / 1048576)) ] || printf 'Note: %s selected node(s) can use up to %s GiB while syncing, but Docker reports %s GiB of memory. This is advisory; the stack is starting anyway.\n' \
+    "$nodes" "$((need_mb / 1024))" "$((total_bytes / 1073741824))" >&2
+}
+
 pull_package_images() {
   local service attempt started
   for service in "$@"; do
@@ -2062,6 +2079,7 @@ case "$cmd" in
     lock_config
     prepare_config_for_start
     offline_up "$@"
+    resource_advisory "$@"
     unlock_config
     if [ "${BITCOIN_STACK_HELPER_START:-}" != 1 ]; then
       ensure_host_helpers
@@ -2106,6 +2124,7 @@ case "$cmd" in
       exit 1
     fi
     drop_runtime_snapshot
+    resource_advisory
     unlock_config
     ensure_host_helpers
     ;;

@@ -372,8 +372,8 @@ ceiling. It is additional to the Tari node budget and has not completed sustaine
 resource qualification.
 
 With all seven nodes selected, the base-node ceilings total 7 CPUs and 18 GiB.
-The Monero and Tari wallet sidecars add 1 CPU and 1 GiB together, for container
-ceilings totaling 8 CPUs and 19 GiB before Tor, dashboard, Docker, filesystem
+The Monero and Tari wallet sidecars add 1 CPU and 1.5 GiB together, for container
+ceilings totaling 8 CPUs and 19.5 GiB before Tor, dashboard, Docker, filesystem
 cache, and host overhead. These figures add configured ceilings; they are not
 measurements of actual use or a qualified host minimum.
 

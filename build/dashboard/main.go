@@ -20,6 +20,7 @@ type config struct {
 	bitcoinDisabled         bool
 	bitcoinActive           bool
 	bitcoinActiveSet        bool
+	coreSteady              map[string]steadyCaps
 	rpcURL                  string
 	rpcUser                 string
 	rpcPassword             string

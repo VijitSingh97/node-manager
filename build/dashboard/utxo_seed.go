@@ -333,8 +333,8 @@ func (m *utxoManager) seedRequestedAs(ctx context.Context, id, asked string) {
 		seed = m.seedFromReplay
 	case seedModeChainstate:
 		seed = m.seedFromChainstate
-		// The host helper copied the chainstate while the node was synced and has just restarted it, so its warm-up is no reason to refuse.
-		refusals = slices.DeleteFunc(refusals, func(r seedRefusal) bool { return r.Guard == "node" })
+		// The host helper copied the chainstate while the node was synced and has just restarted it, so its warm-up and cache load are no reason to refuse.
+		refusals = slices.DeleteFunc(refusals, func(r seedRefusal) bool { return r.Guard == "node" || r.Guard == "memory" })
 	default:
 		if r := seedFIFOGuard(h.dataDir); r != nil {
 			refusals = append(refusals, *r)
@@ -401,7 +401,9 @@ func waitingFor(refusals []seedRefusal) string {
 		return waitNodeSync
 	case slices.ContainsFunc(refusals, func(r seedRefusal) bool { return r.Guard == "lock" }):
 		return waitOtherSeed
-	case slices.ContainsFunc(refusals, func(r seedRefusal) bool { return r.Guard == "thermal" && strings.Contains(r.Detail, "above") }):
+	case slices.ContainsFunc(refusals, func(r seedRefusal) bool {
+		return r.Guard == "thermal" && strings.Contains(r.Detail, "above") || r.Guard == "memory" && strings.Contains(r.Detail, "host memory")
+	}):
 		return waitHostBusy
 	case len(refusals) > 0:
 		return waitBlocked

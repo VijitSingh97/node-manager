@@ -31,6 +31,7 @@ type nodeControlNode struct {
 	Failure    string  `json:"failure,omitempty"`
 	LastHeight *int64  `json:"last_height,omitempty"`
 	LastSync   float64 `json:"last_sync_percent,omitempty"`
+	LastSeenAt int64   `json:"last_seen_at,omitempty"`
 
 	SteadyCPUs  float64 `json:"steady_cpus,omitempty"`
 	SteadyMemMB int64   `json:"steady_mem_limit_mb,omitempty"`
@@ -180,8 +181,11 @@ func (a *app) apiNodes(w http.ResponseWriter, _ *http.Request) {
 		}
 		entry := nodeControlNode{ID: id, Active: active, Available: a.nodeAvailable(id, active), Supported: supported, Configured: configured, Stopped: stopped, Restarting: restarting[id] && failure == "", Starting: restarting[id] && starting[id] && failure == "", Failure: failure}
 		entry.SteadyCPUs, entry.SteadyMemMB = a.cfg.nodes[id].SteadyCPUs, a.cfg.nodes[id].SteadyMemLimitMB
+		if caps, ok := a.cfg.coreSteady[id]; ok {
+			entry.SteadyCPUs, entry.SteadyMemMB = caps.CPUs, caps.MemMB
+		}
 		if seen := a.monitor.LastSeen(id); seen.HasLastBlock && seen.LastBlock >= 0 {
-			entry.LastHeight, entry.LastSync = &seen.LastBlock, seen.SyncPercent
+			entry.LastHeight, entry.LastSync, entry.LastSeenAt = &seen.LastBlock, seen.SyncPercent, seen.SeenAt
 		}
 		nodes = append(nodes, entry)
 	}
