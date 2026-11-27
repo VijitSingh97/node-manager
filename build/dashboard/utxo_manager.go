@@ -71,12 +71,6 @@ type utxoSeedState struct {
 	Mode          string `json:"mode,omitempty"`
 }
 
-type utxoSeedJob struct {
-	ctx  context.Context
-	fn   func(context.Context) error
-	done chan error
-}
-
 type utxoManager struct {
 	dir       string
 	fs        vfs.FS
@@ -94,12 +88,12 @@ type utxoManager struct {
 	blocked string
 
 	now            func() time.Time
-	seedJobs       chan utxoSeedJob
 	seedPath       string
 	wake           chan struct{}
 	blockWait      utxoRPC
 	blockWaitRetry time.Duration
 	onApplied      func()
+	event          func(severity, text string)
 
 	host       *utxoSeedHost
 	bench      *utxoBenchHost
@@ -151,7 +145,7 @@ func newUtxoManager(dir string, fs vfs.FS, rpc utxoRPC, logger *log.Logger, chai
 		fs = vfs.Default
 	}
 	m := &utxoManager{dir: dir, fs: fs, rpc: rpc, chain: chain, log: logger,
-		now: time.Now, seedJobs: make(chan utxoSeedJob), wake: make(chan struct{}, 1), blockWaitRetry: utxoFollowInterval, checkEvery: seedCheckEvery,
+		now: time.Now, wake: make(chan struct{}, 1), blockWaitRetry: utxoFollowInterval, checkEvery: seedCheckEvery,
 		temp: func() (float64, error) { return hottestThermalC(seedThermalGlob) },
 		freeBytes: func() uint64 {
 			if d := diskUsage(dir); d.Total > 0 {
@@ -357,9 +351,6 @@ func (m *utxoManager) run(ctx context.Context) {
 				break wait
 			case <-m.wake:
 				break wait
-			case job := <-m.seedJobs:
-				job.done <- m.execSeed(job.ctx, job.fn)
-				break wait
 			case <-poll:
 				m.pollSeed(ctx)
 				m.maybeAutoSeed(ctx)
@@ -368,17 +359,6 @@ func (m *utxoManager) run(ctx context.Context) {
 				}
 			}
 		}
-	}
-}
-
-// Running fn on the run goroutine is what keeps follower steps out of a seed.
-func (m *utxoManager) runSeed(ctx context.Context, fn func(context.Context) error) error {
-	job := utxoSeedJob{ctx: ctx, fn: fn, done: make(chan error, 1)}
-	select {
-	case m.seedJobs <- job:
-		return <-job.done
-	case <-ctx.Done():
-		return ctx.Err()
 	}
 }
 
@@ -419,6 +399,9 @@ func (m *utxoManager) startSeed() error {
 }
 
 func (m *utxoManager) finishSeed(err error) {
+	if m.event != nil {
+		defer m.event(seedEvent(err))
+	}
 	m.mu.Lock()
 	replay := m.replayingLocked()
 	outcome := "ok"
@@ -834,6 +817,7 @@ func (a *app) newChainUtxo(node nodeConfig, chain *utxoChainParams, logger *log.
 	rpc := &rpcClient{url: node.RPCURL, user: node.RPCUser, password: node.RPCPassword, client: newInternalHTTPClient(2 * time.Minute), maxBody: 64 << 20}
 	m := newUtxoManager(node.UTXOIndexDir, nil, rpc, logger, chain)
 	m.blockWait = rpc
+	m.event = a.indexEvent(node.ID)
 	if a.cfg.stateDir != "" {
 		m.setSeedStatePath(filepath.Join(a.cfg.stateDir, node.ID+"-utxo-seed.json"))
 		dump := *rpc

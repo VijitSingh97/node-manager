@@ -8,10 +8,16 @@ trap 'rm -rf "$tmp"' EXIT
 export BITCOIN_STACK_DEFAULT_BIND_IP=192.168.50.10
 cp configure.sh "$tmp/"
 
-fail() {
-  echo "FAIL: $1"
-  exit 1
-}
+# shellcheck source=tests/lib.sh
+. tests/lib.sh
+
+# Config values are data: a shell payload in a setting must never run.
+inj=$(mktemp -d "$tmp/inject.XXXXXX")
+cp configure.sh "$inj/"
+# shellcheck disable=SC2016
+printf '{"dashboard":{"password":"configuretest12"},"bitcoin":{"node_username":"u$(touch %s/pwn1)`touch %s/pwn2`","node_password":"p'"'"'$(touch %s/pwn3)"}}\n' "$inj" "$inj" "$inj" >"$inj/config.json"
+(cd "$inj" && ./configure.sh) >/dev/null 2>&1 || true
+[ ! -e "$inj/pwn1" ] && [ ! -e "$inj/pwn2" ] && [ ! -e "$inj/pwn3" ] || fail "configure.sh ran shell code from config.json"
 
 # 1. A baseline dashboard password is required before configure renders defaults.
 (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "configure accepted a missing dashboard password"
@@ -57,6 +63,7 @@ grep -q '^LITECOIN_STEADY_MEM_LIMIT_MB=2048$' "$tmp/.env" || fail "Litecoin stea
 grep -q '^DOGECOIN_STEADY_MEM_LIMIT_MB=2048$' "$tmp/.env" || fail "Dogecoin steady memory default is not 2048 MB"
 grep -q '^BITCOINCASH_STEADY_MEM_LIMIT_MB=2048$' "$tmp/.env" || fail "Bitcoin Cash steady memory default is not 2048 MB"
 grep -q '^TARI_STEADY_MEM_LIMIT_MB=4096$' "$tmp/.env" || fail "Tari steady memory default is not 4096 MB"
+grep -q '^TARI_GRPC_EXTRA_METHODS=$' "$tmp/.env" || fail "Tari allows extra gRPC methods by default"
 grep -q '^DASHBOARD_ONION=0$' "$tmp/.env" || fail "fresh install dashboard onion default is not off"
 grep -q '^DASHBOARD_PUBLIC_URL=$' "$tmp/.env" || fail "fresh install dashboard public URL default is not empty"
 grep -q '^STACK_RESTART_POLICY=on-failure:5$' "$tmp/.env" || fail "fresh install restart policy is not crash-only"
@@ -292,6 +299,21 @@ grep -q '^BITCOIN_RPC_EXPOSE=1$' "$tmp/.env" || fail "rpc_expose=true not render
 grep -q '^BITCOIN_RPC_BIND_IP=192.168.1.118$' "$tmp/.env" || fail "RPC LAN bind not rendered"
 grep -q '^BITCOIN_RPC_PORT=18332$' "$tmp/.env" || fail "RPC host port not rendered"
 grep -q '^COMPOSE_FILE=docker-compose.yml:docker-compose.rpc.yml$' "$tmp/.env" || fail "RPC compose override not enabled"
+cp "$tmp/config.json" "$tmp/config.before-pause"
+printf '192.168.1.118 1000\n' >"$tmp/.paused-listeners"
+(cd "$tmp" && ./configure.sh) >/dev/null
+grep -q '^COMPOSE_FILE=docker-compose.yml$' "$tmp/.env" || fail "a paused LAN listener was still published"
+grep -q '^BITCOIN_RPC_EXPOSE=0$' "$tmp/.env" || fail "a paused LAN listener was rendered as exposed"
+cmp -s "$tmp/config.json" "$tmp/config.before-pause" || fail "pausing a LAN listener changed config.json"
+cp "$tmp/config.json" "$tmp/config.custom.json"
+printf '%s\n' '{"bitcoin":{"enabled":false},"monero":{"enabled":true,"zmq_expose":true,"zmq_bind_ip":"192.168.1.118"},"tari":{"enabled":true,"grpc_expose":true,"grpc_bind_ip":"192.168.1.118"},"dashboard":{"password":"dashpassword12","bind_ip":"127.0.0.1"}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null
+grep -q '^COMPOSE_FILE=docker-compose.yml:docker-compose.tari-wallet.yml$' "$tmp/.env" || fail "paused gRPC and ZMQ listeners were still published"
+grep -q '^MONERO_ZMQ_EXPOSE=0$' "$tmp/.env" || fail "a paused ZMQ listener was rendered as exposed"
+grep -q '^TARI_GRPC_EXPOSE=0$' "$tmp/.env" || fail "a paused gRPC listener was rendered as exposed"
+mv "$tmp/config.custom.json" "$tmp/config.json"
+rm -f "$tmp/.paused-listeners" "$tmp/config.before-pause"
+(cd "$tmp" && ./configure.sh) >/dev/null
 grep -q '^DASHBOARD_PASSWORD=dashpassword12$' "$tmp/.env" || fail "dashboard password not rendered"
 grep -q '^DASHBOARD_ONION=1$' "$tmp/.env" || fail "dashboard onion not rendered"
 grep -q '^DASHBOARD_BIND_IP=192.168.1.117$' "$tmp/.env" || fail "dashboard LAN bind not rendered"
@@ -441,6 +463,13 @@ grep -q '^DASHBOARD_BIND_IP=192.168.50.41$' "$tmp/.env" || fail "auto dashboard 
 (cd "$tmp" && BITCOIN_STACK_DEFAULT_BIND_IP=8.8.8.8 ./configure.sh) >"$tmp/auto-bind.out" 2>&1
 grep -q '^DASHBOARD_BIND_IP=127.0.0.1$' "$tmp/.env" || fail "auto dashboard bind did not fall back to loopback"
 grep -q 'No private LAN address detected' "$tmp/auto-bind.out" || fail "loopback fallback was not reported"
+cp "$tmp/.env" "$tmp/env.before"
+[ "$(cd "$tmp" && BITCOIN_STACK_DEFAULT_BIND_IP=192.168.50.44 ./configure.sh --detect-bind-ip)" = 192.168.50.44 ] || fail "bind detection did not print the LAN address"
+[ "$(cd "$tmp" && BITCOIN_STACK_DEFAULT_BIND_IP=8.8.8.8 ./configure.sh --detect-bind-ip 2>/dev/null)" = 127.0.0.1 ] || fail "bind detection did not fall back to loopback"
+for bad_ip in 10.999.0.1 10.0.0.300 192.168.1.999 010.0.0.1; do
+  [ "$(cd "$tmp" && BITCOIN_STACK_DEFAULT_BIND_IP=$bad_ip ./configure.sh --detect-bind-ip 2>/dev/null)" = 127.0.0.1 ] || fail "bind detection accepted invalid default $bad_ip"
+done
+cmp -s "$tmp/.env" "$tmp/env.before" || fail "bind detection rendered .env"
 echo '{"dashboard":{"bind_ip":"192.168.50.42"}}' >"$tmp/config.json"
 (cd "$tmp" && BITCOIN_STACK_DEFAULT_BIND_IP=192.168.50.43 ./configure.sh) >/dev/null
 grep -q '^DASHBOARD_BIND_IP=192.168.50.42$' "$tmp/.env" || fail "explicit dashboard bind was replaced by auto detection"
@@ -479,6 +508,19 @@ for rpc_port in 0 65536 -1 '"8332x"'; do
 done
 jq -n '{bitcoin:{rpc_expose:true,rpc_bind_ip:"192.168.1.117",rpc_port:80},dashboard:{bind_ip:"192.168.1.117",password:"fixturepassword12"}}' >"$tmp/config.json"
 (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "RPC/dashboard host port conflict was accepted"
+
+expect_config_error() {
+  local config=$1 expected=$2 out status=0
+  printf '%s\n' "$config" >"$tmp/config.json"
+  out=$(cd "$tmp" && ./configure.sh 2>&1) || status=$?
+  [ "$status" = 1 ] || fail "configure exited $status, not 1, for: $config"
+  [ "$out" = "$expected" ] || fail "configure said '$out', not '$expected', for: $config"
+}
+expect_config_error '{"dashboard":{"password":"fixturepassword12","port":70000}}' "dashboard.port must be a whole number from 1 to 65535."
+expect_config_error '{"bitcoin":{"rpc_port":0},"dashboard":{"password":"fixturepassword12"}}' "bitcoin.rpc_port must be a whole number from 1 to 65535."
+expect_config_error '{"monero":{"rpc_port":65536},"dashboard":{"password":"fixturepassword12"}}' "monero.rpc_port must be a whole number from 1 to 65535."
+expect_config_error '{"bitcoin":{"rpc_expose":true,"rpc_bind_ip":"192.168.1.117","rpc_port":80},"dashboard":{"bind_ip":"192.168.1.117","password":"fixturepassword12","port":80}}' "bitcoin.rpc_port conflicts with the dashboard on 192.168.1.117:80."
+expect_config_error '{"bitcoin":{"enabled":true,"node_password":"longbitcoinpassword123456789","rpc_expose":true,"rpc_bind_ip":"192.168.1.118","rpc_port":28081},"monero":{"enabled":true,"node_password":"longmoneropassword123456789","rpc_expose":true,"rpc_bind_ip":"192.168.1.118","rpc_port":28081},"dashboard":{"password":"fixturepassword12"}}' "monero.rpc_port conflicts with bitcoin.rpc_port on 192.168.1.118:28081."
 
 # network settings default on; false opts out and non-booleans are rejected
 echo '{"bitcoin": {"inbound_onion": false}}' >"$tmp/config.json"
@@ -541,6 +583,13 @@ echo '{"host": {"thermal_limit_c": 50, "thermal_resume_c": 1}}' >"$tmp/config.js
 (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "thermal resume 1 was accepted"
 echo '{"monero": {"mem_limit_mb": 5}}' >"$tmp/config.json"
 (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "monero mem_limit_mb 5 was accepted"
+echo '{"tari": {"grpc_extra_methods": ["list_headers", "get_blocks"]}}' >"$tmp/config.json"
+(cd "$tmp" && ./configure.sh) >/dev/null
+grep -q '^TARI_GRPC_EXTRA_METHODS=list_headers,get_blocks$' "$tmp/.env" || fail "tari grpc_extra_methods should render"
+for bad in '["ListHeaders"]' '"list_headers"' '["list_headers\"]"]' '[1]'; do
+  printf '{"tari": {"grpc_extra_methods": %s}}\n' "$bad" >"$tmp/config.json"
+  (cd "$tmp" && ./configure.sh) >/dev/null 2>&1 && fail "tari grpc_extra_methods $bad was accepted"
+done
 rm -f "$tmp/config.json"
 
 # 12. Passwordless and mixed protected ingress dashboards are rejected.

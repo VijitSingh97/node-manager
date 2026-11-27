@@ -25,7 +25,7 @@ docker-compose contract test, Go race/vet/unit checks, the frozen Python
 reference suite, and the same HTTP contract tests against both runtimes.
 Anything the machine can't run is skipped with a `SKIP:` line. CI
 ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the same suite
-plus a full image build on every push and PR.
+on every push and PR.
 
 ### Dashboard UI flow tests
 
@@ -47,8 +47,8 @@ node --test --test-name-pattern="Telegram" "build/dashboard/ui/*.test.mjs"
 
 Chrome is found from `$CHROME`, `google-chrome`, `google-chrome-stable`,
 `chromium`, or the macOS app. Without Chrome or a dashboard binary the flows skip
-locally with a message; with `CI=true` they fail instead. They are not part of
-`tests/run.sh`: CI runs them in their own "UI flows" step. New flows go in a new
+locally with a message; with `CI=true` they fail instead. `tests/run.sh` runs
+them with the dashboard binary it builds. New flows go in a new
 `*.test.mjs` file using `flow()` from `ui/harness.mjs`.
 
 This is phase 1: the Settings dialog and node Activate, Deactivate and Start.

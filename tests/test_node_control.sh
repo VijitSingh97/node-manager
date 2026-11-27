@@ -2,7 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-fail() { echo "FAIL: $1"; exit 1; }
+# shellcheck source=tests/lib.sh
+. tests/lib.sh
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 root=$tmp/root
@@ -10,7 +11,7 @@ state=$tmp/state
 config=$tmp/config
 dashboard_state=$tmp/dashboard
 mkdir -p "$root/scripts" "$state" "$config" "$dashboard_state"
-cp scripts/node-control "$root/scripts/"
+cp scripts/node-control scripts/helper-common.sh "$root/scripts/"
 : >"$root/scripts/node-port-control"
 cat >"$root/scripts/node-port-control" <<'EOF'
 #!/bin/sh
@@ -24,6 +25,7 @@ EOF
 cat >"$root/configure.sh" <<'EOF'
 #!/bin/sh
 set -eu
+[ "${1:-}" != --detect-bind-ip ] || { printf '%s\n' "$FAKE_DETECTED_BIND_IP"; exit 0; }
 jq -e 'type=="object"' "$BITCOIN_STACK_CONFIG_DIR/config.json" >/dev/null
 zdir=$(jq -r 'select(.zcash.address_index == true) | .zcash.data_dir // empty' "$BITCOIN_STACK_CONFIG_DIR/config.json")
 [ -z "$zdir" ] || [ ! -e "$zdir/old.db" ] || exit 1
@@ -35,11 +37,29 @@ if [ "${BITCOIN_STACK_VALIDATE_ONLY:-0}" != 1 ]; then
     exit 1
   fi
   printf 'DASHBOARD_PASSWORD=testpassword\n' >"$BITCOIN_STACK_STATE_DIR/.env"
+  [ -z "${FAKE_TOR_ENV:-}" ] || jq -r '"TOR_ONION_NODES=" + ([("bitcoin","litecoin","bitcoincash") as $n | select((if (.[$n]//{}|has("enabled")) then .[$n].enabled else $n=="bitcoin" end) and (if (.[$n]//{}|has("active")) then .[$n].active else true end)) | $n] | join(",")),
+    (select(has("zcash")) | "ZCASH_ACTIVE=" + (if .zcash.active == false then "0" else "1" end))' "$BITCOIN_STACK_CONFIG_DIR/config.json" >>"$BITCOIN_STACK_STATE_DIR/.env"
 fi
 EOF
 cat >"$root/stack" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$*" >>"$FAKE_STACK_LOG"
+[ "${1:-}" != up ] || [ "${BITCOIN_STACK_HELPER_START:-}" != 1 ] || printf 'helper-start\n' >>"$FAKE_STACK_LOG"
+if [ "${1:-}" = up ] && [ "${BITCOIN_STACK_CONFIG_LOCK_HELD:-0}" != 1 ]; then
+  exec 9>"$BITCOIN_STACK_STATE_DIR/.config.lock"
+  flock -n 9 || {
+    printf 'up-blocked-on-config-lock\n' >>"$FAKE_STACK_LOG"
+    exit 75
+  }
+fi
+if [ "${1:-}" = up ] && [ -f "$BITCOIN_STACK_STATE_DIR/.approved-config.json" ] && [ -f "$BITCOIN_STACK_CONFIG_DIR/config.json" ] &&
+  ! jq -S . "$BITCOIN_STACK_CONFIG_DIR/config.json" | cmp -s - "$BITCOIN_STACK_STATE_DIR/.approved-config.json"; then
+  printf 'up-with-unapproved-config\n' >>"$FAKE_STACK_LOG"
+fi
+if [ "${1:-}" = stop ] && [ -f "$BITCOIN_STACK_STATE_DIR/.approved-config.json" ] && [ -f "$BITCOIN_STACK_CONFIG_DIR/config.json" ] &&
+  jq -S . "$BITCOIN_STACK_CONFIG_DIR/config.json" | cmp -s - "$BITCOIN_STACK_STATE_DIR/.approved-config.json"; then
+  printf 'stop-with-change-already-approved\n' >>"$FAKE_STACK_LOG"
+fi
 if [ "${1:-}" = utxo-chainstate-copy ]; then
   [ -z "${FAKE_CLOCK:-}" ] || echo $(($(cat "$FAKE_CLOCK") + 300)) >"$FAKE_CLOCK"
   [ "${FAKE_COPY_STATUS:-0}" = 0 ] || exit "$FAKE_COPY_STATUS"
@@ -48,7 +68,7 @@ fi
   kill -KILL "$PPID"
   exit 1
 }
-[ "${FAKE_STACK_FAIL_ONCE:-0}" != 1 ] || {
+[ "${FAKE_STACK_FAIL_ONCE:-0}" != 1 ] || [ "${1:-}" = approve-rendered-config ] || {
   if [ ! -e "$FAKE_STACK_FAIL_MARKER" ]; then
     : >"$FAKE_STACK_FAIL_MARKER"
     [ -z "${FAKE_STACK_STDERR:-}" ] || printf '%s\n' "$FAKE_STACK_STDERR" >&2
@@ -63,7 +83,13 @@ fi
   fi
 }
 [ "${FAKE_STACK_FAIL_APPLY:-0}" != 1 ] || [ "${1:-}" != apply ] || exit 1
+[ -z "${FAKE_STACK_PULL_PROGRESS:-}" ] || [ "${1:-}" != pull ] || printf '%s\n' "$FAKE_STACK_PULL_PROGRESS" >&2
+[ "${FAKE_STACK_FAIL_CMD:-}" != "${1:-}" ] || {
+  [ -z "${FAKE_STACK_STDERR:-}" ] || printf '%s\n' "$FAKE_STACK_STDERR" >&2
+  exit 1
+}
 [ "${FAKE_STACK_FAIL:-0}" != 1 ] || exit 1
+[ "${FAKE_STACK_FAIL_ARGS:-}" != "$*" ] || exit 1
 [ "${1:-}" != apply ] || [ ! -f "${FAKE_RECREATE_TO:-/nonexistent}" ] || cp "$FAKE_RECREATE_TO" "$FAKE_SERVICE_IDS"
 if [ "${1:-}" = apply ] || [ "${1:-}" = approve-rendered-config ]; then
   jq -S . "$BITCOIN_STACK_CONFIG_DIR/config.json" >"$BITCOIN_STACK_STATE_DIR/.approved-config.tmp"
@@ -77,8 +103,14 @@ chmod +x "$root/configure.sh" "$root/stack" "$root/scripts/node-control" "$root/
 cat >"$tmp/docker" <<'EOF'
 #!/usr/bin/env bash
 set -eu
+[ -z "${FAKE_CALL_LOG:-}" ] || printf '%s\n' "$*" >>"$FAKE_CALL_LOG"
 if [ "$1" = ps ]; then
-  case "$*" in *status=exited*) [ "${FAKE_PS_FAIL:-0}" != 1 ] || exit 1 ;; esac
+  case "$*" in *'{{.State}}'*)
+    [ "${FAKE_PS_FAIL:-0}" != 1 ] || exit 1
+    [ "${FAKE_DASHBOARD_MISSING:-0}" = 1 ] || printf 'dashboard dashboard-id %s %s/docker-compose.yml\n' "${FAKE_DASHBOARD_STATE:-running}" "$BITCOIN_STACK_ROOT"
+    [ ! -f "${FAKE_SERVICE_IDS:-/nonexistent}" ] || awk -v state="${FAKE_START_STATES:+exited}" '{ print $1, $2, (state == "" ? "running" : state) }' "$FAKE_SERVICE_IDS"
+    exit 0 ;;
+  esac
   case "$*" in *--format*) [ ! -f "${FAKE_SERVICE_IDS:-/nonexistent}" ] || cat "$FAKE_SERVICE_IDS"; exit 0 ;; esac
   case "$*" in *--filter\ volume=*)
     [ "${FAKE_VOLUME_IN_USE:-0}" != 1 ] || printf 'container-using-volume\n'
@@ -97,7 +129,11 @@ fi
 if [ "$1" = inspect ]; then
   case "$3" in
     '{{.Id}}') [ "${FAKE_DASHBOARD_MISSING:-0}" = 1 ] || printf 'dashboard-id\n' ;;
-    *State.Error*) awk -v id="$4" '$1 == id { sub(/^[^ ]+ /, ""); print }' "${FAKE_START_STATES:-/nonexistent}" 2>/dev/null || true ;;
+    '{{.State.Status}}|{{.State.Error}}') awk -v id="$4" '$1 == id { sub(/^[^ ]+ /, ""); print }' "${FAKE_START_STATES:-/nonexistent}" 2>/dev/null || true ;;
+    *State.Error*)
+      for id in "${@:4}"; do
+        awk -v id="$id" '$1 == id { sub(/^[^ ]+ /, ""); print substr(id, 1, length(id) - 4) "|" $0 }' "${FAKE_START_STATES:-/nonexistent}" 2>/dev/null || true
+      done ;;
     *StartedAt*) printf '%s\n' "${FAKE_NODE_STARTED_AT:-}" ;;
     *RestartPolicy*) printf '%s/docker-compose.yml|on-failure|3\n' "$BITCOIN_STACK_ROOT" ;;
     *project.config_files*) printf '%s/docker-compose.yml\n' "$BITCOIN_STACK_ROOT" ;;
@@ -129,6 +165,14 @@ fi
   exit 0
 }
 [ "$1" = exec ] || exit 1
+if [ -n "${FAKE_EXEC_FAIL_ONCE:-}" ] && [ ! -e "$FAKE_EXEC_FAIL_ONCE" ]; then
+  : >"$FAKE_EXEC_FAIL_ONCE"
+  exit 1
+fi
+if [ -n "${FAKE_EXEC_ERROR:-}" ]; then
+  printf 'Error response from daemon: %s\n' "$FAKE_EXEC_ERROR" >&2
+  exit 1
+fi
 shift
 [ "${1:-}" != -i ] || shift
 if [ "${1:-}" = -u ]; then shift 2; fi
@@ -139,6 +183,13 @@ fi
 shift
 if [ "$1" = sh ] && [ "$2" = -c ]; then
   case "$3" in *node-delete.*) [ "${FAKE_HANDOFF_FAIL:-0}" != 1 ] || exit 1 ;; esac
+  case "$3" in *'wc -c < /state/node-control.processing'*)
+    if [ "${FAKE_INTAKE_EXEC_FAIL:-0}" = 1 ]; then
+      mv "$FAKE_DASH_STATE/node-control.request" "$FAKE_DASH_STATE/node-control.processing" 2>/dev/null || true
+      head -c 20 "$FAKE_DASH_STATE/node-control.processing"
+      exit 125
+    fi ;;
+  esac
   command=${3//\/state/$FAKE_DASH_STATE}
   exec sh -c "$command"
 fi
@@ -147,6 +198,15 @@ for arg in "$@"; do args+=("${arg//\/state/$FAKE_DASH_STATE}"); done
 exec "${args[@]}"
 EOF
 chmod +x "$tmp/docker"
+cat >"$tmp/ifaddrs" <<'EOF'
+#!/bin/sh
+for address in $FAKE_HOST_ADDRESSES; do printf '2: eth0    inet %s/%s brd 192.168.1.255 scope global eth0\n' "$address" "${FAKE_HOST_PREFIX:-24}"; done
+EOF
+cat >"$tmp/ifconfig" <<'EOF'
+#!/bin/sh
+for address in $FAKE_HOST_ADDRESSES; do printf 'en0: flags=8863<UP>\n\tinet %s netmask 0xffffff00 broadcast 192.168.1.255\n' "$address"; done
+EOF
+chmod +x "$tmp/ifaddrs" "$tmp/ifconfig"
 cat >"$config/config.json" <<'EOF'
 {"bitcoin":{"enabled":true,"active":true},"monero":{"enabled":true,"active":true},"tari":{"enabled":true,"active":true},"litecoin":{"enabled":false,"data_dir":"/preset/litecoin","resource_profile":"compact","steady_cpus":0.75,"steady_mem_limit_mb":3072},"dogecoin":{"enabled":false},"bitcoincash":{"enabled":false}}
 EOF
@@ -164,6 +224,7 @@ export FAKE_STACK_INTERRUPT_ON_PULL=0
 export FAKE_DASHBOARD_MISSING=0
 export FAKE_DOCKER_LOG=$tmp/stack.log FAKE_VOLUMES=$tmp/volumes FAKE_CONTAINERS='' FAKE_VOLUME_IN_USE=0 FAKE_VOLUME_RM_FAIL=0
 export NODE_CONTROL_ARCH=x86_64 NODE_CONTROL_CPU_FLAGS="fpu sse4_2 avx2 bmi1 bmi2 adx"
+export IP_BIN=$tmp/ifaddrs IFCONFIG_BIN=$tmp/ifconfig FAKE_HOST_ADDRESSES="127.0.0.1 192.168.1.20" FAKE_DETECTED_BIND_IP=192.168.1.20
 
 request() { rm -f "$dashboard_state"/*utxo-seed.request; printf '%s\n' "$1" >"$dashboard_state/node-control.request"; }
 status() { jq -r "$1" "$dashboard_state/node-control.status"; }
@@ -176,6 +237,7 @@ jq -e --arg config_path "$config_real/config.json" --arg bitcoin_path "$root/dat
 ' "$dashboard_state/node-control.capability" >/dev/null || fail "host catalog paths were not published"
 [ "$(jq -r .tari.active "$config/config.json")" = false ] || fail "Tari was not deactivated"
 grep -qx 'stop tari-wallet tari' "$tmp/stack.log" || fail "Tari wallet was not stopped before its node"
+! grep -qx stop-with-change-already-approved "$tmp/stack.log" || fail "deactivation was approved before the node stopped"
 [ "$(status .state)" = applied ] || fail "deactivation status was not applied"
 [ -s "$state/.approved.env" ] || fail "deactivation did not approve its rendered environment"
 [ "$(jq -r '.bitcoin,.monero,.tari' "$dashboard_state/node-runtime.json" | tr '\n' ' ')" = 'true true false ' ] || fail "runtime state map is wrong"
@@ -190,7 +252,10 @@ request '{"id":"22222222222222222222222222222222","node":"tari","active":true,"c
 "$root/scripts/node-control"
 [ "$(jq -r .tari.active "$config/config.json")" = true ] || fail "Tari was not reactivated"
 grep -qx 'up tari tari-wallet' "$tmp/stack.log" || fail "Tari node was not started before its wallet"
+grep -qx helper-start "$tmp/stack.log" || fail "activation did not mark its start as the helper's"
 [ "$(jq -r .tari.active "$state/.approved-config.json")" = true ] || fail "node state did not advance approved config"
+! grep -qx up-blocked-on-config-lock "$tmp/stack.log" || fail "activation waited on the config lock it already holds"
+! grep -qx up-with-unapproved-config "$tmp/stack.log" || fail "activation started the node from the old approved config"
 
 : >"$tmp/stack.log"
 request '{"id":"2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a","node":"tari","active":true,"confirmation":"","requested_at":1000}'
@@ -212,12 +277,21 @@ printf '%4097s' x >"$dashboard_state/node-control.request"
 [ "$(status .error_code)" = invalid_request ] || fail "oversized request was not rejected"
 [ ! -e "$dashboard_state/node-control.processing" ] || fail "oversized request remained stuck"
 
+request '{"id":"5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a","node":"bitcoin","active":true,"confirmation":"","requested_at":1000}'
+FAKE_INTAKE_EXEC_FAIL=1 "$root/scripts/node-control"
+[ -f "$dashboard_state/node-control.processing" ] || fail "a request read cut off partway lost the request"
+[ "$(status .id)" != 5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a ] || fail "a failed request read rejected the request"
+"$root/scripts/node-control"
+[ "$(status .id):$(status .state)" = 5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a:applied ] || fail "a request was not applied after a failed read"
+
 request '{"id":"44444444444444444444444444444444","node":"monero","active":false,"confirmation":"deactivate","requested_at":1000}'
 FAKE_STACK_FAIL_ONCE=1 "$root/scripts/node-control"
 [ "$(jq -r .monero.active "$config/config.json")" = true ] || fail "failed apply did not restore config"
 [ "$(status .error_code)" = apply_failed ] || fail "failed apply lacked typed status"
-tail -n 2 "$tmp/stack.log" | grep -qx 'stop monero-wallet monero' || fail "failed Monero apply was not attempted"
-tail -n 2 "$tmp/stack.log" | grep -qx 'up monero monero-wallet' || fail "partial Monero stop was not restored"
+! grep -qx up-with-unapproved-config "$tmp/stack.log" || fail "rollback restarted the node from the failed change"
+grep -vx approve-rendered-config "$tmp/stack.log" | tail -n 2 | head -n 1 | grep -qx 'stop monero-wallet monero' || fail "failed Monero apply was not attempted"
+grep -vx approve-rendered-config "$tmp/stack.log" | tail -n 1 | grep -qx 'up monero monero-wallet' || fail "partial Monero stop was not restored"
+[ "$(jq -r .monero.active "$state/.approved-config.json")" = true ] || fail "failed apply left the change approved"
 
 request '{"id":"45454545454545454545454545454545","node":"bitcoin","active":false,"confirmation":"deactivate","requested_at":1000}'
 FAKE_CONFIGURE_FAIL_ONCE=1 "$root/scripts/node-control"
@@ -246,6 +320,93 @@ request '{"action":"install","id":"67676767676767676767676767676767","node":"dog
 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 [ "$(status .id)" = 67676767676767676767676767676767 ] || fail "stale install response lost its request ID"
 [ "$(status .error_code)" = invalid_request ] || fail "stale install request was accepted"
+
+activation_id=0
+power() {
+  activation_id=$((activation_id + 1))
+  request "$(printf '{"id":"c%031d","node":"%s","active":%s,"confirmation":"%s","requested_at":1000}' "$activation_id" "$1" "$2" "$([ "$2" = true ] && printf '' || printf deactivate)")"
+  "$root/scripts/node-control"
+}
+line_of() { grep -nx -- "$1" "$tmp/stack.log" | head -n 1 | cut -d: -f1; }
+no_activation_errors() { ! compgen -G "$state/node-control/.activate-errors.*" >/dev/null; }
+
+: >"$tmp/stack.log"
+power litecoin false
+[ "$(status .state)" = applied ] || fail "Litecoin was not deactivated"
+! grep -q '^pull' "$tmp/stack.log" || fail "deactivation pulled images"
+: >"$tmp/stack.log"
+power litecoin true
+[ "$(status .state)" = applied ] || fail "Litecoin was not activated: $(cat "$dashboard_state/node-control.status")"
+[ "$(grep -c '^pull' "$tmp/stack.log")" = 1 ] || fail "activation did not pull exactly once"
+[ "$(line_of 'pull --policy missing litecoin')" -lt "$(line_of 'up litecoin')" ] || fail "activation did not pull its image before starting it"
+[ -z "$(status '.error_code // ""')" ] && [ -z "$(status '.detail // ""')" ] || fail "a successful activation reported an error"
+no_activation_errors || fail "a successful activation left its error file"
+power monero false
+: >"$tmp/stack.log"
+power monero true
+[ "$(status .state)" = applied ] || fail "Monero was not activated"
+grep -qx 'pull --policy missing monero monero-wallet' "$tmp/stack.log" || fail "Monero activation did not pull both of its images"
+[ "$(line_of 'pull --policy missing monero monero-wallet')" -lt "$(line_of 'up monero monero-wallet')" ] || fail "Monero activation did not pull before starting"
+
+power litecoin false
+: >"$tmp/stack.log"
+FAKE_TOR_ENV=1 power litecoin true
+[ "$(status .state)" = applied ] || fail "Litecoin was not activated with inbound Tor: $(cat "$dashboard_state/node-control.status")"
+grep -qx 'TOR_ONION_NODES=litecoin' "$state/.env" || fail "activation did not render Litecoin's onion service"
+grep -qx 'up tor' "$tmp/stack.log" || fail "activation that adds an onion service did not recreate Tor"
+[ "$(line_of 'up tor')" -lt "$(line_of 'up litecoin')" ] || fail "Tor was not recreated before the node read its onion address"
+: >"$tmp/stack.log"
+FAKE_TOR_ENV=1 power litecoin true
+! grep -qx 'up tor' "$tmp/stack.log" || fail "an unchanged onion list recreated Tor"
+: >"$tmp/stack.log"
+FAKE_TOR_ENV=1 power litecoin false
+[ "$(status .state)" = applied ] || fail "Litecoin was not deactivated with inbound Tor"
+grep -qx 'up tor' "$tmp/stack.log" || fail "deactivation that removes an onion service did not recreate Tor"
+[ "$(line_of 'stop litecoin')" -lt "$(line_of 'up tor')" ] || fail "Tor was recreated before the node stopped"
+! grep -qx up-with-unapproved-config "$tmp/stack.log" || fail "Tor was recreated from the old approved config"
+: >"$tmp/stack.log"
+FAKE_STACK_FAIL_ARGS='up litecoin' FAKE_TOR_ENV=1 power litecoin true
+[ "$(status .state):$(status .error_code)" = failed:apply_failed ] || fail "a failed onion activation was not rolled back: $(cat "$dashboard_state/node-control.status")"
+[ "$(grep -cx 'up tor' "$tmp/stack.log")" = 2 ] || fail "rollback did not recreate Tor with the prior onion list"
+grep -qx 'TOR_ONION_NODES=' "$state/.env" || fail "rollback did not restore the prior onion list"
+: >"$tmp/stack.log"
+FAKE_STACK_FAIL_ARGS='up tor' FAKE_TOR_ENV=1 power litecoin true
+[ "$(status .error_code)" = rollback_failed ] || fail "a Tor that could not be restored was not reported"
+grep -qx 'stop litecoin' "$tmp/stack.log" || fail "rollback skipped the node when Tor could not be restored"
+
+: >"$tmp/stack.log"
+FAKE_STACK_FAIL_CMD=pull FAKE_STACK_STDERR="$(printf 'Pulling litecoin\n\033[31mError response from daemon: manifest unknown\033[0m\n')" power litecoin true
+[ "$(status .state):$(status .error_code)" = failed:image_unavailable ] || fail "a failed pull lacked its typed status: $(cat "$dashboard_state/node-control.status")"
+[ "$(status .message)" = 'Node image could not be downloaded; prior state restored.' ] || fail "a failed pull had the wrong message"
+[ "$(status .detail)" = 'Error response from daemon: manifest unknown' ] || fail "a failed pull did not report its last error: $(status .detail)"
+[ "$(jq -r .litecoin.active "$config/config.json")" = false ] || fail "a failed pull did not restore config"
+[ "$(jq -r .litecoin.active "$state/.approved-config.json")" = false ] || fail "a failed pull left the change approved"
+! grep -q '^up ' "$tmp/stack.log" || fail "a failed pull still tried to start the node"
+grep -q 'Host: Litecoin activation failed: Error response from daemon: manifest unknown$' "$dashboard_state/events.log" || fail "a failed pull was not logged as a host event"
+no_activation_errors || fail "a failed pull left its error file"
+
+: >"$tmp/stack.log"
+FAKE_STACK_FAIL_CMD=up FAKE_STACK_STDERR='Error response from daemon: port is already allocated' power litecoin true
+[ "$(status .state):$(status .error_code)" = failed:apply_failed ] || fail "a failed start lacked its typed status: $(cat "$dashboard_state/node-control.status")"
+[ "$(status .detail)" = 'Error response from daemon: port is already allocated' ] || fail "a failed start did not report its last error"
+grep -qx 'pull --policy missing litecoin' "$tmp/stack.log" || fail "a failed start skipped the pull"
+[ "$(jq -r .litecoin.active "$config/config.json")" = false ] || fail "a failed start did not restore config"
+grep -q 'Host: Litecoin activation failed: Error response from daemon: port is already allocated$' "$dashboard_state/events.log" || fail "a failed start was not logged as a host event"
+no_activation_errors || fail "a failed start left its error file"
+
+FAKE_STACK_PULL_PROGRESS='Container litecoin Pulled' FAKE_STACK_FAIL_CMD=up power litecoin true
+[ "$(status .error_code)" = apply_failed ] || fail "a silent failed start lacked its typed status"
+[ -z "$(status '.detail // ""')" ] || fail "a successful pull's progress was reported as the failure: $(status .detail)"
+! grep -q 'Container litecoin Pulled' "$dashboard_state/events.log" || fail "a successful pull's progress reached the event log"
+
+FAKE_STACK_FAIL_CMD=pull FAKE_STACK_STDERR='invalid rpc password abc123' power litecoin true
+[ "$(status .error_code)" = image_unavailable ] || fail "a secret-looking pull failure lacked its typed status"
+[ -z "$(status '.detail // ""')" ] || fail "a failure line naming a password was reported"
+! grep -q 'abc123' "$dashboard_state/events.log" || fail "a failure line naming a password reached the event log"
+grep -q 'Host: Litecoin activation failed$' "$dashboard_state/events.log" || fail "a failure without a safe detail was not logged"
+
+power litecoin true
+[ "$(status .state)" = applied ] || fail "Litecoin was not activated again"
 
 request '{"action":"install","id":"68686868686868686868686868686868","node":"bitcoincash","requested_at":1000}'
 FAKE_STACK_INTERRUPT_ON_PULL=1 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control" >/dev/null 2>&1 || true
@@ -718,6 +879,13 @@ cp "$state/.env" "$state/.approved.env"
 request '{"action":"install","id":"a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2","node":"zcash","requested_at":1000}'
 BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
 jq -e '.zcash.enabled == true and .zcash.address_index == null' "$config/config.json" >/dev/null || fail "zcash reinstall over a used data dir did not fall back to index off"
+cp "$state/.env" "$tmp/env.keep"
+printf 'TOR_ONION_NODES=\nZCASH_ACTIVE=1\n' >>"$state/.env"
+: >"$tmp/stack.log"
+FAKE_TOR_ENV=1 power zcash false
+[ "$(status .state)" = applied ] || fail "Zcash was not deactivated: $(cat "$dashboard_state/node-control.status")"
+grep -qx 'up tor' "$tmp/stack.log" || fail "deactivating Zcash did not recreate Tor to close its seed relays"
+cp "$tmp/env.keep" "$state/.env"
 
 index_install() {
   mkdir -p "$tmp/index-data"
@@ -788,6 +956,41 @@ FAKE_PORT_CHECK_RESULT=port_in_use:litecoin_rpc BITCOIN_STACK_PACKAGE_MANAGED=1 
 [ "$(status .error_code)" = port_in_use ] || fail "install port conflict lacked typed status"
 [ "$(status .port)" = litecoin_rpc ] || fail "install port conflict lost its interface"
 [ "$(shasum -a 256 "$config/config.json")" = "$before_conflict" ] || fail "install port conflict changed configuration"
+
+flat=$tmp/flat
+mkdir -p "$flat"
+cp scripts/node-control scripts/helper-common.sh "$root/scripts/node-port-control" "$root/stack" "$root/configure.sh" "$root/docker-compose.yml" "$flat/"
+request '{"action":"install","data_dir":"/srv/nodes/litecoin","id":"0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a","interfaces":[{"enabled":true,"host_port":29332,"id":"litecoin_rpc"}],"node":"litecoin","requested_at":1000}'
+BITCOIN_STACK_ROOT=$flat FAKE_PORT_CHECK_RESULT=port_in_use:litecoin_rpc BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$flat/node-control"
+[ "$(status .error_code)" = port_in_use ] || fail "flat package layout could not run the port check"
+no_common=$tmp/no-common
+mkdir -p "$no_common"
+for helper in node-control node-port-control node-resource-profile; do
+  cp "scripts/$helper" "$no_common/"
+  if "$no_common/$helper" >/dev/null 2>"$tmp/no-common.err"; then fail "$helper ran without helper-common.sh"; fi
+  grep -q 'helper-common.sh is missing' "$tmp/no-common.err" || fail "$helper did not say helper-common.sh is missing"
+done
+[ "$("$no_common/node-port-control" --check-ports '[]' 2>/dev/null || true)" = port_check_failed ] || fail "port check without helper-common.sh did not fail closed"
+seen_ring=$tmp/seen-ring
+for n in $(seq 1 300); do (. scripts/helper-common.sh && remember_seen_id "$seen_ring" "id-$n"); done
+[ "$(wc -l <"$seen_ring" | tr -d ' ')" = 256 ] && [ "$(head -n 1 "$seen_ring")" = id-45 ] && [ "$(tail -n 1 "$seen_ring")" = id-300 ] || fail "seen ring did not keep the newest 256 ids"
+[ "$(stat -c %a "$seen_ring" 2>/dev/null || stat -f %Lp "$seen_ring")" = 600 ] || fail "seen ring is not mode 600"
+for line in 'rpcpassword=hunter2' 'Authorization: Bearer abc' 'connect to http://user:pw@host failed' "key $(printf 'a%.0s' $(seq 1 40))" 'my cookie here' 'my onion here' 'pub1abc' 'api key x' 'apikey x' 'seed x' 'token x' 'secret x' 'login x' 'mnemonic x' 'private x' 'phrase x' 'prv x'; do
+  printf 'earlier line\n%s\n' "$line" >"$tmp/redact.log"
+  [ "$(. scripts/helper-common.sh && redact_last_line fallback <"$tmp/redact.log")" = fallback ] || fail "redact_last_line kept a secret-looking line from stdin: $line"
+  [ "$(. scripts/helper-common.sh && redact_last_line fallback "$tmp/redact.log")" = fallback ] || fail "redact_last_line kept a secret-looking line from a file: $line"
+done
+long=$(printf 'word %.0s' $(seq 1 60))
+printf '%s\n' "$long" >"$tmp/redact.log"
+[ "$(. scripts/helper-common.sh && redact_last_line fallback <"$tmp/redact.log" | tr -d '\n' | wc -c | tr -d ' ')" = 240 ] || fail "redact_last_line did not cap at 240 characters"
+printf '\033[31mboom\033[0m\n' >"$tmp/redact.log"
+[ "$(. scripts/helper-common.sh && redact_last_line fallback <"$tmp/redact.log")" = boom ] || fail "redact_last_line kept an ANSI escape"
+printf 'Error response from daemon: port is already allocated\n' >"$tmp/redact.log"
+[ "$(. scripts/helper-common.sh && redact_last_line fallback <"$tmp/redact.log")" = 'Error response from daemon: port is already allocated' ] || fail "redact_last_line dropped a safe line"
+request '{"action":"install","id":"1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b","node":"litecoin","requested_at":1000}'
+BITCOIN_STACK_PACKAGE_MANAGED=1 NODE_CONTROL_OS=Linux "$root/scripts/node-control"
+[ "$(status .state)" = applied ] || fail "Litecoin install was not applied: $(status .message)"
+[ "$(jq -r .litecoin.steady_mem_limit_mb "$config/config.json")" = 2048 ] || fail "dashboard-installed Litecoin did not get the 2048 MiB default"
 
 # --- migrate ---
 jq '.bitcoincash.enabled=true | .bitcoincash.active=true' "$config/config.json" >"$config/.config.tmp"
@@ -1207,5 +1410,238 @@ NODE_CONTROL_NOW_EPOCH=1690 recover_nc
 grep -qx 'up --force-recreate tor' "$tmp/stack.log" || fail "a due recovery was not retried"
 [ ! -s "$state/node-control/recover" ] || fail "a retried recovery did not clear its entry"
 [ "$(grep -c 'recreated it' "$dashboard_state/events.log")" = 2 ] || fail "the retried recovery was not logged"
+: >"$tmp/docker-calls"
+NODE_CONTROL_NOW_EPOCH=1700 FAKE_CALL_LOG=$tmp/docker-calls recover_nc
+heartbeat_line=$(grep -n '^exec -i -u 1000 dashboard-id sh -c' "$tmp/docker-calls" | head -n 1 | cut -d: -f1)
+recover_line=$(grep -n '^inspect --format {{index' "$tmp/docker-calls" | head -n 1 | cut -d: -f1)
+[ -n "$heartbeat_line" ] && [ -n "$recover_line" ] && [ "$heartbeat_line" -lt "$recover_line" ] ||
+  fail "the capability heartbeat waited for container recovery: $(cat "$tmp/docker-calls")"
+printf '900.12 1800.00\n' >"$tmp/uptime"
+if NODE_CONTROL_UPTIME_FILE=$tmp/uptime FAKE_EXEC_FAIL_ONCE=$tmp/exec-failed run_nc; then
+  fail "a run that could not reach the dashboard long after boot reported success"
+fi
+printf '120.50 240.00\n' >"$tmp/uptime"
+NODE_CONTROL_NOW_EPOCH=1800 NODE_CONTROL_UPTIME_FILE=$tmp/uptime FAKE_EXEC_FAIL_ONCE=$tmp/exec-failed-at-boot run_nc ||
+  fail "a run right after boot gave up while the dashboard was starting"
+[ -e "$tmp/exec-failed-at-boot" ] && [ "$(jq -r .timestamp "$dashboard_state/node-control.capability")" = 1800 ] ||
+  fail "a run right after boot did not publish once the dashboard answered"
+printf '900.12 1800.00\n' >"$tmp/uptime"
+dashboard_files() { find "$dashboard_state" -type f -exec cksum {} + | sort; }
+dashboard_before=$(dashboard_files)
+for down in 'exited|container dashboard-id is not running' 'running|container dashboard-id is not running' \
+  'restarting|Container dashboard-id is restarting, wait until the container is running' 'removing|No such container: dashboard-id'; do
+  NODE_CONTROL_NOW_EPOCH=1900 NODE_CONTROL_UPTIME_FILE=$tmp/uptime FAKE_DASHBOARD_STATE=${down%%|*} FAKE_EXEC_ERROR=${down#*|} run_nc 2>"$tmp/stderr" ||
+    fail "a run while the dashboard was ${down%%|*} (${down#*|}) failed its unit"
+  grep -qF "${down#*|}" "$tmp/stderr" || fail "a skipped run hid the Docker error: $(cat "$tmp/stderr")"
+done
+[ "$(dashboard_files)" = "$dashboard_before" ] || fail "a run while the dashboard was down wrote dashboard state"
+if NODE_CONTROL_UPTIME_FILE=$tmp/uptime FAKE_EXEC_ERROR='Container dashboard-id is paused, unpause the container before exec' run_nc 2>/dev/null; then
+  fail "a run that could not reach a paused dashboard reported success"
+fi
+
+jq -S . "$config/config.json" >"$state/.approved-config.json"
+mkdir -p "$tmp/jq-shim"
+printf '#!/bin/sh\nprintf x >>"%s"\nexec "%s" "$@"\n' "$tmp/jq-calls" "$(command -v jq)" >"$tmp/jq-shim/jq"
+chmod +x "$tmp/jq-shim/jq"
+: >"$tmp/jq-calls"
+: >"$tmp/docker-calls"
+NODE_CONTROL_NOW_EPOCH=2000 FAKE_CALL_LOG=$tmp/docker-calls PATH="$tmp/jq-shim:$PATH" run_nc
+[ "$(jq -r .timestamp "$dashboard_state/node-control.capability")" = 2000 ] || fail "an idle tick did not refresh the host capability"
+{ [ "$(grep -c '^[a-z]' "$tmp/docker-calls")" = 2 ] && grep -q '^ps -a ' "$tmp/docker-calls" && grep -q '^exec -i -u 1000 dashboard-id sh -c' "$tmp/docker-calls"; } ||
+  fail "an idle tick made more than one listing and one exec: $(cat "$tmp/docker-calls")"
+[ "$(wc -c <"$tmp/jq-calls" | tr -d ' ')" -le 4 ] || fail "an idle tick ran jq $(wc -c <"$tmp/jq-calls" | tr -d ' ') times"
+request '{"id":"7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f","node":"tari","active":true,"confirmation":"","requested_at":2000}'
+NODE_CONTROL_NOW_EPOCH=2000 run_nc
+[ "$(status .id):$(status .state)" = 7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f:applied ] && [ ! -e "$dashboard_state/node-control.request" ] ||
+  fail "a triggered run did not take the waiting request"
+
+timer_seconds() { value=$(sed -n "s/^$1=\([0-9]*\)s$/\1/p" "$2"); printf '%s\n' "${value:-$3}"; }
+timer=packaging/systemd/node-manager-node-control.timer
+age=$(sed -n 's/^const nodeControlCapabilityAge = \([0-9]*\) \* time.Second$/\1/p' build/dashboard/node_control.go)
+interval=$(timer_seconds OnUnitActiveSec "$timer" '')
+slack=$(($(timer_seconds AccuracySec "$timer" 60) + $(timer_seconds RandomizedDelaySec "$timer" 0)))
+[ -n "$age" ] && [ -n "$interval" ] && [ $((interval + slack + 20)) -le "$age" ] ||
+  fail "the node-control heartbeat (${interval:-?} s plus ${slack} s of timer slack) does not refresh the capability 20 s inside the dashboard's ${age:-?} s limit"
+[ "$interval" -ge 60 ] || fail "the node-control timer runs more often than its heartbeat needs"
+unit=packaging/systemd/node-manager-node-control.path
+grep -qx 'Unit=node-manager-node-control.service' "$unit" || fail "the request watch does not start node-control"
+grep -qx 'StartLimitBurst=30' packaging/systemd/node-manager-node-control.service || fail "a burst of requests would trip the start limit and stop the request watch"
+! grep -q '^PathExists' "$unit" || fail "a level-triggered watch would loop on a request the helper leaves in place"
+for project in node-manager-apt bitcoin-starter-stack-apt; do
+  grep -qx "PathChanged=/var/lib/docker/volumes/${project}_dashboard_state/_data/node-control.request" "$unit" ||
+    fail "the request watch misses the $project dashboard volume"
+done
+{ grep -qx '      - dashboard_state:/state' docker-compose.yml && grep -q "fresh_project='node-manager-apt'" stack &&
+  grep -q 'legacy_project=bitcoin-starter-stack-apt' stack; } || fail "the dashboard volume or APT project name changed; update the request watch"
+
+
+rm -f "$state/node-control/recover" "$dashboard_state/events.log"
+printf 'tor tor-ctr\n' >"$tmp/drift-ids"
+printf 'tor-ctr running|\n' >"$tmp/drift-states"
+jq '.dashboard.bind_ip="auto" | .bitcoin.rpc_expose=true | .bitcoin.rpc_bind_ip="192.168.1.20" | .monero.zmq_bind_ip="192.168.1.99"' "$state/.approved-config.json" >"$tmp/drift-approved.json"
+mv "$tmp/drift-approved.json" "$state/.approved-config.json"
+jq '.bitcoin.dbcache_mb=999' "$state/.approved-config.json" >"$config/config.json"
+printf 'DASHBOARD_PASSWORD=testpassword\nDASHBOARD_BIND_IP=192.168.1.20\n' >"$state/.env"
+drift_nc() {
+  : >"$tmp/stack.log"
+  NODE_CONTROL_NOW_EPOCH=$1 FAKE_HOST_ADDRESSES=$2 FAKE_DETECTED_BIND_IP=$3 FAKE_CONTAINERS=tor FAKE_START_STATES=$tmp/drift-states run_nc
+}
+drift_moved() { grep -qx 'up tor dashboard' "$tmp/stack.log"; }
+drift_state() { cat "$state/node-control/bind-address" 2>/dev/null || true; }
+drift_nc 1000 "127.0.0.1 192.168.1.20" 192.168.1.20
+[ "$(drift_state)" = 192.168.1.20 ] || fail "a present address was not remembered"
+! drift_moved || fail "a present address was treated as changed"
+drift_nc 1000 "127.0.0.1 192.168.1.30" 192.168.1.30
+! drift_moved || fail "a new address was acted on without waiting"
+drift_nc 1059 "127.0.0.1 192.168.1.30" 192.168.1.30
+! drift_moved || fail "a new address was acted on before a minute"
+drift_nc 1062 "127.0.0.1 192.168.1.20" 192.168.1.20
+drift_nc 1070 "127.0.0.1 192.168.1.30" 192.168.1.30
+drift_nc 1125 "127.0.0.1 192.168.1.30" 192.168.1.30
+! drift_moved || fail "a brief return of the old address did not restart the wait"
+drift_nc 1129 "127.0.0.1 192.168.1.31" 192.168.1.31
+drift_nc 1185 "127.0.0.1 192.168.1.31" 192.168.1.31
+! drift_moved || fail "a second new address did not restart the wait"
+drift_nc 1190 127.0.0.1 127.0.0.1
+drift_nc 1300 127.0.0.1 127.0.0.1
+[ "$(drift_state)" = 192.168.1.20 ] || fail "a lost network forgot the last LAN address"
+! drift_moved || fail "a lost network moved the dashboard to loopback"
+drift_nc 1300 "127.0.0.1 192.168.1.30" 192.168.1.30
+printf '192.168.1.20 192.168.1.30 \n' >"$state/node-control/bind-address"
+drift_nc 1301 "127.0.0.1 192.168.1.30" 192.168.1.30
+[ "$(drift_state)" = '192.168.1.20 192.168.1.30 1301' ] || fail "a truncated drift record was not restarted"
+drift_nc 1361 "127.0.0.1 192.168.1.30" 192.168.1.30
+drift_moved || fail "a lasting address change did not restart the dashboard: $(cat "$tmp/stack.log")"
+! grep -Eq '^(apply|approve-rendered-config)' "$tmp/stack.log" || fail "an address change approved the pending config"
+[ "$(jq -c '[.bitcoin.rpc_bind_ip, .monero.zmq_bind_ip, .bitcoin.dbcache_mb]' "$config/config.json")" = '["192.168.1.30","192.168.1.99",999]' ] ||
+  fail "an address change did not move only the LAN listeners on the old address in the pending config"
+[ "$(jq -c '[.bitcoin.rpc_bind_ip, .monero.zmq_bind_ip, .bitcoin.dbcache_mb]' "$state/.approved-config.json")" = '["192.168.1.30","192.168.1.99",null]' ] ||
+  fail "an address change did not move only the LAN listeners on the old address in the approved config"
+grep -q 'Host: Moved the dashboard from 192.168.1.20 to 192.168.1.30, this host.s current LAN address. Moved LAN listeners on the same LAN with it: bitcoin RPC.$' "$dashboard_state/events.log" ||
+  fail "the move did not name the moved listeners: $(cat "$dashboard_state/events.log")"
+[ ! -e "$state/.paused-listeners" ] || fail "a listener on the same LAN was paused"
+drift_nc 1400 "127.0.0.1 192.168.1.30" 192.168.1.30
+! drift_moved || fail "a failed move was retried without a change"
+[ "$(grep -c 'Moved' "$dashboard_state/events.log")" = 1 ] || fail "a failed move was logged again"
+
+rm -f "$dashboard_state/events.log"
+printf '192.168.1.20\n' >"$state/node-control/bind-address"
+for drift_config in "$config/config.json" "$state/.approved-config.json"; do
+  jq '.bitcoin.rpc_bind_ip="192.168.1.20"' "$drift_config" >"$tmp/drift-config.json"
+  mv "$tmp/drift-config.json" "$drift_config"
+done
+printf 'DASHBOARD_PASSWORD=testpassword\nDASHBOARD_BIND_IP=192.168.1.30\n' >"$state/.env"
+printf 'tor-ctr exited|failed to bind host port 192.168.1.20:8332/tcp: cannot assign requested address\n' >"$tmp/drift-states"
+drift_nc 2000 "127.0.0.1 192.168.1.30" 192.168.1.30
+NODE_CONTROL_OS=Darwin FAKE_SERVICE_IDS=$tmp/drift-ids drift_nc 2060 "127.0.0.1 192.168.1.30" 192.168.1.30
+drift_moved || fail "LAN listeners left behind by an earlier render were not moved"
+[ "$(jq -r .bitcoin.rpc_bind_ip "$state/.approved-config.json")" = 192.168.1.30 ] || fail "a listener left behind kept the old address"
+grep -q 'Host: Moved the dashboard from 192.168.1.20 to 192.168.1.30, this host.s current LAN address. Moved LAN listeners on the same LAN with it: bitcoin RPC.$' "$dashboard_state/events.log" ||
+  fail "the listener move was not logged: $(cat "$dashboard_state/events.log")"
+drift_nc 2070 "127.0.0.1 192.168.1.30" 192.168.1.30
+[ "$(drift_state)" = 192.168.1.30 ] || fail "the new address was not remembered after the move"
+
+rm -f "$dashboard_state/events.log"
+for drift_config in "$config/config.json" "$state/.approved-config.json"; do
+  jq '.bitcoin.rpc_bind_ip="192.168.1.20" | .tari.grpc_expose=true | .tari.grpc_bind_ip="192.168.1.20" | .monero.zmq_expose=true | .monero.zmq_bind_ip="192.168.1.20"' "$drift_config" >"$tmp/drift-config.json"
+  mv "$tmp/drift-config.json" "$drift_config"
+done
+cp "$config/config.json" "$tmp/drift-pending.json"
+cp "$state/.approved-config.json" "$tmp/drift-approved-before.json"
+printf '192.168.1.20\n' >"$state/node-control/bind-address"
+printf 'DASHBOARD_PASSWORD=testpassword\nDASHBOARD_BIND_IP=192.168.1.20\n' >"$state/.env"
+printf 'tor-ctr running|\n' >"$tmp/drift-states"
+drift_nc 2500 "127.0.0.1 10.0.0.5" 10.0.0.5
+drift_nc 2560 "127.0.0.1 10.0.0.5" 10.0.0.5
+drift_moved || fail "a move to another network did not restart the dashboard"
+cmp -s "$config/config.json" "$tmp/drift-pending.json" || fail "listeners followed the host onto another network in config.json"
+cmp -s "$state/.approved-config.json" "$tmp/drift-approved-before.json" || fail "listeners followed the host onto another network in the approved config"
+[ "$(cat "$state/.paused-listeners")" = 192.168.1.20 ] || fail "listeners on a lost network were not paused"
+grep -q 'Host: Moved the dashboard from 192.168.1.20 to 10.0.0.5, this host.s current LAN address. Paused LAN listeners whose address is not on this network: bitcoin RPC, monero ZMQ, tari gRPC. Re-point them from Settings to use this network.$' "$dashboard_state/events.log" ||
+  fail "the pause did not name the paused listeners: $(cat "$dashboard_state/events.log")"
+[ "$(grep -c 'Host:' "$dashboard_state/events.log")" = 1 ] || fail "a move to another network logged more than one event"
+printf 'DASHBOARD_PASSWORD=testpassword\nDASHBOARD_BIND_IP=10.0.0.5\n' >"$state/.env"
+drift_nc 2600 "127.0.0.1 10.0.0.5" 10.0.0.5
+! drift_moved || fail "a paused listener was published while its address was gone"
+[ -s "$state/.paused-listeners" ] || fail "a paused listener was dropped while its address was gone"
+drift_nc 2610 "127.0.0.1 10.0.0.5 192.168.1.20" 10.0.0.5
+! drift_moved || fail "a paused listener was published the moment its address returned"
+drift_nc 2669 "127.0.0.1 10.0.0.5 192.168.1.20" 10.0.0.5
+! drift_moved || fail "a paused listener was published before its address held for a minute"
+drift_nc 2670 "127.0.0.1 10.0.0.5 192.168.1.20" 10.0.0.5
+drift_moved || fail "a paused listener was not published again when its address returned"
+[ ! -e "$state/.paused-listeners" ] || fail "a published listener stayed paused"
+grep -q 'Host: Published LAN listeners again now that their address is back: bitcoin RPC, monero ZMQ, tari gRPC.$' "$dashboard_state/events.log" ||
+  fail "publishing again was not logged"
+
+printf '192.168.1.20\n' >"$state/node-control/bind-address"
+printf 'DASHBOARD_PASSWORD=testpassword\nDASHBOARD_BIND_IP=192.168.1.20\n' >"$state/.env"
+FAKE_HOST_PREFIX=32 drift_nc 2700 "127.0.0.1 192.168.1.30" 192.168.1.30
+FAKE_HOST_PREFIX=32 drift_nc 2760 "127.0.0.1 192.168.1.30" 192.168.1.30
+[ "$(jq -r .bitcoin.rpc_bind_ip "$state/.approved-config.json")" = 192.168.1.20 ] || fail "a /32 address was treated as the same LAN"
+[ "$(cat "$state/.paused-listeners")" = 192.168.1.20 ] || fail "listeners were not paused next to a /32 address"
+rm -f "$state/.paused-listeners"
+
+rm -f "$dashboard_state/events.log"
+for drift_config in "$config/config.json" "$state/.approved-config.json"; do
+  jq '.bitcoin.rpc_expose=false | .tari.grpc_expose=false | .monero.zmq_expose=false' "$drift_config" >"$tmp/drift-config.json"
+  mv "$tmp/drift-config.json" "$drift_config"
+done
+printf '192.168.1.20\n' >"$state/node-control/bind-address"
+printf 'DASHBOARD_PASSWORD=testpassword\nDASHBOARD_BIND_IP=192.168.1.30\n' >"$state/.env"
+drift_nc 2800 "127.0.0.1 192.168.1.30" 192.168.1.30
+drift_nc 2860 "127.0.0.1 192.168.1.30" 192.168.1.30
+drift_moved || fail "the dashboard kept its old address after the failed-start recovery re-rendered first"
+grep -q 'Host: Moved the dashboard from 192.168.1.20 to 192.168.1.30, this host.s current LAN address.$' "$dashboard_state/events.log" ||
+  fail "the dashboard move after an earlier render was not logged: $(cat "$dashboard_state/events.log")"
+
+printf 'DASHBOARD_PASSWORD=testpassword\nDASHBOARD_BIND_IP=192.168.1.20\n' >"$state/.env"
+rm -f "$state/node-control/bind-address"
+printf 'tor-ctr exited|\n' >"$tmp/drift-states"
+drift_nc 3000 "127.0.0.1 192.168.1.30" 192.168.1.30
+drift_nc 3060 "127.0.0.1 192.168.1.30" 192.168.1.30
+! drift_moved || fail "a stopped stack was started by an address change"
+[ "$(drift_state)" = 192.168.1.20 ] || fail "a stopped stack forgot the last LAN address"
+
+printf 'tor-ctr running|\n' >"$tmp/drift-states"
+printf 'DASHBOARD_PASSWORD=testpassword\nDASHBOARD_BIND_IP=127.0.0.1\n' >"$state/.env"
+rm -f "$state/node-control/bind-address" "$dashboard_state/events.log"
+drift_nc 3100 "127.0.0.1 192.168.1.30" 192.168.1.30
+NODE_CONTROL_OS=Darwin drift_nc 3160 "127.0.0.1 192.168.1.30" 192.168.1.30
+drift_moved || fail "a loopback fallback was not moved to the LAN once it appeared"
+grep -q 'Host: Moved the dashboard from 127.0.0.1 to 192.168.1.30' "$dashboard_state/events.log" || fail "the loopback move was not logged"
+
+rm -f "$state/node-control/bind-address" "$dashboard_state/events.log"
+cp "$config/config.json" "$tmp/drift-pending.json"
+jq '.dashboard.bind_ip="192.168.1.20"' "$state/.approved-config.json" >"$tmp/drift-approved.json"
+mv "$tmp/drift-approved.json" "$state/.approved-config.json"
+printf 'DASHBOARD_PASSWORD=testpassword\nDASHBOARD_BIND_IP=192.168.1.20\n' >"$state/.env"
+drift_nc 4000 "127.0.0.1 192.168.1.30" 192.168.1.30
+drift_nc 4060 "127.0.0.1 192.168.1.30" 192.168.1.30
+drift_nc 4120 "127.0.0.1 192.168.1.30" 192.168.1.30
+! drift_moved || fail "a fixed dashboard address was changed"
+[ "$(grep -c 'Host: dashboard.bind_ip 192.168.1.20 is not on this host' "$dashboard_state/events.log")" = 1 ] || fail "a missing fixed address was not warned about once"
+cmp -s "$config/config.json" "$tmp/drift-pending.json" || fail "a missing fixed address touched the config"
+drift_nc 4130 "127.0.0.1 192.168.1.20" 192.168.1.20
+[ "$(drift_state)" = 192.168.1.20 ] || fail "a returned fixed address kept its warning record"
+
+[ "$(. scripts/helper-common.sh && node_label bitcoincash && node_label monero)" = "$(printf 'Bitcoin Cash\nMonero')" ] || fail "node_label did not name the nodes"
+helper_events=$tmp/helper-events
+helper_docker=$tmp/helper-docker
+printf '#!/bin/sh\ncat >> "%s"\n' "$helper_events" >"$helper_docker"
+chmod +x "$helper_docker"
+(. scripts/helper-common.sh && docker_bin=$helper_docker dashboard_id=x host_event "hello" && docker_bin=$helper_docker dashboard_id=x host_event "late" 2030-01-02T03:04:05)
+[ "$(sed -n 1p "$helper_events" | sed 's/^[0-9T:-]*Z Host: /Z /')" = "Z hello" ] && [ "$(sed -n 1p "$helper_events" | cut -c20)" = Z ] && [ "$(sed -n 2p "$helper_events")" = "2030-01-02T03:04:05Z Host: late" ] || fail "host_event wrote the wrong event line"
+helper_ip=$tmp/helper-ip
+printf '#!/bin/sh\necho "2: eth0    inet 192.168.1.20/24 brd 192.168.1.255 scope global eth0"\n' >"$helper_ip"
+chmod +x "$helper_ip"
+(. scripts/helper-common.sh && ip_bin=$helper_ip host_os=Linux host_has_ipv4 192.168.1.20 && ! ip_bin=$helper_ip host_os=Linux host_has_ipv4 192.168.1.2) || fail "host_has_ipv4 matched the wrong address"
+helper_other_ip=$tmp/helper-other-ip
+printf '#!/bin/sh\necho "2: eth0    inet 10.9.9.9/24 scope global eth0"\n' >"$helper_other_ip"
+chmod +x "$helper_other_ip"
+helper_ifconfig=$tmp/helper-ifconfig
+printf '#!/bin/sh\necho "\tinet 192.168.1.20 netmask 0xffffff00"\n' >"$helper_ifconfig"
+chmod +x "$helper_ifconfig"
+(. scripts/helper-common.sh && ip_bin=$helper_other_ip ifconfig_bin=$helper_ifconfig host_os=Darwin host_has_ipv4 192.168.1.20 && ! ip_bin=$helper_other_ip ifconfig_bin=$helper_ifconfig host_os=Darwin host_has_ipv4 192.168.1.2) || fail "host_has_ipv4 did not use ifconfig on Darwin"
 
 echo "PASS: test_node_control.sh"

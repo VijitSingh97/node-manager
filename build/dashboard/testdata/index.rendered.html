@@ -1,0 +1,531 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Node Manager</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon.png?v=tower-1">
+  <link rel="stylesheet" href="/static/dashboard.css">
+  <script src="/static/theme-init.js"></script>
+</head>
+
+<body class="center" data-node="" data-command="./stack">
+  <canvas id="tower"></canvas><div id="tower-label"></div>
+  <div id="tower-overview-label-bitcoin" class="tower-overview-label tower-overview-label-bitcoin" style="--node-accent:#f2a900;--node-text:var(--nt-bitcoin)" hidden>loading block <b></b></div>
+  <div id="tower-overview-label-monero" class="tower-overview-label tower-overview-label-monero" style="--node-accent:#ff6600;--node-text:var(--nt-monero)" hidden>loading block <b></b></div>
+  <div id="tower-overview-label-tari" class="tower-overview-label tower-overview-label-tari" style="--node-accent:#8f5cff;--node-text:var(--nt-tari)" hidden>loading block <b></b></div>
+  <div id="tower-overview-label-litecoin" class="tower-overview-label tower-overview-label-litecoin" style="--node-accent:#4d8fd8;--node-text:var(--nt-litecoin)" hidden>loading block <b></b></div>
+  <div id="tower-overview-label-dogecoin" class="tower-overview-label tower-overview-label-dogecoin" style="--node-accent:#b88746;--node-text:var(--nt-dogecoin)" hidden>loading block <b></b></div>
+  <div id="tower-overview-label-bitcoincash" class="tower-overview-label tower-overview-label-bitcoincash" style="--node-accent:#36a852;--node-text:var(--nt-bitcoincash)" hidden>loading block <b></b></div>
+  <div id="tower-overview-label-zcash" class="tower-overview-label tower-overview-label-zcash" style="--node-accent:#d69c35;--node-text:var(--nt-zcash)" hidden>loading block <b></b></div>
+  <button id="theme-toggle" class="theme-toggle" title="Toggle light / dark theme" aria-label="Switch theme, now Auto">Auto</button>
+  <aside id="update-notice" class="update-notice update-notice-global" role="status" hidden></aside>
+  <main id="node-overview" class="node-overview" aria-label="Choose a node">
+    <div id="host-stats" class="host-stats" hidden>
+      <div class="host-stats-health" data-host-health role="group" aria-label="Host vitals" hidden></div>
+      <p class="host-stats-line" data-host-line></p>
+      <div class="host-stats-disk" data-host-disk></div>
+      <div class="host-stats-pies" data-host-pies hidden></div>
+    </div>
+    <h1 class="node-set-title">bitcoin-node Node Set</h1><p id="node-overview-status" role="status">Loading node set…</p>
+    <button class="node-choice node-choice-bitcoin" type="button" data-select-node="bitcoin" hidden data-node-active="1" style="--node-accent:#f2a900;--node-text:var(--nt-bitcoin)" aria-label="Bitcoin" aria-controls="bitcoin-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Bitcoin</b><small data-tower-price-asset="bitcoin">Price unavailable</small></span></button>
+    <button class="node-choice node-choice-monero" type="button" data-select-node="monero" hidden data-node-active="1" style="--node-accent:#ff6600;--node-text:var(--nt-monero)" aria-label="Monero" aria-controls="monero-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Monero</b><small data-tower-price-asset="monero">Price unavailable</small></span></button>
+    <button class="node-choice node-choice-tari" type="button" data-select-node="tari" hidden data-node-active="1" style="--node-accent:#8f5cff;--node-text:var(--nt-tari)" aria-label="Tari" aria-controls="tari-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Tari</b><small data-tower-price-asset="tari">Price unavailable</small></span></button>
+    <button class="node-choice node-choice-litecoin" type="button" data-select-node="litecoin" hidden data-node-active="1" style="--node-accent:#4d8fd8;--node-text:var(--nt-litecoin)" aria-label="Litecoin" aria-controls="litecoin-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Litecoin</b><small data-tower-price-asset="litecoin">Price unavailable</small></span></button>
+    <button class="node-choice node-choice-dogecoin" type="button" data-select-node="dogecoin" hidden data-node-active="1" style="--node-accent:#b88746;--node-text:var(--nt-dogecoin)" aria-label="Dogecoin" aria-controls="dogecoin-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Dogecoin</b><small data-tower-price-asset="dogecoin">Price unavailable</small></span></button>
+    <button class="node-choice node-choice-bitcoincash" type="button" data-select-node="bitcoincash" hidden data-node-active="1" style="--node-accent:#36a852;--node-text:var(--nt-bitcoincash)" aria-label="Bitcoin Cash" aria-controls="bitcoincash-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Bitcoin Cash</b><small data-tower-price-asset="bitcoin-cash">Price unavailable</small></span></button>
+    <button class="node-choice node-choice-zcash" type="button" data-select-node="zcash" hidden data-node-active="0" style="--node-accent:#d69c35;--node-text:var(--nt-zcash)" aria-label="Zcash" aria-controls="zcash-panel" aria-expanded="false"><span class="node-choice-label" aria-hidden="true"><b>Zcash</b><small data-tower-price-asset="zcash">Unavailable</small></span></button>
+  </main>
+  <div id="node-close-backdrop" class="node-close-backdrop" aria-hidden="true"></div>
+  <div id="bitcoin-panel" class="stack-col node-panel" data-node-panel="bitcoin" hidden>
+    <button class="node-panel-close" type="button" data-close-node aria-label="Close Bitcoin status">✕</button>
+    <section class="card node-inactive-state"><h2>Bitcoin</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>
+    <div id="tower-stats" class="tower-stats" hidden></div>
+    <div id="live" data-blocks="0" data-next-block="0" data-sync-percent="0.000000" data-node-size="0">
+      
+      <div class="card">
+        <h2>Bitcoin Node Status<span class="badge">Full</span></h2>
+        <p class="node-state"></p>
+        <div class="row"><span class="label">Version:</span> <span></span></div>
+        <div class="row"><span class="label">Uptime:</span> <span></span></div>
+        <div class="row"><span class="label">Connections:</span> <span>0 in · 0 out</span></div>
+        <hr>
+        <div class="row"><span class="label">Blocks:</span> <span>0 / 0</span></div>
+        <div class="progress-bg"><div class="progress-fill" style="width: 0.0000%"></div></div>
+        <div class="row"><span class="label">Sync progress:</span> <span>0.0000%</span></div>
+        <div id="index-bar-bitcoin" class="index-bar" hidden><div class="row"><span class="label">Balance index:</span><span class="index-bar-label"></span></div><div class="progress-bg" role="progressbar" aria-label="Balance index" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill index-bar-fill" style="width:0%"></div></div></div>
+        <div class="row"><span class="label">Latest block:</span> <span></span></div>
+        <div class="row"><span class="label">Node data size:</span> <span>—</span></div>
+        
+        <section id="btc-price" data-price-asset="bitcoin" hidden>
+          <hr>
+          <div class="price-row">
+            <span class="price-label">Bitcoin price</span>
+            <strong id="btc-price-value" class="price-value" data-price-value>—</strong>
+            <select id="btc-price-currency" class="price-currency" data-price-currency aria-label="Bitcoin price currency"></select>
+            <span id="btc-price-status" class="price-status" data-price-status>Price unavailable</span>
+          </div>
+        </section>
+        <hr>
+        <div class="row"><span class="label">RPC:</span> <span>Disabled</span></div>
+        <p class="node-state">LAN access is off.</p>
+        <div class="footer"><span>Updated: <time data-updated-at="0"></time></span><span>v1.2.3</span><span>Auto-refresh: 30s</span></div>
+      </div>
+    </div>
+    <section id="watch" class="card watch-card" hidden></section>
+    <section class="card node-power-card" style="--node-accent:#f2a900;--node-text:var(--nt-bitcoin)">
+      <h2>Node controls</h2>
+      <p id="bitcoin-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
+      <button type="button" class="node-power-button" data-node-power="bitcoin">Deactivate node</button>
+    </section>
+  </div>
+
+  <div id="monero-panel" class="stack-col node-panel" data-node-panel="monero" hidden>
+    <button class="node-panel-close" type="button" data-close-node aria-label="Close Monero status">✕</button>
+    <section class="card node-inactive-state"><h2>Monero</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>
+    <div id="monero-tower-stats" class="tower-stats monero-wallets" hidden></div>
+    <section id="monero-live" class="card monero-card">
+      <h2>Monero Node Status<span id="monero-badge" class="badge monero-badge">Loading</span></h2>
+      <p id="monero-state" class="node-state">Connecting to Monero… Still stuck? Run ./stack doctor.</p>
+      <div id="monero-details" hidden>
+        <div class="row"><span class="label">Version:</span> <span id="monero-version">—</span></div>
+        <div class="row"><span class="label">Uptime:</span> <span id="monero-uptime">—</span></div>
+        <div class="row"><span class="label">Connections:</span> <span id="monero-connections">—</span></div>
+        <hr>
+        <div class="row"><span class="label">Blocks:</span> <span id="monero-blocks">—</span></div>
+        <div class="progress-bg"><div id="monero-progress" class="progress-fill monero-progress" style="width: 0%"></div></div>
+        <div class="row"><span class="label">Sync progress:</span> <span id="monero-sync">—</span></div>
+        <div class="row"><span class="label">Node data size:</span> <span id="monero-size">—</span></div>
+        <hr>
+        <div class="row"><span class="label">Mempool:</span> <span id="monero-mempool">—</span></div>
+        <div class="row"><span class="label">Difficulty:</span> <span id="monero-difficulty">—</span></div>
+        <div class="row"><span class="label">Network hashrate:</span> <span id="monero-hashrate">—</span></div>
+        <div class="row"><span class="label">Latest block:</span> <span id="monero-last-block">—</span></div>
+        <div class="row"><span class="label">Fee (XMR/kB):</span> <span id="monero-fees">—</span></div>
+        <div class="spark-row"><span class="label">Normal fee XMR/kB (24h)</span><canvas class="spark" id="spark-monero-fee"></canvas></div>
+        <section id="monero-price" data-price-asset="monero" hidden>
+          <hr>
+          <div class="price-row">
+            <span class="price-label">Monero price</span>
+            <strong class="price-value" data-price-value>—</strong>
+            <select class="price-currency" data-price-currency aria-label="Monero price currency"></select>
+            <span class="price-status" data-price-status>Price unavailable</span>
+          </div>
+        </section>
+        <hr>
+        <div class="row"><span class="label">RPC:</span> <span id="monero-rpc-exposure">Disabled</span></div>
+        <div class="row"><span class="label">ZMQ:</span> <span id="monero-zmq-exposure">Disabled</span></div>
+        <p id="monero-lan-note" class="node-state">LAN access is off.</p>
+        <div class="footer"><span id="monero-updated">Updated: —</span><span>v1.2.3</span><span>Auto-refresh: 30s</span></div>
+      </div>
+    </section>
+    <section id="monero-watch" class="card watch-card monero-wallets" hidden></section>
+    <section class="card node-power-card" style="--node-accent:#ff6600;--node-text:var(--nt-monero)">
+      <h2>Node controls</h2>
+      <p id="monero-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
+      <button type="button" class="node-power-button" data-node-power="monero">Deactivate node</button>
+    </section>
+  </div>
+  <div id="tari-panel" class="stack-col node-panel chain-panel" data-node-panel="tari" style="--node-accent:#8f5cff;--node-text:var(--nt-tari)" hidden>
+    <button class="node-panel-close" type="button" data-close-node aria-label="Close Tari status">✕</button>
+    <section class="card node-inactive-state"><h2>Tari</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>
+    <div class="tower-stats" data-wallet-tower="tari" hidden></div>
+    <section id="tari-live" class="card chain-card">
+      <h2>Tari Node Status<span id="tari-badge" class="badge">Loading</span></h2>
+      <p id="tari-state" class="node-state">Connecting to Tari… Still stuck? Run ./stack doctor.</p>
+      <div id="tari-details" hidden>
+        <div class="row"><span class="label">Version:</span><span id="tari-version">—</span></div>
+        <div class="row"><span class="label">Uptime:</span><span id="tari-uptime">—</span></div>
+        <div class="row"><span class="label">Connections:</span><span id="tari-connections">—</span></div>
+        <hr>
+        <div class="row"><span class="label">Blocks:</span><span id="tari-blocks">—</span></div>
+        <div class="progress-bg"><div id="tari-progress" class="progress-fill" style="width:0%"></div></div>
+        <div class="row"><span class="label">Sync progress:</span><span id="tari-sync">—</span></div>
+        <div class="row"><span class="label">Node data size:</span><span id="tari-size">—</span></div>
+        <hr>
+        <div class="row"><span class="label">Mempool:</span><span id="tari-mempool">—</span></div>
+        <div class="row"><span class="label">Latest block:</span><span id="tari-last-block">—</span></div>
+        <div id="tari-fee-section" hidden><div class="row"><span id="tari-fee-unit" class="label">Fee estimates:</span><span id="tari-fees">—</span></div><div class="spark-row"><span class="label">Fee (24h)</span><canvas class="spark" id="spark-tari-fee"></canvas></div></div>
+        <section data-price-asset="tari" hidden><hr><div class="price-row"><span class="price-label">Tari price</span><strong class="price-value" data-price-value>—</strong><select class="price-currency" data-price-currency aria-label="Tari price currency"></select><span class="price-status" data-price-status>Price unavailable</span></div></section>
+        <hr>
+        <div class="row"><span class="label">gRPC:</span><span id="tari-rpc-exposure">—</span></div>
+        <div class="footer"><span id="tari-updated">Updated: —</span><span>v1.2.3</span><span>Auto-refresh: 30s</span></div>
+      </div>
+    </section>
+    <section id="tari-watch" class="card chain-wallet-card watch-card"><h2>Watch-only wallets</h2><p class="node-state">Loading wallet service…</p></section>
+    <section class="card node-power-card" style="--node-accent:#8f5cff;--node-text:var(--nt-tari)">
+      <h2>Node controls</h2>
+      <p id="tari-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
+      <button type="button" class="node-power-button" data-node-power="tari">Deactivate node</button>
+    </section>
+  </div>
+  <div id="litecoin-panel" class="stack-col node-panel chain-panel" data-node-panel="litecoin" style="--node-accent:#4d8fd8;--node-text:var(--nt-litecoin)" hidden>
+    <button class="node-panel-close" type="button" data-close-node aria-label="Close Litecoin status">✕</button>
+    <section class="card node-inactive-state"><h2>Litecoin</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>
+    <div class="tower-stats" data-wallet-tower="litecoin" hidden></div>
+    <section id="litecoin-live" class="card chain-card">
+      <h2>Litecoin Node Status<span id="litecoin-badge" class="badge">Loading</span></h2>
+      <p id="litecoin-state" class="node-state">Connecting to Litecoin… Still stuck? Run ./stack doctor.</p>
+      <div id="litecoin-details" hidden>
+        <div class="row"><span class="label">Version:</span><span id="litecoin-version">—</span></div>
+        <div class="row"><span class="label">Uptime:</span><span id="litecoin-uptime">—</span></div>
+        <div class="row"><span class="label">Connections:</span><span id="litecoin-connections">—</span></div>
+        <hr>
+        <div class="row"><span class="label">Blocks:</span><span id="litecoin-blocks">—</span></div>
+        <div class="progress-bg"><div id="litecoin-progress" class="progress-fill" style="width:0%"></div></div>
+        <div class="row"><span class="label">Sync progress:</span><span id="litecoin-sync">—</span></div>
+        <div id="index-bar-litecoin" class="index-bar" hidden><div class="row"><span class="label">Balance index:</span><span class="index-bar-label"></span></div><div class="progress-bg" role="progressbar" aria-label="Balance index" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill index-bar-fill" style="width:0%"></div></div></div>
+        <div class="row"><span class="label">Node data size:</span><span id="litecoin-size">—</span></div>
+        <hr>
+        <div class="row"><span class="label">Mempool:</span><span id="litecoin-mempool">—</span></div>
+        <div class="row"><span class="label">Latest block:</span><span id="litecoin-last-block">—</span></div>
+        <div id="litecoin-fee-section" hidden><div class="row"><span id="litecoin-fee-unit" class="label">Fee estimates:</span><span id="litecoin-fees">—</span></div><div class="spark-row"><span class="label">Fee (24h)</span><canvas class="spark" id="spark-litecoin-fee"></canvas></div></div>
+        <section data-price-asset="litecoin" hidden><hr><div class="price-row"><span class="price-label">Litecoin price</span><strong class="price-value" data-price-value>—</strong><select class="price-currency" data-price-currency aria-label="Litecoin price currency"></select><span class="price-status" data-price-status>Price unavailable</span></div></section>
+        <hr>
+        <div class="row"><span class="label">RPC:</span><span id="litecoin-rpc-exposure">—</span></div>
+        <p class="node-state">LAN access is optional and uses a separate node login.</p>
+        <div class="footer"><span id="litecoin-updated">Updated: —</span><span>v1.2.3</span><span>Auto-refresh: 30s</span></div>
+      </div>
+    </section>
+    <section class="card chain-wallet-card watch-card" data-family-watch="litecoin"><h2>Watch-only wallets</h2><p class="node-state" data-family-watch-status>Loading wallet capabilities…</p><div data-family-watch-list></div></section>
+    <section id="utxo-index-litecoin" class="card watch-card" hidden></section>
+    <section class="card node-power-card" style="--node-accent:#4d8fd8;--node-text:var(--nt-litecoin)">
+      <h2>Node controls</h2>
+      <p id="litecoin-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
+      <button type="button" class="node-power-button" data-node-power="litecoin">Deactivate node</button>
+    </section>
+  </div>
+  <div id="dogecoin-panel" class="stack-col node-panel chain-panel" data-node-panel="dogecoin" style="--node-accent:#b88746;--node-text:var(--nt-dogecoin)" hidden>
+    <button class="node-panel-close" type="button" data-close-node aria-label="Close Dogecoin status">✕</button>
+    <section class="card node-inactive-state"><h2>Dogecoin</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>
+    <div class="tower-stats" data-wallet-tower="dogecoin" hidden></div>
+    <section id="dogecoin-live" class="card chain-card">
+      <h2>Dogecoin Node Status<span id="dogecoin-badge" class="badge">Loading</span></h2>
+      <p id="dogecoin-state" class="node-state">Connecting to Dogecoin… Still stuck? Run ./stack doctor.</p>
+      <div id="dogecoin-details" hidden>
+        <div class="row"><span class="label">Version:</span><span id="dogecoin-version">—</span></div>
+        <div class="row"><span class="label">Uptime:</span><span id="dogecoin-uptime">—</span></div>
+        <div class="row"><span class="label">Connections:</span><span id="dogecoin-connections">—</span></div>
+        <hr>
+        <div class="row"><span class="label">Blocks:</span><span id="dogecoin-blocks">—</span></div>
+        <div class="progress-bg"><div id="dogecoin-progress" class="progress-fill" style="width:0%"></div></div>
+        <div class="row"><span class="label">Sync progress:</span><span id="dogecoin-sync">—</span></div>
+        <div id="index-bar-dogecoin" class="index-bar" hidden><div class="row"><span class="label">Balance index:</span><span class="index-bar-label"></span></div><div class="progress-bg" role="progressbar" aria-label="Balance index" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill index-bar-fill" style="width:0%"></div></div></div>
+        <div class="row"><span class="label">Node data size:</span><span id="dogecoin-size">—</span></div>
+        <hr>
+        <div class="row"><span class="label">Mempool:</span><span id="dogecoin-mempool">—</span></div>
+        <div class="row"><span class="label">Latest block:</span><span id="dogecoin-last-block">—</span></div>
+        <div id="dogecoin-fee-section" hidden><div class="row"><span id="dogecoin-fee-unit" class="label">Fee estimates:</span><span id="dogecoin-fees">—</span></div><div class="spark-row"><span class="label">Fee (24h)</span><canvas class="spark" id="spark-dogecoin-fee"></canvas></div></div>
+        <section data-price-asset="dogecoin" hidden><hr><div class="price-row"><span class="price-label">Dogecoin price</span><strong class="price-value" data-price-value>—</strong><select class="price-currency" data-price-currency aria-label="Dogecoin price currency"></select><span class="price-status" data-price-status>Price unavailable</span></div></section>
+        <hr>
+        <div class="row"><span class="label">RPC:</span><span id="dogecoin-rpc-exposure">—</span></div>
+        <p class="node-state">LAN access is optional and uses a separate node login.</p>
+        <div class="footer"><span id="dogecoin-updated">Updated: —</span><span>v1.2.3</span><span>Auto-refresh: 30s</span></div>
+      </div>
+    </section>
+    <section class="card chain-wallet-card watch-card" data-family-watch="dogecoin"><h2>Watch-only wallets</h2><p class="node-state" data-family-watch-status>Loading wallet capabilities…</p><div data-family-watch-list></div></section>
+    <section id="utxo-index-dogecoin" class="card watch-card" hidden></section>
+    <section class="card node-power-card" style="--node-accent:#b88746;--node-text:var(--nt-dogecoin)">
+      <h2>Node controls</h2>
+      <p id="dogecoin-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
+      <button type="button" class="node-power-button" data-node-power="dogecoin">Deactivate node</button>
+    </section>
+  </div>
+  <div id="bitcoincash-panel" class="stack-col node-panel chain-panel" data-node-panel="bitcoincash" style="--node-accent:#36a852;--node-text:var(--nt-bitcoincash)" hidden>
+    <button class="node-panel-close" type="button" data-close-node aria-label="Close Bitcoin Cash status">✕</button>
+    <section class="card node-inactive-state"><h2>Bitcoin Cash</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>
+    <div class="tower-stats" data-wallet-tower="bitcoincash" hidden></div>
+    <section id="bitcoincash-live" class="card chain-card">
+      <h2>Bitcoin Cash Node Status<span id="bitcoincash-badge" class="badge">Loading</span></h2>
+      <p id="bitcoincash-state" class="node-state">Connecting to Bitcoin Cash… Still stuck? Run ./stack doctor.</p>
+      <div id="bitcoincash-details" hidden>
+        <div class="row"><span class="label">Version:</span><span id="bitcoincash-version">—</span></div>
+        <div class="row"><span class="label">Uptime:</span><span id="bitcoincash-uptime">—</span></div>
+        <div class="row"><span class="label">Connections:</span><span id="bitcoincash-connections">—</span></div>
+        <hr>
+        <div class="row"><span class="label">Blocks:</span><span id="bitcoincash-blocks">—</span></div>
+        <div class="progress-bg"><div id="bitcoincash-progress" class="progress-fill" style="width:0%"></div></div>
+        <div class="row"><span class="label">Sync progress:</span><span id="bitcoincash-sync">—</span></div>
+        <div id="index-bar-bitcoincash" class="index-bar" hidden><div class="row"><span class="label">Balance index:</span><span class="index-bar-label"></span></div><div class="progress-bg" role="progressbar" aria-label="Balance index" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill index-bar-fill" style="width:0%"></div></div></div>
+        <div class="row"><span class="label">Node data size:</span><span id="bitcoincash-size">—</span></div>
+        <hr>
+        <div class="row"><span class="label">Mempool:</span><span id="bitcoincash-mempool">—</span></div>
+        <div class="row"><span class="label">Latest block:</span><span id="bitcoincash-last-block">—</span></div>
+        <div id="bitcoincash-fee-section" hidden><div class="row"><span id="bitcoincash-fee-unit" class="label">Fee estimates:</span><span id="bitcoincash-fees">—</span></div><div class="spark-row"><span class="label">Fee (24h)</span><canvas class="spark" id="spark-bitcoincash-fee"></canvas></div></div>
+        <section data-price-asset="bitcoin-cash" hidden><hr><div class="price-row"><span class="price-label">Bitcoin Cash price</span><strong class="price-value" data-price-value>—</strong><select class="price-currency" data-price-currency aria-label="Bitcoin Cash price currency"></select><span class="price-status" data-price-status>Price unavailable</span></div></section>
+        <hr>
+        <div class="row"><span class="label">RPC:</span><span id="bitcoincash-rpc-exposure">—</span></div>
+        <p class="node-state">LAN access is optional and uses a separate node login.</p>
+        <div class="footer"><span id="bitcoincash-updated">Updated: —</span><span>v1.2.3</span><span>Auto-refresh: 30s</span></div>
+      </div>
+    </section>
+    <section class="card chain-wallet-card watch-card" data-family-watch="bitcoincash"><h2>Watch-only wallets</h2><p class="node-state" data-family-watch-status>Loading wallet capabilities…</p><div data-family-watch-list></div></section>
+    <section id="utxo-index-bitcoincash" class="card watch-card" hidden></section>
+    <section class="card node-power-card" style="--node-accent:#36a852;--node-text:var(--nt-bitcoincash)">
+      <h2>Node controls</h2>
+      <p id="bitcoincash-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
+      <button type="button" class="node-power-button" data-node-power="bitcoincash">Deactivate node</button>
+    </section>
+  </div>
+  <div id="zcash-panel" class="stack-col node-panel chain-panel" data-node-panel="zcash" style="--node-accent:#d69c35;--node-text:var(--nt-zcash)" hidden>
+    <button class="node-panel-close" type="button" data-close-node aria-label="Close Zcash status">✕</button>
+    <section class="card node-inactive-state"><h2>Zcash</h2><p class="node-state">This node is inactive. Its stored blockchain data is kept.</p></section>
+    <div class="tower-stats" data-wallet-tower="zcash" hidden></div>
+    <section id="zcash-live" class="card chain-card">
+      <h2>Zcash Node Status<span id="zcash-badge" class="badge">Loading</span></h2>
+      <p id="zcash-state" class="node-state">Connecting to Zcash… Still stuck? Run ./stack doctor.</p>
+      <div id="zcash-details" hidden>
+        <div class="row"><span class="label">Version:</span><span id="zcash-version">—</span></div>
+        <div class="row"><span class="label">Uptime:</span><span id="zcash-uptime">—</span></div>
+        <div class="row"><span class="label">Connections:</span><span id="zcash-connections">—</span></div>
+        <hr>
+        <div class="row"><span class="label">Blocks:</span><span id="zcash-blocks">—</span></div>
+        <div class="progress-bg"><div id="zcash-progress" class="progress-fill" style="width:0%"></div></div>
+        <div class="row"><span class="label">Sync progress:</span><span id="zcash-sync">—</span></div>
+        <div class="row"><span class="label">Node data size:</span><span id="zcash-size">—</span></div>
+        <hr>
+        <div class="row"><span class="label">Mempool:</span><span id="zcash-mempool">—</span></div>
+        <div class="row"><span class="label">Latest block:</span><span id="zcash-last-block">—</span></div>
+        <div id="zcash-fee-section" hidden><div class="row"><span id="zcash-fee-unit" class="label">Fee estimates:</span><span id="zcash-fees">—</span></div><div class="spark-row"><span class="label">Fee (24h)</span><canvas class="spark" id="spark-zcash-fee"></canvas></div></div>
+        <section data-price-asset="zcash" hidden><hr><div class="price-row"><span class="price-label">Zcash price</span><strong class="price-value" data-price-value>—</strong><select class="price-currency" data-price-currency aria-label="Zcash price currency"></select><span class="price-status" data-price-status>Price unavailable</span></div></section>
+        <hr>
+        <div class="row"><span class="label">RPC:</span><span id="zcash-rpc-exposure">—</span></div>
+        <p class="node-state">LAN access is optional and uses a separate node login.</p>
+        <div class="footer"><span id="zcash-updated">Updated: —</span><span>v1.2.3</span><span>Auto-refresh: 30s</span></div>
+      </div>
+    </section>
+    <section class="card chain-wallet-card watch-card" data-family-watch="zcash"><h2>Watch-only wallets</h2><p class="node-state" data-family-watch-status>Loading wallet capabilities…</p><div data-family-watch-list></div></section>
+    <section class="card node-power-card" style="--node-accent:#d69c35;--node-text:var(--nt-zcash)">
+      <h2>Node controls</h2>
+      <p id="zcash-power-status" class="node-state">Deactivate this node to free its CPU and memory. Stored blockchain data is kept.</p>
+      <button type="button" class="node-power-button" data-node-power="zcash">Deactivate node</button>
+    </section>
+  </div>
+  <button id="account-open" class="settings-open account-open" type="button" aria-label="User" title="User"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7z"/></svg></button>
+  <dialog id="account-dialog" class="settings-dialog" aria-labelledby="account-title">
+    <form id="account-form">
+      <div class="settings-heading"><h2 id="account-title">User</h2><button id="account-close" type="button" aria-label="Close user settings">✕</button></div>
+      <fieldset id="settings-account">
+        <legend>Account</legend>
+        <p class="settings-note">Signed in as <strong>admin</strong></p>
+        <div class="settings-actions"><button id="session-logout" type="button">Sign out</button></div>
+      </fieldset>
+      <fieldset id="settings-dashboard-password">
+        <legend>Dashboard password</legend>
+        <label id="settings-password-old-label">Current password<input id="settings-password-old" type="password" autocomplete="current-password" maxlength="256"></label>
+        <label>New password<input id="settings-password-new" type="password" autocomplete="new-password" minlength="12" maxlength="128"></label>
+        <label>Repeat new password<input id="settings-password-repeat" type="password" autocomplete="new-password" minlength="12" maxlength="128"></label>
+        <div class="settings-actions"><button id="settings-password-save" type="button">Change password</button><button id="settings-password-reload" type="button" hidden>Reload and sign in</button></div>
+        <p id="settings-password-status" class="settings-note" role="status" aria-live="polite"></p>
+      </fieldset>
+    </form>
+  </dialog>
+  <button id="events-open" class="settings-open events-open" type="button" aria-label="Events" title="Events"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14"/></svg></button>
+  <dialog id="events-dialog" class="settings-dialog events-dialog" aria-labelledby="events-title">
+    <div class="settings-heading"><h2 id="events-title">Events</h2><button id="events-close" type="button" aria-label="Close events">✕</button></div>
+    <div class="events-filters">
+      <label>Category<select id="events-category"><option value="">All categories</option></select></label>
+      <label>Node<select id="events-node"><option value="">All nodes</option></select></label>
+    </div>
+    <p id="events-status" class="settings-note" role="status" aria-live="polite"></p>
+    <ol id="events-list" class="events-list" aria-labelledby="events-title" tabindex="-1"></ol>
+    <div class="settings-actions"><button id="events-more" type="button" hidden>Show older events</button></div>
+  </dialog>
+  <button id="settings-open" class="settings-open" type="button" aria-label="Settings" title="Settings">⚙</button>
+  <dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-title">
+    <form id="settings-form">
+      <div class="settings-heading"><h2 id="settings-title">Settings</h2><button id="settings-close" type="button" aria-label="Close settings">✕</button></div>
+      <p id="settings-version" class="settings-note">node-manager v1.2.3</p>
+      <fieldset id="settings-appearance">
+        <legend>Appearance</legend>
+        <label class="settings-check"><input id="settings-tower-labels" type="checkbox"> Label towers</label>
+        <label class="settings-check"><input id="settings-computer-stats" type="checkbox"> Node Manager usage</label>
+        <label>Default currency<select id="settings-default-currency">
+          <option>USD</option><option>EUR</option><option>GBP</option><option>INR</option><option>CAD</option>
+          <option>AUD</option><option>JPY</option><option>RUB</option><option>CNY</option>
+        </select></label>
+      </fieldset>
+      <fieldset id="settings-host">
+        <legend>Node set</legend>
+        <div id="settings-host-nodes" class="settings-host-nodes"></div>
+        <label id="settings-launch-at-start-label" class="settings-check"><input id="settings-launch-at-start" type="checkbox"> <span>Launch at boot</span></label>
+        <label class="settings-check"><input id="settings-thermal-throttle" type="checkbox"> Thermal throttle</label>
+        <div id="settings-config-change" hidden>
+          <p class="settings-note">Config change detected. Run the new config?</p>
+          <button id="settings-apply-config" type="button">Run new config</button>
+        </div>
+        <p id="settings-host-status" class="settings-note" role="status" aria-live="polite"></p>
+      </fieldset>
+      <fieldset id="settings-telegram">
+        <legend>Telegram</legend>
+        <label class="settings-check"><input id="settings-telegram-enabled" type="checkbox"> Enable Telegram alerts</label>
+        <label>Bot token<input id="settings-telegram-token" type="text" autocomplete="off" maxlength="256"></label>
+        <label>Chat or channel ID<input id="settings-telegram-chat" type="text" autocomplete="off" maxlength="100"></label>
+        <details id="settings-alert-preferences"><summary>Alert preferences</summary>
+          <label class="settings-check"><input id="settings-alert-monitor-online" type="checkbox"> Monitor starts</label>
+          <label class="settings-check"><input id="settings-alert-node-down" type="checkbox"> Node offline</label>
+          <label class="settings-check"><input id="settings-alert-node-recovered" type="checkbox"> Node recovered</label>
+          <label class="settings-check"><input id="settings-alert-sync-complete" type="checkbox"> Sync complete</label>
+          <label class="settings-check"><input id="settings-alert-low-disk" type="checkbox"> Low disk</label>
+          <label class="settings-check"><input id="settings-alert-updates" type="checkbox"> Dashboard update</label>
+          <label>Send offline alert after (minutes)<input id="settings-node-down-after-minutes" type="number" min="1" max="60" step="1" required></label>
+          <label>Low disk threshold (free GiB)<input id="settings-low-disk-gib" type="number" min="1" max="1048576" step="1" required></label>
+        </details>
+      </fieldset>
+      <fieldset id="settings-healthchecks">
+        <legend>Healthchecks</legend>
+        <label class="settings-check"><input id="settings-healthchecks-enabled" type="checkbox"> Enable Healthchecks pings</label>
+        <label>HTTPS ping URL<input id="settings-healthchecks-url" type="url" autocomplete="off" maxlength="2048"></label>
+      </fieldset>
+      <fieldset id="settings-actuator-group">
+        <legend>Actuator</legend>
+        <label class="settings-check"><input id="settings-actuator-health" type="checkbox"> Serve /actuator/health</label>
+        <label class="settings-check"><input id="settings-actuator-info" type="checkbox"> Serve /actuator/info</label>
+        <div class="settings-actuator-copy">
+          <button type="button" id="settings-actuator-copy-health" hidden>Copy curl for health</button>
+          <button type="button" id="settings-actuator-copy-info" hidden>Copy curl for info</button>
+        </div>
+        <p id="settings-actuator-copy-note" class="settings-note">Turn a switch on and press Save to copy a curl command for it.</p>
+      </fieldset>
+      <fieldset id="settings-config">
+        <legend>Config</legend>
+        <p class="settings-note">Host config.json</p>
+        <code id="settings-config-path" class="settings-config-path">Loading…</code>
+      </fieldset>
+      <fieldset id="settings-update" hidden>
+        <legend>Update available</legend>
+        
+      </fieldset>
+      <fieldset id="settings-node-alerts" hidden>
+        <legend>Node settings</legend>
+        <details id="settings-bitcoin-alerts"><summary>Bitcoin</summary>
+          <label class="settings-check"><input id="settings-bitcoin-new-block" type="checkbox"> Alert on new blocks (up to about 144 alerts/day)</label>
+          <p class="settings-note">Several blocks found together share one alert.</p>
+          <div id="settings-port-bitcoin-rpc" class="settings-port" data-credential-node="bitcoin">
+            <label class="settings-check"><input type="checkbox" data-port-enabled> Expose RPC on private LAN</label>
+            <div class="settings-port-fields"><label>Port<input type="number" min="1" max="65535" step="1" data-port-number></label></div>
+          </div>
+        </details>
+        <details id="settings-monero-alerts"><summary>Monero</summary>
+          <label class="settings-check"><input id="settings-monero-new-block" type="checkbox"> Alert on new blocks (up to about 720 alerts/day)</label>
+          <p class="settings-note">Several blocks found together share one alert.</p>
+          <div id="settings-port-monero-rpc" class="settings-port" data-credential-node="monero">
+            <label class="settings-check"><input type="checkbox" data-port-enabled> Expose RPC on private LAN</label>
+            <div class="settings-port-fields"><label>Port<input type="number" min="1" max="65535" step="1" data-port-number></label></div>
+          </div>
+          <div id="settings-port-monero-zmq" class="settings-port">
+            <label class="settings-check"><input type="checkbox" data-port-enabled> Expose ZMQ on private LAN</label>
+            <div class="settings-port-fields"><label>Port<input type="number" min="1" max="65535" step="1" data-port-number></label></div>
+          </div>
+        </details>
+        <details id="settings-tari-alerts"><summary>Tari</summary>
+          <label class="settings-check"><input id="settings-tari-new-block" type="checkbox"> Alert on new blocks (up to about 720 alerts/day)</label>
+          <p class="settings-note">Several blocks found together share one alert.</p>
+          <div id="settings-port-tari-grpc" class="settings-port"><label class="settings-check"><input type="checkbox" data-port-enabled> Expose gRPC on private LAN</label><div class="settings-port-fields"><label>Port<input type="number" min="1" max="65535" step="1" data-port-number></label></div></div>
+        </details>
+        <details id="settings-litecoin-alerts"><summary>Litecoin</summary>
+          <label class="settings-check"><input id="settings-litecoin-new-block" type="checkbox"> Alert on new blocks (up to about 576 alerts/day)</label>
+          <p class="settings-note">Several blocks found together share one alert.</p>
+          <div id="settings-port-litecoin-rpc" class="settings-port" data-credential-node="litecoin"><label class="settings-check"><input type="checkbox" data-port-enabled> Expose RPC on private LAN</label><div class="settings-port-fields"><label>Port<input type="number" min="1" max="65535" step="1" data-port-number></label></div></div>
+        </details>
+        <details id="settings-dogecoin-alerts"><summary>Dogecoin</summary>
+          <label class="settings-check"><input id="settings-dogecoin-new-block" type="checkbox"> Alert on new blocks (up to about 1440 alerts/day)</label>
+          <p class="settings-note">Several blocks found together share one alert.</p>
+          <div id="settings-port-dogecoin-rpc" class="settings-port" data-credential-node="dogecoin"><label class="settings-check"><input type="checkbox" data-port-enabled> Expose RPC on private LAN</label><div class="settings-port-fields"><label>Port<input type="number" min="1" max="65535" step="1" data-port-number></label></div></div>
+        </details>
+        <details id="settings-bitcoincash-alerts"><summary>Bitcoin Cash</summary>
+          <label class="settings-check"><input id="settings-bitcoincash-new-block" type="checkbox"> Alert on new blocks (up to about 144 alerts/day)</label>
+          <p class="settings-note">Several blocks found together share one alert.</p>
+          <div id="settings-port-bitcoincash-rpc" class="settings-port" data-credential-node="bitcoincash"><label class="settings-check"><input type="checkbox" data-port-enabled> Expose RPC on private LAN</label><div class="settings-port-fields"><label>Port<input type="number" min="1" max="65535" step="1" data-port-number></label></div></div>
+        </details>
+        <details id="settings-zcash-alerts"><summary>Zcash</summary>
+          <label class="settings-check"><input id="settings-zcash-new-block" type="checkbox"> Alert on new blocks (up to about 1152 alerts/day)</label>
+          <p class="settings-note">Several blocks found together share one alert.</p>
+          <div id="settings-port-zcash-rpc" class="settings-port" data-credential-node="zcash"><label class="settings-check"><input type="checkbox" data-port-enabled> Expose read-only RPC on private LAN</label><div class="settings-port-fields"><label>Port<input type="number" min="1" max="65535" step="1" data-port-number></label></div></div>
+        </details>
+      </fieldset>
+      <div class="settings-footer">
+        <div class="settings-actions"><button id="settings-reset" type="button">Reset to default</button><button id="settings-cancel" type="button">Cancel</button><button class="primary" id="settings-save" type="submit">Save</button></div>
+        <p id="settings-status" role="status" aria-live="polite"></p>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="settings-install-dialog" class="settings-dialog" aria-labelledby="settings-install-title">
+    <form id="settings-install-form">
+      <div class="settings-heading"><h2 id="settings-install-title">Install node</h2></div>
+      <p id="settings-install-disk" class="settings-note"></p>
+      <label>Blockchain data folder<input id="settings-install-data-dir" type="text" autocomplete="off" maxlength="1024" required></label>
+      <label id="settings-install-index-label" class="settings-check" hidden><input id="settings-install-index" type="checkbox" checked> Instant balances (balance index)</label>
+      <p id="settings-install-index-hint" class="settings-note" hidden>Adds a disk volume and raises the dashboard memory limit to 1 to 2 GB.</p>
+      <fieldset>
+        <legend>Private LAN interfaces</legend>
+        <p class="settings-note">All interfaces are closed by default.</p>
+        <div id="settings-install-interfaces"></div>
+      </fieldset>
+      <p id="settings-install-error" class="node-state" role="status" aria-live="polite"></p>
+      <div class="settings-actions"><button id="settings-install-cancel" type="button">Cancel</button><button class="primary" id="settings-install-submit" type="submit">Install node</button></div>
+    </form>
+  </dialog>
+  <dialog id="settings-delete-dialog" class="settings-dialog" aria-labelledby="settings-delete-title">
+    <form id="settings-delete-form">
+      <div class="settings-heading"><h2 id="settings-delete-title">Delete node?</h2></div>
+      <p class="settings-delete-warning"><b>This cannot be undone.</b> Deleting removes the node from Node Manager and permanently erases:</p>
+      <ul id="settings-delete-list"></ul>
+      <p class="settings-note">The node must be installed again from scratch and re-synced. Other nodes are not touched.</p>
+      <label id="settings-delete-confirm-label">Type <b></b> to confirm<input id="settings-delete-confirm" type="text" autocomplete="off" spellcheck="false"></label>
+      <div class="settings-actions"><button id="settings-delete-cancel" type="button">Cancel</button><button class="primary" id="settings-delete-submit" type="submit" disabled>Delete on Save</button></div>
+    </form>
+  </dialog>
+  <dialog id="actuator-curl-dialog" class="settings-dialog" aria-labelledby="actuator-curl-title">
+    <form id="actuator-curl-form">
+      <div class="settings-heading"><h2 id="actuator-curl-title">Copy curl command</h2></div>
+      <p>The command includes your dashboard password, so it will stay in shell history. For scripts and monitors, prefer <code>curl --user admin</code> with the URL, which asks for the password.</p>
+      <label>Dashboard password<input id="actuator-curl-password" type="password" autocomplete="current-password" spellcheck="false"></label>
+      <label id="actuator-curl-fallback-label" hidden>Press Ctrl+C / Cmd+C to copy<textarea id="actuator-curl-fallback" readonly rows="3" spellcheck="false"></textarea></label>
+      <p id="actuator-curl-error" class="node-state" role="status" aria-live="polite"></p>
+      <div class="settings-actions"><button type="button" id="actuator-curl-cancel">Close</button><button class="primary" type="submit" id="actuator-curl-submit">Copy</button></div>
+    </form>
+  </dialog>
+  <dialog id="credential-reset-dialog" class="settings-dialog" aria-labelledby="credential-reset-title">
+    <form id="credential-reset-form">
+      <div class="settings-heading"><h2 id="credential-reset-title">Reset node password?</h2></div>
+      <p id="credential-reset-description"></p>
+      <label>Type <b>reset</b> to confirm<input id="credential-reset-confirm" type="text" autocomplete="off" spellcheck="false"></label>
+      <p id="credential-reset-error" class="node-state" role="status" aria-live="polite"></p>
+      <div class="settings-actions"><button type="button" id="credential-reset-cancel">Cancel</button><button class="primary" type="submit" id="credential-reset-submit" disabled>Reset password</button></div>
+    </form>
+  </dialog>
+  <dialog id="node-power-dialog" class="settings-dialog" aria-labelledby="node-power-title">
+    <form id="node-power-form">
+      <div class="settings-heading"><h2 id="node-power-title">Deactivate node</h2></div>
+      <p id="node-power-description">The node will stop. Its stored data will be kept, and you can activate it again.</p>
+      <label id="node-power-confirm-label">Type <b>deactivate</b> to confirm<input id="node-power-confirm" type="text" autocomplete="off" spellcheck="false"></label>
+      <p id="node-power-error" class="node-state" role="status"></p>
+      <div class="settings-actions"><button type="button" id="node-power-cancel">Cancel</button><button class="primary" type="submit" id="node-power-submit" disabled>Deactivate node</button></div>
+    </form>
+  </dialog>
+  <dialog id="confirm-dialog" class="settings-dialog" aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-message">
+    <form method="dialog">
+      <div class="settings-heading"><h2 id="confirm-dialog-title">Are you sure?</h2></div>
+      <p id="confirm-dialog-message"></p>
+      <div class="settings-actions"><button value="cancel">Cancel</button><button id="confirm-dialog-ok" class="primary" value="ok">Confirm</button></div>
+    </form>
+  </dialog>
+  <script type="module" src="/static/chains.js"></script>
+  <script type="module" src="/static/host-stats.js"></script>
+  <script type="module" src="/static/session.js"></script>
+  <script type="module" src="/static/tower.js"></script>
+  <script type="module" src="/static/nodes.js"></script>
+  <script type="module" src="/static/theme.js"></script>
+  <script type="module" src="/static/sparkline.js"></script>
+  <script type="module" src="/static/refresh.js"></script>
+  <script type="module" src="/static/prices.js"></script>
+  <script type="module" src="/static/monero-watch.js"></script>
+  <script type="module" src="/static/tari-watch.js"></script>
+  <script type="module" src="/static/family-watch.js"></script>
+  <script type="module" src="/static/settings.js"></script>
+  <script type="module" src="/static/events.js"></script>
+  <script type="module" src="/static/watch.js"></script>
+  <script type="module" src="/static/utxo-index.js"></script>
+</body>
+</html>

@@ -56,6 +56,7 @@ type diskInfo struct {
 
 type pageData struct {
 	NodeName             string
+	Command              string
 	PasswordEnabled      bool
 	BitcoinEnabled       bool
 	Loading              bool
@@ -83,7 +84,11 @@ type pageData struct {
 	FeeHour              string
 	NextBlock            int64
 	LastUpdate           string
+	UpdatedAt            int64
+	StateLine            string
+	LastBlock            string
 	BitcoinRPCEndpoint   string
+	Chains               []chainView
 }
 
 type app struct {
@@ -119,6 +124,7 @@ type app struct {
 	passwordWork     *passwordWorkLimiter
 	passwordAttempts chan struct{}
 	controlMu        sync.Mutex
+	controlSeen      map[string]string
 	provisionLocks   sync.Map
 	ctx              context.Context
 }
@@ -134,7 +140,7 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 	if err := removeLegacyUpgradeRequest(cfg.stateDir); err != nil {
 		return nil, err
 	}
-	t, err := template.ParseFiles(templatePath, filepath.Join(filepath.Dir(templatePath), "login.html"))
+	t, err := template.New(filepath.Base(templatePath)).Funcs(template.FuncMap{"chain": chainViewFor}).ParseFiles(templatePath, filepath.Join(filepath.Dir(templatePath), "login.html"))
 	if err != nil {
 		return nil, err
 	}
@@ -168,6 +174,7 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 		a.log.Print("notification settings unavailable; alerts disabled until the state file is repaired and the dashboard restarts")
 	}
 	a.prices = NewPriceCache()
+	a.prices.log = a.log
 	if cfg.stateDir != "" {
 		a.prices.Persist(filepath.Join(cfg.stateDir, "prices.json"))
 	}
@@ -180,6 +187,7 @@ func newApp(cfg config, rpc *rpcClient, templatePath, staticPath string, logger 
 		blockRPC.client, blockRPC.maxBody = newInternalHTTPClient(2*time.Minute), 64<<20
 		a.utxo = newUtxoManager(cfg.utxoIndexDir, nil, &blockRPC, logger, utxoBitcoin)
 		a.utxo.blockWait = &blockRPC
+		a.utxo.event = a.indexEvent(nodeBitcoin)
 		a.watchWake = make(chan struct{}, 1)
 		a.utxo.onApplied = func() {
 			select {
@@ -281,12 +289,27 @@ func (a *app) index(w http.ResponseWriter, r *http.Request) {
 		Blocks: chain.Blocks, Headers: chain.Headers, Progress: chain.VerificationProgress * 100,
 		PeersUnknown: peersErr != nil, Inbound: inbound, Outbound: len(peers) - inbound,
 		Pruned: chain.Pruned, NodeGB: gib(chain.SizeOnDisk), NodeSizeBytes: chain.SizeOnDisk,
-		NextBlock: chain.Blocks + 1, LastUpdate: time.Now().Format("15:04:05"),
+		NextBlock: chain.Blocks + 1, LastUpdate: time.Now().Format("15:04:05"), UpdatedAt: time.Now().Unix(),
 		FeeNext: "—", Fee30m: "—", FeeHour: "—",
 		BitcoinRPCEndpoint: a.cfg.bitcoinRPCEndpoint,
 	}
 	if !chain.InitialBlockDownload && chain.Blocks == chain.Headers {
 		data.Progress = 100
+	}
+	data.StateLine = "Synchronizing the Bitcoin blockchain…"
+	if !chain.InitialBlockDownload && chain.Blocks >= chain.Headers {
+		data.StateLine = "Synced"
+	}
+	data.LastBlock = "—"
+	if chain.BestBlockHash != "" {
+		var header familyBlockHeader
+		if a.rpc.call(ctx, "getblockheader", []any{chain.BestBlockHash}, &header) == nil && header.Time > 0 {
+			if age := max(0, time.Now().Unix()-header.Time); age < 60 {
+				data.LastBlock = "<1m ago"
+			} else {
+				data.LastBlock = formatUptime(float64(age)) + " ago"
+			}
+		}
 	}
 	if !chain.InitialBlockDownload {
 		var mempool mempoolInfo
@@ -327,7 +350,9 @@ func (a *app) loadingPageData() pageData {
 }
 
 func (a *app) render(w http.ResponseWriter, data pageData) {
+	data.Chains = dashboardChains
 	data.NodeName = a.monitor.nodeName
+	data.Command = a.commandName()
 	data.PasswordEnabled = a.hasDashboardPassword()
 	data.UpdateNote = a.monitor.UpdateNote()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -355,8 +380,7 @@ func diskUsage(path string) diskInfo {
 	return diskInfo{Total: used + uint64(stat.Bavail)*blockSize, Free: uint64(stat.Bavail) * blockSize}
 }
 
-func gib(v int64) float64   { return float64(v) / (1024 * 1024 * 1024) }
-func gibU(v uint64) float64 { return float64(v) / (1024 * 1024 * 1024) }
+func gib(v int64) float64 { return float64(v) / (1024 * 1024 * 1024) }
 func boolInt(v bool) int {
 	if v {
 		return 1

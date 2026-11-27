@@ -72,6 +72,7 @@ func (a *app) apiTariWatchAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
+	a.recordEvent("Wallet", "", "Tari watch-only wallet added.")
 	writeJSON(w, map[string]any{"ok": true, "id": wallet.ID})
 }
 
@@ -80,7 +81,7 @@ func (a *app) apiTariWatchRemove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
-	if len(id) != 32 || strings.Trim(id, "0123456789abcdef") != "" {
+	if !lowerHex(id, 32) {
 		http.Error(w, "no such wallet", http.StatusNotFound)
 		return
 	}
@@ -95,6 +96,7 @@ func (a *app) apiTariWatchRemove(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
+	a.recordEvent("Wallet", "", "Tari watch-only wallet removed.")
 	writeJSON(w, map[string]any{"ok": true})
 }
 

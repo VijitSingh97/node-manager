@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"log"
 	"math"
@@ -58,14 +57,11 @@ func (a *app) apiActuatorCurl(w http.ResponseWriter, r *http.Request) {
 	if !a.requireRecentSignIn(w, r) || rejectCredentialCSRF(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	var input struct {
 		Endpoint string `json:"endpoint"`
 		Password string `json:"password"`
 	}
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&input) != nil || ensureJSONEnd(decoder) != nil || input.Endpoint != "health" && input.Endpoint != "info" || input.Password == "" {
+	if !decodeStrictBody(w, r, 4096, &input) || input.Endpoint != "health" && input.Endpoint != "info" || input.Password == "" {
 		http.Error(w, "invalid actuator request", http.StatusBadRequest)
 		return
 	}

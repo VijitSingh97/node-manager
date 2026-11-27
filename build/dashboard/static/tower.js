@@ -1,3 +1,4 @@
+import { NODE_IDS } from "./nodes.js";
 // A live tower of the blockchain. Each confirmed block adds one cube to the
 // top 12x12 layer; the next block pulses while the network works on it.
 export const GRID = 12;
@@ -9,7 +10,7 @@ export const SCENE_MS = 700;
 // the viewport edge (a squeeze in the 900–1024 range looked broken).
 export const WIDE_MIN = 1024;
 const ROLLOVER_DROP = 12;
-export const NODE_IDS = ["bitcoin", "monero", "tari", "litecoin", "dogecoin", "bitcoincash", "zcash"];
+export { NODE_IDS };
 export const NODE_COLORS = {
   bitcoin: "#f2a900",
   monero: "#ff6600",
@@ -229,6 +230,10 @@ export function sceneDepth(H, anchorY, tw, overviewY, overviewTw) {
   return Math.max(previewDepth(H, anchorY, tw), previewDepth(H, overviewY, overviewTw));
 }
 
+export function liveBlockElement(node) {
+  return document.getElementById(node === "bitcoin" ? "live" : `${node}-live`);
+}
+
 // The server's offline flag lags the status polls, so a fresh height overrides it.
 export function nodeUnreachable(choice, nextBlock) {
   return choice?.nodeOffline === "1" && !/^\d+$/.test(String(nextBlock ?? "").trim());
@@ -340,7 +345,7 @@ if (typeof document !== "undefined") {
         : { top, side: shade(top, 0.82), dark: shade(top, 0.48), grid: shade(top, 0.62), edge: shade(top, 1.12), alpha: 0.9, glow: 10 };
     }
 
-    const liveElement = (node) => document.getElementById(node === "bitcoin" ? "live" : `${node}-live`);
+    const liveElement = liveBlockElement;
     const nextBlocks = () => Object.fromEntries(NODE_IDS.map((node) =>
       [node, liveElement(node)?.dataset?.nextBlock]));
 
@@ -358,7 +363,7 @@ if (typeof document !== "undefined") {
       if (!element || !text || opacity <= 0.001) return;
       const number = element.querySelector("b");
       number.textContent = text.slice("loading block ".length);
-      number.style.color = activeNode(node) ? NODE_COLORS[node] : NODE_COLORS.zcash;
+      number.style.color = `var(--nt-${activeNode(node) ? node : "zcash"})`;
       const position = overviewLabelPosition(ox, anchorY, tw);
       element.style.left = `${position.left}px`;
       element.style.top = `${position.top}px`;
@@ -373,7 +378,7 @@ if (typeof document !== "undefined") {
       label.hidden = state.hidden;
       label.style.opacity = String(state.opacity);
       if (state.hidden) return;
-      label.style.setProperty("--accent", activeNode(node) ? NODE_COLORS[node] : NODE_COLORS.zcash);
+      label.style.setProperty("--accent", `var(--nt-${activeNode(node) ? node : "zcash"})`);
       const topY = project(0, 0, 0, tw, tw * 0.5, ox, anchorY - push - N * (tw / 4)).y;
       label.style.left = `${ox}px`;
       label.style.top = `${Math.max(8, topY - 40)}px`;

@@ -6,7 +6,7 @@ a dashboard password shown once. Later starts use `./stack up` and your saved
 login. `configure.sh` renders configuration into a gitignored `.env` for Docker
 Compose; both files are kept private with mode `600`.
 
-For custom first-boot settings, copy `config.example.json` to `config.json`,
+For custom first-boot settings, copy [`config.example.json`](https://github.com/VijitSingh97/node-manager/blob/main/config.example.json) to `config.json`,
 set `dashboard.password` to 12–128 letters or numbers, and edit the other values
 before running `./stack init`. Missing or empty dashboard passwords are rejected.
 Existing installations with a missing or empty baseline must set it before
@@ -119,7 +119,8 @@ shows the overridable settings with their defaults:
         "cpus": 0,
         "grpc_expose": false,
         "grpc_bind_ip": "",
-        "grpc_port": 18142
+        "grpc_port": 18142,
+        "grpc_extra_methods": []
     },
     "litecoin": {
         "enabled": false,
@@ -260,6 +261,7 @@ shows the overridable settings with their defaults:
 | `<node>.steady_cpus` | `1` | Independent post-sync CPU ceiling for Tari, Litecoin, Dogecoin, Bitcoin Cash, or Zcash. |
 | `<node>.steady_mem_limit_mb` | `2048` for Litecoin, Dogecoin, and Bitcoin Cash; `4096` for Tari and Zcash | Independent post-sync memory-plus-swap ceiling for those base nodes. Tari's separate wallet sidecar is not included. This is a budget, not a qualified minimum. |
 | `tari.pruning_horizon` | `10000` | Positive retained-block horizon for Minotari's pruned state. |
+| `tari.grpc_extra_methods` | `[]` | Tari gRPC methods to allow on top of the built-in list, in snake_case, for example `["list_headers"]`. The built-in list covers the dashboard and mining. Anything that reaches Tari's gRPC can call the added methods: containers on the stack network, and a LAN client when `grpc_expose` is on. Tari refuses to start with a name it does not know and logs it (`node-manager logs tari`). `node-manager apply` restarts Tari with the new list. |
 | `tari.grpc_expose`, `grpc_bind_ip`, `grpc_port` | `false`, `""`, `18142` | Optional unauthenticated Tari mining gRPC for a mining client on a trusted private LAN or WireGuard link. It is separate from the internal authenticated view-only wallet service. |
 | `litecoin.prune_mb`, `dogecoin.prune_mb`, `bitcoincash.prune_mb` | `10000` | Recent block-file target in MiB. Chainstate and other state are additional. Dogecoin and Bitcoin Cash also accept `0` (archival, required by `dogecoin.watch_wallet`); `0` is refused on a data directory that already holds a pruned chain. |
 | `litecoin.rpc_port`, `dogecoin.rpc_port`, `bitcoincash.rpc_port` | `9332`, `22555`, `8332` | Default host port for each opt-in authenticated private-LAN RPC proxy. Each also has `rpc_expose` and `rpc_bind_ip`. |
@@ -271,10 +273,10 @@ shows the overridable settings with their defaults:
 | `dashboard.password` | generated on new `init` | Required dashboard password, 12–128 letters or numbers. New installs generate one 32-character value, persist it in mode-600 `config.json`, and print it once during `init`; configure rejects missing or empty values. Existing saved dashboard hashes remain authoritative until deliberately recovered; see [Operations](operations.md#dashboard-and-node-credentials). |
 | `dashboard.public_url` | `""` | Optional exact HTTPS origin for a host-managed reverse proxy, with no path, query, fragment, or credentials. When set, `dashboard.password` must be 12–128 letters or numbers and `dashboard.bind_ip` must be `127.0.0.1` or `::1`. This does not configure TLS, ACME, VPN, or the host firewall; see [Public VPS access with Caddy](notifications.md#public-vps-access-with-caddy). |
 | `dashboard.onion` | `false` | `true` publishes the dashboard as a Tor onion service. It cannot be combined with `dashboard.public_url` — see [Notifications & Remote Access](notifications.md#dashboard-over-tor). |
-| `dashboard.bind_ip` | `auto` | Select the default network interface's RFC1918 IPv4 address each time configuration is rendered, falling back to `127.0.0.1` when no supported private interface is available. Set loopback for access only from this machine, or an explicit private host address. Public and wildcard binds are rejected; `::1` is accepted only with `dashboard.public_url`. |
+| `dashboard.bind_ip` | `auto` | Select the default network interface's RFC1918 IPv4 address each time configuration is rendered, falling back to `127.0.0.1` when no supported private interface is available. When that address later disappears, the host helper moves the dashboard to the new one. LAN listeners on the old address follow only within the same subnet and are paused otherwise; see [Self-healing](operations.md#self-healing-a-deliberate-non-feature). Set loopback for access only from this machine, or an explicit private host address. Public and wildcard binds are rejected; `::1` is accepted only with `dashboard.public_url`. |
 | `dashboard.port` | `80`; `8080` for a fresh Homebrew install | Host TCP port for the dashboard (`1`–`65535`). Edit this key before setup or apply it later when the default conflicts with another service. |
 | `dashboard.launch_at_boot` | `false` | Start the configured application after reboot for APT, or after login for user Homebrew services. Global Settings applies this through the host helper, including container restart policy; disabling it leaves the current application running and uses up to five retries for crashes without startup after a Docker restart. Source installs without a managed service report this control as unavailable. |
-| `host.thermal_limit_c` | `0` (use `85`) | Throttle temperature for the host thermal throttle (Linux, `/sys/class/thermal`), which is switched on and off with the "Thermal throttle" checkbox in the dashboard settings panel. While the host is at or above this temperature the resource-profile timer halves running node containers' CPU caps each pass toward a 0.25-CPU floor, instead of anything stopping them. `50`–`110`; `0` means the default of `85`. Actions are logged to `/state/events.log` (`./stack events`) and forwarded to Telegram when configured. |
+| `host.thermal_limit_c` | `0` (use `85`) | Throttle temperature for the host thermal throttle (Linux, `/sys/class/thermal`), which is switched on and off with the "Thermal throttle" checkbox in the Node set group of Settings. While the host is at or above this temperature the resource-profile timer halves running node containers' CPU caps each pass toward a 0.25-CPU floor, instead of anything stopping them. `50`–`110`; `0` means the default of `85`. Actions are logged to `/state/events.log` (`./stack events`) and forwarded to Telegram when configured. |
 | `host.thermal_resume_c` | `0` (limit − 10) | Temperature at or below which the pre-throttle CPU caps are restored exactly, including unlimited. `20` up to below `thermal_limit_c`. Caps are also restored when the throttle is switched off in the settings panel. |
 | `notifications.telegram_bot_token` | `""` (off) | With `telegram_chat_id`, enables Telegram alerts (node down/recovered, sync complete, disk low) — see [Notifications](notifications.md#telegram-alerts). |
 | `notifications.telegram_chat_id` | `""` (off) | The chat that receives alerts. |
@@ -347,7 +349,7 @@ no effect while the profile is `off`.
     "litecoin": {
         "resource_profile": "compact",
         "steady_cpus": 1,
-        "steady_mem_limit_mb": 4096
+        "steady_mem_limit_mb": 2048
     }
 }
 ```
@@ -359,8 +361,8 @@ other settings. Then run:
 node-manager apply  # use sudo for an APT install
 ```
 
-Tari, Litecoin, Dogecoin, Bitcoin Cash, and Zcash base nodes use 4096 MiB by default;
-Bitcoin and Monero use 2048 MiB. For example, `steady_cpus: 2` and
+Tari and Zcash base nodes use 4096 MiB by default;
+Bitcoin, Monero, Litecoin, Dogecoin, and Bitcoin Cash use 2048 MiB. For example, `steady_cpus: 2` and
 `steady_mem_limit_mb: 3072` give that node a
 2-core, 3-GiB post-sync ceiling. Changing a cap recreates the affected container
 and rechecks sync before applying the new values. The chain data stays in its
@@ -369,9 +371,9 @@ Tari's view-only wallet sidecar has a separate fixed 0.5 CPU / 512 MiB container
 ceiling. It is additional to the Tari node budget and has not completed sustained
 resource qualification.
 
-With all seven nodes selected, the base-node ceilings total 7 CPUs and 24 GiB.
+With all seven nodes selected, the base-node ceilings total 7 CPUs and 18 GiB.
 The Monero and Tari wallet sidecars add 1 CPU and 1 GiB together, for container
-ceilings totaling 8 CPUs and 25 GiB before Tor, dashboard, Docker, filesystem
+ceilings totaling 8 CPUs and 19 GiB before Tor, dashboard, Docker, filesystem
 cache, and host overhead. These figures add configured ceilings; they are not
 measurements of actual use or a qualified host minimum.
 
@@ -394,10 +396,13 @@ workload fits; see [hardware estimates and test evidence](hardware.md).
 
 ## Dashboard settings
 
-The gear menu contains **Nodes**, **Launch at boot/login**, **Network**,
-**Balance index**, **Appearance**, **Telegram**, and **Healthchecks** settings;
-nothing there takes effect until you press **Save**. The person icon above the gear
-holds **Account** and **Dashboard password**. **Nodes**
+The gear menu contains **Appearance**, **Node set** (with **Launch at
+boot/login** and **Thermal throttle**), **Network**, **Balance index**,
+**Telegram**, and **Healthchecks** settings;
+nothing there takes effect until you press **Save**. The person icon at the top of the
+corner buttons opens the User dialog, which holds **Account** and **Dashboard password**,
+and the three-line button between it and the gear opens **Events**, the
+[event log](operations.md#event-log). **Node set**
 installs an available chain through the host helper using versioned project images and
 default storage; LAN interfaces remain closed. It shows installation progress
 and errors. Pending external configuration changes appear here for explicit
@@ -471,10 +476,16 @@ restarts the affected services. Reveal the new login and update every external
 client. Reset is unavailable when the node is inactive. Tari gRPC and Monero
 ZMQ do not display made-up credentials.
 
-For APT installs, `node-manager init`, `up`, and `apply` enable
-`node-manager-port-control.timer`. On APT the helper timers poll for dashboard
-requests: node-control every 10 seconds and port-control every 30 seconds, so a
-save can take up to that long to start. Source installs reuse the host
+For APT installs, `node-manager init`, `up`, and `apply` enable the
+node-control and port-control timers and their `.path` units. A save starts its
+helper at once: the `.path` units watch the request files in the dashboard
+state volume under `/var/lib/docker/volumes/`. The timers also run each helper
+every 60 seconds to keep its capability inside the dashboard's 90-second limit
+and to pick up a request written while the helper was finishing a run. When
+Docker keeps its data outside `/var/lib/docker`, or the project has another
+name, `init`, `up`, and `apply` add the volume's real path to the watch in a
+`volume.conf` drop-in. Right after boot each helper retries every 10 seconds
+until the dashboard answers. Source installs reuse the host
 agent for authenticated trusted-LAN controls. On
 macOS source installs, setup starts a session helper with a private
 `host-service.log`; Homebrew registers the user service automatically. No host
@@ -536,7 +547,7 @@ dashboard state volume. Their sourced public examples are created automatically
 on fresh state: Linux Mint for Litecoin and Bitcoin Cash Node for Bitcoin Cash.
 The Monero General Fund is a received-only example because it has no signed key
 images. All examples are excluded from personal totals. Dogecoin and Zcash show
-**Wallet balance not available** and no public reference address. Tari imports
+no balance and no public reference address; the card explains why. Tari imports
 one view-only wallet and has no bundled example.
 
 Keep the following in the server file: Bitcoin storage paths, pruning, indexes,
@@ -575,7 +586,7 @@ Know the trade-offs before enabling:
   startup and needs a fresh chain download.
 - A pruned node can't serve historical blocks to other software. Software that
   requires archival blocks or `txindex` needs a separately planned archival node.
-- The dashboard's "Node Data Size" will show the pruned footprint.
+- The dashboard's "Node data size" will show the pruned footprint.
 
 Apply like any other change: edit `config.json`, `./configure.sh`,
 `./stack apply`.

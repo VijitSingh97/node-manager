@@ -2,10 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-fail() {
-  echo "FAIL: $1"
-  exit 1
-}
+# shellcheck source=tests/lib.sh
+. tests/lib.sh
 
 tmp=$(mktemp -d)
 listener_pid=
@@ -39,6 +37,10 @@ if [ "$1" = inspect ]; then
   esac
   exit 0
 fi
+if [ "$1" = ps ] && [ "$2" = -a ]; then
+  [ "${FAKE_DASHBOARD_MISSING:-0}" = 1 ] || printf '%s %s\n' "$(dash_id)" "${FAKE_CONFIG_FILES:-$BITCOIN_STACK_ROOT/docker-compose.yml}"
+  exit 0
+fi
 if [ "$1" = ps ] && [ "$2" = -aq ]; then
   case "$*" in
     *com.docker.compose.service=dashboard*) [ "${FAKE_DASHBOARD_MISSING:-0}" = 1 ] || dash_id ;;
@@ -64,6 +66,14 @@ if [ "$1" = update ]; then
   exit 0
 fi
 [ "$1" = exec ] || exit 1
+if [ -n "${FAKE_EXEC_FAIL_ONCE:-}" ] && [ ! -e "$FAKE_EXEC_FAIL_ONCE" ]; then
+  : >"$FAKE_EXEC_FAIL_ONCE"
+  exit 1
+fi
+if [ -n "${FAKE_EXEC_ERROR:-}" ]; then
+  printf 'Error response from daemon: %s\n' "$FAKE_EXEC_ERROR" >&2
+  exit 1
+fi
 shift
 if [ "${1:-}" = -i ]; then shift; fi
 if [ "${1:-}" = -u ]; then shift 2; fi
@@ -116,10 +126,25 @@ printf '%s' "${FAKE_IFCONFIG_ADDRESSES:-}"
 EOF
 chmod +x "$fake_ifconfig"
 
+port_table_jq=$(sed -n "/^port_table_jq='/,/^'\$/{//!p;}" scripts/node-port-control)
+[ -n "$port_table_jq" ] || fail "port table was not found in node-port-control"
+jq -en "$port_table_jq"'(port_table | length) == 8 and
+  all(port_table[]; keys == ["bind", "default", "enabled_default", "expose", "node", "password", "port"])' >/dev/null || fail "port table is incomplete"
+for port in bitcoin_rpc monero_rpc monero_zmq tari_grpc litecoin_rpc dogecoin_rpc bitcoincash_rpc zcash_rpc; do
+  jq -en --arg port "$port" "$port_table_jq"'$port | known_port' >/dev/null || fail "port table lacks $port"
+  [ "$(grep -c "\"$port\"" scripts/node-port-control)" = 0 ] || fail "$port is spelled outside the port table in node-port-control"
+done
+jq -en "$port_table_jq"'[port_table[] | [.node, .default, .password, .enabled_default]] == [
+  ["bitcoin", 8332, "BITCOIN_RPC_PASSWORD", true], ["monero", 18081, "MONERO_RPC_PASSWORD", null],
+  ["monero", 18083, "MONERO_RPC_PASSWORD", null], ["tari", 18142, null, null],
+  ["litecoin", 9332, "LITECOIN_RPC_PASSWORD", null], ["dogecoin", 22555, "DOGECOIN_RPC_PASSWORD", null],
+  ["bitcoincash", 8332, "BITCOINCASH_RPC_PASSWORD", null], ["zcash", 8232, "ZCASH_RPC_PASSWORD", null]]' >/dev/null || fail "port table defaults, passwords or enabled defaults changed"
+jq -en "$port_table_jq"'[null, 5, "", "bitcoin", "bitcoin_rpcX", "Bitcoin_rpc"] | any(.[]; known_port)' >/dev/null && fail "port table accepted an unknown port"
+
 new_case() {
   case_root=$tmp/$1
   mkdir -p "$case_root/root/scripts" "$case_root/state/dashboard" "$case_root/config"
-  cp scripts/node-port-control "$case_root/root/scripts/"
+  cp scripts/node-port-control scripts/helper-common.sh "$case_root/root/scripts/"
   cp configure.sh "$case_root/root/"
   : >"$case_root/root/docker-compose.yml"
   cat >"$case_root/root/stack" <<'EOF'
@@ -311,6 +336,36 @@ unset FAKE_DASH_RECREATED
 new_case idle-run-resolves-dashboard-once
 scripts/node-port-control || fail "idle port-control run failed"
 [ "$(grep -c 'com.docker.compose.service=dashboard' "$FAKE_DOCKER_LOG")" = 1 ] || fail "an idle run resolved the dashboard container more than once: $(cat "$FAKE_DOCKER_LOG")"
+{ [ "$(grep -c '^[a-z]' "$FAKE_DOCKER_LOG")" = 2 ] && grep -q '^exec -i -u 1000 dashboard-id sh -c' "$FAKE_DOCKER_LOG"; } ||
+  fail "an idle run made more than one listing and one exec: $(cat "$FAKE_DOCKER_LOG")"
+[ "$(cat "$FAKE_DASH_STATE/port-control.capability")" = ready ] || fail "an idle run did not refresh the port capability"
+[ "$(jq -r .timestamp "$FAKE_DASH_STATE/credential-control.capability")" = 1000 ] || fail "an idle run did not refresh the credential capability"
+printf '900.12 1800.00\n' >"$case_root/uptime"
+if BITCOIN_STACK_PACKAGE_MANAGED=1 PORT_CONTROL_UPTIME_FILE=$case_root/uptime FAKE_EXEC_FAIL_ONCE=$case_root/exec-failed scripts/node-port-control; then
+  fail "a run that could not reach the dashboard long after boot reported success"
+fi
+printf '120.50 240.00\n' >"$case_root/uptime"
+rm -f "$FAKE_DASH_STATE/port-control.capability"
+BITCOIN_STACK_PACKAGE_MANAGED=1 PORT_CONTROL_UPTIME_FILE=$case_root/uptime FAKE_EXEC_FAIL_ONCE=$case_root/exec-failed-at-boot scripts/node-port-control ||
+  fail "a run right after boot gave up while the dashboard was starting"
+[ -e "$case_root/exec-failed-at-boot" ] && [ "$(cat "$FAKE_DASH_STATE/port-control.capability")" = ready ] ||
+  fail "a run right after boot did not publish once the dashboard answered"
+printf '900.12 1800.00\n' >"$case_root/uptime"
+dashboard_files() { find "$FAKE_DASH_STATE" -type f -exec cksum {} + | sort; }
+dashboard_before=$(dashboard_files)
+for down in 'container dashboard-id is not running' 'Container dashboard-id is restarting, wait until the container is running' 'No such container: dashboard-id'; do
+  BITCOIN_STACK_PACKAGE_MANAGED=1 PORT_CONTROL_UPTIME_FILE=$case_root/uptime FAKE_EXEC_ERROR=$down scripts/node-port-control 2>"$case_root/stderr" ||
+    fail "a run while the dashboard was down ($down) failed its unit"
+  grep -qF "$down" "$case_root/stderr" || fail "a skipped run hid the Docker error: $(cat "$case_root/stderr")"
+done
+[ "$(dashboard_files)" = "$dashboard_before" ] || fail "a run while the dashboard was down wrote dashboard state"
+if BITCOIN_STACK_PACKAGE_MANAGED=1 PORT_CONTROL_UPTIME_FILE=$case_root/uptime FAKE_EXEC_ERROR='Container dashboard-id is paused, unpause the container before exec' scripts/node-port-control 2>/dev/null; then
+  fail "a run that could not reach a paused dashboard reported success"
+fi
+request '{"id":"12121212121212121212121212121212","changes":[{"port":"bitcoin_rpc","enabled":false}],"requested_at":1000}'
+scripts/node-port-control
+[ "$(status .id):$(status .state)" = 12121212121212121212121212121212:applied ] && [ ! -e "$FAKE_DASH_STATE/port-control.request" ] ||
+  fail "a triggered run did not take the waiting request"
 
 new_case change-open-port
 request '{"id":"11111111111111111111111111111112","changes":[{"port":"bitcoin_rpc","enabled":true,"bind_ip":"172.16.1.20","host_port":38332}],"requested_at":1000}'
@@ -577,7 +632,7 @@ scripts/node-port-control
 new_case macos-ipv6-wildcard-conflict
 jq '.monero.rpc_expose=false' "$case_root/config/config.json" >"$case_root/config/config.next"
 mv "$case_root/config/config.next" "$case_root/config/config.json"
-export PORT_CONTROL_OS=Darwin
+export PORT_CONTROL_OS=Darwin FAKE_IP_FAIL=1
 export FAKE_NETSTAT_LISTENERS='tcp6       0      0  ::.28082                *.*                    LISTEN'
 export FAKE_IFCONFIG_ADDRESSES='	inet 192.168.1.10 netmask 0xffffff00 broadcast 192.168.1.255'
 original_config=$(cat "$case_root/config/config.json")
@@ -628,6 +683,16 @@ scripts/node-port-control
 [ "$(status .error_code)" = port_check_failed ] || fail "unexpected macOS TCP protocol lacked typed status"
 [ "$(cat "$case_root/config/config.json")" = "$original_config" ] || fail "unexpected macOS TCP protocol changed config"
 [ ! -s "$FAKE_STACK_LOG" ] || fail "unexpected macOS TCP protocol invoked apply"
+
+new_case unknown-os-address-lookup
+jq '.monero.rpc_expose=false' "$case_root/config/config.json" >"$case_root/config/config.next"
+mv "$case_root/config/config.next" "$case_root/config/config.json"
+export PORT_CONTROL_OS=FreeBSD
+original_config=$(cat "$case_root/config/config.json")
+request '{"id":"30303030303030303030303030303046","changes":[{"port":"monero_rpc","enabled":true,"bind_ip":"192.168.1.10","host_port":28081}],"requested_at":1000}'
+scripts/node-port-control
+[ "$(status .error_code)" = port_check_failed ] || fail "unknown OS address lookup did not fail safely"
+[ ! -s "$FAKE_STACK_LOG" ] || fail "unknown OS address lookup invoked apply"
 
 new_case wrong-tor
 jq '.monero.rpc_expose=false' "$case_root/config/config.json" >"$case_root/config/config.next"
@@ -952,5 +1017,23 @@ grep -q '^ProtectSystem=strict$' packaging/systemd/node-manager-port-control.ser
 grep -q '^RestrictAddressFamilies=AF_UNIX AF_NETLINK$' packaging/systemd/node-manager-port-control.service ||
   fail "systemd service lacks its restricted Unix and socket-diagnostic families"
 grep -q '^Persistent=true$' packaging/systemd/node-manager-port-control.timer || fail "systemd timer does not catch up after reboot"
+timer_seconds() { value=$(sed -n "s/^$1=\([0-9]*\)s$/\1/p" "$2"); printf '%s\n' "${value:-$3}"; }
+timer=packaging/systemd/node-manager-port-control.timer
+age=$(sed -n 's/^\tportControlCapabilityAge = \([0-9]*\) \* time.Second$/\1/p' build/dashboard/port_control.go)
+interval=$(timer_seconds OnUnitActiveSec "$timer" '')
+slack=$(($(timer_seconds AccuracySec "$timer" 60) + $(timer_seconds RandomizedDelaySec "$timer" 0)))
+[ -n "$age" ] && [ -n "$interval" ] && [ $((interval + slack + 20)) -le "$age" ] ||
+  fail "the port-control heartbeat (${interval:-?} s plus ${slack} s of timer slack) does not refresh the capabilities 20 s inside the dashboard's ${age:-?} s limit"
+[ "$interval" -ge 60 ] || fail "the port-control timer runs more often than its heartbeat needs"
+unit=packaging/systemd/node-manager-port-control.path
+grep -qx 'Unit=node-manager-port-control.service' "$unit" || fail "the request watch does not start port-control"
+grep -qx 'StartLimitBurst=30' packaging/systemd/node-manager-port-control.service || fail "a burst of requests would trip the start limit and stop the request watch"
+! grep -q '^PathExists' "$unit" || fail "a level-triggered watch would loop on a request the helper leaves in place"
+for project in node-manager-apt bitcoin-starter-stack-apt; do
+  for name in port-control credential-control; do
+    grep -qx "PathChanged=/var/lib/docker/volumes/${project}_dashboard_state/_data/$name.request" "$unit" ||
+      fail "the request watch misses $name requests in the $project dashboard volume"
+  done
+done
 
 echo "PASS: test_port_control.sh"

@@ -1,5 +1,13 @@
 #!/bin/sh
 set -eu
+helper_common=$(dirname "$0")/helper-common.sh
+[ -r "$helper_common" ] || {
+  [ "${1:-}" != --check-ports ] || printf 'port_check_failed\n'
+  echo "node-port-control: helper-common.sh is missing next to this script." >&2
+  exit 1
+}
+# shellcheck source=scripts/helper-common.sh
+. "$helper_common"
 
 stack_root=${BITCOIN_STACK_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}
 state_root=${BITCOIN_STACK_STATE_DIR:-$stack_root}
@@ -43,21 +51,15 @@ if [ "$check_ports_mode" = false ]; then
 fi
 
 env_get() {
-  sed -n "s/^$1=//p" "$env_file" | tail -n 1
+  sed -n "/^$1=/h;\${x;s/^$1=//p;}" "$env_file" || true
 }
 
-project_name=${BITCOIN_STACK_PROJECT_NAME:-$(env_get COMPOSE_PROJECT_NAME)}
-if [ -z "$project_name" ]; then
-  case "${BITCOIN_STACK_PACKAGE_MANAGED:-0}" in brew) project_name=bitcoin-starter-stack-brew ;; 1 | apt) project_name=bitcoin-starter-stack-apt ;; *) project_name=bitcoin-starter-stack ;; esac
-fi
-container_id() {
-  "$docker_bin" ps -aq \
-    --filter "label=com.docker.compose.project=$project_name" \
-    --filter "label=com.docker.compose.service=$1" | head -n 1
-}
-dashboard_id=$(container_id dashboard)
+set_project_name
+dashboard=$("$docker_bin" ps -a --filter "label=com.docker.compose.project=$project_name" --filter "label=com.docker.compose.service=dashboard" \
+  --format '{{.ID}} {{.Label "com.docker.compose.project.config_files"}}' 2>/dev/null | head -n 1)
+dashboard_id=${dashboard%% *}
+config_files=${dashboard#* }
 [ -n "$dashboard_id" ] || preflight_unavailable
-config_files=$($docker_bin inspect --format '{{ index .Config.Labels "com.docker.compose.project.config_files" }}' "$dashboard_id" 2>/dev/null || true)
 case ",$config_files," in
   *",$stack_root/docker-compose.yml,"*) ;;
   *) preflight_unavailable ;;
@@ -87,45 +89,27 @@ clear_processing() {
   dashboard_exec rm -f "$processing_path" >/dev/null 2>&1 || true
 }
 
-approve_config() {
-  BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root" \
-    BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" approve-rendered-config >/dev/null 2>&1
-}
-
-canonical_config() {
-  if [ -f "$1" ]; then jq -S -c . "$1" 2>/dev/null; else printf '{}\n'; fi
-}
-
-config_pending() {
-  current_approved=$(canonical_config "$config_file") || return 0
-  saved_approved=$(canonical_config "$approved_config") || return 0
-  [ -f "$approved_config" ] && [ "$current_approved" = "$saved_approved" ] && return 1
-  return 0
-}
+# shellcheck disable=SC2016 # jq program text, not shell
+port_table_jq='
+def port_table: {
+  bitcoin_rpc: {node: "bitcoin", expose: "rpc_expose", bind: "rpc_bind_ip", port: "rpc_port", default: 8332, password: "BITCOIN_RPC_PASSWORD", enabled_default: true},
+  monero_rpc: {node: "monero", expose: "rpc_expose", bind: "rpc_bind_ip", port: "rpc_port", default: 18081, password: "MONERO_RPC_PASSWORD", enabled_default: null},
+  monero_zmq: {node: "monero", expose: "zmq_expose", bind: "zmq_bind_ip", port: "zmq_port", default: 18083, password: "MONERO_RPC_PASSWORD", enabled_default: null},
+  tari_grpc: {node: "tari", expose: "grpc_expose", bind: "grpc_bind_ip", port: "grpc_port", default: 18142, password: null, enabled_default: null},
+  litecoin_rpc: {node: "litecoin", expose: "rpc_expose", bind: "rpc_bind_ip", port: "rpc_port", default: 9332, password: "LITECOIN_RPC_PASSWORD", enabled_default: null},
+  dogecoin_rpc: {node: "dogecoin", expose: "rpc_expose", bind: "rpc_bind_ip", port: "rpc_port", default: 22555, password: "DOGECOIN_RPC_PASSWORD", enabled_default: null},
+  bitcoincash_rpc: {node: "bitcoincash", expose: "rpc_expose", bind: "rpc_bind_ip", port: "rpc_port", default: 8332, password: "BITCOINCASH_RPC_PASSWORD", enabled_default: null},
+  zcash_rpc: {node: "zcash", expose: "rpc_expose", bind: "rpc_bind_ip", port: "rpc_port", default: 8232, password: "ZCASH_RPC_PASSWORD", enabled_default: null}
+};
+def known_port: . as $name | type == "string" and (port_table | has($name));
+'
 
 write_port_candidate() {
-  jq --argjson changes "$changes" '
+  jq --argjson changes "$changes" "$port_table_jq"'
     reduce $changes[] as $change (.;
-      if $change.port == "bitcoin_rpc" then
-        .bitcoin.rpc_expose = $change.enabled |
-        if $change.enabled then .bitcoin.rpc_bind_ip = $change.bind_ip | .bitcoin.rpc_port = $change.host_port else . end
-      elif $change.port == "monero_rpc" then
-        .monero.rpc_expose = $change.enabled |
-        if $change.enabled then .monero.rpc_bind_ip = $change.bind_ip | .monero.rpc_port = $change.host_port else . end
-      elif $change.port == "monero_zmq" then
-        .monero.zmq_expose = $change.enabled |
-        if $change.enabled then .monero.zmq_bind_ip = $change.bind_ip | .monero.zmq_port = $change.host_port else . end
-      elif $change.port == "tari_grpc" then
-        .tari.grpc_expose = $change.enabled | if $change.enabled then .tari.grpc_bind_ip=$change.bind_ip | .tari.grpc_port=$change.host_port else . end
-      elif $change.port == "litecoin_rpc" then
-        .litecoin.rpc_expose = $change.enabled | if $change.enabled then .litecoin.rpc_bind_ip=$change.bind_ip | .litecoin.rpc_port=$change.host_port else . end
-      elif $change.port == "dogecoin_rpc" then
-        .dogecoin.rpc_expose = $change.enabled | if $change.enabled then .dogecoin.rpc_bind_ip=$change.bind_ip | .dogecoin.rpc_port=$change.host_port else . end
-      elif $change.port == "bitcoincash_rpc" then
-        .bitcoincash.rpc_expose = $change.enabled | if $change.enabled then .bitcoincash.rpc_bind_ip=$change.bind_ip | .bitcoincash.rpc_port=$change.host_port else . end
-      else
-        .zcash.rpc_expose = $change.enabled | if $change.enabled then .zcash.rpc_bind_ip=$change.bind_ip | .zcash.rpc_port=$change.host_port else . end
-      end)
+      port_table[$change.port] as $p |
+      .[$p.node][$p.expose] = $change.enabled |
+      if $change.enabled then .[$p.node][$p.bind] = $change.bind_ip | .[$p.node][$p.port] = $change.host_port else . end)
   ' "$1" >"$2"
 }
 
@@ -142,11 +126,6 @@ clear_credential_processing() {
 
 remove_credential_capability() {
   dashboard_exec rm -f "$credential_capability_path" >/dev/null 2>&1 || true
-}
-
-write_credential_capability() {
-  jq -nc --argjson timestamp "$now" '{timestamp:$timestamp}' | "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c \
-    'umask 077; cat >/state/.credential-control.capability.tmp; mv /state/.credential-control.capability.tmp /state/credential-control.capability' >/dev/null
 }
 
 credential_resource_limits() {
@@ -289,15 +268,8 @@ host_tcp_listeners() {
 }
 
 host_ipv4_addresses() {
-  case "$host_os" in
-    Linux)
-      output=$($ip_bin -o -4 addr show 2>/dev/null) || return 1
-      ;;
-    Darwin)
-      output=$($ifconfig_bin -a 2>/dev/null) || return 1
-      ;;
-    *) return 1 ;;
-  esac
+  case "$host_os" in Linux | Darwin) ;; *) return 1 ;; esac
+  output=$(host_addresses) || return 1
   addresses=$(printf '%s\n' "$output" | awk '
     {
       for (i=1; i<=NF; i++) {
@@ -315,10 +287,9 @@ host_ipv4_addresses() {
 
 check_requested_ports() {
   requested_changes=$1
-  printf '%s' "$requested_changes" | jq -e 'type=="array" and length<=8 and all(.[];
+  printf '%s' "$requested_changes" | jq -e "$port_table_jq"'type=="array" and length<=8 and all(.[];
     type=="object" and keys==["bind_ip","enabled","host_port","port"] and
-    (.port=="bitcoin_rpc" or .port=="monero_rpc" or .port=="monero_zmq" or .port=="tari_grpc" or
-     .port=="litecoin_rpc" or .port=="dogecoin_rpc" or .port=="bitcoincash_rpc" or .port=="zcash_rpc") and
+    (.port | known_port) and
     .enabled==true and (.bind_ip|type=="string") and
     (.host_port|type=="number" and floor==. and .>=1 and .<=65535))' >/dev/null 2>&1 || {
       printf 'invalid_request\n'
@@ -363,9 +334,14 @@ if [ "${1:-}" = --check-ports ]; then
   exit $?
 fi
 
+pending_has() {
+  case " $pending " in *" $1 "*) return 0 ;; esac
+  return 1
+}
+
 process_credential_request() {
-  if ! dashboard_exec test -f "$credential_processing_path" >/dev/null 2>&1; then
-    dashboard_exec test -f "$credential_request_path" >/dev/null 2>&1 || return 1
+  if ! pending_has credential-control.processing; then
+    pending_has credential-control.request || return 1
     if dashboard_exec sh -c \
       'test -e /state/port-control.request || test -e /state/port-control.processing || test -e /state/node-control.request || test -e /state/node-control.processing' \
       >/dev/null 2>&1; then
@@ -410,14 +386,7 @@ process_credential_request() {
     zcash) credential_services='["dashboard"]' ;;
   esac
   credential_seen=$credential_state/seen
-  remember_credential_seen() {
-    printf '%s\n' "$credential_id" >>"$credential_seen"
-    chmod 600 "$credential_seen"
-    credential_seen_tmp=$(mktemp "$credential_state/.seen.tmp.XXXXXX")
-    tail -n 256 "$credential_seen" >"$credential_seen_tmp"
-    chmod 600 "$credential_seen_tmp"
-    mv "$credential_seen_tmp" "$credential_seen"
-  }
+  remember_credential_seen() { remember_seen_id "$credential_seen" "$credential_id"; }
 
   credential_inflight=$credential_state/inflight
   credential_transaction_before=$credential_state/transaction.before
@@ -666,19 +635,40 @@ dashboard_auth_configured() {
   ' >/dev/null 2>&1
 }
 
-dashboard_exec sh -c \
-  'umask 077; printf "ready\n" > /state/.port-control.capability.tmp; mv /state/.port-control.capability.tmp /state/port-control.capability' >/dev/null
-if ! dashboard_auth_configured; then
-  remove_credential_capability
-else
-  write_credential_capability
-  if process_credential_request; then
-    exit 0
+# Both heartbeats and the request checks share one exec because each docker call costs more than the rest of an idle tick.
+publish_heartbeat() {
+  credential_capability=
+  heartbeat_status=0
+  ! dashboard_auth_configured || credential_capability=$(printf '{"timestamp":%s}' "$now")
+  # shellcheck disable=SC2016
+  pending=$(printf '%s\n' "$credential_capability" | "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c '
+  umask 077
+  printf "ready\n" > /state/.port-control.capability.tmp && mv /state/.port-control.capability.tmp /state/port-control.capability || exit 1
+  read -r capability
+  if [ -n "$capability" ]; then
+    printf "%s\n" "$capability" > /state/.credential-control.capability.tmp &&
+      mv /state/.credential-control.capability.tmp /state/credential-control.capability || exit 1
+  else
+    rm -f /state/credential-control.capability
   fi
+  for name in credential-control.processing credential-control.request port-control.processing port-control.request; do
+    [ ! -f "/state/$name" ] || printf "%s " "$name"
+  done' 2>"$control_state/heartbeat.err") || heartbeat_status=$?
+  [ ! -s "$control_state/heartbeat.err" ] || cat "$control_state/heartbeat.err" >&2
+  return "$heartbeat_status"
+}
+dashboard_not_running() { grep -q -e 'is not running' -e 'is restarting' -e 'No such container' "$control_state/heartbeat.err"; }
+# The dashboard may still be starting after boot, and the timer would not try again for a minute.
+until publish_heartbeat; do
+  [ "${BITCOIN_STACK_PACKAGE_MANAGED:-0}" = 1 ] && read -r uptime _ 2>/dev/null <"${PORT_CONTROL_UPTIME_FILE:-/proc/uptime}" && [ "${uptime%.*}" -lt 300 ] || { dashboard_not_running && exit 0; exit 1; }
+  sleep 10
+done
+if [ -n "$credential_capability" ] && process_credential_request; then
+  exit 0
 fi
 
-if ! dashboard_exec test -f "$processing_path" >/dev/null 2>&1; then
-  dashboard_exec test -f "$request_path" >/dev/null 2>&1 || exit 0
+if ! pending_has port-control.processing; then
+  pending_has port-control.request || exit 0
   dashboard_exec mv "$request_path" "$processing_path" >/dev/null 2>&1 || exit 0
 fi
 
@@ -690,7 +680,7 @@ if [ "$size" -gt 4096 ]; then
   exit 0
 fi
 request=$(dashboard_exec cat "$processing_path" 2>/dev/null || true)
-if ! printf '%s' "$request" | jq -e --argjson now "$now" '
+if ! printf '%s' "$request" | jq -e --argjson now "$now" "$port_table_jq"'
   type == "object" and
   keys == ["changes", "id", "requested_at"] and
   (.id | type == "string" and test("^[0-9a-f]{32}$")) and
@@ -699,8 +689,7 @@ if ! printf '%s' "$request" | jq -e --argjson now "$now" '
   ((.changes | map(.port) | unique | length) == (.changes | length)) and
   all(.changes[];
     type == "object" and
-    (.port == "bitcoin_rpc" or .port == "monero_rpc" or .port == "monero_zmq" or .port == "tari_grpc" or
-     .port == "litecoin_rpc" or .port == "dogecoin_rpc" or .port == "bitcoincash_rpc" or .port == "zcash_rpc") and
+    (.port | known_port) and
     (.enabled | type == "boolean") and
     (if .enabled then
       keys == ["bind_ip", "enabled", "host_port", "port"] and
@@ -730,14 +719,7 @@ if [ -r "$seen_file" ] && grep -Fxq "$request_id" "$seen_file"; then
   clear_processing
   exit 0
 fi
-remember_seen() {
-  printf '%s\n' "$request_id" >>"$seen_file"
-  chmod 600 "$seen_file"
-  seen_tmp=$(mktemp "$control_state/.seen.tmp.XXXXXX")
-  tail -n 256 "$seen_file" >"$seen_tmp"
-  chmod 600 "$seen_tmp"
-  mv "$seen_tmp" "$seen_file"
-}
+remember_seen() { remember_seen_id "$seen_file" "$request_id"; }
 
 changes=$(printf '%s' "$request" | jq -c .changes)
 inflight_file=$control_state/inflight
@@ -793,7 +775,7 @@ while [ "$attempt" -lt 3 ]; do
     had_config=0
     printf '{}\n' >"$config_snapshot"
   fi
-  if ! jq -e --argjson changes "$changes" --argjson recovering "$recovering" --rawfile existing_env "$env_file" '
+  if ! jq -e --argjson changes "$changes" --argjson recovering "$recovering" --rawfile existing_env "$env_file" "$port_table_jq"'
     def strong_password: type == "string" and length >= 24 and test("^[A-Za-z0-9]+$");
     def env_value($key):
       ($existing_env | split("\n") | map(select(startswith($key + "="))) | last // "") as $line |
@@ -803,40 +785,14 @@ while [ "$attempt" -lt 3 ]; do
     . as $config |
     type == "object" and
     all($changes[];
-      (if (.port | startswith("bitcoin_rpc")) then
-        (($config.bitcoin.enabled // true) == true and
-          ((.enabled | not) or (effective_password($config.bitcoin.node_password; "BITCOIN_RPC_PASSWORD") | strong_password)))
-      elif .port == "tari_grpc" then ($config.tari.enabled == true)
-      elif .port == "litecoin_rpc" then ($config.litecoin.enabled == true and ((.enabled | not) or (effective_password($config.litecoin.node_password; "LITECOIN_RPC_PASSWORD") | strong_password)))
-      elif .port == "dogecoin_rpc" then ($config.dogecoin.enabled == true and ((.enabled | not) or (effective_password($config.dogecoin.node_password; "DOGECOIN_RPC_PASSWORD") | strong_password)))
-      elif .port == "bitcoincash_rpc" then ($config.bitcoincash.enabled == true and ((.enabled | not) or (effective_password($config.bitcoincash.node_password; "BITCOINCASH_RPC_PASSWORD") | strong_password)))
-      elif .port == "zcash_rpc" then ($config.zcash.enabled == true and ((.enabled | not) or (effective_password($config.zcash.node_password; "ZCASH_RPC_PASSWORD") | strong_password)))
-      else
-        ($config.monero.enabled == true and
-          ((.enabled | not) or (effective_password($config.monero.node_password; "MONERO_RPC_PASSWORD") | strong_password)))
-      end) and
+      port_table[.port] as $p |
+      $p != null and
+      (($config[$p.node].enabled // $p.enabled_default) == true) and
+      ($p.password == null or (.enabled | not) or (effective_password($config[$p.node].node_password; $p.password) | strong_password)) and
       ($recovering or
         (if .enabled then
-           if .port == "bitcoin_rpc" then
-             ($config.bitcoin.rpc_expose != true or $config.bitcoin.rpc_bind_ip != .bind_ip or ($config.bitcoin.rpc_port // 8332) != .host_port)
-           elif .port == "monero_rpc" then
-             ($config.monero.rpc_expose != true or $config.monero.rpc_bind_ip != .bind_ip or ($config.monero.rpc_port // 18081) != .host_port)
-           elif .port == "tari_grpc" then ($config.tari.grpc_expose != true or $config.tari.grpc_bind_ip != .bind_ip or ($config.tari.grpc_port // 18142) != .host_port)
-           elif .port == "litecoin_rpc" then ($config.litecoin.rpc_expose != true or $config.litecoin.rpc_bind_ip != .bind_ip or ($config.litecoin.rpc_port // 9332) != .host_port)
-           elif .port == "dogecoin_rpc" then ($config.dogecoin.rpc_expose != true or $config.dogecoin.rpc_bind_ip != .bind_ip or ($config.dogecoin.rpc_port // 22555) != .host_port)
-           elif .port == "bitcoincash_rpc" then ($config.bitcoincash.rpc_expose != true or $config.bitcoincash.rpc_bind_ip != .bind_ip or ($config.bitcoincash.rpc_port // 8332) != .host_port)
-           elif .port == "zcash_rpc" then ($config.zcash.rpc_expose != true or $config.zcash.rpc_bind_ip != .bind_ip or ($config.zcash.rpc_port // 8232) != .host_port)
-           else
-             ($config.monero.zmq_expose != true or $config.monero.zmq_bind_ip != .bind_ip or ($config.monero.zmq_port // 18083) != .host_port)
-           end
-         elif .port == "bitcoin_rpc" then $config.bitcoin.rpc_expose == true
-         elif .port == "monero_rpc" then $config.monero.rpc_expose == true
-         elif .port == "tari_grpc" then $config.tari.grpc_expose == true
-         elif .port == "litecoin_rpc" then $config.litecoin.rpc_expose == true
-         elif .port == "dogecoin_rpc" then $config.dogecoin.rpc_expose == true
-         elif .port == "bitcoincash_rpc" then $config.bitcoincash.rpc_expose == true
-         elif .port == "zcash_rpc" then $config.zcash.rpc_expose == true
-         else $config.monero.zmq_expose == true end)))
+           ($config[$p.node][$p.expose] != true or $config[$p.node][$p.bind] != .bind_ip or ($config[$p.node][$p.port] // $p.default) != .host_port)
+         else $config[$p.node][$p.expose] == true end)))
   ' "$config_snapshot" >/dev/null 2>&1; then
     rm -rf "$config_snapshot" "$config_tmp" "$validate_dir" "$inflight_file"
     remember_seen

@@ -15,7 +15,7 @@ headroom budgets, not measured average consumption or hard minimums:
 | Tari, Litecoin, Dogecoin, Bitcoin Cash, or Zcash initial sync | Plan for 2 cores per syncing node. | Allow 4 GiB per node as a starting budget. | No container CPU or RAM cap. Sync one at a time on a small host. |
 | Bitcoin after sync | 1 core of capacity; usually idle between validation and RPC work. | 2 GiB container budget. | Fresh APT/Homebrew default installs apply the cap after healthy sync checks. |
 | Monero after sync | 1 core of capacity; wallet/RPC activity adds work. | 2 GiB container budget, still experimental. | Fresh APT/Homebrew default installs apply the cap after healthy sync checks. |
-| Tari, Litecoin, Dogecoin, Bitcoin Cash, or Zcash after sync | 1 core per node. | 4 GiB container budget per node. | Fresh APT/Homebrew default installs apply the cap after healthy sync checks; sustained operation remains unqualified. |
+| Tari, Litecoin, Dogecoin, Bitcoin Cash, or Zcash after sync | 1 core per node. | 4 GiB container budget for Tari and Zcash, 2 GiB for Litecoin, Dogecoin and Bitcoin Cash. | Fresh APT/Homebrew default installs apply the cap after healthy sync checks; sustained operation remains unqualified. |
 
 Smaller machines can work, with slower sync and less room for bursts. Uncapped
 sync can use more than the planning estimate; it does not reserve memory or
@@ -30,16 +30,17 @@ upstream guarantees. Bitcoin's
 [memory guide](https://github.com/bitcoin/bitcoin/blob/v32.1/doc/reduce-memory.md)
 explains why lowering caches saves RAM but can slow initial sync.
 
-The default post-sync caps are explicit and editable. Bitcoin and Monero use
-`steady_cpus: 1` and `steady_mem_limit_mb: 2048`; the other supported nodes use
-`steady_cpus: 1` and `steady_mem_limit_mb: 4096`.
+The default post-sync caps are explicit and editable. Bitcoin, Monero,
+Litecoin, Dogecoin, and Bitcoin Cash use `steady_cpus: 1` and
+`steady_mem_limit_mb: 2048`; Tari and Zcash use `steady_cpus: 1` and
+`steady_mem_limit_mb: 4096`.
 See [resource caps](configuration.md#resource-caps) for changing them. A cap is
 a ceiling, not an allocation: actual usage can be lower. Source installs and
 existing profiles set to `off` do not enable automatic caps.
 
-All seven base nodes therefore have configured ceilings totaling 7 CPUs and 24
+All seven base nodes therefore have configured ceilings totaling 7 CPUs and 18
 GiB. The Monero and Tari wallet sidecars add 0.5 CPU and 512 MiB each, bringing
-the container ceilings to 8 CPUs and 25 GiB. Add Tor, dashboard, Docker,
+the container ceilings to 8 CPUs and 19 GiB. Add Tor, dashboard, Docker,
 filesystem cache, and operating-system headroom. This is cap arithmetic, not a
 measurement of actual simultaneous use or a qualified minimum host.
 
@@ -110,9 +111,9 @@ on upgrade.
 | Index | Disk | Dashboard memory limit | While seeding |
 |---|---|---|---|
 | Bitcoin | about 7.5 GiB, up to about 17 GiB during the seed | 1 GiB | one `dumptxoutset` seed; 27 GB free |
-| Litecoin | not measured | 1 GiB | one `dumptxoutset` seed; 27 GB free |
+| Litecoin | about 4.5 GB (53.8 million coins on mini-1; [measurement](measurements/litecoin-index-mainnet.md)) | 1 GiB | one `dumptxoutset` seed; 27 GB free |
 | Dogecoin | not measured | 1 GiB | node stopped briefly; free space for 3 times its chainstate |
-| Bitcoin Cash | not measured | 1 GiB | node stopped briefly; free space for 3 times its chainstate |
+| Bitcoin Cash | about 5.2 GB (58.8 million coins on mini-1; [measurement](measurements/bitcoincash-index-mainnet.md)) | 1 GiB | node stopped briefly; free space for 3 times its chainstate |
 
 - Every index sets the same 1 GiB dashboard limit, whichever are on. Bitcoin Cash's
   32 MB blocks fit because a large block is applied in pieces. Seeds run one at a
@@ -121,7 +122,7 @@ on upgrade.
   memory with all four indexes ready and one seeding has not been measured; measure it
   on a host before relying on it.
 - By cap arithmetic, four chains with their indexes on an 8 GB host are
-  over-committed: Litecoin, Dogecoin and Bitcoin Cash each have a 4 GiB steady cap,
+  over-committed: Litecoin, Dogecoin and Bitcoin Cash each have a 2 GiB steady cap,
   Bitcoin 2 GiB, and the dashboard 1 GiB. Keep the chains you do not need
   deactivated, or leave their indexes off.
 - A Dogecoin or Bitcoin Cash seed hardlinks the node's chainstate tables into

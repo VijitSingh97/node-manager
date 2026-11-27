@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/pbkdf2"
 	"crypto/rand"
 	"crypto/sha256"
@@ -52,10 +51,8 @@ func newDashboardAuth(stateDir, baseline string) (*dashboardAuth, error) {
 	if err != nil {
 		return nil, errors.New("dashboard password storage unavailable")
 	}
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	decoder.DisallowUnknownFields()
 	var saved savedDashboardAuth
-	if decoder.Decode(&saved) != nil || ensureJSONEnd(decoder) != nil || saved.Version != 1 || saved.Iterations != dashboardPasswordIterations || !lowerHex(saved.Salt, 32) || !lowerHex(saved.Hash, 64) {
+	if !decodeStrictBytes(b, &saved) || saved.Version != 1 || saved.Iterations != dashboardPasswordIterations || !lowerHex(saved.Salt, 32) || !lowerHex(saved.Hash, 64) {
 		return nil, errors.New("dashboard password storage unavailable")
 	}
 	auth.saved, auth.enabled, auth.hasCache = saved, true, false
@@ -153,15 +150,12 @@ func (a *app) apiDashboardPassword(w http.ResponseWriter, r *http.Request) {
 	if rejectCredentialCSRF(w, r) || a.rejectUnsafeSettingsHost(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	var input struct {
 		Old    string `json:"old_password"`
 		New    string `json:"new_password"`
 		Repeat string `json:"repeat_password"`
 	}
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&input) != nil || ensureJSONEnd(decoder) != nil || len(input.New) < 12 || len(input.New) > 128 || strings.IndexFunc(input.New, unicode.IsControl) >= 0 || input.New != input.Repeat {
+	if !decodeStrictBody(w, r, 4096, &input) || len(input.New) < 12 || len(input.New) > 128 || strings.IndexFunc(input.New, unicode.IsControl) >= 0 || input.New != input.Repeat {
 		http.Error(w, "use matching passwords of 12 to 128 characters without control characters", http.StatusBadRequest)
 		return
 	}
@@ -195,5 +189,6 @@ func (a *app) apiDashboardPassword(w http.ResponseWriter, r *http.Request) {
 	auth.saved, auth.enabled, auth.cached, auth.hasCache = saved, true, sha256.Sum256([]byte(input.New)), true
 	a.sessions.revokeAll(auth.sessionBindingLocked())
 	a.clearSessionCookie(w, r)
+	a.recordEvent("Security", "", "Dashboard password changed; every session was signed out.")
 	writeJSON(w, map[string]bool{"changed": true})
 }

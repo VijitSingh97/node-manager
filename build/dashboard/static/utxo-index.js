@@ -1,13 +1,8 @@
-import { dashboardFetch as fetch } from "./session.js";
+import { commandName, dashboardFetch as fetch, jsonRequest } from "./session.js";
 import { el } from "./wallet-ui.js";
 
 const POLL_MS = 15000;
-export const SEED_COMMANDS = {
-  bitcoin: "./stack utxo-seed",
-  litecoin: "./stack utxo-seed litecoin",
-  bitcoincash: "./stack utxo-seed bitcoincash",
-  dogecoin: "./stack utxo-seed dogecoin",
-};
+export const seedCommand = (chain) => `${commandName()} utxo-seed${chain === "bitcoin" ? "" : ` ${chain}`}`;
 
 const CHAINS = {
   bitcoin: { card: "utxo-index", heading: "#watch h2", title: "Bitcoin balance index", api: "/api/utxo-index" },
@@ -18,14 +13,34 @@ const CHAINS = {
 
 export const CONFIRMED_ONLY = "Balances are confirmed only; unconfirmed and mempool activity is not included.";
 
-const STATE_TEXT = {
-  not_seeded: "Not seeded",
-  seeding: "Seeding",
-  catching_up: "Catching up",
-  ready: "Ready",
-  degraded: "Degraded",
-  invalid: "Needs a new seed",
+export const STATE_LABEL = {
+  not_seeded: "not seeded",
+  seeding: "seeding",
+  catching_up: "catching up",
+  ready: "ready",
+  degraded: "degraded",
+  invalid: "needs a new seed",
 };
+
+const GUARD_TEXT = {
+  state: "Index state",
+  node: "Node",
+  thermal: "Temperature",
+  cpu_cap: "CPU cap",
+  free_space: "Disk",
+  rpc_idle: "Node commands",
+  fifo: "Seed pipe",
+  request: "Request",
+  lock: "Seed slot",
+  scanner: "Scanner",
+  host: "Host helper",
+};
+
+const humanDetail = (r) => (r.guard === "state" ? r.detail.replace(/^index state is (\w+)$/, (_, id) => STATE_LABEL[id] || id.replace(/_/g, " ")) : r.detail);
+
+export const guardText = (r) => `${GUARD_TEXT[r.guard] || "Blocked"}: ${humanDetail(r)}`;
+
+const cap = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 
 export const OFF_HINT = "Instant balances: switch it on under Settings, Balance index. See ";
 export const OFF_HINT_DOCS = "https://github.com/VijitSingh97/node-manager/blob/main/docs/watch-only.md";
@@ -34,14 +49,7 @@ export function offHint(status) {
   return status && status.state === "off" && status.node_pruned === true ? OFF_HINT : "";
 }
 
-const BADGE = {
-  ready: ["ready", "ok"],
-  catching_up: ["catching up", "info"],
-  seeding: ["seeding", "info"],
-  not_seeded: ["needs a seed", "warn"],
-  invalid: ["needs a seed", "warn"],
-  degraded: ["degraded", "bad"],
-};
+const TONE = { ready: "ok", catching_up: "info", seeding: "info", not_seeded: "warn", invalid: "warn", degraded: "bad" };
 
 export function badgeClickTarget(cardHidden) {
   return cardHidden ? "settings" : "anchor";
@@ -50,15 +58,14 @@ export function badgeClickTarget(cardHidden) {
 export function indexBadge(status) {
   if (!status) return null;
   if (!status.enabled || status.state === "off") return { text: "Balance index: off", tone: "off" };
-  const [label, tone] = BADGE[status.state] || [String(status.state), "warn"];
-  return { text: `Balance index: ${label}`, tone };
+  return { text: `Balance index: ${STATE_LABEL[status.state] || status.state}`, tone: TONE[status.state] || "warn" };
 }
 
 export function indexView(status, chain = "bitcoin") {
   if (!status || !status.enabled || status.state === "off") return null;
   const seeding = status.state === "seeding";
   const idle = status.state === "not_seeded" || status.state === "invalid";
-  const rows = [`Index: ${STATE_TEXT[status.state] || status.state}${status.reason ? ` (${status.reason})` : ""}`];
+  const rows = [`Index: ${cap(STATE_LABEL[status.state] || String(status.state))}${status.reason ? ` (${status.reason})` : ""}`];
   rows.push(CONFIRMED_ONLY);
   if (seeding) {
     const pct = status.seed_progress == null ? "" : ` ${Math.floor(status.seed_progress * 100)}%`;
@@ -74,8 +81,8 @@ export function indexView(status, chain = "bitcoin") {
   return {
     rows,
     progress: seeding && status.seed_progress != null ? status.seed_progress : null,
-    refusals: (status.refusals || []).map(r => `${r.guard}: ${r.detail}`),
-    command: idle && status.needs_host === true ? SEED_COMMANDS[chain] : "",
+    refusals: (status.refusals || []).map(guardText),
+    command: idle && status.needs_host === true ? seedCommand(chain) : "",
   };
 }
 
@@ -107,10 +114,10 @@ export function indexBarView(status) {
     case "degraded":
     case "invalid": {
       const reason = shortReason(status.reason);
-      return bar(`needs attention${reason ? `: ${reason}` : ""}`, null, "warn");
+      return bar(`${STATE_LABEL[status.state]}${reason ? `: ${reason}` : ""}`, null, "warn");
     }
     case "not_seeded": {
-      if (status.needs_host) return bar("needs the host helper", null, "warn");
+      if (status.needs_host) return bar(`${STATE_LABEL.not_seeded}, needs the host helper`, null, "warn");
       if (status.waiting_for === "node_sync") return bar("waiting for the node to sync", null);
       if (WAITING_START.has(status.waiting_for)) return bar("waiting to start", null);
       if (status.waiting_for === "blocked") {
@@ -163,11 +170,11 @@ function wire(chain) {
       badge.className = `index-badge index-badge-${view.tone}`;
     };
   }
-  if (!card) return;
   const render = (status) => {
     lastStatus = status;
     renderBar();
     renderBadge(status);
+    if (!card) return;
     const view = indexView(status, chain);
     const hint = chain === "bitcoin" ? offHint(status) : "";
     card.hidden = !view && !hint;
@@ -197,8 +204,7 @@ function wire(chain) {
   };
   const refresh = async () => {
     try {
-      const res = await fetch(api, { headers: { "X-Requested-With": "fetch" } });
-      if (res.ok) render(await res.json());
+      render(await jsonRequest(fetch, api, { failure: "unavailable" }));
     } catch { /* next poll */ }
   };
   refresh();
@@ -206,5 +212,7 @@ function wire(chain) {
 }
 
 if (typeof document !== "undefined") {
-  for (const chain of Object.keys(CHAINS)) wire(chain);
+  for (const chain of Object.keys(CHAINS)) {
+    if (document.getElementById(CHAINS[chain].card) || document.getElementById(`index-bar-${chain}`)) wire(chain);
+  }
 }

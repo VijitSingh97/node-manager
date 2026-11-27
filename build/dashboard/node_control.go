@@ -1,9 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -30,6 +27,7 @@ type nodeControlNode struct {
 	Configured bool    `json:"configured"`
 	Stopped    bool    `json:"stopped"`
 	Restarting bool    `json:"restarting"`
+	Starting   bool    `json:"starting,omitempty"`
 	Failure    string  `json:"failure,omitempty"`
 	LastHeight *int64  `json:"last_height,omitempty"`
 	LastSync   float64 `json:"last_sync_percent,omitempty"`
@@ -55,6 +53,7 @@ type nodeControlStatus struct {
 	State     string `json:"state"`
 	Message   string `json:"message,omitempty"`
 	ErrorCode string `json:"error_code,omitempty"`
+	Detail    string `json:"detail,omitempty"`
 }
 
 func (a *app) nodeControlPath(name string) string {
@@ -94,8 +93,7 @@ func (a *app) nodeRuntime() map[string]bool {
 		return active
 	}
 	var saved map[string]bool
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	if decoder.Decode(&saved) != nil || ensureJSONEnd(decoder) != nil {
+	if !decodeStrictBytes(b, &saved) {
 		return active
 	}
 	for id := range saved {
@@ -167,7 +165,7 @@ func (a *app) apiNodes(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	runtime := a.nodeRuntime()
 	stats := a.hostStats()
-	restarting := a.restartingNodes()
+	restarting, starting := a.restartStates()
 	nodes := make([]nodeControlNode, 0, len(nodeOrder))
 	for _, id := range nodeOrder {
 		configured, supported := a.nodeConfigured(id)
@@ -177,7 +175,7 @@ func (a *app) apiNodes(w http.ResponseWriter, _ *http.Request) {
 		if stopped {
 			failure = stats.Failed[id]
 		}
-		entry := nodeControlNode{ID: id, Active: active, Available: a.nodeAvailable(id, active), Supported: supported, Configured: configured, Stopped: stopped, Restarting: restarting[id] && failure == "", Failure: failure}
+		entry := nodeControlNode{ID: id, Active: active, Available: a.nodeAvailable(id, active), Supported: supported, Configured: configured, Stopped: stopped, Restarting: restarting[id] && failure == "", Starting: restarting[id] && starting[id] && failure == "", Failure: failure}
 		if seen := a.monitor.LastSeen(id); seen.HasLastBlock && seen.LastBlock >= 0 {
 			entry.LastHeight, entry.LastSync = &seen.LastBlock, seen.SyncPercent
 		}
@@ -344,24 +342,8 @@ func (a *app) fillFromHostStats(id string, status *genericNodeStatus) {
 }
 
 func (a *app) nodeControlAvailable() bool {
-	info, err := os.Stat(a.nodeControlPath("capability"))
-	if err != nil || !info.Mode().IsRegular() || info.Size() > 1024 || time.Since(info.ModTime()) < 0 || time.Since(info.ModTime()) > nodeControlCapabilityAge {
-		return false
-	}
-	b, err := os.ReadFile(a.nodeControlPath("capability"))
-	if err != nil {
-		return false
-	}
-	if string(b) == "ready\n" {
-		return true
-	}
-	_, ok := decodeHostControlCapability(b)
+	_, ok := a.hostControlCapability()
 	return ok
-}
-
-func (a *app) nodeControlPending() bool {
-	_, pending := a.pendingNodeControlStatus()
-	return pending
 }
 
 func (a *app) pendingNodeControlStatus() (*nodeControlStatus, bool) {
@@ -369,9 +351,7 @@ func (a *app) pendingNodeControlStatus() (*nodeControlStatus, bool) {
 		b, err := readSmallFile(a.nodeControlPath(name), 4096)
 		if err == nil {
 			var request nodeControlRequest
-			decoder := json.NewDecoder(bytes.NewReader(b))
-			decoder.DisallowUnknownFields()
-			decoded := decoder.Decode(&request) == nil && ensureJSONEnd(decoder) == nil
+			decoded := decodeStrictBytes(b, &request)
 			configured, supported := a.nodeConfigured(request.Node)
 			now := time.Now().Unix()
 			valid := decoded && validPortControlID(request.ID) && normalizeNodeID(request.Node) != "" && configured && supported && request.RequestedAt > 0 && request.RequestedAt <= now+30 && now-request.RequestedAt <= int64(nodeControlRequestFreshFor/time.Second)
@@ -394,9 +374,7 @@ func (a *app) readNodeControlStatus() *nodeControlStatus {
 		return nil
 	}
 	var status nodeControlStatus
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&status) != nil || ensureJSONEnd(decoder) != nil || !validPortControlID(status.ID) || normalizeNodeID(status.Node) == "" {
+	if !decodeStrictBytes(b, &status) || !validPortControlID(status.ID) || normalizeNodeID(status.Node) == "" {
 		return nil
 	}
 	if status.State != "applied" && status.State != "rejected" && status.State != "failed" {
@@ -414,8 +392,27 @@ func (a *app) readNodeControlStatus() *nodeControlStatus {
 	case "failed":
 		status.Message = nodeDisplayName(status.Node) + " state could not be changed."
 	}
-	status.ErrorCode = ""
+	if reason, ok := nodeControlReasons[status.ErrorCode]; ok && status.State != "applied" {
+		status.Message = nodeDisplayName(status.Node) + " " + reason
+	} else {
+		status.ErrorCode = ""
+	}
+	if detail := hostStatusDetail(hostControlStatus{State: status.State, Detail: status.Detail}); detail != "" {
+		status.Message += " " + detail
+	}
+	status.Detail = ""
 	return &status
+}
+
+var nodeControlReasons = map[string]string{
+	"config_pending":      "was not changed: review the pending config change first.",
+	"node_not_configured": "was not changed: it is not configured.",
+	"unchanged":           "was not changed: it is already in that state.",
+	"validation_failed":   "was not changed: its settings did not pass validation.",
+	"replayed":            "was not changed: that request was already processed.",
+	"image_unavailable":   "was not changed: its image could not be downloaded. Check the host's internet connection, then try again.",
+	"apply_failed":        "could not be changed; the prior state was restored.",
+	"rollback_failed":     "could not be changed and its prior state could not be fully restored. Check the node.",
 }
 
 func normalizeNodeID(id string) string {
@@ -428,11 +425,8 @@ func normalizeNodeID(id string) string {
 }
 
 func decodeNodeControlInput(w http.ResponseWriter, r *http.Request) (nodeControlInput, error) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1024)
 	var input nodeControlInput
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&input) != nil || ensureJSONEnd(decoder) != nil || input.Active == nil {
+	if !decodeStrictBody(w, r, 1024, &input) || input.Active == nil {
 		return input, errors.New("invalid node control request")
 	}
 	return input, nil
@@ -464,12 +458,7 @@ func (a *app) apiNodePower(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "node control request already pending", http.StatusConflict)
 		return
 	}
-	random := make([]byte, 16)
-	if _, err := rand.Read(random); err != nil {
-		http.Error(w, "node control unavailable", http.StatusServiceUnavailable)
-		return
-	}
-	request := nodeControlRequest{ID: hex.EncodeToString(random), Node: id, Active: *input.Active, Confirmation: input.Confirmation, RequestedAt: time.Now().Unix()}
+	request := nodeControlRequest{ID: newRequestID(), Node: id, Active: *input.Active, Confirmation: input.Confirmation, RequestedAt: time.Now().Unix()}
 	b, _ := json.Marshal(request)
 	if err := writePrivateFileAtomic(a.nodeControlPath("request"), append(b, '\n')); err != nil {
 		http.Error(w, "node control unavailable", http.StatusServiceUnavailable)

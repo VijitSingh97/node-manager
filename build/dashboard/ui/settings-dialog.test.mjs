@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { defaultSettings, expectSettings, flow, openAlertPreferences, openSettings, reopenSettings, save } from "./harness.mjs";
+import { answerConfirm, defaultSettings, expectSettings, flow, openAlertPreferences, openSettings, reopenSettings, save } from "./harness.mjs";
 
 const GLOBAL = "/api/settings?scope=global";
 const posts = (page) => page.requestsTo("POST", GLOBAL);
@@ -70,6 +70,7 @@ flow("Reset to default fills in the defaults and Cancel keeps the saved settings
   assert.deepEqual(dash.settings(), { ...defaultSettings, ...customised });
 
   await page.click("#settings-cancel");
+  await answerConfirm(page, true);
   await page.waitFor(() => !document.getElementById("settings-dialog").open);
   await openSettings(page);
   assert.deepEqual(await readFields(page), pick(customised, await readFields(page)));

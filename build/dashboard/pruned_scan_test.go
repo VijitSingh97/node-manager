@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -319,6 +320,20 @@ func TestValidatedPrunedScanBalanceUsesMatchedOutputsNotChainstateCount(t *testi
 	result.TotalAmount = result.Unspents[0].Amount
 	if _, err := validatedScanBalance(result); err == nil {
 		t.Fatal("sub-satoshi amount was accepted")
+	}
+}
+
+func TestScanOutputsTakeBitcoinCashNodeResultShape(t *testing.T) {
+	result := validPrunedScan(strings.Repeat("0", 64))
+	result.Searched, result.TxOuts = result.TxOuts, 0
+	for i := range result.Unspents {
+		result.Unspents[i].Desc = ""
+	}
+	if _, err := scanOutputsUpTo(result, math.MaxInt64); err != nil {
+		t.Fatalf("bench scan refused a Bitcoin Cash Node result: %v", err)
+	}
+	if _, err := validatedScanOutputs(result); err == nil {
+		t.Fatal("watch scan accepted a coin without desc")
 	}
 }
 

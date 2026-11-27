@@ -2,7 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-fail() { echo "FAIL: $1"; exit 1; }
+# shellcheck source=tests/lib.sh
+. tests/lib.sh
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT

@@ -1,7 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { atomicToDecimal, bigSeries, fiatLabel, formatAmount, groupDigits, httpsURL, joinNote, scanNote, shortKey } from "./wallet-format.js";
+import { WATCH_COPY, atomicToDecimal, bigSeries, fiatLabel, formatAmount, groupDigits, httpsURL, joinNote, scanNote, shortKey } from "./wallet-format.js";
 import { rowView } from "./wallet-ui.js";
+import { balanceLabel } from "./watch.js";
+import { moneroRow } from "./monero-watch.js";
+import { tariRow } from "./tari-watch.js";
+import { familyRow } from "./family-watch.js";
 import { formatPrice } from "./prices.js";
 
 test("amounts group integer digits and keep or trim the fraction", () => {
@@ -29,7 +33,8 @@ test("fiat labels follow the price feed and currency", () => {
   const price = { available: true, prices: { usd: 100000, eur: 90000 } };
   assert.equal(fiatLabel("2", price, "USD"), `≈ ${formatPrice(200000, "USD")}`);
   assert.equal(fiatLabel("2", price, "EUR"), `≈ ${formatPrice(180000, "EUR")}`);
-  assert.equal(fiatLabel("2", { ...price, stale: true }, "USD"), `≈ ${formatPrice(200000, "USD")} · stale`);
+  assert.equal(fiatLabel("2", { ...price, stale: true }, "USD"), `≈ ${formatPrice(200000, "USD")} · price stale`);
+  assert.equal(fiatLabel("2", { ...price, stale: false, refresh_failed: true }, "USD"), `≈ ${formatPrice(200000, "USD")}`);
   assert.equal(fiatLabel("2", { available: false }, "USD"), "");
   assert.equal(fiatLabel("2", { available: true, prices: {} }, "USD"), "");
   assert.equal(fiatLabel(null, price, "USD"), "");
@@ -71,4 +76,11 @@ test("every chain's row renders the same way", () => {
   assert.equal(pending.balance, "Pending scan…");
   assert.equal(pending.stale, true);
   assert.equal(pending.name, "New");
+});
+
+test("every watch-only card shows the same scan-failure text", () => {
+  assert.equal(balanceLabel({ state: "error" }), WATCH_COPY.scanFailed);
+  assert.equal(moneroRow({ state: "error" }).stateText, WATCH_COPY.scanFailed);
+  assert.equal(tariRow({ state: "error" }).stateText, WATCH_COPY.scanFailed);
+  assert.equal(familyRow({ state: "error" }, "litecoin").stateText, WATCH_COPY.scanFailed);
 });

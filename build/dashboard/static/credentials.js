@@ -1,4 +1,4 @@
-import { dashboardFetch as fetch } from "./session.js";
+import { dashboardFetch as fetch, jsonRequest } from "./session.js";
 
 const nodes = ["bitcoin", "monero", "litecoin", "dogecoin", "bitcoincash", "zcash"];
 const labels = {
@@ -135,18 +135,7 @@ export function credentialSettingsController(passwordDialog, root = document) {
 
   const active = (current) => current === generation;
   const passwordActive = (current) => passwordDialog.open && current === passwordGeneration;
-  const request = async (path, payload) => {
-    const response = await fetch(path, {
-      method: payload ? "POST" : "GET",
-      headers: payload ? { "Content-Type": "application/json", "X-Requested-With": "fetch" } : {},
-      ...(payload ? { body: JSON.stringify(payload) } : {}),
-    });
-    if (!response.ok) {
-      const text = (await response.text()).trim();
-      throw new Error(text.length <= 200 ? text : "Could not update credentials.");
-    }
-    return response.json();
-  };
+  const request = (path, payload) => jsonRequest(fetch, path, { method: payload ? "POST" : "GET", payload, failure: "Could not update credentials." });
 
   const hideSecret = (node) => {
     const view = panels[node];
@@ -172,7 +161,7 @@ export function credentialSettingsController(passwordDialog, root = document) {
       panels[node].reset.disabled = !enabled || !available || shouldPollCredentials(true, view.status.state);
       panels[node].status.textContent = view.status.node === node
         ? view.status.message
-        : enabled && view.requiresPassword ? "Set a dashboard password in global settings to reveal or reset RPC credentials."
+        : enabled && view.requiresPassword ? "Set a dashboard password in the User dialog to reveal or reset RPC credentials."
           : enabled && !available ? "Password reset requires the installed host helper." : "";
       if (!enabled) hideSecret(node);
     }

@@ -161,7 +161,9 @@ prepare_config_for_start() {
     fi
   fi
   if config_matches_approved; then
-    if [ -f "$config_file" ]; then
+    if [ -f "$config_file" ] && [ "${BITCOIN_STACK_HELPER_START:-}" = 1 ] && [ -f "$env_file" ]; then
+      return
+    elif [ -f "$config_file" ]; then
       render_current_config
       approve_current_config
     else
@@ -202,7 +204,7 @@ compose() {
       echo "Invalid Compose timeout." >&2
       return 1
     }
-    runner=(timeout --foreground "$BITCOIN_STACK_COMPOSE_TIMEOUT_SECONDS" docker compose)
+    runner=(timeout --foreground --kill-after=30 "$BITCOIN_STACK_COMPOSE_TIMEOUT_SECONDS" docker compose)
   fi
   if [ "$state_dir" = "$stack_root" ]; then
     "${runner[@]}" --project-name "$project_name" "$@"
@@ -246,33 +248,44 @@ container_id() {
 
 guard_package_containers() {
   [ "$package_managed" != 0 ] || return 0
-  local service id config working_dir
+  local rows service config working_dir seen=' '
+  local guarded=' tor bitcoin monero monero-wallet tari tari-wallet litecoin dogecoin bitcoincash zcash dashboard '
   local legacy_stack_root=${stack_root//node-manager/bitcoin-starter-stack}
   local legacy_state_dir=${state_dir//node-manager/bitcoin-starter-stack}
-  for service in tor bitcoin monero monero-wallet tari tari-wallet litecoin dogecoin bitcoincash zcash dashboard; do
-    if ! id=$(container_id "$service"); then
-      echo "Existing $service container ownership could not be queried; package mode will not replace it." >&2
-      return 1
-    fi
-    [ -n "$id" ] || continue
-    config=$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project.config_files" }}' "$id" 2>/dev/null) || {
+  if ! rows=$(docker ps -a --filter "label=com.docker.compose.project=$project_name" \
+    --format '{{.Label "com.docker.compose.service"}}|{{.ID}}|{{.Label "com.docker.compose.project.config_files"}}|{{.Label "com.docker.compose.project.working_dir"}}'); then
+    echo "Existing container ownership could not be queried; package mode will not replace it." >&2
+    return 1
+  fi
+  while IFS='|' read -r service _ config working_dir; do
+    case "$guarded" in
+      *" $service "*) ;;
+      *) continue ;;
+    esac
+    case "$seen" in
+      *" $service "*)
+        echo "Multiple $service containers use the $project_name project identity." >&2
+        return 1
+        ;;
+    esac
+    seen+="$service "
+    if [ -z "$config" ]; then
       echo "Existing $service container ownership could not be verified; package mode will not replace it." >&2
       return 1
-    }
+    fi
     case ",$config," in
       *",$stack_root/docker-compose.yml,"* | *",$legacy_stack_root/docker-compose.yml,"*) ;;
       *)
         echo "Existing $service container belongs to another installation; package mode will not replace it." >&2
-        echo "Keep the source deployment or stop it and plan a manual migration; see docs/operations.md." >&2
+        echo "Keep the source deployment or stop it and plan a manual migration; see https://github.com/VijitSingh97/node-manager/blob/main/docs/operations.md." >&2
         return 1
         ;;
     esac
-    working_dir=$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' "$id" 2>/dev/null) || return 1
     if [ "$working_dir" != "$state_dir" ] && [ "$working_dir" != "$legacy_state_dir" ]; then
       echo "Existing $service container belongs to another installation; this installation will not replace it." >&2
       return 1
     fi
-  done
+  done <<<"$rows"
 }
 utxo_select_chain() {
   utxo_chain=$1 utxo_arg='' utxo_prefix='' utxo_overlay=docker-compose.utxo-index.yml utxo_volume=utxo_index
@@ -477,10 +490,7 @@ utxo_seed() {
     return 1
   fi
   [ "$replay_flag" != 1 ] || utxo_replay=1 utxo_chainstate=0
-  command -v jq >/dev/null || {
-    echo "jq is required; install it with your host package manager." >&2
-    return 1
-  }
+  require_jq || return 1
   utxo_seed_overlay_enabled || {
     echo "The UTXO index is not enabled. Set $utxo_chain.utxo_index to true in config.json and run $stack_command apply." >&2
     return 1
@@ -527,22 +537,7 @@ Seeding the Bitcoin balance index
   - Cancel with: $stack_command utxo-seed cancel
 EOF
   fi
-  if [ "$assume_yes" != 1 ]; then
-    [ -t 0 ] || [ "${BITCOIN_STACK_INTERACTIVE:-0}" = 1 ] || {
-      echo "Run this on a terminal, or pass -y." >&2
-      return 1
-    }
-    local reply
-    printf 'Start the seed? [y/N] '
-    read -r reply || true
-    case "$reply" in
-      y | Y) ;;
-      *)
-        echo "Not started."
-        return 1
-        ;;
-    esac
-  fi
+  confirm "Start the seed?" "Not started." || return 1
   local methods
   if [ "$utxo_chainstate" = 1 ]; then
     :
@@ -693,22 +688,7 @@ utxo_index_remove() {
     return 1
   fi
   echo "This permanently removes the balance index volume $volume."
-  if [ "$assume_yes" != 1 ]; then
-    [ -t 0 ] || [ "${BITCOIN_STACK_INTERACTIVE:-0}" = 1 ] || {
-      echo "Run this on a terminal, or pass -y." >&2
-      return 1
-    }
-    local reply
-    printf 'Remove it? [y/N] '
-    read -r reply || true
-    case "$reply" in
-      y | Y) ;;
-      *)
-        echo "Not removed."
-        return 1
-        ;;
-    esac
-  fi
+  confirm "Remove it?" "Not removed." || return 1
   docker volume rm "$volume" >/dev/null || return 1
   echo "Removed $volume. Turning $utxo_chain.utxo_index on again starts not_seeded and needs a new $stack_command utxo-seed${utxo_arg:+ ${utxo_arg% }}."
 }
@@ -747,7 +727,7 @@ utxo_bench_print() {
 }
 
 utxo_index_bench() {
-  local usage="Usage: $stack_command utxo-index bench <wallets.json> [--chain bitcoin|litecoin] [--scan [-y]] [--repeat N]"
+  local usage="Usage: $stack_command utxo-index bench <wallets.json> [--chain bitcoin|litecoin|bitcoincash] [--scan [-y]] [--repeat N]"
   local file='' scan=false repeat=20 assume_yes=0 chain=bitcoin
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -806,10 +786,7 @@ utxo_index_bench() {
     echo "Cannot read $file." >&2
     return 1
   }
-  command -v jq >/dev/null || {
-    echo "jq is required; install it with your host package manager." >&2
-    return 1
-  }
+  require_jq || return 1
   utxo_seed_overlay_enabled || {
     echo "The $utxo_name balance index is not enabled. Set $utxo_chain.utxo_index to true in config.json and run $stack_command apply." >&2
     return 1
@@ -831,22 +808,7 @@ This run uses scantxoutset, which is heavy: one scan for all wallets and one per
 wallet, each minutes of CPU on a 0.5-CPU mainnet node, and $utxo_daemon RPC answers
 slowly meanwhile. Run it only in a window the owner approved.
 EOF
-    if [ "$assume_yes" != 1 ]; then
-      [ -t 0 ] || [ "${BITCOIN_STACK_INTERACTIVE:-0}" = 1 ] || {
-        echo "Run this on a terminal, or pass -y." >&2
-        return 1
-      }
-      local reply
-      printf 'Start the scan? [y/N] '
-      read -r reply || true
-      case "$reply" in
-        y | Y) ;;
-        *)
-          echo "Not started."
-          return 1
-          ;;
-      esac
-    fi
+    confirm "Start the scan?" "Not started." || return 1
   fi
   trap 'trap - INT TERM HUP; compose exec -T -u 1000 dashboard rm -f "/state/${utxo_prefix}utxo-bench.request" >/dev/null 2>&1 || true; echo; echo "Detached. The dashboard may still finish the run; the result stays in its state volume." >&2; exit 130' INT TERM HUP
   if ! printf '%s\n' "$request" |
@@ -926,10 +888,7 @@ utxo_index_verify() {
     echo "--chain takes a chain with a balance index." >&2
     return 1
   }
-  command -v jq >/dev/null || {
-    echo "jq is required; install it with your host package manager." >&2
-    return 1
-  }
+  require_jq || return 1
   utxo_seed_overlay_enabled || {
     echo "The $utxo_name balance index is not enabled. Set $utxo_chain.utxo_index to true in config.json and run $stack_command apply." >&2
     return 1
@@ -953,22 +912,7 @@ This compares the $utxo_name balance index with the node's own UTXO set at the s
   - The index stays at the compared block until the check ends, then catches up.
 Run it in a window the owner approved.
 EOF
-  if [ "$assume_yes" != 1 ]; then
-    [ -t 0 ] || [ "${BITCOIN_STACK_INTERACTIVE:-0}" = 1 ] || {
-      echo "Run this on a terminal, or pass -y." >&2
-      return 1
-    }
-    local reply
-    printf 'Start the check? [y/N] '
-    read -r reply || true
-    case "$reply" in
-      y | Y) ;;
-      *)
-        echo "Not started."
-        return 1
-        ;;
-    esac
-  fi
+  confirm "Start the check?" "Not started." || return 1
   local id request
   id=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
   request=$(jq -cn --arg id "$id" --arg chain "$chain" --argjson at "$(date -u +%s)" '{id: $id, chain: $chain, requested_at: $at}') || return 1
@@ -1066,7 +1010,7 @@ Usage: $stack_command <command> [args]
                              Seed or cancel a balance index (needs <chain>.utxo_index); bitcoincash --replay replays every block of an archival node
   utxo-index remove [litecoin] [-y]
                              Delete the balance index volume (needs <chain>.utxo_index off and applied)
-  utxo-index bench <file> [--chain bitcoin|litecoin] [--scan [-y]] [--repeat N]
+  utxo-index bench <file> [--chain bitcoin|litecoin|bitcoincash] [--scan [-y]] [--repeat N]
                              Time balance lookups for the wallets in <file> (needs the index seeded)
   utxo-index verify [--chain bitcoin|litecoin|dogecoin|bitcoincash] [-y]
                              Compare the index's coin count and total with the node's gettxoutsetinfo (run after a seed)
@@ -1099,6 +1043,85 @@ print_selected_credentials() {
 }
 
 
+require_jq() {
+  command -v jq >/dev/null || {
+    echo "jq is required; install it with your host package manager." >&2
+    return 1
+  }
+}
+
+confirm() {
+  local reply
+  [ "$assume_yes" != 1 ] || return 0
+  [ -t 0 ] || [ "${BITCOIN_STACK_INTERACTIVE:-0}" = 1 ] || {
+    echo "Run this on a terminal, or pass -y." >&2
+    return 1
+  }
+  printf '%s [y/N] ' "$1"
+  read -r reply || true
+  case "$reply" in
+    y | Y) return 0 ;;
+    *)
+      echo "$2"
+      return 1
+      ;;
+  esac
+}
+
+snapshot_runtime() {
+  previous_env=$(mktemp "$state_dir/.env.before-$1.XXXXXX")
+  previous_approved_config=$(mktemp "$state_dir/.approved-config.before-$1.XXXXXX")
+  previous_approved_env=$(mktemp "$state_dir/.approved-env.before-$1.XXXXXX")
+  had_previous_env=0
+  had_previous_approved_config=0
+  had_previous_approved_env=0
+  if [ -f "$env_file" ]; then cp "$env_file" "$previous_env"; had_previous_env=1; fi
+  if [ -f "$approved_config_file" ]; then cp "$approved_config_file" "$previous_approved_config"; had_previous_approved_config=1; fi
+  if [ -f "$approved_env_file" ]; then cp "$approved_env_file" "$previous_approved_env"; had_previous_approved_env=1; fi
+}
+
+restore_runtime() {
+  case "$1" in
+    env | all)
+      if [ "$had_previous_env" = 1 ]; then cp "$previous_env" "$env_file"; else rm -f "$env_file"; fi
+      ;;
+  esac
+  case "$1" in
+    approved | all)
+      if [ "$had_previous_approved_config" = 1 ]; then cp "$previous_approved_config" "$approved_config_file"; else rm -f "$approved_config_file"; fi
+      if [ "$had_previous_approved_env" = 1 ]; then cp "$previous_approved_env" "$approved_env_file"; else rm -f "$approved_env_file"; fi
+      ;;
+  esac
+}
+
+rollback_runtime() {
+  local failed=0
+  if [ "$had_previous_env" = 1 ]; then
+    cp "$previous_env" "$env_file"
+    if [ "$2" = 1 ]; then offline_up >/dev/null 2>&1 || failed=1; fi
+  else
+    if [ "$2" = 1 ]; then compose down >/dev/null 2>&1 || failed=1; fi
+    rm -f "$env_file"
+  fi
+  [ "$failed" = 0 ] || echo "$1 failed, and the previous runtime could not be fully restored." >&2
+}
+
+drop_runtime_snapshot() {
+  rm -f "$previous_env" "$previous_approved_config" "$previous_approved_env"
+}
+
+ensure_host_timers() {
+  ensure_resource_profile_timer
+  ensure_port_control_timer
+  ensure_node_control_timer
+  ensure_host_stats_timer
+}
+
+ensure_host_helpers() {
+  ensure_host_timers
+  ensure_agent
+}
+
 init() {
   umask 077
   for tool in jq openssl; do
@@ -1126,69 +1149,45 @@ init() {
   fi
 
   lock_config
-  previous_env=$(mktemp "$state_dir/.env.before-init.XXXXXX")
-  previous_approved_config=$(mktemp "$state_dir/.approved-config.before-init.XXXXXX")
-  previous_approved_env=$(mktemp "$state_dir/.approved-env.before-init.XXXXXX")
-  had_previous_env=0
-  had_previous_approved_config=0
-  had_previous_approved_env=0
-  if [ -f "$env_file" ]; then cp "$env_file" "$previous_env"; had_previous_env=1; fi
-  if [ -f "$approved_config_file" ]; then cp "$approved_config_file" "$previous_approved_config"; had_previous_approved_config=1; fi
-  if [ -f "$approved_env_file" ]; then cp "$approved_env_file" "$previous_approved_env"; had_previous_approved_env=1; fi
-  render_current_config
+  snapshot_runtime init
+  if ! render_current_config; then
+    restore_runtime env
+    drop_runtime_snapshot
+    unlock_config
+    return 1
+  fi
   if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
-    if [ "$had_previous_env" = 1 ]; then cp "$previous_env" "$env_file"; else rm -f "$env_file"; fi
-    rm -f "$previous_env" "$previous_approved_config" "$previous_approved_env"
+    restore_runtime env
+    drop_runtime_snapshot
     unlock_config
     echo "Configuration was saved, but Docker is not ready. Start Docker, then run $stack_command init again." >&2
     return 1
   fi
   if ! guard_package_containers || { ! images_available && ! pull_images --policy missing; }; then
-    if [ "$had_previous_env" = 1 ]; then cp "$previous_env" "$env_file"; else rm -f "$env_file"; fi
-    rm -f "$previous_env" "$previous_approved_config" "$previous_approved_env"
+    restore_runtime env
+    drop_runtime_snapshot
     unlock_config
     echo "Initialization did not start; the previous runtime settings remain selected." >&2
     return 1
   fi
   if ! offline_up; then
-    rollback_failed=0
-    if [ "$had_previous_env" = 1 ]; then
-      cp "$previous_env" "$env_file"
-      offline_up >/dev/null 2>&1 || rollback_failed=1
-    else
-      compose down >/dev/null 2>&1 || rollback_failed=1
-      rm -f "$env_file"
-    fi
-    rm -f "$previous_env" "$previous_approved_config" "$previous_approved_env"
+    rollback_runtime "Initialization" 1
+    drop_runtime_snapshot
     unlock_config
-    [ "$rollback_failed" = 0 ] || echo "Initialization failed, and the previous runtime could not be fully restored." >&2
     echo "Initialization did not start; the previous runtime settings remain selected." >&2
     return 1
   fi
   if ! approve_current_config; then
-    rollback_failed=0
-    if [ "$had_previous_env" = 1 ]; then
-      cp "$previous_env" "$env_file"
-      offline_up >/dev/null 2>&1 || rollback_failed=1
-    else
-      compose down >/dev/null 2>&1 || rollback_failed=1
-      rm -f "$env_file"
-    fi
-    if [ "$had_previous_approved_config" = 1 ]; then cp "$previous_approved_config" "$approved_config_file"; else rm -f "$approved_config_file"; fi
-    if [ "$had_previous_approved_env" = 1 ]; then cp "$previous_approved_env" "$approved_env_file"; else rm -f "$approved_env_file"; fi
-    rm -f "$previous_env" "$previous_approved_config" "$previous_approved_env"
+    rollback_runtime "Initialization approval" 1
+    restore_runtime approved
+    drop_runtime_snapshot
     unlock_config
-    [ "$rollback_failed" = 0 ] || echo "Initialization approval failed, and the previous runtime could not be fully restored." >&2
     echo "Initialization approval failed; the new runtime was not retained." >&2
     return 1
   fi
-  rm -f "$previous_env" "$previous_approved_config" "$previous_approved_env"
+  drop_runtime_snapshot
   unlock_config
-  ensure_resource_profile_timer
-  ensure_port_control_timer
-  ensure_node_control_timer
-  ensure_host_stats_timer
-  ensure_agent
+  ensure_host_helpers
   echo "Nodes: $(env_get COMPOSE_PROFILES)"
   dashboard_public_url=$(env_get DASHBOARD_PUBLIC_URL)
   if [ -n "$dashboard_public_url" ]; then
@@ -1215,19 +1214,34 @@ ensure_resource_profile_timer() {
   fi
 }
 
+watch_dashboard_requests() {
+  local unit=$1 mountpoint dropin=${BITCOIN_STACK_SYSTEMD_DIR:-/etc/systemd/system}/$1.path.d/volume.conf name
+  shift
+  mountpoint=$(docker volume inspect --format '{{.Mountpoint}}' "${project_name}_dashboard_state" 2>/dev/null) || return 0
+  case "$mountpoint" in
+    '') ;;
+    /var/lib/docker/volumes/node-manager-apt_dashboard_state/_data | /var/lib/docker/volumes/bitcoin-starter-stack-apt_dashboard_state/_data)
+      rm -f "$dropin" ;;
+    *)
+      { mkdir -p "${dropin%/*}" && { echo '[Path]'; for name; do echo "PathChanged=$mountpoint/$name.request"; done; } >"$dropin"; } 2>/dev/null ||
+        echo "WARN  could not watch $mountpoint for dashboard requests; saves wait for the once-a-minute run" ;;
+  esac
+}
+
 ensure_port_control_timer() {
   [ "$package_managed" = "1" ] || return 0
-  unit='node-manager-port-control.timer'
+  watch_dashboard_requests node-manager-port-control port-control credential-control
   systemctl daemon-reload >/dev/null 2>&1 || true
-  systemctl enable --now "$unit" >/dev/null 2>&1 ||
-    echo "WARN  could not enable LAN port controls; run: sudo systemctl enable --now $unit"
+  systemctl enable --now node-manager-port-control.timer node-manager-port-control.path >/dev/null 2>&1 ||
+    echo "WARN  could not enable LAN port controls; run: sudo systemctl enable --now node-manager-port-control.timer node-manager-port-control.path"
 }
 
 ensure_node_control_timer() {
   [ "$package_managed" = "1" ] || return 0
+  watch_dashboard_requests node-manager-node-control node-control
   systemctl daemon-reload >/dev/null 2>&1 || true
-  systemctl enable --now node-manager-node-control.timer >/dev/null 2>&1 ||
-    echo "WARN  could not enable node controls; run: sudo systemctl enable --now node-manager-node-control.timer"
+  systemctl enable --now node-manager-node-control.timer node-manager-node-control.path >/dev/null 2>&1 ||
+    echo "WARN  could not enable node controls; run: sudo systemctl enable --now node-manager-node-control.timer node-manager-node-control.path"
 }
 
 ensure_host_stats_timer() {
@@ -1363,6 +1377,56 @@ pull_images() {
   compose pull "$@"
 }
 
+pull_package_images() {
+  local service attempt started
+  for service in "$@"; do
+    for attempt in 1 2 3; do
+      started=$SECONDS
+      if BITCOIN_STACK_COMPOSE_TIMEOUT_SECONDS=600 pull_images "$service"; then
+        echo "Pulled the $service image in $((SECONDS - started)) s (attempt $attempt of 3)."
+        continue 2
+      fi
+      echo "Pulling the $service image failed after $((SECONDS - started)) s (attempt $attempt of 3)." >&2
+      [ "$attempt" = 3 ] || sleep $((attempt * 15))
+    done
+    return 1
+  done
+}
+
+package_image_refs() {
+  local version
+  version=$(cat "$stack_root/VERSION") || return 1
+  sed -n -e "s/\${STACK_VERSION:?[^}]*}/$version/" -e 's/^ *image: *//p' "$stack_root"/docker-compose*.yml | sort -u
+}
+
+docker_pull_once() {
+  # Older macOS has no timeout(1).
+  if command -v timeout >/dev/null; then
+    timeout --foreground --kill-after=30 600 docker pull "$1"
+  else
+    docker pull "$1"
+  fi
+}
+
+pull_other_node_images() {
+  local refs repos ref repo started
+  refs=$(package_image_refs) || return 0
+  repos=$(docker images --format '{{.Repository}}' 2>/dev/null) || return 0
+  while IFS= read -r ref; do
+    [ -n "$ref" ] || continue
+    repo=${ref%%@*}
+    repo=${repo%:*}
+    grep -Fxq -- "$repo" <<<"$repos" || continue
+    ! docker image inspect "$ref" >/dev/null 2>&1 || continue
+    started=$SECONDS
+    if docker_pull_once "$ref" >/dev/null; then
+      echo "Pulled $ref for a node that is not running in $((SECONDS - started)) s."
+    else
+      echo "WARN  could not pull $ref for a node that is not running; activating that node will pull it." >&2
+    fi
+  done <<<"$refs"
+}
+
 running_package_services() {
   local service id running
   for service in tor bitcoin monero monero-wallet tari tari-wallet litecoin dogecoin bitcoincash zcash dashboard; do
@@ -1426,9 +1490,7 @@ add_package_upgrade_tor_keys() {
 }
 
 restore_package_upgrade_state() {
-  cp "$1" "$env_file"
-  cp "$2" "$approved_config_file"
-  cp "$3" "$approved_env_file"
+  restore_runtime all
   chmod 600 "$env_file" "$approved_config_file" "$approved_env_file"
 }
 
@@ -1459,27 +1521,22 @@ package_upgrade() {
   running_before=()
   [ -z "$running_output" ] || mapfile -t running_before <<<"$running_output"
   if [ "${#running_before[@]}" = 0 ]; then
+    rm -f "$state_dir/.package-upgrade-pending"
     unlock_config
     return 0
   fi
 
-  previous_env=$(mktemp "$state_dir/.env.before-package-upgrade.XXXXXX")
-  previous_approved_config=$(mktemp "$state_dir/.approved-config.before-package-upgrade.XXXXXX")
-  previous_approved_env=$(mktemp "$state_dir/.approved-env.before-package-upgrade.XXXXXX")
-  cp "$env_file" "$previous_env"
-  cp "$approved_config_file" "$previous_approved_config"
-  cp "$approved_env_file" "$previous_approved_env"
-  chmod 600 "$previous_env" "$previous_approved_config" "$previous_approved_env"
+  snapshot_runtime package-upgrade
 
   package_upgrade_failed=0
   if ! render_package_upgrade_env; then
     package_upgrade_failed=1
-  elif ! BITCOIN_STACK_COMPOSE_TIMEOUT_SECONDS=1800 pull_images "${running_before[@]}"; then
+  elif ! pull_package_images "${running_before[@]}"; then
     package_upgrade_failed=1
   fi
   if [ "$package_upgrade_failed" = 1 ]; then
-    restore_package_upgrade_state "$previous_env" "$previous_approved_config" "$previous_approved_env"
-    rm -f "$previous_env" "$previous_approved_config" "$previous_approved_env"
+    restore_package_upgrade_state
+    drop_runtime_snapshot
     mark_package_upgrade_pending
     unlock_config
     echo "Container activation failed before any running service was changed." >&2
@@ -1487,15 +1544,15 @@ package_upgrade() {
   fi
 
   guard_package_containers || {
-    restore_package_upgrade_state "$previous_env" "$previous_approved_config" "$previous_approved_env"
-    rm -f "$previous_env" "$previous_approved_config" "$previous_approved_env"
+    restore_package_upgrade_state
+    drop_runtime_snapshot
     mark_package_upgrade_pending
     unlock_config
     return 1
   }
   if ! running_output=$(running_package_services); then
-    restore_package_upgrade_state "$previous_env" "$previous_approved_config" "$previous_approved_env"
-    rm -f "$previous_env" "$previous_approved_config" "$previous_approved_env"
+    restore_package_upgrade_state
+    drop_runtime_snapshot
     mark_package_upgrade_pending
     unlock_config
     return 1
@@ -1510,31 +1567,29 @@ package_upgrade() {
   done
   if [ "${#upgrade_services[@]}" = 0 ]; then
     if ! approve_current_config "$approved_config_file"; then
-      restore_package_upgrade_state "$previous_env" "$previous_approved_config" "$previous_approved_env"
-      rm -f "$previous_env" "$previous_approved_config" "$previous_approved_env"
+      restore_package_upgrade_state
+      drop_runtime_snapshot
       mark_package_upgrade_pending
       unlock_config
       return 1
     fi
-    rm -f "$previous_env" "$previous_approved_config" "$previous_approved_env" "$state_dir/.package-upgrade-pending"
+    drop_runtime_snapshot
+    rm -f "$state_dir/.package-upgrade-pending"
     unlock_config
-    ensure_resource_profile_timer
-    ensure_port_control_timer
-    ensure_node_control_timer
-    ensure_host_stats_timer
+    ensure_host_timers
     return 0
   fi
 
   if ! approve_current_config "$approved_config_file"; then
-    restore_package_upgrade_state "$previous_env" "$previous_approved_config" "$previous_approved_env"
-    rm -f "$previous_env" "$previous_approved_config" "$previous_approved_env"
+    restore_package_upgrade_state
+    drop_runtime_snapshot
     mark_package_upgrade_pending
     unlock_config
     return 1
   fi
 
   if ! compose up -d --pull never --no-build --no-deps "${upgrade_services[@]}"; then
-    rm -f "$previous_env" "$previous_approved_config" "$previous_approved_env"
+    drop_runtime_snapshot
     mark_package_upgrade_pending
     unlock_config
     echo "The new containers could not be fully activated; no automatic image downgrade was attempted." >&2
@@ -1544,20 +1599,28 @@ package_upgrade() {
     return 1
   fi
   sync_node_runtime || echo "WARN  containers were updated, but dashboard node state will synchronize on its next refresh." >&2
+  pull_other_node_images
   previous_version=$(sed -n 's/^STACK_VERSION=//p' "$previous_approved_env" 2>/dev/null | tail -n 1)
   current_version=$(sed -n 's/^STACK_VERSION=//p' "$approved_env_file" 2>/dev/null | tail -n 1)
   cleanup_superseded_runtime "$current_version" "$previous_version" || true
-  rm -f "$previous_env" "$previous_approved_config" "$previous_approved_env" "$state_dir/.package-upgrade-pending"
+  drop_runtime_snapshot
+  rm -f "$state_dir/.package-upgrade-pending"
   unlock_config
-  ensure_resource_profile_timer
-  ensure_port_control_timer
-  ensure_node_control_timer
-  ensure_host_stats_timer
+  ensure_host_timers
   echo "Updated the running Node Manager services."
 }
 
 cleanup_superseded_runtime() {
-  local keep_current=$1 keep_previous=$2 line image id repo tag
+  local keep_current=$1 keep_previous=$2 line image id repo tag ref id_out kept_ids='' missing_repos=$'\n'
+  while IFS= read -r ref; do
+    [ -n "$ref" ] || continue
+    if id_out=$(docker image inspect --format '{{.Id}}' "$ref" 2>/dev/null); then
+      kept_ids+=$id_out$'\n'
+    else
+      repo=${ref%%@*}
+      missing_repos+=${repo%:*}$'\n'
+    fi
+  done < <(package_image_refs)
   docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' 2>/dev/null | while IFS= read -r line; do
     image=${line% *}
     id=${line##* }
@@ -1567,7 +1630,9 @@ cleanup_superseded_runtime() {
       ghcr.io/vijitsingh97/node-manager-* | ghcr.io/vijitsingh97/bitcoin-starter-stack-* | bitcoin-starter-stack-*) ;;
       *) continue ;;
     esac
+    [[ $missing_repos != *$'\n'"$repo"$'\n'* ]] || continue
     if [ "$tag" = "<none>" ]; then
+      [[ $kept_ids != *"sha256:$id"* ]] || continue
       docker rmi "$id" >/dev/null 2>&1 || true
       continue
     fi
@@ -1595,6 +1660,7 @@ status() {
   for node in TARI LITECOIN DOGECOIN BITCOINCASH ZCASH; do
     [ "$(env_get "${node}_ENABLED")" = 1 ] && [ "$(env_get "${node}_ACTIVE")" != 0 ] && services="$services $(printf '%s' "$node" | tr '[:upper:]' '[:lower:]')"
   done
+  [ "$(env_get TARI_ENABLED)" = 1 ] && [ "$(env_get TARI_ACTIVE)" != 0 ] && services="$services tari-wallet"
   for svc in $services; do
     id=$(container_id "$svc")
     if [ -n "$id" ]; then
@@ -1614,6 +1680,15 @@ status() {
   return "$bad"
 }
 
+host_has_ipv4() {
+  local addresses
+  case "$(uname -s)" in
+    Darwin) addresses=$("${IFCONFIG_BIN:-/sbin/ifconfig}" -a 2>/dev/null) ;;
+    *) addresses=$("${IP_BIN:-ip}" -o -4 addr show 2>/dev/null) ;;
+  esac || return 0
+  grep -Fq -e "inet $1/" -e "inet $1 " <<<"$addresses"
+}
+
 doctor() {
   echo "== Dependencies"
   for tool in docker jq openssl; do
@@ -1621,6 +1696,8 @@ doctor() {
   done
 
   echo "== Config"
+  [ ! -e "$state_dir/.package-upgrade-pending" ] ||
+    echo "WARN  Node Manager $(cat "$stack_root/VERSION" 2>/dev/null) is installed, but its containers were not updated; retry with: sudo node-manager package-upgrade"
   if [ ! -f "$config_file" ]; then
     echo "MISS  config.json ($config_file)"
   elif [ ! -f "$env_file" ]; then
@@ -1630,6 +1707,15 @@ doctor() {
   else
     echo "OK    config.json rendered into .env"
   fi
+  for listener in DASHBOARD BITCOIN_RPC MONERO_RPC MONERO_ZMQ TARI_GRPC LITECOIN_RPC DOGECOIN_RPC BITCOINCASH_RPC ZCASH_RPC; do
+    [ "$listener" = DASHBOARD ] || [ "$(env_get "${listener}_EXPOSE")" = 1 ] || continue
+    address=$(env_get "${listener}_BIND_IP")
+    case "$address" in '' | 127.* | ::1) continue ;; esac
+    host_has_ipv4 "$address" ||
+      echo "WARN  ${listener}_BIND_IP $address is not on this host; Tor cannot publish it until the address returns or config.json changes (an auto dashboard moves within a minute)"
+  done
+  [ ! -s "$state_dir/.paused-listeners" ] ||
+    awk '{print "WARN  LAN listeners on " $1 " are paused until that address is back on this host; re-point them from Settings"}' "$state_dir/.paused-listeners"
 
   echo "== Leftovers"
   found_orphan=0
@@ -1715,6 +1801,7 @@ do_backup() {
   [ -f "$env_file" ] && cp "$env_file" "$tmp/.env"
   # the dashboard and node onion keys live in the tor volume
   compose cp tor:/var/lib/tor/dashboard_onion "$tmp/dashboard_onion" >/dev/null 2>&1 ||
+    [ "$(env_get DASHBOARD_ONION)" != 1 ] ||
     echo "WARN: dashboard onion keys not captured (is the tor container up?)"
   for node in bitcoin litecoin bitcoincash; do
     compose cp "tor:/var/lib/tor/${node}_onion" "$tmp/${node}_onion" >/dev/null 2>&1 ||
@@ -1976,11 +2063,9 @@ case "$cmd" in
     prepare_config_for_start
     offline_up "$@"
     unlock_config
-    ensure_resource_profile_timer
-    ensure_port_control_timer
-    ensure_node_control_timer
-    ensure_host_stats_timer
-    ensure_agent
+    if [ "${BITCOIN_STACK_HELPER_START:-}" != 1 ]; then
+      ensure_host_helpers
+    fi
     ;;
   init) init ;;
   down) guard_package_containers && utxo_unpark_dump "$@" && compose down "$@" ;;
@@ -2001,18 +2086,7 @@ case "$cmd" in
   apply)
     migrate_legacy_upgrade_agent
     lock_config
-    previous_env=$(mktemp "$state_dir/.env.before-apply.XXXXXX")
-    previous_approved_config=$(mktemp "$state_dir/.approved-config.before-apply.XXXXXX")
-    previous_approved_env=$(mktemp "$state_dir/.approved-env.before-apply.XXXXXX")
-    had_previous_env=0
-    had_previous_approved_config=0
-    had_previous_approved_env=0
-    if [ -f "$env_file" ]; then
-      cp "$env_file" "$previous_env"
-      had_previous_env=1
-    fi
-    if [ -f "$approved_config_file" ]; then cp "$approved_config_file" "$previous_approved_config"; had_previous_approved_config=1; fi
-    if [ -f "$approved_env_file" ]; then cp "$approved_env_file" "$previous_approved_env"; had_previous_approved_env=1; fi
+    snapshot_runtime apply
     apply_failed=0
     runtime_attempted=0
     if render_current_config; then
@@ -2024,33 +2098,16 @@ case "$cmd" in
       apply_failed=1
     fi
     if [ "$apply_failed" = 1 ]; then
-      rollback_failed=0
-      if [ "$had_previous_env" = 1 ]; then
-        cp "$previous_env" "$env_file"
-        if [ "$runtime_attempted" = 1 ]; then
-          offline_up >/dev/null 2>&1 || rollback_failed=1
-        fi
-      else
-        if [ "$runtime_attempted" = 1 ]; then
-          compose down >/dev/null 2>&1 || rollback_failed=1
-        fi
-        rm -f "$env_file"
-      fi
-      if [ "$had_previous_approved_config" = 1 ]; then cp "$previous_approved_config" "$approved_config_file"; else rm -f "$approved_config_file"; fi
-      if [ "$had_previous_approved_env" = 1 ]; then cp "$previous_approved_env" "$approved_env_file"; else rm -f "$approved_env_file"; fi
-      rm -f "$previous_env" "$previous_approved_config" "$previous_approved_env"
+      rollback_runtime "New configuration" "$runtime_attempted"
+      restore_runtime approved
+      drop_runtime_snapshot
       unlock_config
-      [ "$rollback_failed" = 0 ] || echo "New configuration failed, and the previous runtime could not be fully restored." >&2
       echo "New configuration was not approved; the previous runtime settings remain selected." >&2
       exit 1
     fi
-    rm -f "$previous_env" "$previous_approved_config" "$previous_approved_env"
+    drop_runtime_snapshot
     unlock_config
-    ensure_resource_profile_timer
-    ensure_port_control_timer
-    ensure_node_control_timer
-    ensure_host_stats_timer
-    ensure_agent
+    ensure_host_helpers
     ;;
   approve-rendered-config)
     [ "${BITCOIN_STACK_CONFIG_LOCK_HELD:-0}" = 1 ] || {
@@ -2147,6 +2204,7 @@ case "$cmd" in
     "$stack_root/configure.sh"
     pull_images "$@"
     unlock_config
+    [ $# -gt 0 ] || pull_other_node_images
     ;;
   upgrade-agent) upgrade_agent ;;
   host-service) host_service ;;
@@ -2182,7 +2240,7 @@ case "$cmd" in
         guard_package_containers && utxo_index_verify "$@"
         ;;
       *)
-        echo "Usage: $stack_command utxo-index remove [litecoin | bitcoincash | dogecoin] [-y] | bench <wallets.json> [--chain bitcoin|litecoin] [--scan [-y]] [--repeat N] | verify [--chain bitcoin|litecoin|dogecoin|bitcoincash] [-y]" >&2
+        echo "Usage: $stack_command utxo-index remove [litecoin | bitcoincash | dogecoin] [-y] | bench <wallets.json> [--chain bitcoin|litecoin|bitcoincash] [--scan [-y]] [--repeat N] | verify [--chain bitcoin|litecoin|dogecoin|bitcoincash] [-y]" >&2
         exit 1
         ;;
     esac

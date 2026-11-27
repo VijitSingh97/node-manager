@@ -2,26 +2,22 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-fail() {
-  echo "FAIL: $1"
-  exit 1
-}
+# shellcheck source=tests/lib.sh
+. tests/lib.sh
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 archive="$tmp/node-manager.tar.gz"
 payload="$tmp/node-manager"
-mkdir -p "$payload/build/dashboard" "$payload/build/bitcoin" "$payload/build/tari" "$payload/build/tari-wallet" "$payload/build/zcash" "$payload/scripts"
-for file in stack configure.sh VERSION docker-compose.yml docker-compose.tari-wallet.yml; do
+mkdir -p "$payload/build/bitcoin" "$payload/build/tari" "$payload/build/zcash" "$payload/scripts"
+for file in stack configure.sh LICENSE VERSION docker-compose.yml docker-compose.tari-wallet.yml; do
   printf 'fixture\n' >"$payload/$file"
 done
-printf 'fixture\n' >"$payload/build/dashboard/Dockerfile"
 for file in build/bitcoin/bitcoin.conf build/tari/config.toml build/tari/entrypoint.sh \
-  build/tari-wallet/Dockerfile build/tari-wallet/go.mod build/tari-wallet/launcher.go build/tari-wallet/config.toml \
   build/zcash/zakurad.toml build/zcash/zakurad-address-index.toml build/zcash/healthcheck.sh; do
   printf 'fixture %s\n' "$file" >"$payload/$file"
 done
-for file in node-manager node-control node-port-control node-resource-profile; do
+for file in node-manager node-control node-port-control node-resource-profile helper-common.sh; do
   printf 'fixture\n' >"$payload/scripts/$file"
 done
 tar -czf "$archive" -C "$tmp" node-manager
@@ -55,6 +51,8 @@ PACKAGE_VERSION=9.8.7 scripts/build-homebrew-formula.sh --url "file://$tmp/wrong
 template=Formula/node-manager.rb.in
 grep -Fq 'BITCOIN_STACK_PACKAGE_MANAGED=brew' "$template" || fail "launcher does not select Homebrew mode"
 grep -Fq '#{opt_libexec}/scripts/node-manager' "$template" || fail "launcher bypasses the package wrapper"
+grep -Fq 'libexec.install "build"' "$template" || fail "formula does not install the runtime build assets"
+grep -Fq '.dockerignore' "$template" && fail "formula installs a Docker build input"
 grep -Fq 'depends_on "openssl@3"' "$template" || fail "formula does not install OpenSSL"
 grep -Fq 'depends_on "iproute2"' "$template" || fail "Linuxbrew formula does not install iproute2"
 grep -Fq 'formula_opt_bin("openssl@3")' "$template" || fail "launcher does not select formula OpenSSL"

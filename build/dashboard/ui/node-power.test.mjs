@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { flow, waitForFile, withoutIdentity } from "./harness.mjs";
+import { flow, reload, waitForFile, withoutIdentity } from "./harness.mjs";
 
 const names = { bitcoin: "Bitcoin", litecoin: "Litecoin" };
 
@@ -54,8 +54,9 @@ for (const node of Object.keys(names)) {
     await page.waitText(button(node), "Activating…");
     helper.release();
     await page.waitText(`#${node}-power-status`, `${names[node]} activated.`);
-    await page.waitText(button(node), "Restarting…");
-    if (node !== "bitcoin") await page.waitText(`#${node}-badge`, "Restarting");
+    await page.waitText(button(node), "Starting…");
+    await page.waitText(`#${node}-power-status`, "Starting the node…");
+    if (node !== "bitcoin") await page.waitText(`#${node}-badge`, "Starting");
     assert.equal(await page.disabled(button(node)), true);
     assert.deepEqual(page.requestsTo("POST", `/api/nodes/${node}/power`).map((request) => request.body), [{ active: false, confirmation: "deactivate" }, { active: true, confirmation: "" }]);
   });
@@ -74,7 +75,8 @@ flow("A stopped node offers Start node, which needs no confirmation word", { hos
   await page.waitText(button("bitcoin"), "Starting…");
   helper.release();
   await page.waitText("#bitcoin-power-status", "Bitcoin activated.");
-  await page.waitText(button("bitcoin"), "Restarting…");
+  await page.waitText(button("bitcoin"), "Starting…");
+  await page.waitText("#bitcoin-power-status", "Starting the node…");
   assert.equal(await page.disabled(button("bitcoin")), true);
 });
 
@@ -82,4 +84,46 @@ flow("Node power stays disabled without the host helper", { host: false }, async
   await openNode(page, "bitcoin");
   await page.waitFor((selector) => document.querySelector(selector).disabled, { args: [button("bitcoin")] });
   assert.equal(await page.text("#bitcoin-power-status"), "Node controls require the installed host helper.");
+});
+
+const inactiveLitecoin = { nodes: ["litecoin"], state: { "node-runtime.json": { litecoin: false } } };
+const closePanel = async (page, node) => {
+  await page.click(`[data-node-panel="${node}"] [data-close-node]`);
+  await page.waitFor((id) => document.querySelector(`[data-node-panel="${id}"]`).hidden, { args: [node] });
+};
+
+flow("A pending activation keeps its button busy after the panel is closed and reopened", inactiveLitecoin, async ({ dash, page, helper }) => {
+  await openNode(page, "litecoin");
+  await page.waitText(button("litecoin"), "Activate node");
+  await page.click(button("litecoin"));
+  helper.hold = true;
+  await page.click("#node-power-submit");
+  await waitForFile(dash, "node-control.request");
+  await page.waitText(button("litecoin"), "Activating…");
+  await closePanel(page, "litecoin");
+  await openNode(page, "litecoin");
+  assert.equal(await page.text(button("litecoin")), "Activating…");
+  assert.equal(await page.disabled(button("litecoin")), true);
+  helper.release();
+  await page.waitText("#litecoin-power-status", "Litecoin activated.");
+});
+
+flow("A failed activation keeps its reason after the panel is closed, reopened and the page reloaded", inactiveLitecoin, async ({ dash, page, helper }) => {
+  helper.outcome = () => "failed";
+  helper.errorCode = () => "image_unavailable";
+  helper.detail = () => "Error response from daemon: manifest unknown";
+  await openNode(page, "litecoin");
+  await page.waitText(button("litecoin"), "Activate node");
+  await page.click(button("litecoin"));
+  await page.click("#node-power-submit");
+  const reason = "Litecoin was not changed: its image could not be downloaded. Check the host's internet connection, then try again. Error response from daemon: manifest unknown";
+  await page.waitText("#litecoin-power-status", reason);
+  await closePanel(page, "litecoin");
+  await openNode(page, "litecoin");
+  assert.equal(await page.text("#litecoin-power-status"), reason);
+  assert.equal(await page.text(button("litecoin")), "Activate node");
+  await reload(page, dash);
+  await openNode(page, "litecoin");
+  await page.waitText("#litecoin-power-status", reason);
+  assert.equal(await page.text(button("litecoin")), "Activate node");
 });

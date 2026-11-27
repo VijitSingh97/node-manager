@@ -1,12 +1,11 @@
-import { dashboardFetch as fetch } from "./session.js";
-import { bigSeries, formatAmount, httpsURL, joinNote, scanNote } from "./wallet-format.js";
-import { el, managerRow, renderWalletList, safeLink } from "./wallet-ui.js";
+import { NODE_LABELS } from "./chains.js";
+import { dashboardFetch as fetch, jsonRequest } from "./session.js";
+import { WATCH_COPY, bigSeries, formatAmount, httpsURL, joinNote, scanNote } from "./wallet-format.js";
+import { el, managerRow, renderWalletList, replaceIfChanged, safeLink } from "./wallet-ui.js";
 
 const SUPPORTED = new Set(["litecoin", "dogecoin", "bitcoincash", "zcash"]);
-const LABELS = { tari: "Tari", litecoin: "Litecoin", dogecoin: "Dogecoin", bitcoincash: "Bitcoin Cash", zcash: "Zcash" };
 const UNITS = { litecoin: "LTC", dogecoin: "DOGE", bitcoincash: "BCH", zcash: "ZEC" };
 const PRICE_ASSETS = { litecoin: "litecoin", dogecoin: "dogecoin", bitcoincash: "bitcoin-cash", zcash: "zcash" };
-const HEADERS = { "X-Requested-With": "fetch" };
 export const SCOPE_NOTES = {
   litecoin: "Balances cover transparent outputs only. Funds inside MWEB are not counted, and the peg-in pool shows as one non-wallet coin.",
 };
@@ -26,11 +25,11 @@ export function familyRow(wallet, node) {
   else if (state === "unscanned") stateText = "Example only; not scanned";
   else if (state === "rescanning") stateText = "Rescanning the chain; this can take hours…";
   else if (ready || stale) stateText = "Balance unavailable";
-  else if (state === "error") stateText = "Scan failed";
+  else if (state === "error") stateText = WATCH_COPY.scanFailed;
   else if (state === "unavailable") stateText = "Unavailable";
   const history = (Array.isArray(wallet?.history) ? wallet.history : []).slice(-96).map((sample) => familyAmount(sample?.amount).replace(".", ""));
   return {
-    label: String(wallet?.label || `${LABELS[node] || "Chain"} address`),
+    label: String(wallet?.label || `${NODE_LABELS[node] || "Chain"} address`),
     note: wallet?.example === true ? "Public example; excluded from your assets." : "",
     value: shown ? amount : "",
     amount: shown ? formatAmount(amount) : "",
@@ -47,7 +46,7 @@ export function familyRow(wallet, node) {
 export function familyAccessView(data, node) {
   const reason = String(data?.reason || "");
   if (data?.supported !== true) return { canEdit: false, status: reason || "Watch-only balances are unavailable for this chain." };
-  if (data?.enabled !== true || data?.active !== true) return { canEdit: false, status: reason || `${LABELS[node] || "This node"} is unavailable.` };
+  if (data?.enabled !== true || data?.active !== true) return { canEdit: false, status: reason || `${NODE_LABELS[node] || "This node"} is unavailable.` };
   if (data?.can_configure !== true && data?.has_password !== true) return { canEdit: false, status: "Open this dashboard from its trusted LAN address to manage watch-only addresses." };
   return { canEdit: true, status: reason };
 }
@@ -56,7 +55,7 @@ export const familySourceURL = httpsURL;
 
 export function familyWalletPost(node, label, address) {
   return {
-    label: String(label || "").trim() || `${LABELS[node] || "Chain"} wallet`,
+    label: String(label || "").trim() || `${NODE_LABELS[node] || "Chain"} wallet`,
     address: String(address || "").trim(),
   };
 }
@@ -72,7 +71,7 @@ if (typeof document !== "undefined") {
     const form = el("form", "family-watch-form");
     const label = el("input");
     const address = el("input");
-    const add = el("button", null, "Add public address");
+    const add = el("button", null, WATCH_COPY.add);
     const message = el("p", "family-watch-message");
     let last = { wallets: [] };
     let busy = false;
@@ -80,13 +79,13 @@ if (typeof document !== "undefined") {
     label.type = "text";
     label.maxLength = 80;
     label.placeholder = "Label (optional)";
-    label.setAttribute("aria-label", `${LABELS[node]} wallet label`);
+    label.setAttribute("aria-label", `${NODE_LABELS[node]} wallet label`);
     address.type = "text";
     address.maxLength = 160;
-    address.placeholder = `${LABELS[node]} public address`;
+    address.placeholder = `${NODE_LABELS[node]} public address`;
     address.autocomplete = "off";
     address.spellcheck = false;
-    address.setAttribute("aria-label", `${LABELS[node]} public address`);
+    address.setAttribute("aria-label", `${NODE_LABELS[node]} public address`);
     add.type = "submit";
     form.append(label, address, add, message);
     if (SCOPE_NOTES[node]) root.append(el("p", "watch-hint", SCOPE_NOTES[node]));
@@ -97,16 +96,13 @@ if (typeof document !== "undefined") {
       message.classList.toggle("family-watch-error", error);
     };
 
-    const requestError = async (response, fallback) => (await response.text()).trim().slice(0, 200) || fallback;
-
     const remove = async (id) => {
       if (busy) return;
       busy = true;
       setMessage("");
       try {
-        const response = await fetch(`/api/${node}/watch/${encodeURIComponent(id)}`, { method: "DELETE", headers: HEADERS });
-        if (!response.ok) throw new Error(await requestError(response, "Address could not be removed."));
-        setMessage("Address removed.");
+        await jsonRequest(fetch, `/api/${node}/watch/${encodeURIComponent(id)}`, { method: "DELETE", failure: WATCH_COPY.removeFailed });
+        setMessage(WATCH_COPY.removed);
         await refresh(true);
       } catch (error) {
         setMessage(error.message || "Network error.", true);
@@ -126,23 +122,20 @@ if (typeof document !== "undefined") {
       const wallets = data.wallets || [];
       const views = wallets.map((wallet) => familyRow(wallet, node));
       if (stats) renderWalletList(stats, views);
-      const rows = wallets.map((wallet, index) => managerRow({
+      replaceIfChanged(list, JSON.stringify([wallets, access.canEdit, busy]), () => wallets.map((wallet, index) => managerRow({
         label: views[index].label,
         note: views[index].note,
         keyText: String(wallet.address || ""),
         canRemove: access.canEdit && !busy,
         onRemove: () => remove(String(wallet.id || "")),
         extras: wallet.example === true ? [safeLink(wallet.source_url, "Verified public source")] : [],
-      }));
-      list.replaceChildren(...rows);
+      })));
     };
 
     async function refresh(force = false) {
       if (!force && panel?.dataset.nodeActive === "0") return;
       try {
-        const response = await fetch(`/api/${node}/watch`, { headers: HEADERS });
-        if (!response.ok) throw new Error(await requestError(response, "Watch-only addresses could not be refreshed."));
-        render(await response.json());
+        render(await jsonRequest(fetch, `/api/${node}/watch`, { failure: "Watch-only addresses could not be refreshed." }));
       } catch (error) {
         status.textContent = error.message || "Watch-only addresses could not be refreshed.";
         status.classList.add("family-watch-error");
@@ -157,15 +150,10 @@ if (typeof document !== "undefined") {
       add.disabled = true;
       setMessage("");
       try {
-        const response = await fetch(`/api/${node}/watch`, {
-          method: "POST",
-          headers: { ...HEADERS, "Content-Type": "application/json" },
-          body: JSON.stringify(familyWalletPost(node, label.value, address.value)),
-        });
-        if (!response.ok) throw new Error(await requestError(response, "Address could not be added."));
+        await jsonRequest(fetch, `/api/${node}/watch`, { method: "POST", payload: familyWalletPost(node, label.value, address.value), failure: WATCH_COPY.addFailed });
         label.value = "";
         address.value = "";
-        setMessage("Address added; scanning confirmed UTXOs.");
+        setMessage(WATCH_COPY.added);
         await refresh(true);
       } catch (error) {
         setMessage(error.message || "Network error.", true);

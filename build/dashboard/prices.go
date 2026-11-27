@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"log"
 	"math"
 	"net/http"
 	"sync"
@@ -22,11 +24,19 @@ const (
 )
 
 var priceCurrencies = []string{"usd", "eur", "gbp", "inr", "cad", "aud", "jpy", "rub", "cny"}
-var priceAssets = []string{"bitcoin", "monero", "tari", "litecoin", "dogecoin", "bitcoin-cash", "zcash"}
+var priceAssets = func() []string {
+	assets := make([]string, 0, len(nodeOrder))
+	for _, id := range nodeOrder {
+		assets = append(assets, chainPages[id].priceAsset)
+	}
+	return assets
+}()
 var priceProviderAssets = map[string]string{"tari": "minotari"}
 
 type PriceCache struct {
 	client       *http.Client
+	freshClient  func() *http.Client
+	log          *log.Logger
 	url          string
 	now          func() time.Time
 	refreshEvery time.Duration
@@ -40,15 +50,21 @@ type PriceCache struct {
 }
 
 func NewPriceCache() *PriceCache {
+	failed := make(map[string]bool, len(priceAssets))
+	for _, asset := range priceAssets {
+		failed[asset] = true
+	}
 	return &PriceCache{
 		client:         newTorHTTPClient(torProxy),
+		freshClient:    func() *http.Client { return newIsolatedTorHTTPClient(torProxy) },
+		log:            log.New(io.Discard, "", 0),
 		url:            coinGeckoPriceURL,
 		now:            time.Now,
 		refreshEvery:   priceRefreshEvery,
 		startupRetry:   priceStartupRetry,
 		assetPrices:    make(map[string]map[string]float64),
 		assetUpdatedAt: make(map[string]int64),
-		assetFailed:    map[string]bool{"bitcoin": true, "monero": true, "tari": true, "litecoin": true, "dogecoin": true, "bitcoin-cash": true, "zcash": true},
+		assetFailed:    failed,
 	}
 }
 
@@ -103,7 +119,7 @@ func (c *PriceCache) save() {
 func (c *PriceCache) Run(ctx context.Context) {
 	delay := time.Duration(0)
 	retryDelay := c.startupRetry
-	ready := false
+	failures := 0
 	for {
 		if delay > 0 {
 			timer := time.NewTimer(delay)
@@ -119,19 +135,17 @@ func (c *PriceCache) Run(ctx context.Context) {
 			return
 		}
 		if err == nil {
-			ready = true
-			delay = c.refreshEvery
+			if failures > 0 {
+				c.log.Printf("prices: refresh recovered (failed attempts: %d)", failures)
+			}
+			failures, delay, retryDelay = 0, c.refreshEvery, c.startupRetry
 			continue
 		}
-		if ready {
-			delay = c.refreshEvery
-			continue
-		}
-		delay = retryDelay
-		retryDelay *= 2
-		if retryDelay > c.refreshEvery {
-			retryDelay = c.refreshEvery
-		}
+		failures++
+		delay, retryDelay = retryDelay, min(retryDelay*2, c.refreshEvery)
+		c.client.CloseIdleConnections()
+		c.client = c.freshClient()
+		c.log.Printf("prices: refresh failed, retrying in %s on a new Tor circuit: %v", delay, err)
 	}
 }
 
@@ -160,12 +174,13 @@ func (c *PriceCache) SnapshotAsset(asset string) map[string]any {
 	c.mu.RUnlock()
 
 	available := len(prices) != 0
-	stale := failed || !available || c.now().Sub(time.Unix(updatedAt, 0)) > priceStaleAfter
+	stale := !available || c.now().Sub(time.Unix(updatedAt, 0)) > priceStaleAfter
 	return map[string]any{
-		"prices":     prices,
-		"updated_at": updatedAt,
-		"stale":      stale,
-		"available":  available,
+		"prices":         prices,
+		"updated_at":     updatedAt,
+		"stale":          stale,
+		"available":      available,
+		"refresh_failed": failed,
 	}
 }
 
@@ -177,14 +192,14 @@ func (c *PriceCache) refresh(ctx context.Context) error {
 	req.Header.Set("User-Agent", priceUserAgent)
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return c.fail(errors.New("price provider request failed"))
+		return c.fail(fmt.Errorf("price provider request failed: %w", err))
 	}
 	if resp.Body == nil {
 		return c.fail(errors.New("price provider response failed"))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return c.fail(errors.New("price provider response failed"))
+		return c.fail(fmt.Errorf("price provider returned HTTP %d", resp.StatusCode))
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxPriceResponseBytes+1))
 	if err != nil || len(body) > maxPriceResponseBytes {

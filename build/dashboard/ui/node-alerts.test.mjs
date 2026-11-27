@@ -27,7 +27,7 @@ for (const turnOn of [true, false]) {
       assert.equal(await page.checked(input), !turnOn, `${node} starts ${turnOn ? "off" : "on"}`);
       await page.setChecked(input, turnOn);
       await page.click(`form[data-node-settings-form="${node}"] button[type=submit]`);
-      await page.waitText(`form[data-node-settings-form="${node}"] > p[role=status]`, "Settings saved.");
+      await page.waitText(`form[data-node-settings-form="${node}"] > p[role=status]`, turnOn ? "Settings saved. Telegram is off, so no alerts are sent." : "Settings saved.");
       assert.deepEqual(page.requestsTo("POST", NODES).at(-1).body, { [field(node)]: turnOn });
       expected[field(node)] = turnOn;
       expectSettings(dash, expected);

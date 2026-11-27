@@ -21,9 +21,9 @@ temporary compaction space, or future growth.
 | Bitcoin Core | 10,000 MiB of block files | 28–56 GiB total | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 2 GiB | Short capped trial passed; 24-hour qualification pending |
 | Monero | Native pruned mode | 120–150 GiB; upstream reported about 105 GiB pruned on October 5, 2026 | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 2 GiB, plus its wallet service | Not yet qualified |
 | Tari | 10,000-block pruning horizon | No current measured total; use an expandable volume and measure after first sync | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 4 GiB for the node, plus a 0.5 CPU / 512 MiB view-only wallet sidecar | Node startup and native wallet lifecycle/authentication proven; funded pruned full-sync balance and sustained caps not qualified |
-| Litecoin | 10,000 MiB of block files | Provisional 28–56 GiB; current full-sync total is not measured | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 4 GiB | Binary and runtime startup proven; full sync not qualified |
-| Dogecoin | 10,000 MiB of block files | Provisional 28–56 GiB; current full-sync total is not measured | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 4 GiB | Binary and runtime startup proven; full sync not qualified |
-| Bitcoin Cash Node | 10,000 MiB of block files (pruned); the balance index works on a pruned node | Archival: 231 GiB of block files reported by a public Bitcoin Cash Node on 2026-11-16 ([bch.chaingraph.cash](https://bch.chaingraph.cash/node-status)), plus chainstate and the index, not measured here. Pruned: provisional 28–56 GiB | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 4 GiB | Signed upstream binary and runtime startup proven; full sync not qualified |
+| Litecoin | 10,000 MiB of block files | Provisional 28–56 GiB; current full-sync total is not measured | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 2 GiB | Binary and runtime startup proven; full sync not qualified |
+| Dogecoin | 10,000 MiB of block files | Provisional 28–56 GiB; current full-sync total is not measured | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 2 GiB | Binary and runtime startup proven; full sync not qualified |
+| Bitcoin Cash Node | 10,000 MiB of block files (pruned); the balance index works on a pruned node | Archival: 231 GiB of block files reported by a public Bitcoin Cash Node on 2026-11-16 ([bch.chaingraph.cash](https://bch.chaingraph.cash/node-status)), plus chainstate and the index, not measured here. Pruned: provisional 28–56 GiB | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 2 GiB | Signed upstream binary and runtime startup proven; full sync not qualified |
 | Zcash / Zakura | Pruned state with 10,000 retained blocks | Upstream's published snapshot was roughly 10 GiB when checked; plan 28–56 GiB on an expandable volume until a full sync is measured | Uncapped; plan around 2 CPU / 4 GiB RAM | 1 CPU / 4 GiB | Pruning, Tor bootstrap, and RPC proven; full sync not qualified |
 
 All six non-Bitcoin adapters have passed native-daemon startup and dashboard
@@ -49,7 +49,7 @@ Bitcoin-family pruning retains a configured amount of recent block files while
 keeping the live chainstate.
 
 Budgets apply **per node**. Bitcoin plus Monero in compact mode therefore needs
-up to 4 GiB for the daemons. Three of the newer nodes need up to 12 GiB. Add
+up to 4 GiB for the daemons. Litecoin, Dogecoin and Bitcoin Cash need up to 2 GiB each, and Tari and Zcash up to 4 GiB each. Add
 memory and CPU for Tor, the Go dashboard, Docker, filesystem cache, the operating
 system, and wallet sidecars. Tari's sidecar has its own 0.5 CPU / 512 MiB ceiling;
 it is not included in the Tari base node's 1 CPU / 4 GiB budget and is not yet
@@ -57,9 +57,9 @@ qualified under sustained load. Sync one chain at a time on a small
 host. A container cap on a larger test machine does not qualify a real VPS with
 the same total RAM.
 
-Selecting all seven nodes sets base-node ceilings totaling 7 CPUs and 24 GiB.
+Selecting all seven nodes sets base-node ceilings totaling 7 CPUs and 18 GiB.
 The Monero and Tari wallet sidecars add 0.5 CPU and 512 MiB each, making 8 CPUs
-and 25 GiB of container ceilings before Tor, dashboard, Docker, filesystem cache,
+and 19 GiB of container ceilings before Tor, dashboard, Docker, filesystem cache,
 and the host. This is cap arithmetic, not measured simultaneous use or a
 qualified minimum machine.
 
@@ -92,7 +92,7 @@ Wallet capabilities differ by chain:
 | Monero | Primary address plus private view key, with optional signed key images. Without complete key images, the amount is received-only rather than a verified current balance. |
 | Litecoin | Address-only confirmed UTXO snapshots from the local node. |
 | Bitcoin Cash | Address-only confirmed UTXO snapshots from the local node. |
-| Dogecoin | Address-only confirmed UTXO snapshots from the local node with `dogecoin.utxo_index`, pruned or archival, which Dogecoin installs from the dashboard turn on; the index seeds from a copy of the node's chainstate. Without it, **wallet balance is not available**: the pruned daemon cannot discover an arbitrary address balance. With the opt-in `dogecoin.watch_wallet` (archival node, fresh unpruned sync, hours-long rescans, disk not yet measured here), public addresses are read from the local node's watch-only wallet and the Dogecoin Foundation address is shown as an example. |
+| Dogecoin | Address-only confirmed UTXO snapshots from the local node with `dogecoin.utxo_index`, pruned or archival, which Dogecoin installs from the dashboard turn on; the index seeds from a copy of the node's chainstate. Without it, the watch card gives a reason instead of a balance: the pruned daemon cannot discover an arbitrary address balance. With the opt-in `dogecoin.watch_wallet` (archival node, fresh unpruned sync, hours-long rescans, disk not yet measured here), public addresses are read from the local node's watch-only wallet and the Dogecoin Foundation address is shown as an example. |
 | Zcash / Zakura | **Wallet balance** needs `zcash.address_index`, which new Zcash installs from the dashboard turn on (slower and less secure upstream than checkpoint sync, disk not yet measured). Existing installs keep their setting, and enabling it later needs a fresh data directory and resync. With it, transparent `t1`/`t3` addresses are read from the local node and the Zcash Community Grants address is shown as an example. |
 | Tari | One native view-only wallet using a public spend key, private view key, and optional `YYYY-MM-DD` birthday. Blank birthday scans from genesis. No seed or private spend key is accepted. |
 
@@ -177,8 +177,10 @@ phrase or private spend key. **Node controls**, after wallets, contains separate
 and reset require a dashboard sign-in from the last 15 minutes.
 Monero ZMQ and Tari gRPC have no password controls.
 
-Global Settings also contains launch at boot/login, Appearance, Dashboard
-password, Telegram, and Healthchecks. Launch at boot/login is managed by APT
+Global Settings also contains launch at boot/login, Thermal throttle,
+Appearance, Telegram, and Healthchecks. The Dashboard password is in the User
+dialog (person icon), and the three-line Events button lists the
+[event log](operations.md#event-log). Launch at boot/login is managed by APT
 and Homebrew installations; source installs show it as unavailable. Turning it
 off does not stop running nodes; it controls future starts. The read-only
 **Config** section immediately below Healthchecks shows the exact host
@@ -267,8 +269,12 @@ endpoint.
 An authenticated dashboard user can deactivate one configured node. The host
 helper gracefully stops only that daemon and its dependent wallet service,
 keeps its data and configuration, and leaves its tower visible but inactive.
-Activating it starts the same configured service again. At least one node must
-remain configured; deactivation keeps the chain and its data, and
+Activating it starts the same configured service again. An upgrade also
+refreshes the image of every node already on the machine, running or not. If a
+node's image is still missing, activating it first downloads the image. That
+needs internet access and can take a few minutes; if it fails, the panel keeps
+the reason on screen. At least
+one node must remain configured; deactivation keeps the chain and its data, and
 [deleting a node](#deleting-a-node) is a separate, destructive step.
 Reactivate the node before attempting an RPC credential reset.
 
@@ -331,7 +337,7 @@ not affected.
 **Settings → Node set → Delete…**, next to **Move data…**, removes a node so it
 can be installed again from scratch. The button is enabled only for an installed
 node that is already deactivated and is not the last installed node; otherwise
-its tooltip says what is missing. The confirmation dialog warns that the step
+the reason shows under the row. The confirmation dialog warns that the step
 cannot be undone and lists exactly what goes: the node's data folder shown in
 Settings, its balance-index or wallet Docker volumes (Bitcoin `utxo_index`,
 Litecoin `utxo_index_litecoin`, Bitcoin Cash `utxo_index_bitcoincash`, Dogecoin

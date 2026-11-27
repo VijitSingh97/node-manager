@@ -6,7 +6,256 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Adding a Bitcoin watch-only wallet to the balance index derives its 2,000
+  scripts in four chunks per branch, up to three at a time (leaving one of
+  bitcoind's default four RPC threads free), instead of one sequential call per
+  branch, to bring a cold add closer to 1 s. The same scripts are derived. Not
+  yet measured on a real node.
+
+## [1.42.2] - 2026-11-25
+
+### Fixed
+
+- A synced Zcash node no longer drops out of Synced as soon as its newest
+  block is 75 s old. Zakura's `estimatedheight` adds a block for every 75 s
+  since the tip, and the status card, the watch-balance refresh and the fee
+  sample all required `blocks` to reach it, so between blocks the node read as
+  behind and watch balances and fee samples were skipped. They now share one
+  rule that compares `blocks` with `headers`, alongside the existing
+  verification-progress and tip-age checks, and the compact resource
+  profile's readiness check makes the same comparison.
+- Coin prices no longer turn stale after one failed price refresh. A price is
+  stale only when CoinGecko's timestamp for it is more than 15 minutes old, so
+  a refresh that fails over Tor, or a dashboard restart, no longer marks every
+  tower and wallet price stale for five to ten minutes. The label now reads
+  "price stale" rather than "stale", so it is not mistaken for a node falling
+  behind. A failed refresh is retried after 10 seconds on a fresh Tor circuit,
+  doubling up to five minutes, instead of five minutes later, and the
+  dashboard log records each failure and the recovery. The actuator's `tor`
+  component still reports `DEGRADED` after a failed refresh.
+
+## [1.42.1] - 2026-11-25
+
+### Fixed
+
+- `utxo-index bench --chain bitcoincash --scan` now compares each wallet's
+  scan with the index. In 1.42.0 such a run stopped with `refused: the batched
+  scan failed or timed out` whenever the scan found a coin: Bitcoin Cash Node's
+  `scantxoutset` reports how many coins it searched as `searched_items` rather
+  than `txouts` and gives no `desc` for each coin, and the bench refused both.
+  Runs without `--scan` were not affected.
+
+## [1.42.0] - 2026-11-24
+
 ### Added
+
+- `utxo-index bench --chain bitcoincash` times Bitcoin Cash balance lookups
+  through the index, and with `--scan` against `scantxoutset` too, as it does
+  for Bitcoin and Litecoin. Bitcoin Cash Node cannot expand descriptors, so each
+  Bitcoin Cash wallet in the file is one address written as `addr(<address>)`;
+  descriptors and bare addresses are refused.
+
+### Fixed
+
+- Activating Bitcoin, Litecoin or Bitcoin Cash from the dashboard while
+  `network.inbound_connections` is on now publishes its inbound onion service.
+  Before, the host helper rendered the new `TOR_ONION_NODES` but left the
+  running Tor container alone, so the node waited 120 s at every start for an
+  onion address that never came, then started without one and took no
+  inbound onion peers until Tor was recreated for another reason, such as the
+  next upgrade. Activating Zcash had the same gap: Tor kept its four Zcash
+  seed relays closed. Node activation now recreates Tor before starting the
+  node whenever the onion list or Zcash's active state changes, deactivation
+  recreates it after the node stops, and a failed change recreates it again
+  with the prior values. Starting or stopping Monero, Tari or Dogecoin, or a
+  node whose change leaves those values as they were, still leaves Tor
+  running.
+
+## [1.41.0] - 2026-11-24
+
+### Added
+
+- An **Events** button (three lines) between the User and Settings buttons
+  opens the dashboard's event log. From this version on the log also records
+  each dashboard start with its version, sign-ins with the client address,
+  sign-outs, password changes, RPC credential reveals and resets, settings
+  changes (field names only), balance index seeds and verifies, watch-only
+  wallet changes, and node installs, deletions and activations, so
+  `./stack events` shows them too. The panel also lists what the log already
+  held, such as node down and recovered, initial sync complete, low disk, and
+  host thermal and Tor actions. Filter it by category or node and page back
+  through older events; the oldest drop off once the log passes about 1 MB. It
+  reads `/state/events.log` through a new signed-in `GET /api/events`, and
+  hides the text of host and monitor lines that look like they hold a secret.
+
+### Changed
+
+- Error messages on the watch-only wallet cards (Bitcoin, Monero, Tari,
+  Litecoin, Dogecoin, Bitcoin Cash and Zcash) and in the node Activate and
+  Deactivate dialog follow one rule: a reply of 1 to 200 characters is shown,
+  and an empty or longer one is replaced by the card's own message. Before,
+  most of these cards showed a long reply cut off at 200 characters, and the
+  Bitcoin card showed it whole. The Monero and Tari cards still show any
+  64-character hex string in a reply as "[redacted]".
+
+### Fixed
+
+- The Activate, Deactivate and Start buttons on node panels work again when
+  some of Bitcoin, Litecoin, Dogecoin and Bitcoin Cash are turned off, as in a
+  Bitcoin-only setup. The host helper's capability file has one entry for each
+  of those chains that is off, and from 1.39.0 to 1.40.3 the dashboard stopped
+  offering node power once that file passed 1 KB, usually with three or four of
+  them off, depending on install paths. The buttons then stayed greyed out with
+  "Node controls require the installed host helper." even though the helper was
+  installed and other host actions worked.
+- Telegram no longer gets a flood of old host alerts, such as thermal
+  throttles from days ago, as it could after the upgrade to 1.40.3. Host events
+  older than 6 hours are not sent, even ones that could not be delivered during
+  a longer outage, though they stay in the event log. Each minute's host events
+  arrive as one message of up to 20 events, followed by "… and N more host
+  events" when there are more, so a heat spike that caps and releases several
+  nodes sends one message a minute instead of one per node.
+
+## [1.40.3] - 2026-11-24
+
+### Added
+
+- The APT feed address, https://vijitsingh97.github.io/node-manager/, opens a
+  project page instead of a 404. The page carries a search and link-preview
+  description, structured data, a sitemap and an `llms.txt` summary for AI
+  agents, and the repository has the same `llms.txt` at its root. The page is
+  published with the APT feed, so it goes live with this release (#443).
+
+### Changed
+
+- Release tarballs and Debian packages now contain only what installs and runs
+  Node Manager. The guides, README, changelog, security policy, example config,
+  Dockerfiles and Go and web sources are no longer shipped; read the guides on
+  GitHub. The license is kept (`LICENSE`, and `/usr/share/doc/node-manager/copyright`
+  in the package).
+
+### Fixed
+
+- Installing a node from the dashboard on an APT install no longer fails with
+  "Port availability could not be checked" when you turn on a LAN port.
+- Litecoin, Dogecoin and Bitcoin Cash installed from the dashboard now get the
+  2048 MiB memory limit the documentation promises, not double that. Nodes you
+  already installed keep the value saved in their settings. The memory figures in
+  the hardware and configuration guides now agree.
+- Telegram alerts for the host, such as a thermal throttle or a node the host
+  stopped, are now sent. They were never sent in the running dashboard.
+- A failed `stack init` no longer leaves copies of your `.env`, passwords
+  included, in the state folder.
+- If removing the Tari wallet fails and is rolled back, the wallet now starts
+  again instead of sitting stopped while its health check stays green.
+- `stack status` now checks the Tari wallet, so an unhealthy one is reported and
+  the command exits non-zero.
+- Every APT package upgrade now also downloads the new image of each node that
+  already has an older image on the machine, whether the node is running,
+  inactive or deleted, so Activate no longer fails after an upgrade. Nodes that
+  were never downloaded are not pulled, and a failed extra pull only warns.
+- `node-manager pull`, the upgrade step for Homebrew and source installs, now
+  also downloads the new image of every other node that already has an image on
+  the machine, including inactive and deleted nodes, so Activate works after
+  those upgrades too. These extra pulls never start a container, and a failed
+  one only warns.
+- Activating a node that was inactive during a package upgrade now downloads its
+  missing image first instead of failing with no explanation. A failed
+  activation keeps its reason, including the last error line, in the node panel
+  and the event log until the node reaches the requested state.
+- A node that was just activated now says "Starting…" until it answers, instead
+  of "Restarting after a settings change…". Restarts caused by settings changes
+  keep their wording.
+
+## [1.40.2] - 2026-11-22
+
+### Fixed
+
+- The balance index badge and bar now show on Litecoin, Dogecoin and Bitcoin
+  Cash when Bitcoin is not installed. The badge and card use one name per index
+  state, refusals are explained in plain words instead of internal guard names,
+  the bar keeps its warning and ready colours on every chain, and a blocked bar
+  shows as an empty hatched track instead of moving like progress (#426).
+- The wallet list refresh no longer collapses an expanded address or moves
+  keyboard focus, and waits while a dialog is open. The 30 s live refresh keeps
+  focus on the price currency menu (#433).
+- Closing Settings asks before discarding staged installs, moves, deletes,
+  config runs and Reset to default. If the browser closes Settings without
+  letting it ask, staged changes that were not saved yet are discarded and
+  Settings says so when it opens again; a save already running carries on.
+  Saving block alerts with Telegram off says no alert will be sent. Escape
+  closes only the open dialog, not the node panel behind it. Turning off an
+  index and removing a wallet use the dashboard's own confirm dialog (#434).
+- On phones, the node panel close button, chain values and the tower overview
+  are no longer covered by the theme toggle, the fixed Settings and account
+  buttons or the host stats panel, and the add-address form shows its full
+  hints on desktop (#430).
+- Dashboard text meets WCAG AA contrast in both themes on the page, cards,
+  tags and host-stats tiles, including each node's own text colour, and a test
+  computes those pairs from the stylesheet. Focus rings reach 3:1 and stay at
+  full strength on inactive towers, stale balances and prices show in the
+  muted colour in italics instead of fading, unreachable towers say so in text
+  and to screen readers under the same rule, and the CPU and memory pies have
+  a legend (#431).
+- The shortened wallet address, the host usage pies and the disk bars work
+  from the keyboard. The theme toggle announces its current mode, and the
+  chain cards no longer make screen readers repeat them on every refresh
+  (#432).
+- Dashboard instructions name the real place for each setting (the User
+  dialog, Node controls, the launch option), show the command for how Node
+  Manager was installed once the host helper has reported it (`sudo
+  node-manager` for APT, `node-manager` for Homebrew, `./stack` otherwise),
+  give every chain the same
+  recovery hint when its node is not answering, and use one casing and
+  ellipsis style. The Bitcoin and Monero LAN access text follows the RPC
+  setting (#427).
+- The Bitcoin card shows its update time in the browser's time zone, a Latest
+  block row and a Synced or Synchronizing line like the other chains, and all
+  watch-only cards share one heading style, an Add wallet button, the same
+  scan-failure text and the same add and remove confirmations (#428).
+- Settings shows why a control is disabled (Delete, a balance index switch,
+  Install) and the "Click to undo" hint as text instead of only a tooltip, and
+  the Thermal throttle switch moved from Appearance to the Node set group
+  (#435).
+- The docs match the dashboard again: the password is in the User dialog, the
+  Node set and Thermal throttle locations, alert names, GiB units and the
+  watch-only wallet wording (#429).
+
+## [1.40.1] - 2026-11-21
+
+### Fixed
+
+- `node-manager backup` no longer warns "dashboard onion keys not captured
+  (is the tor container up?)" when the dashboard onion is off. The warning
+  appeared on every backup with `dashboard.onion` off, the default, and pointed
+  at Tor although nothing was missing. A dashboard onion key left over from an
+  earlier enable is still backed up.
+
+## [1.40.0] - 2026-11-21
+
+### Added
+
+- Automatic recovery when Tor stops completing circuits. The tor container's
+  healthcheck opens a real stream through Tor's SocksPort to
+  `www.torproject.org:443`, `check.torproject.org:443` and `api.github.com:443`
+  (the last is already reached through Tor by the dashboard) every 30 seconds
+  and goes unhealthy after 4 minutes of failed probes, or when fewer than half of
+  the probes in the last 10 minutes succeeded, so a brown-out with a few
+  successes is caught too. Three good probes in a row clear it. Time while Tor
+  reports the network down with no relay connection is not counted, so a host
+  outage costs at most one restart, about 6 minutes in, before Tor notices it is
+  offline. Tor's control socket (a unix socket inside the
+  container, no `ControlPort`) is read only for context. `node-control` saves a
+  diagnostic snapshot, restarts Tor once, clears Tor's saved state (guards and learned
+  circuit timing; the whole state file is deleted) once if it still fails while
+  relay connections are up (at most once in 7 days), and otherwise pauses with an event naming the likely cause. A
+  container unhealthy for 10 minutes with no probe result is handled the same
+  way. It resumes by itself when the probe succeeds, logs the recovery, timed from the first failed probe, to the
+  events log (forwarded to Telegram once Tor works again), never restarts more
+  than 3 times in 6 hours, and can be turned off with
+  `node-control/tor-watchdog.disabled` in the state directory.
 
 - `./stack utxo-index verify [--chain bitcoin|litecoin|dogecoin|bitcoincash]`
   (`node-manager utxo-index verify` on package installs) checks a balance index
@@ -27,7 +276,48 @@ All notable changes to this project are documented here. Format follows
   confirms first, or takes `-y`. Regtest runs on all four nodes matched.
   Mainnet timing is not measured.
 
+- `tari.grpc_extra_methods` allows more Tari gRPC methods on top of the built-in
+  list, for example `["list_headers"]`. `configure.sh` accepts only lowercase
+  snake_case names and passes them to the node, which adds them to its
+  `grpc_server_allow_methods`.
+
 ### Changed
+
+- `configure.sh` reads `config.json` with two `jq` runs instead of about 130. On
+  an Apple Silicon Mac a run took about 0.3 s instead of 1.2 s; the Intel mini PC
+  is not measured. A node power change runs it twice, so the container gets its
+  stop or start sooner. The `.env` it writes and its validation messages are
+  unchanged.
+
+- On Debian and Ubuntu a dashboard request now starts its host helper at once.
+  New `node-manager-node-control.path` and `node-manager-port-control.path`
+  units watch the request files in the dashboard state volume, and upgrades
+  enable them. The helper timers now run once a minute (were every 10 seconds for
+  node control and 30 seconds for LAN port control). That is the slowest rate
+  that keeps each host capability inside the dashboard's 90-second limit. An
+  idle run also costs less. Node control makes 2 Docker calls instead of 6 and
+  4 jq calls instead of 18. Port control makes 2 or 3 Docker calls instead of 9.
+  Measured in docker-in-docker on an Apple M5 (median of 6 interleaved rounds of
+  20 idle runs, Docker daemon included): node control fell from 398 to 123 ms of
+  CPU per run and port control from 299 to 102 ms. At the new rates that is
+  about 14 CPU-seconds an hour instead of 179. A Docker data root outside
+  `/var/lib/docker`, or another project name, is added to the watch when Node
+  Manager starts. In the first 5 minutes after boot a helper that cannot reach
+  the dashboard retries every 10 seconds. Homebrew's host
+  loop still runs both helpers every 10 seconds, since launchd cannot watch files
+  inside Docker Desktop's VM, and gets the cheaper runs.
+
+- APT upgrades survive a transient image pull failure, and a failed activation
+  no longer looks like success. On 2026-11-20 one ghcr.io blob failed through
+  Tor during a 1.39.0 upgrade. Activation gave up after 985 s, apt still
+  reported success, and a manual retry worked in about 5 minutes. Activation now
+  pulls each running service's image on its own, with a 10-minute limit, up to
+  3 tries 15 s and 30 s apart, and logs each try's duration in the APT output.
+  Pulls use the same Docker daemon path as before. If activation still fails,
+  APT keeps the package installed and exits 0, so later APT runs are not
+  blocked. The last line Node Manager prints then starts with
+  `NODE MANAGER ACTIVATION FAILED` and gives the retry command, and
+  `node-manager doctor` repeats it until an activation succeeds.
 
 - The Bitcoin Cash balance index fits the same 1 GiB dashboard limit as the other
   indexes (#363). Its overlay now sets `mem_limit: 1g` and no `GOMEMLIMIT`,
@@ -42,11 +332,71 @@ All notable changes to this project are documented here. Format follows
   RSS and 945 MiB, in the same session. Mainnet is not measured. A block over 1.2
   million coin operations still stops the index, because the parsed block stays
   whole while its pieces apply.
-- Adding a Bitcoin watch-only wallet to the balance index derives its 2,000
-  scripts in four chunks per branch, up to three at a time (leaving one of
-  bitcoind's default four RPC threads free), instead of one sequential call per
-  branch, to bring a cold add closer to 1 s. The same scripts are derived. Not
-  yet measured on a real node.
+- The host helper does less work per power request. It reads a request in one
+  dashboard call instead of four and its fields with one `jq` call. Its own
+  `stack up` no longer renders the config a third time or re-registers the host
+  timers and agent. It refreshes its heartbeat when a request finishes, so after
+  a stop that took longer than 90 seconds the dashboard shows node controls
+  again at once instead of at the next timer run. A request read that fails
+  partway is retried instead of rejected. The node and wallet service lists and
+  the runtime state expression are each written once.
+- The tor healthcheck runs every 30 seconds with a 75-second timeout, 1 retry
+  and a 2-minute start period (was 60 seconds, 10, 3 and 5 minutes).
+- The health probe opens Tor's control socket only after a failed probe, so a
+  healthy Tor logs no control connections.
+- The package ownership check before every start and stop asks Docker once for
+  all of the project's containers. It used to ask once per service and twice
+  more for each existing container, up to 33 calls.
+
+### Fixed
+
+- Activating a node from the dashboard no longer hangs the host helper. The
+  helper held the config lock and then ran `stack up` without saying so, and
+  `stack up` waited for that same lock, so the request could not finish and the
+  dashboard soon reported the host helper missing. The helper also approved the
+  change only after starting, so `stack up` would have started the node from the
+  old approved config. It now approves an activation before starting the node,
+  passes the lock it holds, and after a failed change re-approves the restored
+  config before bringing services back. Deactivating was not affected.
+- The host helpers (`node-manager-node-control` and `node-manager-port-control`)
+  no longer fail their systemd unit when the dashboard container is stopped,
+  restarting or being recreated, as it is during a container update. Such a run
+  is skipped and the next timer or path trigger tries again. Other Docker errors
+  still fail the unit.
+- The Bitcoin node card shows its balance index bar. Since 1.39.0 the page
+  fetched the Bitcoin index status only while the loading screen was up, so a
+  running Bitcoin node never showed the bar. Litecoin, Dogecoin and Bitcoin
+  Cash were not affected.
+- The stack survives the host getting a different LAN address after a
+  reboot, power cut or network change. With `dashboard.bind_ip` set to `auto`,
+  the host helper waits until the old address has been gone for a minute and the
+  new one has held for that minute. It then re-renders the last approved
+  configuration and recreates only Tor and the dashboard on the new address. A
+  pending `config.json` change stays pending. LAN RPC, ZMQ and gRPC listeners
+  follow only onto the same network, because Tari gRPC and Monero ZMQ have no
+  password. When the old address is inside the new address's subnet, listeners
+  on it move in both `config.json` and the
+  approved snapshot, even when the 1.39.0 failed-start recovery re-rendered the
+  dashboard first. On any other network, or next to a `/32`, point-to-point or
+  unreadable subnet, listeners whose address is gone are paused: rendered
+  unpublished with the configuration unchanged, so Tor still starts. They are
+  published again once their address has been back for a minute. It also moves
+  the dashboard off the `127.0.0.1` fallback left by a start before the network
+  came up, and recreates a dashboard that kept the old address, both of which
+  the 1.39.0 failed-start recovery could cause. A fixed `dashboard.bind_ip` that
+  disappears is reported once in `./stack events` and left unchanged.
+  `./stack doctor` lists every published address the host no longer has and
+  every paused listener. `configure.sh --detect-bind-ip` prints the address
+  `auto` would pick.
+
+- The Tari node no longer makes Docker log a DNS resolver error every 2
+  minutes. Its Tari Pulse service looked up `checkpoints.tari.com` through the
+  system resolver, which the Tor-only network can never answer. The node config
+  now sets `tari_pulse_enabled = false`. Sync is unchanged, and the dashboard
+  never read the checkpoint result.
+- Node activate and deactivate rejections now say why, for example "Bitcoin was
+  not changed: review the pending config change first", instead of a generic
+  "state change was rejected". Unknown reasons keep the generic wording.
 
 ## [1.39.0] - 2026-11-20
 
@@ -2002,7 +2352,15 @@ First tagged release.
 - Tor data directory group ownership (`tor:root` → `tor:tor`) so the
   bitcoin container can read the control-auth cookie via gid 101.
 
-[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.39.0...HEAD
+[Unreleased]: https://github.com/VijitSingh97/node-manager/compare/v1.42.2...HEAD
+[1.42.2]: https://github.com/VijitSingh97/node-manager/compare/v1.42.1...v1.42.2
+[1.42.1]: https://github.com/VijitSingh97/node-manager/compare/v1.42.0...v1.42.1
+[1.42.0]: https://github.com/VijitSingh97/node-manager/compare/v1.41.0...v1.42.0
+[1.41.0]: https://github.com/VijitSingh97/node-manager/compare/v1.40.3...v1.41.0
+[1.40.3]: https://github.com/VijitSingh97/node-manager/compare/v1.40.2...v1.40.3
+[1.40.2]: https://github.com/VijitSingh97/node-manager/compare/v1.40.1...v1.40.2
+[1.40.1]: https://github.com/VijitSingh97/node-manager/compare/v1.40.0...v1.40.1
+[1.40.0]: https://github.com/VijitSingh97/node-manager/compare/v1.39.0...v1.40.0
 [1.39.0]: https://github.com/VijitSingh97/node-manager/compare/v1.38.0...v1.39.0
 [1.38.0]: https://github.com/VijitSingh97/node-manager/compare/v1.37.0...v1.38.0
 [1.37.0]: https://github.com/VijitSingh97/node-manager/compare/v1.36.0...v1.37.0

@@ -1,8 +1,7 @@
-import { dashboardFetch as fetch } from "./session.js";
-import { formatAmount, joinNote, scanNote as scannedAt } from "./wallet-format.js";
-import { el, managerRow, renderWalletList } from "./wallet-ui.js";
+import { dashboardFetch as fetch, jsonRequest } from "./session.js";
+import { WATCH_COPY, formatAmount, joinNote, scanNote as scannedAt } from "./wallet-format.js";
+import { el, managerRow, renderWalletList, replaceIfChanged } from "./wallet-ui.js";
 
-const CSRF = { "X-Requested-With": "fetch" }; // blocks cross-site form posts
 const POLL_MS = 15000;
 const GENESIS_ADDRESS = "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa";
 
@@ -11,7 +10,7 @@ export function balanceLabel(w) {
     return w.balance_kind === "confirmed" ? "Pending balance…" : "Pending history…";
   }
   if (w.state === "ok" || w.state === "stale") return `${formatAmount(w.btc)} BTC`;
-  return "—"; // error / not ready
+  return w.state === "error" ? WATCH_COPY.scanFailed : "—";
 }
 
 export function totalLabel(view) {
@@ -155,12 +154,12 @@ if (typeof document !== "undefined") {
   bday.max = new Date().toISOString().slice(0, 10);
   bday.title = "Wallet birthday (optional) — bounds the first rescan";
   bday.setAttribute("aria-label", "Wallet birthday (optional)");
-  const add = el("button", null, "Add");
+  const add = el("button", null, WATCH_COPY.add);
   add.type = "submit";
   form.append(name, key, scriptType, bday, add);
   const hint = el("div", "watch-hint", watchHint(false));
 
-  card.append(el("h2", null, "Watch-only wallets"), list, form, hint, msg, warn);
+  card.append(el("h2", null, WATCH_COPY.heading), list, form, hint, msg, warn);
 
   const renderManager = (view) => {
     const access = editAccess(view);
@@ -170,17 +169,16 @@ if (typeof document !== "undefined") {
     bday.hidden = !!view.pruned;
     if (view.pruned) bday.value = "";
     hint.textContent = watchHint(!!view.pruned);
-    list.textContent = "";
-    for (const w of view.wallets) {
+    replaceIfChanged(list, JSON.stringify([view.wallets, editingEnabled]), () => view.wallets.map((w) => {
       const identity = walletView(w);
-      list.append(managerRow({
+      return managerRow({
         label: identity.label,
         note: publicExampleNote(w),
         keyText: w.key,
         canRemove: editingEnabled,
         onRemove: () => remove(identity.deleteName),
-      }));
-    }
+      });
+    }));
     warn.textContent = [access.warning, view.scan_cache_unavailable
       ? "Saved balance cache unavailable. Check storage permissions and restart the dashboard."
       : ""].filter(Boolean).join(" ");
@@ -197,16 +195,14 @@ if (typeof document !== "undefined") {
 
   async function refresh() {
     try {
-      const res = await fetch("/api/watch", { headers: CSRF });
-      if (res.ok) {
-        render(await res.json());
-        if (loadFailed) setMsg("");
-        loadFailed = false;
-      } else {
-        loadFailed = true;
-        setMsg(await res.text(), true);
-      }
-    } catch { /* blip — next poll */ }
+      render(await jsonRequest(fetch, "/api/watch", { failure: "Watch-only wallets could not be loaded.", definitive: true }));
+      if (loadFailed) setMsg("");
+      loadFailed = false;
+    } catch (error) {
+      if (!error.definitive) return;
+      loadFailed = true;
+      setMsg(error.message, true);
+    }
   }
 
   // success/"scanning" text stays the default muted color; errors get a
@@ -220,10 +216,9 @@ if (typeof document !== "undefined") {
   async function remove(walletName) {
     setMsg("");
     try {
-      const res = await fetch(`/api/watch/${encodeURIComponent(walletName)}`,
-                             { method: "DELETE", headers: CSRF });
-      if (!res.ok) setMsg(await res.text(), true);
-    } catch { setMsg("Network error.", true); }
+      await jsonRequest(fetch, `/api/watch/${encodeURIComponent(walletName)}`, { method: "DELETE", failure: WATCH_COPY.removeFailed, definitive: true });
+      setMsg(WATCH_COPY.removed);
+    } catch (error) { setMsg(error.definitive ? error.message : "Network error.", true); }
     refresh();
   }
 
@@ -233,22 +228,12 @@ if (typeof document !== "undefined") {
     setMsg("");
     add.disabled = true;
     try {
-      const res = await fetch("/api/watch", {
-        method: "POST",
-        headers: { ...CSRF, "Content-Type": "application/json" },
-        body: JSON.stringify(walletPost(name.value, key.value, scriptType.value, bday.value, last.wallets)),
-      });
-      if (res.ok) {
-        name.value = key.value = bday.value = "";
-        scriptType.value = "legacy";
-        scriptType.disabled = true;
-        setMsg(last.pruned
-          ? "Added — scanning for confirmed funds. This may take a few minutes…"
-          : "Added — scanning the chain for its history…");
-      } else {
-        setMsg(await res.text(), true);
-      }
-    } catch { setMsg("Network error.", true); }
+      await jsonRequest(fetch, "/api/watch", { method: "POST", payload: walletPost(name.value, key.value, scriptType.value, bday.value, last.wallets), failure: WATCH_COPY.addFailed, definitive: true });
+      name.value = key.value = bday.value = "";
+      scriptType.value = "legacy";
+      scriptType.disabled = true;
+      setMsg(WATCH_COPY.added);
+    } catch (error) { setMsg(error.definitive ? error.message : "Network error.", true); }
     add.disabled = !editingEnabled;
     refresh();
   });

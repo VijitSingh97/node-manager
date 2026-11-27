@@ -3,10 +3,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-fail() {
-  echo "FAIL: $1"
-  exit 1
-}
+# shellcheck source=tests/lib.sh
+. tests/lib.sh
+out=$(bash -c '. tests/lib.sh; fail boom' 2>&1) && { echo "FAIL: lib.sh fail() must exit non-zero"; exit 1; }
+[ "$out" = "FAIL: boom" ] || { echo "FAIL: lib.sh fail() output: $out"; exit 1; }
 
 [ -x scripts/node-control ] || fail "source node-control helper is not executable"
 grep -Fq 'for helper in node-control node-port-control' stack ||
@@ -85,8 +85,10 @@ exit 0
 EOS
 chmod +x "$onion_stub/docker"
 export FAKE_TOR=$fake_tor FAKE_ONION_LOG=$tmp/onion-calls.log
-onion_archive=$(PATH="$onion_stub:$PATH" ./stack backup | sed -n 's/^Wrote \([^ ]*\) .*/\1/p')
+onion_out=$(PATH="$onion_stub:$PATH" ./stack backup)
+onion_archive=$(printf '%s\n' "$onion_out" | sed -n 's/^Wrote \([^ ]*\) .*/\1/p')
 [ -f "$onion_archive" ] || fail "onion backup did not report its archive"
+printf '%s\n' "$onion_out" | grep -q "dashboard onion" && fail "backup warned about a dashboard onion that is off"
 for node in bitcoin litecoin; do
   tar tzf "$onion_archive" | grep -q "${node}_onion/hs_ed25519_secret_key" || fail "backup missing the $node onion key"
 done
@@ -102,6 +104,19 @@ for node in bitcoin litecoin; do
   grep -q " restart $node$" "$FAKE_ONION_LOG" || fail "restore did not restart $node to advertise its onion"
 done
 [ "$(grep -c ' restart tor$' "$FAKE_ONION_LOG")" = 1 ] || fail "restore did not restart tor exactly once"
+
+# an enabled dashboard onion without a key warns; a leftover key is kept after the onion is turned off
+cp -p .env "$tmp/env.saved"
+{ grep -v '^DASHBOARD_ONION=' "$tmp/env.saved"; echo DASHBOARD_ONION=1; } >.env
+dashboard_onion_out=$(PATH="$onion_stub:$PATH" ./stack backup)
+printf '%s\n' "$dashboard_onion_out" | grep -q "WARN: dashboard onion keys not captured" ||
+  fail "backup did not warn about a missing dashboard onion key"
+cp -p "$tmp/env.saved" .env
+mkdir "$fake_tor/dashboard_onion"
+printf 'dashboard-secret' >"$fake_tor/dashboard_onion/hs_ed25519_secret_key"
+leftover_archive=$(PATH="$onion_stub:$PATH" ./stack backup | sed -n 's/^Wrote \([^ ]*\) .*/\1/p')
+tar tzf "$leftover_archive" | grep -q "dashboard_onion/hs_ed25519_secret_key" ||
+  fail "backup dropped a leftover dashboard onion key"
 
 package_root=$tmp/package-root
 package_state=$tmp/package-state
@@ -159,8 +174,11 @@ case " $* " in
   *' info '*) [ "${FAKE_DOCKER_INFO_FAIL:-0}" != 1 ]; exit ;;
   *' exec dashboard cat /state/dashboard_auth.json '*) [ -f "${FAKE_DASH_AUTH_FILE:-}" ] && cat "$FAKE_DASH_AUTH_FILE"; exit ;;
   *' compose '*' config --images '*) printf 'example.invalid/stack:test\n' ;;
+  *' images --format {{.Repository}} '*) printf '%s\n' ${FAKE_LOCAL_REPOS:-}; exit ;;
+  *' image inspect '*"${FAKE_STALE_IMAGE:-@unset@}"*) exit 1 ;;
   *' image inspect '*) [ "${FAKE_IMAGES_MISSING:-0}" != 1 ] || [ -f "$FAKE_IMAGES_READY" ]; exit ;;
   *' compose '*' pull '*) [ "${FAKE_PULL_FAIL:-0}" != 1 ] || exit 1; touch "$FAKE_IMAGES_READY"; exit ;;
+  *' pull '*) [ "${FAKE_REF_PULL_FAIL:-0}" != 1 ]; exit ;;
   *' compose '*' up '*) [ "${FAKE_UP_FAIL:-0}" != 1 ]; exit ;;
   *' ps -aq '*'com.docker.compose.service=dashboard'*) printf 'dashboard-id\n'; exit ;;
   *'com.docker.compose.project.config_files'*) printf '%s/docker-compose.yml\n' "$PWD" ;;
@@ -239,6 +257,21 @@ grep -q '^BITCOIN_RPC_EXPOSE=0$' "$wizard/.env" || fail "init exposed Bitcoin RP
 [ -f "$wizard/.approved-config.json" ] || fail "init did not approve its config"
 grep -q "Dashboard — username: admin  password: $dashboard_password" "$tmp/wizard-init.log" || fail "init did not print the generated dashboard credential"
 grep -q 'Bitcoin RPC — username: admin  password:' "$tmp/wizard-init.log" || fail "init did not print the selected node credentials"
+bad_init="$tmp/bad-init"
+mkdir "$bad_init"
+cp stack configure.sh "$bad_init/"
+printf '{"bitcoin":{"enabled":true},"dashboard":{"password":"short"}}\n' >"$bad_init/config.json"
+printf 'DASHBOARD_PASSWORD=previouspassword1234\n' >"$bad_init/.env"
+(cd "$bad_init" && HOME="$tmp" PATH="$stub:$PATH" ./stack init >"$tmp/bad-init.log" 2>&1) && fail "init accepted an invalid configuration"
+[ -z "$(find "$bad_init" -name '*.before-init.*')" ] || fail "failed init left temporary copies of .env behind"
+grep -qx 'DASHBOARD_PASSWORD=previouspassword1234' "$bad_init/.env" || fail "failed init changed the previous .env"
+bad_fresh="$tmp/bad-fresh-init"
+mkdir "$bad_fresh"
+cp stack configure.sh "$bad_fresh/"
+cp "$bad_init/config.json" "$bad_fresh/config.json"
+(cd "$bad_fresh" && HOME="$tmp" PATH="$stub:$PATH" ./stack init >"$tmp/bad-fresh-init.log" 2>&1) && fail "first init accepted an invalid configuration"
+[ ! -e "$bad_fresh/.env" ] || fail "failed first init left a .env behind"
+[ -z "$(find "$bad_fresh" -name '*.before-init.*')" ] || fail "failed first init left temporary copies behind"
 wizard_config_hash=$(shasum -a 256 "$wizard/config.json" | cut -d' ' -f1)
 (cd "$wizard" && HOME="$tmp" PATH="$stub:$PATH" ./stack init >"$tmp/wizard-repeat.log")
 [ "$(shasum -a 256 "$wizard/config.json" | cut -d' ' -f1)" = "$wizard_config_hash" ] || fail "repeated init rotated the generated dashboard password"
@@ -289,6 +322,17 @@ printf '1.2.3\n' >"$wizard_no_docker/VERSION"
 no_docker_password=$(jq -r '.dashboard.password' "$wizard_no_docker/config.json")
 grep -Fq "Dashboard — username: admin  password: $no_docker_password" "$tmp/no-docker.log" || fail "failed first init concealed the generated dashboard login"
 [ ! -f "$wizard_no_docker/.approved-config.json" ] || fail "init approved a config that was not started"
+[ ! -f "$wizard_no_docker/.env" ] || fail "init without Docker kept a rendered .env that was not there before"
+[ -z "$(find "$wizard_no_docker" -name '*.before-*')" ] || fail "init without Docker left temporary copies behind"
+no_docker_prev="$tmp/wizard-no-docker-prev"
+mkdir "$no_docker_prev"
+cp stack configure.sh "$no_docker_prev/"
+printf '1.2.3\n' >"$no_docker_prev/VERSION"
+printf '{"bitcoin":{"enabled":true},"dashboard":{"password":"newdashboardpassword1234"}}\n' >"$no_docker_prev/config.json"
+printf 'DASHBOARD_PASSWORD=previouspassword1234\n' >"$no_docker_prev/.env"
+(cd "$no_docker_prev" && FAKE_DOCKER_INFO_FAIL=1 HOME="$tmp" PATH="$stub:$PATH" ./stack init >/dev/null 2>&1) && fail "init succeeded while Docker was unavailable with a previous .env"
+[ "$(cat "$no_docker_prev/.env")" = 'DASHBOARD_PASSWORD=previouspassword1234' ] || fail "init without Docker did not restore the previous .env"
+[ -z "$(find "$no_docker_prev" -name '*.before-*')" ] || fail "init without Docker left temporary copies behind with a previous .env"
 grep -q 'Configuration was saved, but Docker is not ready' "$tmp/no-docker.log" || fail "init did not explain how to recover when Docker was unavailable"
 
 pending="$tmp/pending-config"
@@ -298,6 +342,14 @@ printf '1.2.3\n' >"$pending/VERSION"
 (cd "$pending" && BITCOIN_STACK_DEFAULT_BIND_IP=192.168.1.116 HOME="$tmp" PATH="$stub:$PATH" ./stack init >/dev/null)
 (cd "$pending" && BITCOIN_STACK_DEFAULT_BIND_IP=192.168.1.117 HOME="$tmp" PATH="$stub:$PATH" ./stack up >/dev/null)
 grep -q '^DASHBOARD_BIND_IP=192.168.1.117$' "$pending/.env" || fail "start did not refresh an automatic LAN bind"
+printf 'HELPER_SENTINEL=1\n' >>"$pending/.env"
+rm -f "$FAKE_CRON"
+(cd "$pending" && BITCOIN_STACK_HELPER_START=1 HOME="$tmp" PATH="$stub:$PATH" ./stack up >/dev/null)
+grep -q '^HELPER_SENTINEL=1$' "$pending/.env" || fail "helper start re-rendered an approved config"
+[ ! -e "$FAKE_CRON" ] || fail "helper start ran the host timer and agent setup"
+(cd "$pending" && BITCOIN_STACK_DEFAULT_BIND_IP=192.168.1.117 HOME="$tmp" PATH="$stub:$PATH" ./stack up >/dev/null)
+! grep -q '^HELPER_SENTINEL=1$' "$pending/.env" || fail "plain start skipped the config render"
+[ -e "$FAKE_CRON" ] || fail "plain start skipped the host timer and agent setup"
 jq '.dashboard.port=8088' "$pending/config.json" >"$pending/config.next"
 mv "$pending/config.next" "$pending/config.json"
 (cd "$pending" && BITCOIN_STACK_DEFAULT_BIND_IP=192.168.1.117 ./configure.sh >/dev/null)
@@ -316,6 +368,7 @@ jq '.dashboard.port=8090' "$pending/config.json" >"$pending/config.next"
 mv "$pending/config.next" "$pending/config.json"
 (cd "$pending" && FAKE_UP_FAIL=1 HOME="$tmp" PATH="$stub:$PATH" ./stack apply >/dev/null 2>&1) && fail "failed apply returned success"
 grep -q '^DASHBOARD_PORT=8088$' "$pending/.env" || fail "failed apply did not restore the previous runtime environment"
+[ -z "$(find "$pending" -name '*.before-*')" ] || fail "failed apply left temporary copies behind"
 [ "$(jq -r '.dashboard.port' "$pending/.approved-config.json")" = 8088 ] || fail "failed apply replaced the approved config"
 cp "$pending/.approved.env" "$pending/approved-env.before"
 : >"$FAKE_LOG"
@@ -323,6 +376,7 @@ cp "$pending/.approved.env" "$pending/approved-env.before"
 grep -q '^DASHBOARD_PORT=8088$' "$pending/.env" || fail "approval failure did not restore the previous runtime environment"
 [ "$(jq -r '.dashboard.port' "$pending/.approved-config.json")" = 8088 ] || fail "approval failure replaced the approved config"
 cmp -s "$pending/.approved.env" "$pending/approved-env.before" || fail "approval failure replaced the approved environment"
+[ -z "$(find "$pending" -name '*.before-*')" ] || fail "apply approval failure left temporary copies behind"
 [ "$(grep -c 'docker compose .* up -d --pull never --no-build' "$FAKE_LOG")" -ge 2 ] || fail "approval failure did not reconcile the previous runtime"
 cp "$pending/config.json" "$pending/config.before-invalid"
 printf '{\n' >"$pending/config.json"
@@ -452,6 +506,7 @@ grep -q 'docker compose .* up -d --pull never --no-build --force-recreate --no-d
 HOME="$tmp" PATH="$stub:$PATH" ./stack up tor --force-recreate >/dev/null 2>&1 && fail "up accepted a flag after a service name"
 
 # Explicit pulls use the host Docker configuration and report pull failures.
+cp "$repo_root/docker-compose.yml" .
 rm -f "$FAKE_LOG"
 HOME="$tmp" PATH="$stub:$PATH" ./stack pull >/dev/null || fail "host Docker pull failed"
 grep -q 'docker compose .* pull' "$FAKE_LOG" || fail "pull did not reach Compose"
@@ -460,6 +515,32 @@ rm -f "$FAKE_LOG"
 HOME="$tmp" PATH="$stub:$PATH" ./stack pull --policy missing >/dev/null || fail "pull policy was rejected"
 grep -q 'docker compose .* pull --policy missing' "$FAKE_LOG" || fail "pull arguments did not reach Compose"
 FAKE_PULL_FAIL=1 HOME="$tmp" PATH="$stub:$PATH" ./stack pull >/dev/null 2>&1 && fail "pull failure was ignored"
+
+# A plain pull also refreshes every node image already on the machine, without starting anything.
+stale_litecoin="ghcr.io/vijitsingh97/node-manager-litecoin:$(cat VERSION)"
+export FAKE_LOCAL_REPOS="ghcr.io/vijitsingh97/node-manager-tor ghcr.io/vijitsingh97/node-manager-litecoin"
+export FAKE_STALE_IMAGE="node-manager-litecoin:"
+rm -f "$FAKE_LOG"
+HOME="$tmp" PATH="$stub:$PATH" ./stack pull >"$tmp/pull.out" || fail "pull failed while refreshing other node images"
+grep -qx "docker pull $stale_litecoin" "$FAKE_LOG" || fail "pull did not refresh the image of a node that is off or deleted"
+[ "$(grep -c '^docker pull ' "$FAKE_LOG")" = 1 ] || fail "pull refreshed a current image or one never downloaded: $(grep '^docker pull ' "$FAKE_LOG")"
+grep -q 'docker compose .* up ' "$FAKE_LOG" && fail "the image refresh started a node"
+awk '/^flock -u 8$/ { unlock=NR } /^docker pull / { pull=NR } END { exit !(unlock && unlock < pull) }' "$FAKE_LOG" ||
+  fail "the image refresh held the configuration lock"
+rm -f "$FAKE_LOG"
+HOME="$tmp" PATH="$stub:$PATH" ./stack pull --policy missing >/dev/null || fail "install pull failed"
+grep -q '^docker pull ' "$FAKE_LOG" && fail "an install or activation pull refreshed other node images"
+FAKE_REF_PULL_FAIL=1 HOME="$tmp" PATH="$stub:$PATH" ./stack pull >"$tmp/pull.out" 2>&1 || fail "a failed image refresh failed the pull"
+grep -q "^WARN  could not pull $stale_litecoin for a node that is not running" "$tmp/pull.out" || fail "a failed image refresh did not warn"
+no_timeout="$tmp/no-timeout"
+mkdir "$no_timeout"
+IFS=: read -ra path_dirs <<<"$PATH"
+for dir in "${path_dirs[@]}"; do ln -s "$dir"/* "$no_timeout"/ 2>/dev/null || true; done
+rm -f "$no_timeout/timeout" "$FAKE_LOG"
+HOME="$tmp" PATH="$stub:$no_timeout" ./stack pull >/dev/null || fail "pull failed on a host without timeout"
+grep -qx "docker pull $stale_litecoin" "$FAKE_LOG" || fail "a host without timeout did not refresh other node images"
+unset FAKE_LOCAL_REPOS FAKE_STALE_IMAGE
+rm docker-compose.yml
 
 rm -f "$FAKE_LOG"
 upgrade_out=$(PATH="$stub:$PATH" ./stack upgrade)
@@ -691,6 +772,11 @@ grep -q ' -u 1000 dashboard sh -c umask 077; cat > /state/.utxo-seed.request.tmp
 reset_useed
 useed utxo-seed </dev/null >/dev/null 2>&1 && fail "utxo-seed started without a terminal or -y"
 grep -q mkfifo "$FAKE_LOG" && fail "declined utxo-seed created a FIFO"
+useed utxo-seed </dev/null >"$tmp/useed.out" 2>&1 || true
+grep -q 'Run this on a terminal, or pass -y' "$tmp/useed.out" || fail "utxo-seed did not ask for -y"
+reset_useed
+printf 'n\n' | BITCOIN_STACK_INTERACTIVE=1 useed utxo-seed >"$tmp/useed.out" 2>&1 || true
+grep -q 'Not started\.' "$tmp/useed.out" || fail "utxo-seed did not report the declined start"
 reset_useed
 printf 'n\n' | BITCOIN_STACK_INTERACTIVE=1 useed utxo-seed >/dev/null 2>&1 && fail "utxo-seed ignored a no answer"
 grep -q mkfifo "$FAKE_LOG" && fail "utxo-seed created a FIFO after a no answer"
@@ -796,6 +882,13 @@ reset_useed
 FAKE_VOL_MISSING=1 useed utxo-index remove -y >"$tmp/useed.out" 2>&1 || fail "utxo-index remove failed with no volume"
 grep -q 'Nothing to remove' "$tmp/useed.out" || fail "utxo-index remove did not report nothing to remove"
 grep -q 'volume rm' "$FAKE_LOG" && fail "utxo-index remove removed a missing volume"
+reset_useed
+useed utxo-index remove </dev/null >"$tmp/useed.out" 2>&1 && fail "utxo-index remove ran without a terminal or -y"
+grep -q 'Run this on a terminal, or pass -y' "$tmp/useed.out" || fail "utxo-index remove did not ask for -y"
+reset_useed
+printf 'n\n' | BITCOIN_STACK_INTERACTIVE=1 useed utxo-index remove >"$tmp/useed.out" 2>&1 && fail "utxo-index remove ran after the answer n"
+grep -q 'Not removed\.' "$tmp/useed.out" || fail "utxo-index remove did not report the declined removal"
+grep -q 'volume rm' "$FAKE_LOG" && fail "utxo-index remove removed the volume after the answer n"
 reset_useed
 FAKE_DOCKER_FAIL=1 useed utxo-index remove -y >"$tmp/useed.out" 2>&1 && fail "utxo-index remove succeeded with docker failing"
 grep -q 'Nothing to remove' "$tmp/useed.out" && fail "utxo-index remove reported a docker failure as a missing volume"
@@ -1269,5 +1362,23 @@ grep -q ' stop dogecoin$' "$FAKE_LOG" && fail "utxo-seed dogecoin stopped the no
 reset_useed
 (cd "$bch_dir" && HOME="$tmp" PATH="$utxo_stub:$stub:$PATH" ./stack utxo-chainstate-copy dogecoin) >"$tmp/dcopy.out" 2>&1 && fail "utxo-chainstate-copy ran with the Dogecoin index off"
 grep -q 'balance index is off' "$tmp/dcopy.out" || fail "utxo-chainstate-copy did not say the index is off"
+
+status_dir="$tmp/status"
+mkdir -p "$status_dir/bin"
+cp stack "$status_dir/"
+printf 'BITCOIN_ENABLED=0\nTARI_ENABLED=1\nTARI_ACTIVE=1\n' >"$status_dir/.env"
+cat >"$status_dir/bin/docker" <<'EOS'
+#!/usr/bin/env bash
+case " $* " in
+  *' ps -aq '*) for arg in "$@"; do case "$arg" in label=com.docker.compose.service=*) printf '%s-id\n' "${arg##*=}" ;; esac; done ;;
+  *' inspect '*) case "$2" in tari-wallet-id) printf 'running unhealthy\n' ;; *) printf 'running healthy\n' ;; esac ;;
+esac
+exit 0
+EOS
+chmod +x "$status_dir/bin/docker"
+status_code=0
+(cd "$status_dir" && HOME="$tmp" PATH="$status_dir/bin:$PATH" ./stack status >"$tmp/status.out" 2>&1) || status_code=$?
+grep -q '^WARN  tari-wallet: running unhealthy$' "$tmp/status.out" || { cat "$tmp/status.out"; fail "status did not report an unhealthy tari-wallet"; }
+[ "$status_code" != 0 ] || fail "status exited 0 with an unhealthy tari-wallet"
 
 echo "PASS: test_cli.sh"

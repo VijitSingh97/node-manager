@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -90,9 +89,7 @@ func readSavedDashboardSessions(path string) (savedDashboardSessions, bool) {
 	if err != nil {
 		return saved, false
 	}
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&saved) != nil || ensureJSONEnd(decoder) != nil || saved.Version != 1 || !lowerHex(saved.Binding, 64) || len(saved.Sessions) > dashboardSessionLimit {
+	if !decodeStrictBytes(b, &saved) || saved.Version != 1 || !lowerHex(saved.Binding, 64) || len(saved.Sessions) > dashboardSessionLimit {
 		return saved, false
 	}
 	for _, item := range saved.Sessions {

@@ -187,6 +187,21 @@ func TestActuatorHealthReportsComponentsToTheActuatorLogin(t *testing.T) {
 		t.Fatalf("synced health = %v", synced)
 	}
 
+	a.prices.mu.Lock()
+	a.prices.assetFailed["bitcoin"] = true
+	a.prices.mu.Unlock()
+	if failed := health(http.StatusOK); failed["status"] != statusDegraded || component(t, failed, "tor")["status"] != statusDegraded {
+		t.Fatalf("health after a failed price refresh = %v", failed)
+	}
+	freshPrices(a)
+	a.prices.mu.Lock()
+	a.prices.assetUpdatedAt["bitcoin"] = time.Now().Add(-16 * time.Minute).Unix()
+	a.prices.mu.Unlock()
+	if old := health(http.StatusOK); component(t, old, "tor")["status"] != statusDegraded {
+		t.Fatalf("health with a 16-minute-old price = %v", old)
+	}
+	freshPrices(a)
+
 	if err := os.WriteFile(filepath.Join(a.cfg.stateDir, "node-runtime.json"), []byte(`{"bitcoin":true}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -705,5 +720,59 @@ func TestLeftoverActuatorFileDeleteFailureLogsAFixedMessage(t *testing.T) {
 	removeLegacyActuatorCredentials(t.TempDir(), log.New(&logs, "", 0))
 	if logs.Len() != 0 {
 		t.Fatalf("missing file logged %q", logs.String())
+	}
+}
+
+func TestCommandNameFollowsInstallKind(t *testing.T) {
+	a, _ := testApp(t, &rpcFixture{}, "")
+	if kind, command := a.installKind(), a.commandName(); kind != "unknown" || command != "./stack" {
+		t.Fatalf("no helper: kind %q command %q", kind, command)
+	}
+	for kind, want := range map[string]string{"boot": "sudo node-manager", "login": "node-manager", "unsupported": "./stack"} {
+		capability := fmt.Sprintf(`{"platform":"linux","boot_kind":%q,"boot_supported":true,"timestamp":%d}`, kind, time.Now().Unix())
+		if err := os.WriteFile(a.nodeControlPath("capability"), []byte(capability), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got := a.commandName(); got != want {
+			t.Fatalf("%s command = %q, want %q", kind, got, want)
+		}
+	}
+	stale := fmt.Sprintf(`{"platform":"linux","boot_kind":"boot","boot_supported":true,"timestamp":%d}`, time.Now().Add(-time.Hour).Unix())
+	if err := os.WriteFile(a.nodeControlPath("capability"), []byte(stale), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.commandName(); got != "sudo node-manager" {
+		t.Fatalf("stale capability command = %q", got)
+	}
+	if _, refusal := a.queueSeedHostAction(nodeBitcoin); !strings.Contains(refusal, "start the seed with sudo node-manager utxo-seed") {
+		t.Fatalf("seed refusal = %q", refusal)
+	}
+	for _, body := range []string{`{}`, `{"boot_kind":null}`, `{"boot_kind":"other"}`, `not json`} {
+		if err := os.WriteFile(a.nodeControlPath("capability"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if kind, command := a.installKind(), a.commandName(); kind != "unknown" || command != "./stack" {
+			t.Fatalf("%s: kind %q command %q", body, kind, command)
+		}
+	}
+}
+
+func TestRenderedPagesUseInstallCommand(t *testing.T) {
+	for name, fixture := range map[string]*rpcFixture{"loaded": {}, "loading": {invalid: true}} {
+		t.Run(name, func(t *testing.T) {
+			a, handler := testApp(t, fixture, "")
+			capability := fmt.Sprintf(`{"platform":"linux","boot_kind":"boot","boot_supported":true,"timestamp":%d}`, time.Now().Unix())
+			if err := os.WriteFile(a.nodeControlPath("capability"), []byte(capability), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			body := request(t, handler, http.MethodGet, "/", "dashboard-secret").Body.String()
+			if !strings.Contains(body, `data-command="sudo node-manager"`) || strings.Contains(body, "./stack") {
+				t.Fatalf("%s page command attribute missing or stale", name)
+			}
+			want := "Run sudo node-manager doctor."
+			if n := strings.Count(body, want); n < 1 || (name == "loaded" && n < 6) {
+				t.Fatalf("%s page has %d %q hints", name, n, want)
+			}
+		})
 	}
 }

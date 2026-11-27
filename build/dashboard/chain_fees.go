@@ -48,7 +48,7 @@ func (a *app) sampleAdditionalFee(ctx context.Context, id string, node nodeConfi
 		rpc.user, rpc.password, rpc.cookiePath = "", "", node.RPCCookiePath
 		var chain zcashBlockchainInfo
 		var fee zcashStandardFee
-		if rpc.call(ctx, "getblockchaininfo", nil, &chain) == nil && chain.Blocks >= max(chain.Headers, chain.EstimatedHeight) && chain.VerificationProgress >= 0.999999 && rpc.call(ctx, "getstandardfee", nil, &fee) == nil && fee.StandardFee > 0 {
+		if rpc.call(ctx, "getblockchaininfo", nil, &chain) == nil && chain.atTip() && rpc.call(ctx, "getstandardfee", nil, &fee) == nil && fee.StandardFee > 0 {
 			a.recordAdditionalFee(id, float64(fee.StandardFee))
 		}
 		return

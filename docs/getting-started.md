@@ -11,9 +11,9 @@
   the formula; Docker is still installed separately.
 - Hardware per [Hardware Requirements](hardware.md) — Bitcoin plans for
   28–56 GiB SSD space and Monero for 120–150 GiB. The other nodes need expandable
-  storage until their current full-sync totals are measured. Bitcoin and Monero
-  use an experimental 1 CPU / 2 GiB steady budget; Tari, Litecoin, Dogecoin,
-  Bitcoin Cash, and Zcash use 1 CPU / 4 GiB each. Shared services and host
+  storage until their current full-sync totals are measured. Bitcoin, Monero,
+  Litecoin, Dogecoin, and Bitcoin Cash use an experimental 1 CPU / 2 GiB steady
+  budget; Tari and Zcash use 1 CPU / 4 GiB each. Shared services and host
   overhead are additional. Initial sync is uncapped.
   For sync headroom, plan around 2 CPU cores and 4 GiB RAM per node; these are
   estimates, not minimum requirements or measured average usage. More resources
@@ -150,7 +150,7 @@ tools and check out the published release:
 ```bash
 sudo apt update
 sudo apt install ca-certificates curl git iproute2 jq openssl util-linux
-git clone --branch v1.39.0 --depth 1 https://github.com/VijitSingh97/node-manager.git
+git clone --branch v1.42.2 --depth 1 https://github.com/VijitSingh97/node-manager.git
 cd node-manager
 ./stack init
 ```
@@ -226,7 +226,7 @@ interfaces and ports. All interface toggles default off. Change the folder or
 opt into an interface before confirming, then press **Save**; the host validates the folder and
 checks enabled ports for conflicts before it changes the running stack. The
 install preserves every existing node and its data. Watch progress or correct a
-failed installation in the same panel. View-only wallets are added in the
+failed installation in the same panel. Watch-only wallets are added in the
 relevant tower; setup does not ask for wallet keys or seed phrases.
 
 The **Config** section directly below Healthchecks shows the actual host
@@ -241,7 +241,7 @@ managed user service when it is installed.
 
 Fresh APT and Homebrew installs select `resource_profile: compact`. The host
 helper waits for three spaced, healthy, current sync checks before applying
-1 CPU / 2048 MiB to Bitcoin or Monero, or 1 CPU / 4096 MiB to the other nodes,
+1 CPU / 2048 MiB to Bitcoin, Monero, Litecoin, Dogecoin or Bitcoin Cash, or 1 CPU / 4096 MiB to Tari and Zcash,
 with no extra swap. Initial sync is uncapped. Source first-start selections and
 existing profiles stay off unless configured; a node installed later from the
 dashboard selects `compact`. These ceilings remain experimental until sustained
@@ -321,11 +321,13 @@ this possible; never delete it as a way to apply an edit.
    it has no host port and cannot spend. No miner starts.
 
 4. **The dashboard** at the URL printed by setup shows the configured towers. Click a tower to
-   open its chain's card. It shows a connecting state until RPC comes up,
+   open its chain's card. It shows "Connecting to" and the chain name until RPC comes up,
    then sync progress. After its wallet section, that node's settings contain
    block alerts, LAN ports, and any authenticated RPC credentials. The gear
-   menu contains node installation, launch at boot/login, Appearance, Dashboard
-   password, Telegram, and Healthchecks settings. A disabled node says **Not configured**.
+   menu contains node installation, launch at boot/login, Thermal throttle,
+   Appearance, Telegram, and Healthchecks settings; the Dashboard password is
+   in the User dialog (person icon), and the three-line button below it opens
+   the event log. A disabled node says **Not configured**.
 
 Automatic binding selects a private LAN address each time configuration is
 rendered. Set `dashboard.bind_ip` to `127.0.0.1` for localhost only, or choose a

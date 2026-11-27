@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { flow, openHostSettings, openSettings, reopenHostSettings, save, waitForFile, waitSaved, withoutIdentity } from "./harness.mjs";
+import { answerConfirm, flow, openHostSettings, openSettings, reopenHostSettings, save, waitForFile, waitSaved, withoutIdentity } from "./harness.mjs";
 
 const reopen = reopenHostSettings;
 const savedAndSettled = waitSaved;
@@ -67,6 +67,7 @@ for (const index of indexes) {
     await page.setChecked(index.selector, true);
     await save(page);
     await savedAndSettled(page);
+    assert.equal(await page.confirmOpens(), 0);
     assert.equal(page.dialogs.length, 0);
     assert.deepEqual(helper.requests.map(withoutIdentity), [{ ...index.request, enabled: true }]);
     assert.equal(helper.capability[index.field], true);
@@ -75,15 +76,16 @@ for (const index of indexes) {
   });
 
   flow(`${index.name} balance index turned off asks first and sends the change once confirmed`, { nodes: index.nodes, capability: { [index.field]: true } }, async ({ page, helper }) => {
-    page.confirmAnswer = true;
     await openHostSettings(page);
     assert.equal(await page.checked(index.selector), true);
     await page.setChecked(index.selector, false);
     await save(page);
+    await page.waitVisible("#confirm-dialog");
+    assert.match(await page.text("#confirm-dialog-message"), index.prompt);
+    await answerConfirm(page, true);
     await savedAndSettled(page);
-    assert.equal(page.dialogs.length, 1);
-    assert.equal(page.dialogs[0].type, "confirm");
-    assert.match(page.dialogs[0].message, index.prompt);
+    assert.equal(await page.confirmOpens(), 1);
+    assert.equal(page.dialogs.length, 0);
     assert.deepEqual(helper.requests.map(withoutIdentity), [{ ...index.request, enabled: false }]);
     assert.equal(helper.capability[index.field], false);
     await reopen(page);
@@ -91,12 +93,13 @@ for (const index of indexes) {
   });
 
   flow(`${index.name} balance index stays on when the turn-off confirmation is cancelled`, { nodes: index.nodes, capability: { [index.field]: true } }, async ({ page, helper }) => {
-    page.confirmAnswer = false;
     await openHostSettings(page);
     await page.setChecked(index.selector, false);
     await save(page);
+    await answerConfirm(page, false);
     await page.waitFor((selector) => document.querySelector(selector).checked, { args: [index.selector], description: `${index.name} switch to snap back on` });
-    assert.equal(page.dialogs.length, 1);
+    assert.equal(await page.confirmOpens(), 1);
+    assert.equal(page.dialogs.length, 0);
     assert.equal(helper.requests.length, 0);
     assert.equal(page.requestsTo("POST", "/api/settings/host").length, 0);
     assert.equal(helper.capability[index.field], true);
@@ -115,7 +118,6 @@ const defaults = { launch_at_boot: false, clearnet_over_tor: true, inbound_conne
 const flipped = { boot_enabled: true, clearnet_over_tor: false, inbound_connections: false, utxo_index: true, utxo_index_litecoin: true };
 
 flow("Reset to default then Save sends every host switch back to its default in order", { nodes: ["litecoin"], capability: flipped }, async ({ dash, page, helper }) => {
-  page.confirmAnswer = true;
   await openHostSettings(page);
   await page.click("#settings-reset");
   for (const [selector, wanted] of [["#settings-launch-at-start", false], ["#settings-clearnet-over-tor", true], ["#settings-inbound-connections", true], ["#settings-utxo-index", false], ["#settings-utxo-index-litecoin", false]]) {
@@ -123,12 +125,15 @@ flow("Reset to default then Save sends every host switch back to its default in 
   }
   assert.equal(helper.requests.length, 0);
   await save(page);
+  await answerConfirm(page, true);
+  await answerConfirm(page, true);
   await savedAndSettled(page);
+  assert.equal(await page.confirmOpens(), 2);
+  assert.equal(page.dialogs.length, 0);
   assert.deepEqual(helper.requests.map(withoutIdentity), [
     { action: "launch_at_boot", enabled: false }, { action: "clearnet_over_tor", enabled: true }, { action: "inbound_connections", enabled: true },
     { action: "utxo_index", enabled: false }, { action: "utxo_index", node: "litecoin", enabled: false },
   ]);
-  assert.equal(page.dialogs.length, 2);
   assert.deepEqual({ boot: helper.capability.boot_enabled, clearnet: helper.capability.clearnet_over_tor, inbound: helper.capability.inbound_connections, utxo: helper.capability.utxo_index, ltc: helper.capability.utxo_index_litecoin }, { boot: false, clearnet: true, inbound: true, utxo: false, ltc: false });
   assert.deepEqual(dash.settings(), undefined);
 });
@@ -161,7 +166,7 @@ flow("A failed host change shows the host's reason and does not stop the indepen
   await page.setChecked("#settings-launch-at-start", true);
   await page.setChecked("#settings-inbound-connections", false);
   await save(page);
-  await page.waitText("#settings-status", "Launch at start: The requested host change did not pass validation. Launch setting requires the host service. Skipped: none.");
+  await page.waitText("#settings-status", "Launch at boot: The requested host change did not pass validation. Launch setting requires the host service. Skipped: none.");
   assert.deepEqual(helper.requests.map(withoutIdentity), [{ action: "launch_at_boot", enabled: true }, { action: "inbound_connections", enabled: false }]);
   assert.equal(helper.capability.inbound_connections, false);
   assert.equal(await page.checked("#settings-launch-at-start"), false);

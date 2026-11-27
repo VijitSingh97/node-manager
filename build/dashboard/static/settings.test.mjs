@@ -258,6 +258,8 @@ test("port status polling stops when the settings dialog closes", () => {
 test("port progress stays in the live port status", () => {
   assert.equal(settingsSaveMessage(false), "");
   assert.equal(settingsSaveMessage(true), "Settings saved.");
+  assert.equal(settingsSaveMessage(true, true), "Settings saved. Telegram is off, so no alerts are sent.");
+  assert.equal(settingsSaveMessage(false, true), "");
   assert.equal(portStatusNode("", "monero", []), "monero");
   assert.equal(portStatusNode("litecoin_rpc", "monero", []), "litecoin");
   assert.equal(portStatusNode("", "", ["zcash"]), "zcash");
@@ -374,7 +376,7 @@ test("node and global saves use independent HTTP scopes and payloads", async () 
 });
 
 test("node controls split alerts from LAN access and stay ahead of deactivation", async () => {
-  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const html = await readFile(new URL("../testdata/index.rendered.html", import.meta.url), "utf8");
   const source = await readFile(new URL("./settings.js", import.meta.url), "utf8");
   const ports = [{ className: "settings-port" }, { className: "settings-port" }];
   const alerts = {
@@ -401,7 +403,7 @@ test("node controls split alerts from LAN access and stay ahead of deactivation"
 });
 
 test("every node shows its approximate maximum alert volume and coalescing behavior", async () => {
-  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const html = await readFile(new URL("../testdata/index.rendered.html", import.meta.url), "utf8");
   const estimates = { bitcoin: 144, monero: 720, tari: 720, litecoin: 576, dogecoin: 1440, bitcoincash: 144, zcash: 1152 };
   for (const [node, count] of Object.entries(estimates)) {
     assert.match(html, new RegExp(`id="settings-${node}-new-block"[^>]*> Alert on new blocks \\(up to about ${count} alerts/day\\)`));
@@ -443,7 +445,7 @@ test("host switches stay staged until Save and then apply one at a time in a fix
   const source = await readFile(new URL("./settings.js", import.meta.url), "utf8");
   assert.doesNotMatch(source, /addEventListener\("change", \(\) => submitHost/);
   assert.match(source, /for \(const \[action, input\] of Object\.entries\(hostToggles\)\) input\.addEventListener\("change", \(\) => \{ hostDraft\[action\] = input\.checked; \}\);/);
-  assert.match(source, /byId\("open"\)\.addEventListener\("click", \(\) => \{\n    if \(!hostQueueAction\) \{\n      hostDraft = \{\};/);
+  assert.match(source, /byId\("open"\)\.addEventListener\("click", \(\) => \{\n    if \(!hostQueueAction\) \{\n      hostDraft = \{\};\n      hostStaged = \{\};/);
 });
 
 test("Save sends the pending config first, then switches, installs and data moves", async () => {
@@ -483,17 +485,24 @@ test("Reset to default sends one reset, plus the edited values when the form cha
 test("host switch defaults match the host helper and the configuration reference", async () => {
   const helper = await readFile(new URL("../../../scripts/node-control", import.meta.url), "utf8");
   const reference = await readFile(new URL("../../../docs/configuration.md", import.meta.url), "utf8");
-  assert.match(helper, new RegExp(`clearnet_over_tor=${hostToggleDefaults.clearnet_over_tor}\\n\\s*inbound_connections=${hostToggleDefaults.inbound_connections}\\n\\s*utxo_index=${hostToggleDefaults.utxo_index}\\n`));
+  const jqToggle = (key, path) => `${key}:setting\\(\\.${path.replaceAll(".", "\\.")} ${hostToggleDefaults[key] ? "!= false; true" : "== true; false"}\\)`;
+  assert.match(helper, new RegExp(`${jqToggle("clearnet_over_tor", "network.clearnet_over_tor")},${jqToggle("inbound_connections", "network.inbound_connections")},\\s*${jqToggle("utxo_index", "bitcoin.utxo_index")},`));
   assert.match(reference, new RegExp(`\\| \`dashboard\\.launch_at_boot\` \\| \`${hostToggleDefaults.launch_at_boot}\` \\|`));
   assert.deepEqual(Object.keys(hostToggleDefaults).sort(), ["clearnet_over_tor", "inbound_connections", "launch_at_boot", "utxo_index", "utxo_index_bitcoincash", "utxo_index_dogecoin", "utxo_index_litecoin"]);
 });
 
 test("Settings ends with Reset to default, Cancel and Save, and Cancel closes like the X", async () => {
-  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const html = await readFile(new URL("../testdata/index.rendered.html", import.meta.url), "utf8");
   const source = await readFile(new URL("./settings.js", import.meta.url), "utf8");
-  assert.match(html, /<div class="settings-footer">\s*<div class="settings-actions"><button id="settings-reset" type="button">Reset to default<\/button><button id="settings-cancel" type="button">Cancel<\/button><button id="settings-save" type="submit">Save<\/button><\/div>\s*<p id="settings-status"/);
+  assert.match(html, /<div class="settings-footer">\s*<div class="settings-actions"><button id="settings-reset" type="button">Reset to default<\/button><button id="settings-cancel" type="button">Cancel<\/button><button class="primary" id="settings-save" type="submit">Save<\/button><\/div>\s*<p id="settings-status"/);
   assert.doesNotMatch(html + source, /Use server config|Server config on Save/);
-  assert.match(source, /for \(const id of \["close", "cancel"\]\) byId\(id\)\.addEventListener\("click", \(\) => dialog\.close\(\)\)/);
+  assert.match(source, /for \(const id of \["close", "cancel"\]\) byId\(id\)\.addEventListener\("click", closeSettings\)/);
+  assert.match(source, /dialog\.addEventListener\("cancel", \(event\) => \{ if \(!event\.cancelable\) \{ discardedNotice = /);
+  assert.match(source, /await askConfirm\(/);
+  assert.doesNotMatch(source, /settingsSaveMessage\([^,()]*(\([^()]*\)[^,()]*)*\)/);
+  assert.doesNotMatch(source + await readFile(new URL("./wallet-ui.js", import.meta.url), "utf8"), /window\.confirm|[^.\w]confirm\(/);
+  assert.equal((html.match(/class="primary"/g) || []).length, 7);
+  assert.match(await readFile(new URL("./nodes.js", import.meta.url), "utf8"), /!document\.querySelector\("dialog\[open\]"\)\) controller\.close\(\)/);
 });
 
 test("the two actuator toggles are independent in the settings payload and default off", () => {
@@ -519,9 +528,15 @@ test("Reset to default turns off whichever actuator endpoint is on, and keeps on
 });
 
 test("the settings page has only the two actuator toggles and no actuator login fields", async () => {
-  const page = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const page = await readFile(new URL("../testdata/index.rendered.html", import.meta.url), "utf8");
   const source = await readFile(new URL("./settings.js", import.meta.url), "utf8");
   for (const id of ["actuator-health", "actuator-info"]) assert.match(page, new RegExp(`id="settings-${id}"`));
   assert.doesNotMatch(page + source, /actuator-username|actuator-password|actuator_username|actuator_password/);
   assert.doesNotMatch(page + source, /health-endpoints|health_endpoints/);
+});
+
+test("The ambiguous port result reads the current Telegram state when it is shown", async () => {
+  const source = await readFile(new URL("./settings.js", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /ambiguousAlertsOff/);
+  assert.match(source, /const ambiguousMessage = \(\) => settingsSaveMessage\(ambiguousStatusPrefix !== "", ambiguousAlerts \? nodeAlertsOff\(ambiguousAlerts\.scope, ambiguousAlerts\.payload, saved\) : false\);/);
 });

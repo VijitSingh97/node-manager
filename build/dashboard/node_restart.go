@@ -10,9 +10,10 @@ import (
 const nodeRestartWindow = 10 * time.Minute
 
 type nodeRestartEvent struct {
-	nodes   []string
-	since   time.Time
-	pending bool
+	nodes    []string
+	since    time.Time
+	pending  bool
+	starting bool
 }
 
 func (a *app) controlFileTime(prefix string, names ...string) (time.Time, bool) {
@@ -45,30 +46,30 @@ func hostRestartNodes(status hostControlStatus, pending bool) []string {
 
 func (a *app) nodeRestartEvents() []nodeRestartEvent {
 	var events []nodeRestartEvent
-	add := func(prefix string, nodes []string, pending bool) {
+	add := func(prefix string, nodes []string, pending bool, starting bool) {
 		names := []string{"status"}
 		if pending {
 			names = []string{"request", "processing"}
 		}
 		if since, ok := a.controlFileTime(prefix, names...); ok && len(nodes) > 0 {
-			events = append(events, nodeRestartEvent{nodes, since, pending})
+			events = append(events, nodeRestartEvent{nodes, since, pending, starting})
 		}
 	}
 	if status, pending := a.hostControlStatus(); status != nil && (pending || status.State == "applied") {
-		add("node-control", hostRestartNodes(*status, pending), pending)
+		add("node-control", hostRestartNodes(*status, pending), pending, false)
 	}
 	if status, pending := a.pendingNodeControlStatus(); pending {
 		if status.Active && status.ID != "" {
-			add("node-control", []string{status.Node}, true)
+			add("node-control", []string{status.Node}, true, true)
 		}
 	} else if status := a.readNodeControlStatus(); status != nil && status.State == "applied" && status.Active {
-		add("node-control", []string{status.Node}, false)
+		add("node-control", []string{status.Node}, false, true)
 	}
 	// The chainstate copy stops the node from the command line too, where no host request marks it.
 	for id, chain := range utxoChains {
 		if chain.Chainstate {
-			add(id+"-chainstate-copy", []string{id}, true)
-			add(id+"-chainstate-copy", []string{id}, false)
+			add(id+"-chainstate-copy", []string{id}, true, false)
+			add(id+"-chainstate-copy", []string{id}, false, false)
 		}
 	}
 	credentialNodes := func(node string) []string {
@@ -79,10 +80,10 @@ func (a *app) nodeRestartEvents() []nodeRestartEvent {
 	}
 	if status, pending := a.pendingCredentials(); pending {
 		if status.ID != "" {
-			add("credential-control", credentialNodes(status.Node), true)
+			add("credential-control", credentialNodes(status.Node), true, false)
 		}
 	} else if saved, ok := a.savedCredentialStatus(); ok && saved.State == "applied" {
-		add("credential-control", credentialNodes(saved.Node), false)
+		add("credential-control", credentialNodes(saved.Node), false, false)
 	}
 	return events
 }
@@ -96,7 +97,14 @@ func (a *app) nodeAnsweredSince(id string, since time.Time) bool {
 
 // A node counts as restarting from the moment a change that restarts it is requested until its RPC answers again, for at most nodeRestartWindow.
 func (a *app) restartingNodes() map[string]bool {
-	restarting := map[string]bool{}
+	restarting, _ := a.restartStates()
+	return restarting
+}
+
+// A restarting node is starting when the newest event covering it is an activation.
+func (a *app) restartStates() (restarting, starting map[string]bool) {
+	restarting, starting = map[string]bool{}, map[string]bool{}
+	newest := map[string]time.Time{}
 	now := time.Now()
 	runtime := a.nodeRuntime()
 	for _, event := range a.nodeRestartEvents() {
@@ -107,10 +115,13 @@ func (a *app) restartingNodes() map[string]bool {
 			configured, supported := a.nodeConfigured(id)
 			if configured && supported && runtime[id] && (event.pending || !a.nodeAnsweredSince(id, event.since)) {
 				restarting[id] = true
+				if !event.since.Before(newest[id]) {
+					newest[id], starting[id] = event.since, event.starting
+				}
 			}
 		}
 	}
-	return restarting
+	return restarting, starting
 }
 
 func (a *app) nodeRestarting(id string) bool {

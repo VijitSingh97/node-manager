@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -130,9 +128,7 @@ func NewMoneroWatchStore(cfg config) *MoneroWatchStore {
 		return s
 	}
 	var stored moneroWatchFile
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&stored) != nil || ensureJSONEnd(decoder) != nil || len(stored.Wallets) > maxMoneroWatchWallets {
+	if !decodeStrictBytes(data, &stored) || len(stored.Wallets) > maxMoneroWatchWallets {
 		s.err = errMoneroWatchUnavailable
 		return s
 	}
@@ -229,12 +225,9 @@ func (s *MoneroWatchStore) add(ctx context.Context, name, address, viewKey strin
 	}
 
 	id := moneroWalletID(address)
-	walletFile, err := newMoneroWalletFilename(id)
-	if err != nil {
-		return MoneroWatchWallet{}, errMoneroWatchUnavailable
-	}
+	walletFile := "dashboard_" + id + "_" + newRequestID()
 	wallet := MoneroWatchWallet{ID: id, Name: name, Address: address, Example: example, SourceURL: sourceURL, RestoreHeight: restoreHeight, State: "pending", SpendingStatus: "unknown", WalletFile: walletFile}
-	err = s.serialized(ctx, func(ctx context.Context) error {
+	err := s.serialized(ctx, func(ctx context.Context) error {
 		var generated struct {
 			Address string `json:"address"`
 		}
@@ -761,17 +754,9 @@ func moneroWalletID(address string) string {
 	return hex.EncodeToString(sum[:12])
 }
 
-func newMoneroWalletFilename(id string) (string, error) {
-	random := make([]byte, 16)
-	if _, err := rand.Read(random); err != nil {
-		return "", err
-	}
-	return "dashboard_" + id + "_" + hex.EncodeToString(random), nil
-}
-
 func validManagedWalletFilename(id, value string) bool {
 	prefix := "dashboard_" + id + "_"
-	return strings.HasPrefix(value, prefix) && len(value) == len(prefix)+32 && strings.Trim(value[len(prefix):], "0123456789abcdef") == ""
+	return strings.HasPrefix(value, prefix) && lowerHex(value[len(prefix):], 32)
 }
 func validMoneroName(name string) bool {
 	return moneroNamePattern.MatchString(name) && strings.TrimSpace(name) == name

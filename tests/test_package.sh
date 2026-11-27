@@ -2,10 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-fail() {
-  echo "FAIL: $1"
-  exit 1
-}
+# shellcheck source=tests/lib.sh
+. tests/lib.sh
 
 if ! command -v dpkg-deb >/dev/null; then
   echo "SKIP: test_package.sh (dpkg-deb not installed)"
@@ -75,44 +73,28 @@ for required in \
   ./usr/lib/node-manager/docker-compose.bitcoincash-utxo-index.yml \
   ./usr/lib/node-manager/docker-compose.dogecoin-utxo-index.yml \
   ./usr/lib/node-manager/runtime-images.json \
-  ./usr/lib/node-manager/build/dashboard/main.go \
-  ./usr/lib/node-manager/build/dashboard/login.go \
-  ./usr/lib/node-manager/build/dashboard/sessions.go \
-  ./usr/lib/node-manager/build/dashboard/index.html \
-  ./usr/lib/node-manager/build/dashboard/login.html \
-  ./usr/lib/node-manager/build/dashboard/static/login.css \
-  ./usr/lib/node-manager/build/dashboard/static/session.js \
-  ./usr/lib/node-manager/build/dashboard/static/theme-init.js \
-  ./usr/lib/node-manager/build/monero/Dockerfile \
-  ./usr/lib/node-manager/build/monero/wallet-entrypoint.sh \
-  ./usr/lib/node-manager/build/monero/wallet-healthcheck.sh \
+  ./usr/lib/node-manager/build/bitcoin/bitcoin.conf \
   ./usr/lib/node-manager/build/tari/config.toml \
-  ./usr/lib/node-manager/build/tari-wallet/Dockerfile \
-  ./usr/lib/node-manager/build/tari-wallet/launcher.go \
-  ./usr/lib/node-manager/build/tari-wallet/config.toml \
-  ./usr/lib/node-manager/build/bitcoin-family/Dockerfile \
-  ./usr/lib/node-manager/build/bitcoin-family/entrypoint.sh \
-  ./usr/lib/node-manager/build/bitcoin-family/healthcheck.sh \
+  ./usr/lib/node-manager/build/tari/entrypoint.sh \
   ./usr/lib/node-manager/build/zcash/zakurad.toml \
   ./usr/lib/node-manager/build/zcash/zakurad-address-index.toml \
   ./usr/lib/node-manager/build/zcash/healthcheck.sh \
-  ./usr/lib/node-manager/build/tor/torrc \
   ./usr/lib/node-manager/node-resource-profile \
   ./usr/lib/node-manager/node-port-control \
   ./usr/lib/node-manager/node-control \
+  ./usr/lib/node-manager/helper-common.sh \
   ./usr/lib/systemd/system/node-manager-resource-profile.service \
   ./usr/lib/systemd/system/node-manager-resource-profile.timer \
   ./usr/lib/systemd/system/node-manager-port-control.service \
   ./usr/lib/systemd/system/node-manager-port-control.timer \
+  ./usr/lib/systemd/system/node-manager-port-control.path \
   ./usr/lib/systemd/system/node-manager-node-control.service \
   ./usr/lib/systemd/system/node-manager-node-control.timer \
-  ./usr/share/doc/node-manager/README.md \
-  ./usr/share/doc/node-manager/docs/Caddyfile.example \
-  ./usr/share/doc/node-manager/docs/nodes.md \
-  ./usr/share/doc/node-manager/docs/privacy.md; do
+  ./usr/lib/systemd/system/node-manager-node-control.path \
+  ./usr/share/doc/node-manager/copyright; do
   grep -q " $required$" "$tmp/contents" || fail "package is missing $required"
 done
-if grep -Eq '/(tests|parity|experiments|images|__pycache__|\.pytest_cache)/|/build/dashboard/ui/|/build/hostd/|_test\.go$|\.test\.mjs$|\.proto$|package\.json$|/\.coverage$|\.pyc$|docs/releasing\.md$|\.(jpg|jpeg)$' "$tmp/contents"; then
+if grep -Eq '/(tests|parity|images|__pycache__|\.pytest_cache)/|/build/(dashboard|tor|monero|bitcoin-family|tari-wallet|hostd)/|\.go$|Dockerfile$|\.dockerignore$|\.proto$|package\.json$|\.pyc$|\.(jpg|jpeg)$|/usr/share/node-manager/|/usr/share/doc/node-manager/(README|CHANGELOG|SECURITY|docs)' "$tmp/contents"; then
   fail "package contains development-only files"
 fi
 if grep -Eq ' \./(etc|var)/' "$tmp/contents"; then
@@ -222,8 +204,10 @@ grep -q 'command=package-upgrade docker_host=unset compose_file=unset stack_root
   fail "postinst did not sanitize its activation environment"
 : >"$postinst_log"
 touch "$tmp/postinst-fail"
-"$postinst_fixture" configure 1.0.0 || fail "postinst failure blocked package configuration"
+"$postinst_fixture" configure 1.0.0 2>"$tmp/postinst.err" || fail "postinst failure blocked package configuration"
 grep -q 'command=package-upgrade' "$postinst_log" || fail "postinst did not invoke activation on upgrade"
+[ "$(tail -n 1 "$tmp/postinst.err")" = "NODE MANAGER ACTIVATION FAILED: $PACKAGE_VERSION is installed, but the running containers were not updated; retry with: sudo node-manager package-upgrade" ] ||
+  fail "a failed activation did not end the APT output with a one-line marker"
 
 printf 'STACK_ROOT=/usr/lib/bitcoin-starter-stack\nSTACK_ASSET_ROOT=/usr/lib/bitcoin-starter-stack\n' >"$postinst_state/.env"
 printf 'STACK_ROOT=/usr/lib/bitcoin-starter-stack\nREADY=1\n' >"$postinst_state/.approved.env"
@@ -255,7 +239,7 @@ awk '$1 == "image:" && ($2 ~ /^bitcoin\/bitcoin:/ || $2 ~ /^ghcr.io\/tari-projec
   while IFS= read -r image; do
     grep -Fq "image: $image" "$packaged_main" || fail "package changed external image pin $image"
   done
-privacy=$root/usr/share/doc/node-manager/docs/privacy.md
+privacy=docs/privacy.md
 grep -q "^expected='72FD656754BD7534E274360A37070C2730C0B4EA'$" "$privacy" || fail "published feed fingerprint is missing"
 grep -q 'node-manager.asc' "$privacy" || fail "feed key download is missing"
 grep -q -- '--proxy' "$privacy" && fail "feed key download forces a host proxy"
@@ -283,9 +267,10 @@ if [ "${1:-}" = ps ] && [ "${2:-}" = -aq ]; then
   fi
   exit 0
 fi
-if [ "${1:-}" = inspect ]; then
-  [ -n "${FAKE_EXISTING_CONFIG:-}" ] || exit 1
-  printf '%s\n' "$FAKE_EXISTING_CONFIG"
+if [ "${1:-}" = ps ] && [ "${2:-}" = -a ]; then
+  [ "${FAKE_PS_FAIL:-0}" != 1 ] || exit 70
+  [ -z "${FAKE_EXISTING_CONFIG:-}" ] || printf '%s|existing-id|%s|%s\n' "${FAKE_EXISTING_SERVICE:-tor}" "$FAKE_EXISTING_CONFIG" "$BITCOIN_STACK_STATE_DIR"
+  exit 0
 fi
 if [ "${FAKE_SOURCE_VOLUMES:-}" = 1 ] && [ "${1:-}" = compose ]; then
   case " $* " in
@@ -341,8 +326,8 @@ printf '%s' "$init_out" | grep -qE 'Dashboard password \(|Nodes to run \(|data d
 grep -q -- 'compose .* pull' "$log" || fail "package init did not pull missing images"
 grep -q -- 'compose .* up -d --pull never --no-build' "$log" || fail "package init start allows implicit pulls or builds"
 grep -q 'systemctl enable --now node-manager-resource-profile.timer' "$log" || fail "package init did not start the resource profile timer"
-grep -q 'systemctl enable --now node-manager-port-control.timer' "$log" || fail "package init did not start the LAN port-control timer"
-grep -q 'systemctl enable --now node-manager-node-control.timer' "$log" || fail "package init did not start the node-control timer"
+grep -q 'systemctl enable --now node-manager-port-control.timer node-manager-port-control.path' "$log" || fail "package init did not start the LAN port-control timer and request watch"
+grep -q 'systemctl enable --now node-manager-node-control.timer node-manager-node-control.path' "$log" || fail "package init did not start the node-control timer and request watch"
 
 env_file=$state_dir/.env
 [ -f "$env_file" ] || fail "generated state is outside the package state directory"
@@ -439,6 +424,11 @@ FAKE_EXISTING_SERVICE=tari-wallet FAKE_EXISTING_CONFIG=/source/node-manager/dock
   "$wrapper" up >"$tmp/existing-tari-wallet.out" 2>&1 && fail "package startup replaced a source-managed Tari wallet container"
 grep -q 'Existing tari-wallet container belongs to another installation' "$tmp/existing-tari-wallet.out" || fail "Tari wallet deployment refusal is unclear"
 grep -q 'compose .* up ' "$log" && fail "Tari wallet deployment refusal reached Compose up"
+
+: >"$log"
+FAKE_PS_FAIL=1 "$wrapper" up >"$tmp/ps-fail.out" 2>&1 && fail "package startup continued after the ownership query failed"
+grep -q 'ownership could not be queried' "$tmp/ps-fail.out" || fail "ownership query failure message is unclear"
+grep -q 'compose .* up ' "$log" && fail "ownership query failure reached Compose up"
 
 printf '%s\n' '{"dashboard":{"control":true}}' >"$config_dir/config.json"
 rm -f "$log"

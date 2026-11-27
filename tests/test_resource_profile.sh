@@ -2,10 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-fail() {
-  echo "FAIL: $1"
-  exit 1
-}
+# shellcheck source=tests/lib.sh
+. tests/lib.sh
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -76,7 +74,7 @@ if [ "$1" = compose ]; then
           if printf '%s' "$*" | grep -q getblockheader; then
             printf '%s\n' "{\"result\":{\"time\":${RESOURCE_NOW_EPOCH}},\"error\":null}"
           elif [ "${FAKE_ZCASH_SYNCED:-0}" = 1 ]; then
-            printf '%s\n' '{"result":{"blocks":100,"headers":100,"estimatedheight":100,"verificationprogress":1.0,"bestblockhash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pruned":true},"error":null}'
+            printf '%s\n' '{"result":{"blocks":3500000,"headers":3500000,"estimatedheight":3500002,"verificationprogress":0.9999994285717,"bestblockhash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pruned":true},"error":null}'
           else
             printf '%s\n' '{"result":{"blocks":50,"headers":100,"estimatedheight":100,"verificationprogress":0.5,"bestblockhash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pruned":true},"error":null}'
           fi
@@ -556,6 +554,22 @@ jq -e '.failed.dogecoin == "It exited with an error."' "$tmp/host-stats-payload.
 grep -q 'Dogecoin is not coming up: .* Last error: It exited with an error.$' "$tmp/secret-events.log" || fail "the redacted failure was not alerted"
 ! grep -rq hunter2 "$tmp/secret-events.log" "$tmp/host-stats-payload.json" "$case_root/state/resource-profile" || fail "a password from the container log leaked"
 unset FAKE_INSPECT_DIR FAKE_HOST_STATS_OUT FAKE_EVENTS_OUT FAKE_PS_ID_ROWS FAKE_LOGS
+
+secret_index=0
+for secret_line in 'Authorization: Bearer abc' 'cannot reach http://user:pw@seed.invalid:18081' "fatal key $(printf 'f%.0s' $(seq 1 48))"; do
+  secret_index=$((secret_index + 1))
+  new_case failed-secret-$secret_index
+  mkdir -p "$case_root/inspect"
+  t0=$RESOURCE_NOW_EPOCH
+  inspect_json doge-id 5 1 false $((t0 - 30)) $((t0 - 20))
+  FAKE_LOGS=$secret_line
+  FAKE_PS_ID_ROWS='doge-id dogecoin exited'
+  export FAKE_LOGS FAKE_PS_ID_ROWS FAKE_INSPECT_DIR=$case_root/inspect FAKE_HOST_STATS_OUT=$tmp/host-stats-payload.json FAKE_EVENTS_OUT=$tmp/secret-events-$secret_index.log
+  run_profile
+  jq -e '.failed.dogecoin == "It exited with an error."' "$tmp/host-stats-payload.json" >/dev/null || fail "a secret-looking log line became the failure reason: $secret_line"
+  ! grep -rqF -e "$secret_line" "$tmp/secret-events-$secret_index.log" "$tmp/host-stats-payload.json" "$case_root/state/resource-profile" || fail "a secret-looking log line leaked: $secret_line"
+  unset FAKE_INSPECT_DIR FAKE_HOST_STATS_OUT FAKE_EVENTS_OUT FAKE_PS_ID_ROWS FAKE_LOGS
+done
 
 host_proc=$case_root/proc host_sys=$case_root/sys
 mkdir -p "$host_proc/net" "$case_root/proc-next/net" "$tmp/bin" "$case_root/zones/0" "$case_root/zones/1" "$case_root/zones/2"

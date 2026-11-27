@@ -55,9 +55,7 @@ func validBasicAuth(r *http.Request, wantUser, wantPassword string) bool {
 
 func decodeZcashProxyRequest(body []byte) (zcashProxyRequest, bool) {
 	var request zcashProxyRequest
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&request) != nil || ensureJSONEnd(decoder) != nil || request.Method == "" || !zcashReadOnlyMethods[request.Method] {
+	if !decodeStrictBytes(body, &request) || request.Method == "" || !zcashReadOnlyMethods[request.Method] {
 		return request, false
 	}
 	if len(request.Params) > 0 {

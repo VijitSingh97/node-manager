@@ -50,7 +50,7 @@ export function priceView(data, currency, formatTime = defaultTime) {
     currency: code,
     quantity: unit.quantity > 1 ? unit.quantity.toLocaleString() : "",
     value: formatPrice(unit.amount, code),
-    status: data.stale ? `Stale · as of ${asOf}` : `As of ${asOf}`,
+    status: data.stale ? `Price stale · as of ${asOf}` : `As of ${asOf}`,
     stale: !!data.stale,
   };
 }
@@ -62,7 +62,7 @@ export function panelCurrency(openedNode, asset, current, configured) {
 export function towerPriceView(data, currency) {
   const view = priceView(data, currency);
   return {
-    text: view.value === "—" ? "Price unavailable" : `${view.value}${view.quantity ? ` per ${view.quantity}` : ""}${view.stale ? " · stale" : ""}`,
+    text: view.value === "—" ? "Price unavailable" : `${view.value}${view.quantity ? ` per ${view.quantity}` : ""}${view.stale ? " · price stale" : ""}`,
     status: view.status,
     stale: view.stale,
   };

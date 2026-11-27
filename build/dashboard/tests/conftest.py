@@ -1,10 +1,4 @@
 import os
 import sys
 
-# node_status.py reads credentials from the environment at import time
-os.environ.setdefault("RPC_USER", "testuser")
-os.environ.setdefault("RPC_PASSWORD", "testpass")
-# keep tests from touching the real /state event log
-os.environ.setdefault("EVENTS_LOG", os.devnull)
-
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "parity", "reference"))

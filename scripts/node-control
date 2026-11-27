@@ -1,5 +1,12 @@
 #!/bin/sh
 set -eu
+helper_common=$(dirname "$0")/helper-common.sh
+[ -r "$helper_common" ] || {
+  echo "node-control: helper-common.sh is missing next to this script." >&2
+  exit 1
+}
+# shellcheck source=scripts/helper-common.sh
+. "$helper_common"
 stack_root=${BITCOIN_STACK_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}
 state_root=${BITCOIN_STACK_STATE_DIR:-$stack_root}
 config_root=${BITCOIN_STACK_CONFIG_DIR:-$state_root}
@@ -7,24 +14,20 @@ env_file=$state_root/.env
 config_file=$config_root/config.json
 approved_config=$state_root/.approved-config.json
 docker_bin=${DOCKER_BIN:-docker}
+ip_bin=${IP_BIN:-ip}
+ifconfig_bin=${IFCONFIG_BIN:-/sbin/ifconfig}
 now=${NODE_CONTROL_NOW_EPOCH:-$(date +%s)}
 package_managed=${BITCOIN_STACK_PACKAGE_MANAGED:-0}
 host_os=${NODE_CONTROL_OS:-$(uname -s)}
 host_arch=${NODE_CONTROL_ARCH:-$(uname -m)}
-project_name=${BITCOIN_STACK_PROJECT_NAME:-$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' "$env_file" 2>/dev/null | tail -n 1)}
-if [ -z "$project_name" ]; then
-  case "$package_managed" in brew) project_name=bitcoin-starter-stack-brew ;; 1 | apt) project_name=bitcoin-starter-stack-apt ;; *) project_name=bitcoin-starter-stack ;; esac
-fi
-container_id() {
-  "$docker_bin" ps -aq \
-    --filter "label=com.docker.compose.project=$project_name" \
-    --filter "label=com.docker.compose.service=$1" | head -n 1
+env_get() {
+  sed -n "/^$1=/h;\${x;s/^$1=//p;}" "$env_file" || true
 }
+set_project_name
 service_ids() {
   "$docker_bin" ps -a --filter "label=com.docker.compose.project=$project_name" \
     --format '{{.Label "com.docker.compose.service"}} {{.ID}}' 2>/dev/null | sort || true
 }
-dashboard_id=$(container_id dashboard)
 mkdir -p "$state_root/node-control"
 chmod 700 "$state_root/node-control"
 exec 9>"$state_root/node-control/.lock"
@@ -38,13 +41,184 @@ refresh_dashboard_id() {
 }
 dashboard_exec() { [ -n "$dashboard_id" ] && "$docker_bin" exec -u 1000 "$dashboard_id" "$@"; }
 write_status() {
-  jq -nc --arg id "$1" --arg node "$2" --argjson active "$3" --arg state "$4" --arg message "$5" --arg error_code "${6:-}" \
-    '{id:$id,node:$node,active:$active,state:$state,message:$message} | if $error_code=="" then . else .error_code=$error_code end' |
+  jq -nc --arg id "$1" --arg node "$2" --argjson active "$3" --arg state "$4" --arg message "$5" --arg error_code "${6:-}" --arg detail "${7:-}" \
+    '{id:$id,node:$node,active:$active,state:$state,message:$message} | if $error_code=="" then . else .error_code=$error_code end | if $detail=="" then . else .detail=$detail end' |
     $docker_bin exec -i -u 1000 "$dashboard_id" sh -c 'umask 077; cat > /state/.node-control.status.tmp; mv /state/.node-control.status.tmp /state/node-control.status' >/dev/null
 }
-host_event() {
-  printf '%sZ Host: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%S)" "$1" |
-    "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c 'cat >> /state/events.log' >/dev/null 2>&1 || true
+error_detail() { redact_last_line "" "$1"; }
+tw_gate_secs=30 tw_odd_secs=600 tw_spacing=480 tw_cap=3 tw_window=21600 tw_reset_window=604800 tw_keep_snapshots=5
+tw_get() { sed -n "s/^$1=//p" "$tw_state" 2>/dev/null | head -n 1; }
+tw_getn() {
+  tw_value=$(tw_get "$1")
+  case $tw_value in '' | *[!0-9]*) tw_value=0 ;; esac
+  printf '%s\n' "$tw_value"
+}
+tw_set() {
+  { grep -v "^$1=" "$tw_state" 2>/dev/null || true; [ -z "$2" ] || printf '%s=%s\n' "$1" "$2"; } >"$tw_state.tmp" &&
+    chmod 600 "$tw_state.tmp" && mv -f "$tw_state.tmp" "$tw_state"
+}
+tw_queue() {
+  printf 'pending_event=%sZ Host: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%S)" "$1" >>"$tw_state"
+}
+tw_flush() {
+  tw_sent=0
+  while [ "$tw_sent" -lt 10 ]; do
+    tw_line=$(sed -n 's/^pending_event=//p' "$tw_state" 2>/dev/null | head -n 1)
+    [ -n "$tw_line" ] || return 0
+    host_event "${tw_line#*Z Host: }" "${tw_line%%Z Host: *}" || return 0
+    awk '/^pending_event=/ && !done { done = 1; next } { print }' "$tw_state" >"$tw_state.tmp" &&
+      chmod 600 "$tw_state.tmp" && mv -f "$tw_state.tmp" "$tw_state" || return 0
+    tw_sent=$((tw_sent + 1))
+  done
+}
+tw_recent_restarts() {
+  tw_kept=
+  tw_count=0
+  for tw_t in $(tw_get restart_ts); do
+    case $tw_t in '' | *[!0-9]*) continue ;; esac
+    [ $((now - tw_t)) -lt "$tw_window" ] || continue
+    tw_kept="$tw_kept $tw_t"
+    tw_count=$((tw_count + 1))
+  done
+  tw_kept=${tw_kept# }
+}
+tw_action() {
+  tw_done=$(tw_get actions)
+  tw_set actions "${tw_done:+$tw_done; }$1"
+}
+tw_snapshot() {
+  tw_dir=$state_root/node-control/tor-snapshots
+  mkdir -p "$tw_dir" && chmod 700 "$tw_dir" || return 0
+  (
+    umask 077
+    {
+      printf 'time=%s rung=%s last health output: %s\n' "$now" "$(tw_getn rung)" "$tw_last"
+      "$docker_bin" exec "$tw_id" tor-health snapshot 2>&1 || true
+      printf -- '--- last 40 tor log lines\n'
+      "$docker_bin" logs --tail 40 "$tw_id" 2>&1 || true
+    } | head -c 65536 >"$tw_dir/tor-$now.txt"
+  ) || true
+  printf '%s\n' "$tw_dir"/tor-*.txt | sort -r | tail -n +$((tw_keep_snapshots + 1)) | while read -r tw_old; do rm -f "$tw_old"; done
+}
+tw_restart_tor() {
+  tw_recent_restarts
+  tw_set restart_ts "${tw_kept:+$tw_kept }$now"
+  tw_set last_action "$now"
+  "$docker_bin" restart -t 30 "$tw_id" >/dev/null 2>&1
+}
+tw_cause() {
+  case $tw_last in
+  "tor: "*) ;;
+  *) echo "Tor's own health check fails before the circuit probe runs, so Tor looks stuck"; return 0 ;;
+  esac
+  case $tw_last in
+  *"control=unavailable"*) echo "Tor does not answer on its control socket, so Tor itself looks stuck" ;;
+  *"liveness=down"*) echo "Tor reports the network down, so the host looks offline" ;;
+  *) if [ "${tw_conns:-0}" -eq 0 ]; then echo "Tor holds no connection to any relay, so the host link or a firewall looks like the cause"; elif [ "$tw_rung" = 0 ]; then echo "Tor holds relay connections that may be stale, so the cause is not clear yet"; else echo "Tor is connected to relays but builds no working circuits, so Tor looks stuck"; fi ;;
+  esac
+}
+tw_pause() {
+  tw_queue "$1; automatic recovery is paused until Tor works again"
+  tw_action paused
+  tw_set rung 3
+}
+tw_ladder() {
+  tw_rung=$(tw_getn rung)
+  tw_acted=$(tw_getn last_action)
+  [ "$tw_acted" -le "$now" ] || tw_acted=0
+  tw_conns=$(printf '%s' "$tw_last" | sed -n 's/.* orconns=\([0-9]*\).*/\1/p')
+  tw_recent_restarts
+  case $tw_rung in
+    0)
+      tw_for=$(printf '%s' "$tw_last" | sed -n 's/^tor: [a-z-]* for \([0-9]*\)s.*/\1/p')
+      if [ -n "$tw_for" ]; then tw_set incident_start $((now - tw_for))
+      elif [ "$(tw_getn odd_since)" -ne 0 ]; then tw_set incident_start "$(tw_getn odd_since)"
+      else tw_set incident_start "$now"; fi
+      tw_snapshot
+      if [ "$tw_count" -ge "$tw_cap" ]; then
+        tw_pause "Tor is not working ($tw_cap automatic restarts in the last 6 hours did not hold; $(tw_cause))"
+        return 0
+      fi
+      tw_queue "Tor is not working (probes through Tor failed for several minutes; $(tw_cause)); restarting Tor"
+      tw_action "restarted Tor"
+      tw_set rung 1
+      tw_restart_tor || true
+      ;;
+    1)
+      [ $((now - tw_acted)) -ge "$tw_spacing" ] || return 0
+      tw_snapshot
+      tw_reset=$(tw_getn reset_ts)
+      [ "$tw_reset" -le "$now" ] || tw_reset=0
+      if [ "${tw_conns:-0}" -lt 1 ]; then
+        tw_pause "Tor is still not working after a restart ($(tw_cause))"
+      elif [ "$tw_reset" -ne 0 ] && [ $((now - tw_reset)) -lt "$tw_reset_window" ]; then
+        tw_pause "Tor is still not working after a restart and its guard state was already reset in the last 7 days ($(tw_cause))"
+      elif [ "$tw_count" -ge "$tw_cap" ]; then
+        tw_pause "Tor is still not working ($tw_cap automatic restarts in the last 6 hours did not hold; $(tw_cause))"
+      elif ! "$docker_bin" exec "$tw_id" touch /var/lib/tor/.reset-state >/dev/null 2>&1; then
+        tw_pause "Tor is still not working after a restart and its guard state could not be reset"
+      else
+        tw_queue "Tor is still not working after a restart while the network is up; clearing Tor's saved state (guards and learned circuit timing) and restarting Tor once more"
+        tw_action "reset guard state"
+        tw_set rung 2
+        if tw_restart_tor; then
+          tw_set reset_ts "$now"
+        else
+          "$docker_bin" exec "$tw_id" rm -f /var/lib/tor/.reset-state >/dev/null 2>&1 || true
+        fi
+      fi
+      ;;
+    2)
+      [ $((now - tw_acted)) -ge "$tw_spacing" ] || return 0
+      tw_snapshot
+      tw_pause "Tor is still not working after a restart and a guard state reset ($(tw_cause))"
+      ;;
+  esac
+}
+tw_recovered() {
+  tw_began=$(tw_getn incident_start)
+  [ "$tw_began" -ne 0 ] || return 0
+  tw_queue "Tor working again after $(((now - tw_began) / 60)) min ($(tw_get actions))"
+  tw_set rung ""
+  tw_set incident_start ""
+  tw_set actions ""
+}
+tw_step() {
+  tw_id=$tor_id
+  [ -n "$tw_id" ] || return 0
+  case $tor_status in *"(healthy)"*) if [ "$(tw_getn incident_start)" -eq 0 ] && [ -z "$(tw_get odd_since)" ]; then return 0; fi ;; esac
+  tw_info=$("$docker_bin" inspect "$tw_id" --format '{{.State.Running}}|{{.State.Health.Status}}|{{range .State.Health.Log}}{{.Output}}{{"\n--\n"}}{{end}}' 2>/dev/null) || return 0
+  tw_running=${tw_info%%|*}
+  tw_rest=${tw_info#*|}
+  tw_status=${tw_rest%%|*}
+  tw_log=${tw_rest#*|}
+  [ "$tw_running" = true ] || return 0
+  [ "$tw_status" = unhealthy ] || [ -z "$(tw_get odd_since)" ] || tw_set odd_since ""
+  tw_last=$(printf '%s\n' "$tw_log" | awk '/^--$/ { last = cur; cur = ""; next } NF { cur = $0 } END { print last }')
+  case $tw_status in
+    healthy)
+      case $tw_last in "tor: ok"*) tw_recovered ;; esac
+      ;;
+    unhealthy)
+      case $tw_last in
+        "tor: probe-failed for "* | "tor: offline for "*) tw_set odd_since ""; tw_ladder ;;
+        *)
+          tw_odd=$(tw_getn odd_since)
+          if [ "$tw_odd" -eq 0 ] || [ "$tw_odd" -gt "$now" ]; then tw_set odd_since "$now"; elif [ $((now - tw_odd)) -ge "$tw_odd_secs" ]; then tw_ladder; fi
+          ;;
+      esac
+      ;;
+  esac
+}
+tor_watchdog() {
+  tw_state=$state_root/node-control/tor-watchdog
+  [ ! -e "$tw_state.disabled" ] || return 0
+  tw_gate=$(tw_getn last_gate)
+  if [ "$tw_gate" -ne 0 ] && [ "$now" -ge "$tw_gate" ] && [ $((now - tw_gate)) -lt "$tw_gate_secs" ]; then return 0; fi
+  tw_set last_gate "$now"
+  tw_step
+  tw_flush
+  return 0
 }
 clear_request() { dashboard_exec rm -f /state/node-control.processing >/dev/null 2>&1 || true; }
 write_host_status() {
@@ -59,16 +233,8 @@ write_host_status() {
     if $port=="" then . else .port=$port end' |
     $docker_bin exec -i -u 1000 "$dashboard_id" sh -c 'umask 077; cat > /state/.node-control.status.tmp; mv /state/.node-control.status.tmp /state/node-control.status' >/dev/null
 }
-canonical_config() {
-  source=$1
-  if [ -f "$source" ]; then jq -S -c . "$source" 2>/dev/null; else printf '{}\n'; fi
-}
 config_revision() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum | awk '{print $1}'; else shasum -a 256 | awk '{print $1}'; fi
-}
-approve_config() {
-  BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root" \
-    BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" approve-rendered-config >/dev/null 2>&1
 }
 install_transaction=$state_root/node-control/install-transaction
 install_recovery_status=$state_root/node-control/install-recovery.status
@@ -121,6 +287,14 @@ migrate_rollback_from_meta() {
   return 0
 }
 
+up_service_names() {
+  case "$1" in
+    monero) printf '%s\n' monero monero-wallet ;;
+    tari) printf '%s\n' tari tari-wallet ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+delete_service_names() { up_service_names "$1" | sed '1!G;h;$!d'; }
 restore_install_transaction() {
   [ -d "$install_transaction" ] || return 0
   transaction_meta=$install_transaction/meta.json
@@ -152,13 +326,8 @@ restore_install_transaction() {
   restore_transaction_file "$install_transaction/env.before" "$env_file" "$(jq -r .had_env "$transaction_meta")" || return 1
   restore_transaction_file "$install_transaction/approved-config.before" "$approved_config" "$(jq -r .had_approved_config "$transaction_meta")" || return 1
   restore_transaction_file "$install_transaction/approved-env.before" "$state_root/.approved.env" "$(jq -r .had_approved_env "$transaction_meta")" || return 1
-  if [ "$transaction_node" = monero ]; then
-    "$stack_root/stack" stop monero-wallet monero >/dev/null 2>&1 || true
-  elif [ "$transaction_node" = tari ]; then
-    "$stack_root/stack" stop tari-wallet tari >/dev/null 2>&1 || true
-  else
-    "$stack_root/stack" stop "$transaction_node" >/dev/null 2>&1 || true
-  fi
+  # shellcheck disable=SC2046
+  "$stack_root/stack" stop $(delete_service_names "$transaction_node") >/dev/null 2>&1 || true
   BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root" \
     BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" up >/dev/null 2>&1 || return 1
   rm -rf "$install_transaction"
@@ -186,9 +355,22 @@ if [ -d "$install_transaction" ]; then
   fi
 fi
 [ "${install_recovery_failed:-false}" = true ] || [ -r "$env_file" ] || exit 0
+containers=$("$docker_bin" ps -a --filter "label=com.docker.compose.project=$project_name" \
+  --format '{{.Label "com.docker.compose.service"}} {{.ID}} {{.State}} {{.Label "com.docker.compose.project.config_files"}} {{.Status}}' 2>/dev/null) || exit 0
+dashboard_id='' config_files='' stopped_ids='' tor_id='' tor_status=''
+while read -r service id state files status; do
+  if [ "$service" = dashboard ] && [ -z "$dashboard_id" ]; then dashboard_id=$id config_files=$files; fi
+  if [ "$service" = tor ] && [ -z "$tor_id" ]; then tor_id=$id tor_status=$status; fi
+  case "$state" in exited | created) stopped_ids="$stopped_ids $id" ;; esac
+done <<EOF
+$containers
+EOF
 [ -n "$dashboard_id" ] || exit 0
-config_files=$($docker_bin inspect --format '{{ index .Config.Labels "com.docker.compose.project.config_files" }}' "$dashboard_id" 2>/dev/null || true)
 case ",$config_files," in *",$stack_root/docker-compose.yml,"*) ;; *) exit 0 ;; esac
+(
+  flock -n 8 || exit 0
+  tor_watchdog
+) 8>"$state_root/.config.lock" || true
 if [ -f "$install_recovery_status" ]; then
   $docker_bin exec -i -u 1000 "$dashboard_id" sh -c 'umask 077; cat > /state/.node-control.status.tmp; mv /state/.node-control.status.tmp /state/node-control.status' <"$install_recovery_status" >/dev/null
   rm -f "$install_recovery_status"
@@ -198,27 +380,21 @@ if [ "${install_recovery_applied:-false}" = true ]; then
   transaction_id=$(jq -r .id "$install_transaction/meta.json")
   transaction_node=$(jq -r .node "$install_transaction/meta.json")
   write_host_status "$transaction_id" install applied "Node installed." "$transaction_node"
-  printf '%s\n' "$transaction_id" >>"$state_root/node-control/seen"
-  transaction_seen=$(mktemp "$state_root/node-control/.seen.XXXXXX")
-  tail -n 256 "$state_root/node-control/seen" >"$transaction_seen"
-  chmod 600 "$transaction_seen"
-  mv "$transaction_seen" "$state_root/node-control/seen"
+  remember_seen_id "$state_root/node-control/seen" "$transaction_id"
   clear_request
   rm -rf "$install_transaction"
   exit 0
 fi
 recover_failed_starts() {
   recover_file=$state_root/node-control/recover
-  stopped=$("$docker_bin" ps -a --filter "label=com.docker.compose.project=$project_name" --filter status=exited --filter status=created \
-    --format '{{.Label "com.docker.compose.service"}} {{.ID}}' 2>/dev/null) || return 0
+  [ -n "$stopped_ids" ] || [ -s "$recover_file" ] || return 0
+  stopped=
+  # shellcheck disable=SC2086
+  [ -z "$stopped_ids" ] || stopped=$("$docker_bin" inspect \
+    --format '{{index .Config.Labels "com.docker.compose.service"}}|{{.HostConfig.RestartPolicy.Name}}|{{.State.Running}}|{{.State.Error}}' $stopped_ids 2>/dev/null) || true
   recover_next=$(mktemp "$state_root/node-control/.recover.XXXXXX")
-  printf '%s\n' "$stopped" | while read -r service id; do
-    [ -n "$id" ] || continue
-    details=$("$docker_bin" inspect --format '{{.HostConfig.RestartPolicy.Name}}|{{.State.Running}}|{{.State.Error}}' "$id" 2>/dev/null) || continue
-    policy=${details%%|*}
-    rest=${details#*|}
-    running=${rest%%|*}
-    start_error=${rest#*|}
+  printf '%s\n' "$stopped" | while IFS='|' read -r service policy running start_error; do
+    [ -n "$service" ] || continue
     [ "$policy" = unless-stopped ] && [ "$running" = false ] || continue
     # Other start errors, such as a missing data disk, must not be recreated: Docker would create an empty bind source.
     case "$start_error" in *"failed to bind host port"*) ;; *) continue ;; esac
@@ -231,11 +407,11 @@ recover_failed_starts() {
     if [ -n "$entry" ] && [ "$now" -lt "$due" ]; then
       printf '%s %s\n' "$service" "$entry" >>"$recover_next"
     elif "$stack_root/stack" up --force-recreate "$service" >/dev/null 2>&1; then
-      host_event "$service failed to start (${start_error##*: }); recreated it."
+      host_event "$service failed to start (${start_error##*: }); recreated it." || true
     else
       if [ -z "$entry" ]; then
         delay=30
-        host_event "$service failed to start (${start_error##*: }); retrying until it starts."
+        host_event "$service failed to start (${start_error##*: }); retrying until it starts." || true
       elif [ "$delay" -lt 300 ]; then
         delay=$((delay * 2))
       else
@@ -251,7 +427,151 @@ recover_failed_starts() {
     rm -f "$recover_next"
   fi
 }
-recover_failed_starts
+ipv4_number() {
+  IFS=. read -r a b c d <<EOF
+$1
+EOF
+  echo $(((a << 24) + (b << 16) + (c << 8) + d))
+}
+same_lan() {
+  line=$(host_addresses | grep -F -e "inet $2/" -e "inet $2 " | head -n 1)
+  case "$line" in
+    *"inet $2/"[0-9]*)
+      bits=${line#*"inet $2/"}
+      bits=${bits%%[!0-9]*}
+      mask=$(((0xffffffff << (32 - bits)) & 0xffffffff))
+      ;;
+    *" netmask 0x"[0-9a-f]*)
+      mask=${line#*" netmask 0x"}
+      mask=$((0x${mask%%[!0-9a-f]*}))
+      ;;
+    *) return 1 ;;
+  esac
+  [ $(($(ipv4_number "$1") & mask)) = $(($(ipv4_number "$2") & mask)) ]
+}
+exposed_listeners() {
+  jq -r 'to_entries[] | select(.value | type == "object") | .key as $node | .value as $section | $section | to_entries[] |
+    select(.key | endswith("_bind_ip")) | (.key | sub("_bind_ip$"; "")) as $kind | select($section[$kind + "_expose"] == true) |
+    "\(.value) \($node) \(if $kind == "grpc" then "gRPC" else ($kind | ascii_upcase) end)"' "$approved_config" 2>/dev/null || true
+}
+listener_names() { exposed_listeners | awk -v address="$1" '$1 == address { names = names (names ? ", " : "") $2 " " $3 } END { print names }'; }
+tor_can_restart() {
+  tor_state=$("$docker_bin" inspect --format '{{.State.Status}}|{{.State.Error}}' "$(container_id tor)" 2>/dev/null) || return 1
+  case "$tor_state" in running\|* | created\|* | *"failed to bind host port"*) return 0 ;; esac
+  return 1
+}
+paused_file=$state_root/.paused-listeners
+resume_paused_listeners() {
+  [ -s "$paused_file" ] || return 0
+  resumed=$(mktemp "$state_root/.paused-listeners.XXXXXX")
+  back=
+  while read -r address present_since; do
+    case "${present_since:-}" in *[!0-9]*) present_since= ;; esac
+    names=$(listener_names "$address")
+    if [ -z "$names" ]; then
+      continue
+    elif ! host_has_ipv4 "$address"; then
+      printf '%s\n' "$address" >>"$resumed"
+    elif [ -z "$present_since" ] || [ $((now - present_since)) -lt 60 ]; then
+      printf '%s %s\n' "$address" "${present_since:-$now}" >>"$resumed"
+    else
+      back="${back:+$back, }$names"
+    fi
+  done <"$paused_file"
+  if cmp -s "$resumed" "$paused_file"; then
+    rm -f "$resumed"
+    return 0
+  fi
+  chmod 600 "$resumed"
+  if [ -s "$resumed" ]; then mv "$resumed" "$paused_file"; else rm -f "$resumed" "$paused_file"; fi
+  [ -n "$back" ] && tor_can_restart || return 0
+  if "$stack_root/stack" up tor dashboard >/dev/null 2>&1; then
+    refresh_dashboard_id
+    host_event "Published LAN listeners again now that their address is back: $back." || true
+  else
+    refresh_dashboard_id
+    host_event "LAN listeners have their address back, but Tor and the dashboard could not restart yet: $back." || true
+  fi
+}
+remember_bind_address() {
+  [ "$(cat "$bind_state" 2>/dev/null)" != "$*" ] || return 0
+  printf '%s\n' "$*" >"$bind_state.tmp"
+  mv "$bind_state.tmp" "$bind_state"
+}
+check_bind_address() {
+  bind_state=$state_root/node-control/bind-address
+  bound=$(sed -n 's/^DASHBOARD_BIND_IP=//p' "$env_file" 2>/dev/null | tail -n 1)
+  read -r last pending since acted_on 2>/dev/null <"$bind_state" || true
+  case "$bound" in '' | ::1) rm -f "$bind_state"; return 0 ;; esac
+  case "$bound" in 127.*) ;; *) if [ -z "${pending:-}" ] && [ "${last:-}" = "$bound" ] && host_has_ipv4 "$bound"; then return 0; fi ;; esac
+  setting=$(jq -r '.dashboard.bind_ip // ""' "$approved_config" 2>/dev/null) || setting=
+  if [ "$setting" != auto ]; then
+    case "$bound" in 127.*) rm -f "$bind_state"; return 0 ;; esac
+    if host_has_ipv4 "$bound"; then remember_bind_address "$bound"; return 0; fi
+    old=$bound new=fixed
+  else
+    old=${last:-$bound} new=
+    case "$bound" in 127.*) ;; *) ! host_has_ipv4 "$bound" || new=$bound ;; esac
+    [ -n "$new" ] || new=$("$stack_root/configure.sh" --detect-bind-ip 2>/dev/null) || new=
+    case "$new" in '' | 127.*) remember_bind_address "$old"; return 0 ;; esac
+    if [ "$new" = "$bound" ] && { [ "$old" = "$new" ] || host_has_ipv4 "$old"; }; then
+      remember_bind_address "$bound"
+      return 0
+    fi
+  fi
+  case "${since:-}" in '' | *[!0-9]*) pending= ;; esac
+  if [ "${last:-} ${pending:-}" != "$old $new" ]; then
+    remember_bind_address "$old" "$new" "$now"
+    return 0
+  fi
+  # A DHCP renewal or Wi-Fi reconnect drops the address for seconds; act only on a lasting change.
+  [ $((now - since)) -ge 60 ] && [ "${acted_on:-}" != "$bound" ] || return 0
+  if [ "$new" = fixed ]; then
+    remember_bind_address "$old" "$new" "$since" "$bound"
+    host_event "dashboard.bind_ip $bound is not on this host; the dashboard and LAN listeners on it stay down until the address returns or dashboard.bind_ip changes." || true
+    return 0
+  fi
+  tor_can_restart || { remember_bind_address "$old"; return 0; }
+  exec 8>"$state_root/.config.lock"
+  flock 8
+  moved=
+  if [ "$old" != "$new" ] && ! host_has_ipv4 "$old" && same_lan "$old" "$new"; then
+    moved=$(listener_names "$old")
+    for listener_config in "$config_file" "$approved_config"; do
+      [ -f "$listener_config" ] || continue
+      moved_config=$(mktemp "${listener_config%/*}/.bind-config.XXXXXX")
+      jq --arg old "$old" --arg new "$new" 'if type == "object" then with_entries(if .key != "dashboard" and (.value | type) == "object" then .value |= with_entries(if (.key | endswith("bind_ip")) and .value == $old then .value = $new else . end) else . end) else . end' \
+        "$listener_config" >"$moved_config" 2>/dev/null || { rm -f "$moved_config"; continue; }
+      if [ "$(jq -S -c . "$listener_config")" = "$(jq -S -c . "$moved_config")" ]; then
+        rm -f "$moved_config"
+      else
+        chmod 600 "$moved_config"
+        mv "$moved_config" "$listener_config"
+      fi
+    done
+  fi
+  paused=
+  for address in $(exposed_listeners | awk '{print $1}' | sort -u); do
+    ! host_has_ipv4 "$address" || continue
+    awk -v address="$address" '$1 == address { found = 1 } END { exit !found }' "$paused_file" 2>/dev/null ||
+      printf '%s\n' "$address" >>"$paused_file"
+    paused="${paused:+$paused, }$(listener_names "$address")"
+  done
+  remember_bind_address "$new" "$new" "$since" "$bound"
+  from=$bound
+  [ "$bound" != "$new" ] || from=$old
+  message="Moved the dashboard from $from to $new, this host's current LAN address."
+  [ -z "$moved" ] || message="$message Moved LAN listeners on the same LAN with it: $moved."
+  [ -z "$paused" ] || message="$message Paused LAN listeners whose address is not on this network: $paused. Re-point them from Settings to use this network."
+  if BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" up tor dashboard >/dev/null 2>&1; then
+    refresh_dashboard_id
+    host_event "$message" || true
+  else
+    refresh_dashboard_id
+    host_event "$message Tor and the dashboard could not restart yet." || true
+  fi
+  exec 8>&-
+}
 restore_approved_runtime() {
   [ -f "$approved_config" ] && [ -f "$state_root/.approved.env" ] || return 1
   pending_copy=$(mktemp "$state_root/node-control/.pending-config.XXXXXX")
@@ -276,15 +596,6 @@ restore_approved_runtime() {
     rm -f "$config_file" "$pending_copy"
   fi
   [ "$restored" = 1 ]
-}
-config_pending() {
-  current=$(canonical_config "$config_file") || return 0
-  approved=$(canonical_config "$approved_config") || return 0
-  [ -f "$approved_config" ] && [ "$current" = "$approved" ] && return 1
-  return 0
-}
-env_get() {
-  sed -n "s/^$1=//p" "$env_file" | tail -n 1
 }
 host_absolute_path() {
   case "$1" in
@@ -352,13 +663,6 @@ prepare_install_data_dir() {
   fi
   printf '%s\n' "$prepare_canonical"
 }
-delete_service_names() {
-  case "$1" in
-    monero) printf '%s\n' monero-wallet monero ;;
-    tari) printf '%s\n' tari-wallet tari ;;
-    *) printf '%s\n' "$1" ;;
-  esac
-}
 delete_volume_names() {
   case "$1" in
     bitcoin) printf '%s\n' utxo_index ;;
@@ -367,12 +671,6 @@ delete_volume_names() {
     dogecoin) printf '%s\n' utxo_index_dogecoin ;;
     monero) printf '%s\n' monero_wallets ;;
     tari) printf '%s\n' tari_wallet tari_wallet_data ;;
-  esac
-}
-delete_display_name() {
-  case "$1" in
-    bitcoincash) printf 'Bitcoin Cash\n' ;;
-    *) printf '%s\n' "$1" | awk '{print toupper(substr($0, 1, 1)) substr($0, 2)}' ;;
   esac
 }
 delete_configured_dir() {
@@ -471,8 +769,7 @@ delete_node_data() {
   wipe_prefix=
   [ "$wipe_node" = bitcoin ] || wipe_prefix=$wipe_node-
   dashboard_exec rm -f "/state/${wipe_prefix}utxo-seed.json" "/state/${wipe_prefix}utxo-seed.request" "/state/${wipe_prefix}utxo-seed.cancel" >/dev/null 2>&1 || wipe_failed=1
-  printf '%sZ Host: %s deleted\n' "$(date -u +%Y-%m-%dT%H:%M:%S)" "$(delete_display_name "$wipe_node")" |
-    "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c 'cat >> /state/events.log' >/dev/null 2>&1 || true
+  host_event "$(node_label "$wipe_node") deleted" || true
   [ "$wipe_failed" = 0 ]
 }
 host_platform=source
@@ -509,28 +806,9 @@ launch_at_boot_state() {
     *) printf true ;;
   esac
 }
-publish_host_capability() {
+host_capability() {
   boot_enabled=false
   [ "$boot_supported" != true ] || boot_enabled=$(launch_at_boot_state "$approved_config")
-  clearnet_over_tor=true
-  inbound_connections=true
-  utxo_index=false
-  utxo_index_litecoin=false
-  utxo_index_bitcoincash=false
-  utxo_index_dogecoin=false
-  utxo_blocked='{}'
-  if [ -f "$approved_config" ]; then
-    utxo_blocked=$(jq -c '
-      def off($n): if $n=="bitcoin" then .bitcoin.enabled == false else .[$n].enabled != true end;
-      . as $cfg | {bitcoin:"Bitcoin",litecoin:"Litecoin",dogecoin:"Dogecoin",bitcoincash:"Bitcoin Cash"} | to_entries |
-      map(select(. as $e | $cfg | off($e.key)) | {key:.key, value:("The balance index requires " + .value + " to be enabled.")}) | from_entries' "$approved_config" 2>/dev/null || printf '{}')
-    utxo_index=$(jq -r '.bitcoin.utxo_index == true' "$approved_config" 2>/dev/null || printf false)
-    utxo_index_litecoin=$(jq -r '.litecoin.utxo_index == true' "$approved_config" 2>/dev/null || printf false)
-    utxo_index_bitcoincash=$(jq -r '.bitcoincash.utxo_index == true' "$approved_config" 2>/dev/null || printf false)
-    utxo_index_dogecoin=$(jq -r '.dogecoin.utxo_index == true' "$approved_config" 2>/dev/null || printf false)
-    clearnet_over_tor=$(jq -r '.network.clearnet_over_tor != false' "$approved_config" 2>/dev/null || printf true)
-    inbound_connections=$(jq -r '.network.inbound_connections != false' "$approved_config" 2>/dev/null || printf true)
-  fi
   pending=false
   revision=
   if config_pending; then
@@ -538,23 +816,37 @@ publish_host_capability() {
     revision=$(canonical_config "$config_file" | config_revision)
   fi
   config_path=$(cd "$config_root" && pwd -P)/config.json
-  data_paths='{}'
-  for node_spec in bitcoin:BITCOIN_DATA_DIR monero:MONERO_DATA_DIR tari:TARI_DATA_DIR litecoin:LITECOIN_DATA_DIR dogecoin:DOGECOIN_DATA_DIR bitcoincash:BITCOINCASH_DATA_DIR zcash:ZCASH_DATA_DIR; do
-    node=${node_spec%%:*}
-    variable=${node_spec#*:}
-    path=$(env_get "$variable")
-    [ -n "$path" ] || path=./data/$node
-    path=$(host_absolute_path "$path")
-    data_paths=$(printf '%s' "$data_paths" | jq -c --arg node "$node" --arg path "$path" '.[$node]=$path')
-  done
-  jq -nc --argjson timestamp "$now" --arg platform "$host_platform" --arg boot_kind "$boot_kind" \
+  approved_source=$approved_config
+  [ -f "$approved_source" ] || approved_source=/dev/null
+  env_source=$env_file
+  [ -f "$env_source" ] || env_source=/dev/null
+  jq -nc --rawfile approved "$approved_source" --rawfile env "$env_source" --arg stack_root "$stack_root" \
+    --argjson timestamp "$now" --arg platform "$host_platform" --arg boot_kind "$boot_kind" \
     --argjson boot_supported "$boot_supported" --argjson boot_enabled "$boot_enabled" --argjson config_pending "$pending" \
-    --argjson clearnet_over_tor "$clearnet_over_tor" --argjson inbound_connections "$inbound_connections" --argjson utxo_index "$utxo_index" --argjson utxo_index_litecoin "$utxo_index_litecoin" --argjson utxo_index_bitcoincash "$utxo_index_bitcoincash" --argjson utxo_index_dogecoin "$utxo_index_dogecoin" \
-    --arg config_revision "$revision" --arg config_path "$config_path" --argjson data_paths "$data_paths" --argjson unsupported_nodes "$unsupported_nodes" --argjson utxo_blocked "$utxo_blocked" \
-    '{timestamp:$timestamp,install_supported:true,install_index_supported:true,migrate_supported:true,delete_supported:true,utxo_seed_supported:true,boot_supported:$boot_supported,boot_enabled:$boot_enabled,clearnet_over_tor:$clearnet_over_tor,inbound_connections:$inbound_connections,utxo_index:$utxo_index,utxo_index_litecoin:$utxo_index_litecoin,utxo_index_bitcoincash:$utxo_index_bitcoincash,utxo_index_dogecoin:$utxo_index_dogecoin,config_pending:$config_pending,config_revision:$config_revision,platform:$platform,boot_kind:$boot_kind,config_path:$config_path,data_paths:$data_paths} + if $unsupported_nodes == [] then {} else {unsupported_nodes:$unsupported_nodes} end + if $utxo_blocked == {} then {} else {utxo_index_blocked:$utxo_blocked} end' |
+    --arg config_revision "$revision" --arg config_path "$config_path" --argjson unsupported_nodes "$unsupported_nodes" '
+    (try [$approved | fromjson] catch []) as $saved |
+    def setting(f; fallback): if $saved == [] then fallback else (try ($saved[0] | f) catch fallback) end;
+    def off($n): if $n=="bitcoin" then .bitcoin.enabled == false else .[$n].enabled != true end;
+    def blocked: . as $cfg | {bitcoin:"Bitcoin",litecoin:"Litecoin",dogecoin:"Dogecoin",bitcoincash:"Bitcoin Cash"} | to_entries |
+      map(select(. as $e | $cfg | off($e.key)) | {key:.key, value:("The balance index requires " + .value + " to be enabled.")}) | from_entries;
+    def host_path: if startswith("/") then . elif startswith("./") then $stack_root + "/" + .[2:] else $stack_root + "/" + . end;
+    (reduce ($env | split("\n")[] | capture("^(?<node>[A-Z]+)_DATA_DIR=(?<path>.*)$")) as $line ({}; .[$line.node | ascii_downcase] = $line.path)) as $dirs |
+    setting(blocked; {}) as $utxo_blocked |
+    {timestamp:$timestamp,install_supported:true,install_index_supported:true,migrate_supported:true,delete_supported:true,utxo_seed_supported:true,
+      boot_supported:$boot_supported,boot_enabled:$boot_enabled,
+      clearnet_over_tor:setting(.network.clearnet_over_tor != false; true),inbound_connections:setting(.network.inbound_connections != false; true),
+      utxo_index:setting(.bitcoin.utxo_index == true; false),utxo_index_litecoin:setting(.litecoin.utxo_index == true; false),
+      utxo_index_bitcoincash:setting(.bitcoincash.utxo_index == true; false),utxo_index_dogecoin:setting(.dogecoin.utxo_index == true; false),
+      config_pending:$config_pending,config_revision:$config_revision,platform:$platform,boot_kind:$boot_kind,config_path:$config_path,
+      data_paths:(reduce ("bitcoin","monero","tari","litecoin","dogecoin","bitcoincash","zcash") as $node ({};
+        .[$node] = (($dirs[$node] // "") | if . == "" then "./data/" + $node else . end | host_path)))} +
+    if $unsupported_nodes == [] then {} else {unsupported_nodes:$unsupported_nodes} end +
+    if $utxo_blocked == {} then {} else {utxo_index_blocked:$utxo_blocked} end'
+}
+publish_host_capability() {
+  host_capability |
     $docker_bin exec -i -u 1000 "$dashboard_id" sh -c 'umask 077; cat > /state/.node-control.capability.tmp; mv /state/.node-control.capability.tmp /state/node-control.capability' >/dev/null
 }
-publish_host_capability
 # A chainstate copy pins the node's old tables, so it goes once its seed has finished; the age check covers the moment before the dashboard takes the request.
 remove_finished_chainstate_copy() {
   copy_node=$1
@@ -570,35 +862,55 @@ remove_finished_chainstate_copy() {
   fi
   rm -rf -- "$copy_dir"
 }
+# The heartbeat and the request check share one exec because each docker call costs more than the rest of an idle tick.
+publish_heartbeat() {
+  heartbeat_error=$state_root/node-control/heartbeat.err heartbeat_status=0
+  request_state=$(host_capability | "$docker_bin" exec -i -u 1000 "$dashboard_id" sh -c '
+    umask 077
+    cat > /state/.node-control.capability.tmp && mv /state/.node-control.capability.tmp /state/node-control.capability || exit 1
+    if [ -f /state/node-control.processing ]; then echo processing; elif [ -f /state/node-control.request ]; then echo request; fi' 2>"$heartbeat_error") || heartbeat_status=$?
+  [ ! -s "$heartbeat_error" ] || cat "$heartbeat_error" >&2
+  return "$heartbeat_status"
+}
+dashboard_not_running() { grep -q -e 'is not running' -e 'is restarting' -e 'No such container' "$heartbeat_error"; }
+heartbeat=0
+publish_heartbeat || heartbeat=$?
+resume_paused_listeners
+check_bind_address
+recover_failed_starts
 remove_finished_chainstate_copy dogecoin
 remove_finished_chainstate_copy bitcoincash
+# The dashboard may still be starting after boot, and the timer would not try again for a minute.
+while [ "$heartbeat" != 0 ]; do
+  [ "$package_managed" = 1 ] && read -r uptime _ 2>/dev/null <"${NODE_CONTROL_UPTIME_FILE:-/proc/uptime}" && [ "${uptime%.*}" -lt 300 ] || { dashboard_not_running && exit 0; exit "$heartbeat"; }
+  sleep 10
+  heartbeat=0
+  publish_heartbeat || heartbeat=$?
+done
 delete_marker=$state_root/node-control/delete-pending.json
-size=0
-if ! dashboard_exec test -f /state/node-control.processing >/dev/null 2>&1; then
-  if dashboard_exec test -f /state/node-control.request >/dev/null 2>&1; then
-    dashboard_exec mv /state/node-control.request /state/node-control.processing >/dev/null 2>&1 || exit 0
-  else
-    [ -f "$delete_marker" ] || exit 0
+request=
+case "$request_state" in
+  processing | request) ;;
+  *) [ -f "$delete_marker" ] || exit 0 ;;
+esac
+if [ -n "$request_state" ]; then
+  # Exit 4 is an oversized request, which is never read; any other failure retries next run.
+  read_status=0
+  # shellcheck disable=SC2016
+  request=$(dashboard_exec sh -c "state=$request_state"'
+    [ "$state" != request ] || mv /state/node-control.request /state/node-control.processing || exit 3
+    [ -f /state/node-control.processing ] || exit 0
+    size=$(wc -c < /state/node-control.processing) && [ $size -le 4096 ] || exit 4
+    cat /state/node-control.processing' 2>/dev/null) || read_status=$?
+  if [ "$read_status" = 4 ]; then
+    write_status "" "" false rejected "Invalid request." invalid_request
+    clear_request
+    exit 0
   fi
+  [ "$read_status" = 0 ] || exit 0
 fi
-if dashboard_exec test -f /state/node-control.processing >/dev/null 2>&1; then
-  size=$(dashboard_exec sh -c 'wc -c < /state/node-control.processing' 2>/dev/null | tr -d ' ' || true)
-  case "$size" in '' | *[!0-9]*) size=4097 ;; esac
-fi
-if [ "$size" -gt 4096 ]; then
-  write_status "" "" false rejected "Invalid request." invalid_request
-  clear_request
-  exit 0
-fi
-request=$(dashboard_exec cat /state/node-control.processing 2>/dev/null || true)
 host_seen_file=$state_root/node-control/seen
-host_remember_seen() {
-  printf '%s\n' "$host_id" >>"$host_seen_file"
-  host_seen_tmp=$(mktemp "$state_root/node-control/.seen.XXXXXX")
-  tail -n 256 "$host_seen_file" >"$host_seen_tmp"
-  chmod 600 "$host_seen_tmp"
-  mv "$host_seen_tmp" "$host_seen_file"
-}
+host_remember_seen() { remember_seen_id "$host_seen_file" "$host_id"; }
 host_finish() {
   clear_migrate_progress
   host_restarted=
@@ -765,8 +1077,8 @@ if [ "$host_request" = true ]; then
     [ "$configured" != true ] || host_finish rejected "Node is already installed." "$host_node" "" already_installed
     printf '%s' "$unsupported_nodes" | jq -e --arg node "$host_node" 'index($node) == null' >/dev/null ||
       host_finish rejected "This processor cannot run that node." "$host_node" "" unsupported_cpu
-    memory=4096
-    [ "$host_node" != bitcoin ] && [ "$host_node" != monero ] || memory=2048
+    memory=2048
+    [ "$host_node" != tari ] && [ "$host_node" != zcash ] || memory=4096
     candidate=$(mktemp "$config_root/.config.install.XXXXXX")
     printf '%s' "$current" | jq --arg node "$host_node" --arg data_dir "$host_data_dir" --arg bind_ip "$host_bind_ip" --arg utxo_index "$host_utxo_index" --argjson interfaces "$host_interfaces" --argjson memory "$memory" '
       .[$node].enabled=true | .[$node].active=true |
@@ -807,7 +1119,7 @@ if [ "$host_request" = true ]; then
     host_port_changes=$(printf '%s' "$host_interfaces" | jq -c --arg bind_ip "$host_bind_ip" '[.[]|select(.enabled)|{port:.id,enabled:true,bind_ip:$bind_ip,host_port:.host_port}]')
     if [ "$(printf '%s' "$host_port_changes" | jq 'length')" -gt 0 ]; then
       if ! host_port_check=$(BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root" \
-        "$stack_root/scripts/node-port-control" --check-ports "$host_port_changes"); then
+        "$(dirname "$0")/node-port-control" --check-ports "$host_port_changes"); then
         case "$host_port_check" in
           port_in_use:*) host_finish rejected "Selected port is already in use." "$host_node" "" port_in_use "${host_port_check#*:}" ;;
           bind_address_unavailable:*) host_finish rejected "Selected LAN address is not assigned to this host." "$host_node" "" validation_failed ;;
@@ -855,18 +1167,10 @@ if [ "$host_request" = true ]; then
       host_cleanup_transaction=$install_transaction
       host_finish applied "Node installed." "$host_node"
     fi
-    install_detail=$(awk -v fallback="" '
-      { gsub(/[[:cntrl:]]\[[0-9;]*[A-Za-z]/, ""); gsub(/[[:cntrl:]]/, ""); if ($0 ~ /[^[:space:]]/) last = $0 }
-      END {
-        lower = tolower(last)
-        if (lower ~ /passw|secret|token|auth|login|cookie|phrase|seed|mnemonic|private|prv|pub[0-9a-z]|api.?key|bearer|onion|:\/\/[^\/ ]*@/) last = ""
-        n = split(last, words, /[^A-Za-z0-9+=_-]+/)
-        for (i = 1; i <= n; i++) if (length(words[i]) >= 40) last = ""
-        print (last == "" ? fallback : substr(last, 1, 240))
-      }' "$install_errors" 2>/dev/null || true)
+    install_detail=$(error_detail "$install_errors")
     rm -f "$install_errors"
-    case "$host_node" in (bitcoincash) host_label="Bitcoin Cash" ;; (*) host_label="$(printf '%s' "$host_node" | cut -c1 | tr '[:lower:]' '[:upper:]')$(printf '%s' "$host_node" | cut -c2-)" ;; esac
-    host_event "$host_label install failed${install_detail:+: $install_detail}"
+    host_label=$(node_label "$host_node")
+    host_event "$host_label install failed${install_detail:+: $install_detail}" || true
     restore_install_transaction ||
       host_finish failed "Node installation failed and prior configuration could not be fully restored." "$host_node" "" rollback_failed "" "$install_detail"
     host_finish failed "Node installation failed; prior configuration restored." "$host_node" "" apply_failed "" "$install_detail"
@@ -926,13 +1230,8 @@ if [ "$host_request" = true ]; then
     node=$host_node
     old_active=false
     [ -z "$(container_id "$host_node")" ] || old_active=true
-    if [ "$host_node" = monero ]; then
-      "$stack_root/stack" stop monero-wallet monero >/dev/null 2>&1 || true
-    elif [ "$host_node" = tari ]; then
-      "$stack_root/stack" stop tari-wallet tari >/dev/null 2>&1 || true
-    else
-      "$stack_root/stack" stop "$host_node" >/dev/null 2>&1 || true
-    fi
+    # shellcheck disable=SC2046
+    "$stack_root/stack" stop $(delete_service_names "$host_node") >/dev/null 2>&1 || true
     if [ "$migrate_mode" = rename ]; then
       if ! rmdir "$migrate_target" || ! mv "$migrate_source" "$migrate_target"; then
         mkdir -p "$migrate_target" 2>/dev/null || true
@@ -1235,22 +1534,16 @@ if ! printf '%s' "$request" | jq -e --argjson now "$now" '
   clear_request
   exit 0
 fi
-id=$(printf '%s' "$request" | jq -r .id)
-node=$(printf '%s' "$request" | jq -r .node)
-active=$(printf '%s' "$request" | jq -r .active)
+# shellcheck disable=SC2046
+set -- $(printf '%s' "$request" | jq -r '[.id,.node,.active] | join(" ")')
+id=$1 node=$2 active=$3
 seen_file=$state_root/node-control/seen
 if [ -r "$seen_file" ] && grep -Fxq "$id" "$seen_file"; then
   write_status "$id" "$node" "$active" rejected "Request already processed." replayed
   clear_request
   exit 0
 fi
-remember_seen() {
-  printf '%s\n' "$id" >>"$seen_file"
-  seen_tmp=$(mktemp "$state_root/node-control/.seen.XXXXXX")
-  tail -n 256 "$seen_file" >"$seen_tmp"
-  chmod 600 "$seen_tmp"
-  mv "$seen_tmp" "$seen_file"
-}
+remember_seen() { remember_seen_id "$seen_file" "$id"; }
 mkdir -p "$config_root"
 exec 8>"$state_root/.config.lock"
 flock 8
@@ -1291,74 +1584,99 @@ backup=$(mktemp "$state_root/node-control/.config.backup.XXXXXX")
 printf '%s' "$current" >"$backup"
 chmod 600 "$next" "$backup"
 mv "$next" "$config_file"
+recreate_tor() { [ "$tor_env_changed" = 0 ] || BITCOIN_STACK_HELPER_START=1 BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" up tor >/dev/null 2>>"${node_errors:-/dev/null}"; }
 restore_services() {
+  recreate_tor || rollback_failed=1
   if [ "$old_active" = true ]; then
-    if [ "$node" = monero ]; then
-      "$stack_root/stack" up monero monero-wallet >/dev/null 2>&1
-    elif [ "$node" = tari ]; then
-      "$stack_root/stack" up tari tari-wallet >/dev/null 2>&1
-    else
-      "$stack_root/stack" up "$node" >/dev/null 2>&1
-    fi
-  elif [ "$node" = monero ]; then
-    "$stack_root/stack" stop monero-wallet monero >/dev/null 2>&1
-  elif [ "$node" = tari ]; then
-    "$stack_root/stack" stop tari-wallet tari >/dev/null 2>&1
+    # shellcheck disable=SC2046
+    BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" up $(up_service_names "$node") >/dev/null 2>&1
   else
-    "$stack_root/stack" stop "$node" >/dev/null 2>&1
+    # shellcheck disable=SC2046
+    "$stack_root/stack" stop $(delete_service_names "$node") >/dev/null 2>&1
   fi
 }
+node_errors=
 rollback() {
   attempted_services=$1
+  rollback_code=${2:-apply_failed}
+  rollback_detail=
+  if [ -n "$node_errors" ]; then
+    rollback_detail=$(error_detail "$node_errors")
+    rm -f "$node_errors"
+    node_errors=
+    host_event "$(node_label "$node") activation failed${rollback_detail:+: $rollback_detail}" || true
+  fi
   rollback_failed=0
   mv "$backup" "$config_file" || rollback_failed=1
   if ! BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root" BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/configure.sh" >/dev/null 2>&1; then
+    rollback_failed=1
+  elif ! approve_config; then
     rollback_failed=1
   fi
   if [ "$attempted_services" = 1 ] && ! restore_services; then
     rollback_failed=1
   fi
+  publish_heartbeat || true
   if [ "$rollback_failed" = 1 ]; then
-    write_status "$id" "$node" "$active" failed "Node state failed and its prior state could not be fully restored." rollback_failed
+    write_status "$id" "$node" "$active" failed "Node state failed and its prior state could not be fully restored." rollback_failed "$rollback_detail"
+  elif [ "$rollback_code" = image_unavailable ]; then
+    write_status "$id" "$node" "$active" failed "Node image could not be downloaded; prior state restored." image_unavailable "$rollback_detail"
   else
-    write_status "$id" "$node" "$active" failed "Node state could not be applied; prior state restored." apply_failed
+    write_status "$id" "$node" "$active" failed "Node state could not be applied; prior state restored." apply_failed "$rollback_detail"
   fi
   remember_seen
   clear_request
   exit 0
 }
+tor_env() { env_get TOR_ONION_NODES; env_get ZCASH_ACTIVE; }
+old_tor_env=$(tor_env)
 if ! BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root" BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/configure.sh" >/dev/null; then
   rollback 0
 fi
-set -- "$node"
-[ "$node" = monero ] && set -- monero-wallet monero
-[ "$node" = tari ] && set -- tari-wallet tari
+tor_env_changed=0
+[ "$(tor_env)" = "$old_tor_env" ] || tor_env_changed=1
 if [ "$active" = true ]; then
   action="up"
-  [ "$node" = monero ] && set -- monero monero-wallet
-  [ "$node" = tari ] && set -- tari tari-wallet
-else action="stop"; fi
-if ! "$stack_root/stack" $action "$@" >/dev/null 2>&1; then
+  # shellcheck disable=SC2046
+  set -- $(up_service_names "$node")
+else
+  action="stop"
+  # shellcheck disable=SC2046
+  set -- $(delete_service_names "$node")
+fi
+# stack up starts from the approved config, so approve an activation before it runs.
+if [ "$action" = up ]; then
+  approve_config || rollback 0
+  node_errors=$(mktemp "$state_root/node-control/.activate-errors.XXXXXX")
+  BITCOIN_STACK_ROOT="$stack_root" BITCOIN_STACK_STATE_DIR="$state_root" BITCOIN_STACK_CONFIG_DIR="$config_root" \
+    BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" pull --policy missing "$@" >/dev/null 2>"$node_errors" || rollback 0 image_unavailable
+  : >"$node_errors"
+  recreate_tor || rollback 1
+fi
+if ! BITCOIN_STACK_HELPER_START=1 BITCOIN_STACK_CONFIG_LOCK_HELD=1 "$stack_root/stack" $action "$@" >/dev/null 2>>"${node_errors:-/dev/null}"; then
   rollback 1
 fi
+[ -z "$node_errors" ] || rm -f "$node_errors"
+node_errors=
 if ! runtime=$(jq -c '
-  {
-    bitcoin:{enabled:(if (.bitcoin//{}|has("enabled")) then .bitcoin.enabled else true end),active:(if (.bitcoin//{}|has("active")) then .bitcoin.active else true end)},
-    monero:{enabled:(.monero.enabled==true),active:(if (.monero//{}|has("active")) then .monero.active else true end)},
-    tari:{enabled:(.tari.enabled==true),active:(if (.tari//{}|has("active")) then .tari.active else true end)},
-    litecoin:{enabled:(.litecoin.enabled==true),active:(if (.litecoin//{}|has("active")) then .litecoin.active else true end)},
-    dogecoin:{enabled:(.dogecoin.enabled==true),active:(if (.dogecoin//{}|has("active")) then .dogecoin.active else true end)},
-    bitcoincash:{enabled:(.bitcoincash.enabled==true),active:(if (.bitcoincash//{}|has("active")) then .bitcoincash.active else true end)},
-    zcash:{enabled:(.zcash.enabled==true),active:(if (.zcash//{}|has("active")) then .zcash.active else true end)}
-  } | with_entries(select(.value.enabled) | .value=.value.active)
+  . as $c |
+  [("bitcoin","monero","tari","litecoin","dogecoin","bitcoincash","zcash") as $n |
+    {key:$n,value:{
+      enabled:(if $n=="bitcoin" then (if ($c.bitcoin//{}|has("enabled")) then $c.bitcoin.enabled else true end) else $c[$n].enabled==true end),
+      active:(if ($c[$n]//{}|has("active")) then $c[$n].active else true end)}}] |
+  from_entries | with_entries(select(.value.enabled) | .value=.value.active)
 ' "$config_file"); then
   rollback 1
 fi
 if ! printf '%s\n' "$runtime" | $docker_bin exec -i -u 1000 "$dashboard_id" sh -c 'umask 077; cat > /state/.node-runtime.json.tmp; mv /state/.node-runtime.json.tmp /state/node-runtime.json' >/dev/null; then
   rollback 1
 fi
-approve_config || rollback 1
+if [ "$action" = stop ]; then
+  approve_config || rollback 1
+  recreate_tor || rollback 1
+fi
 rm -f "$backup"
+publish_heartbeat || true
 write_status "$id" "$node" "$active" applied "Node state applied."
 remember_seen
 clear_request

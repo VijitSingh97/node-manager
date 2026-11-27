@@ -64,24 +64,6 @@ func utxoFamilyWatchBackend(litecoin bool) familyWatchBackend {
 			}
 			return familyWatchTip{chain.Blocks, chain.BestBlockHash}, s.tipFresh(ctx, chain.BestBlockHash, now)
 		},
-		scan: func(ctx context.Context, s *familyWatchStore, address string, tip familyWatchTip) (familyWatchResult, string) {
-			var scan struct {
-				Success     bool            `json:"success"`
-				TotalAmount json.RawMessage `json:"total_amount"`
-				Height      int64           `json:"height"`
-				BestBlock   string          `json:"bestblock"`
-			}
-			err := s.rpc.call(ctx, "scantxoutset", []any{"start", []any{"addr(" + address + ")"}}, &scan)
-			atomic, parseErr := parseFamilyWatchAmount(scan.TotalAmount, s.maxSupply)
-			if err != nil || parseErr != nil || !scan.Success || scan.Height < tip.Blocks || scan.BestBlock == "" {
-				return familyWatchResult{}, "failed"
-			}
-			var mainChainBlock string
-			if s.rpc.call(ctx, "getblockhash", []any{scan.Height}, &mainChainBlock) != nil || mainChainBlock != scan.BestBlock {
-				return familyWatchResult{}, "off_chain"
-			}
-			return familyWatchResult{atomic, scan.Height, scan.BestBlock}, "ok"
-		},
 		scanBatch: func(ctx context.Context, s *familyWatchStore, wallets []familyWatchEntry, tip familyWatchTip) (map[string]string, familyWatchResult, string) {
 			descriptors := make([]any, 0, len(wallets))
 			owners := map[string][]string{}
@@ -148,7 +130,7 @@ func zcashFamilyWatchBackend() familyWatchBackend {
 		refreshOnTip: true,
 		ready: func(ctx context.Context, s *familyWatchStore, now int64) (familyWatchTip, bool) {
 			var chain zcashBlockchainInfo
-			if s.rpc.call(ctx, "getblockchaininfo", nil, &chain) != nil || chain.BestBlockHash == "" || chain.Blocks < max(chain.Headers, chain.EstimatedHeight) || chain.VerificationProgress < 0.999999 {
+			if s.rpc.call(ctx, "getblockchaininfo", nil, &chain) != nil || !chain.atTip() {
 				return familyWatchTip{}, false
 			}
 			return familyWatchTip{chain.Blocks, chain.BestBlockHash}, s.tipFresh(ctx, chain.BestBlockHash, now)

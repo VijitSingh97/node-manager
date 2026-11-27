@@ -333,6 +333,7 @@ func TestExternalClientsAreBuiltOnlyWithTheTorDialer(t *testing.T) {
 		"monitor":      monitor.client,
 		"fresh":        monitor.freshTorClient(),
 		"price lookup": NewPriceCache().client,
+		"price retry":  NewPriceCache().freshClient(),
 	}
 	for name, client := range cases {
 		transport, ok := client.Transport.(*http.Transport)

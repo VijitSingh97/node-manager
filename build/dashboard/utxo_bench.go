@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -419,22 +420,74 @@ func (a *app) chainBenchHost(id string, rpc *rpcClient, chain *utxoChainParams, 
 	client := *rpc.client
 	client.Timeout = 0
 	scanRPC.client, scanRPC.maxBody = &client, 64<<20
+	validate := func(ctx context.Context, key string) error {
+		_, err := validateWatchKeyRPC(ctx, rpc, key)
+		return err
+	}
+	resolve := func(ctx context.Context, keys []string) ([]walletScripts, error) {
+		return resolveWalletScripts(ctx, rpc, chain, keys)
+	}
+	scanObjects := func(ctx context.Context, keys []string) ([]any, error) {
+		var objects []any
+		for _, key := range keys {
+			descs, err := validateWatchKeyRPC(ctx, rpc, key)
+			if err != nil {
+				return nil, err
+			}
+			for _, d := range descs {
+				if d.ranged {
+					objects = append(objects, map[string]any{"desc": d.desc, "range": []int{deriveRangeStart, deriveRangeEnd}})
+				} else {
+					objects = append(objects, d.desc)
+				}
+			}
+		}
+		return objects, nil
+	}
+	// Bitcoin Cash Node has no getdescriptorinfo or deriveaddresses, so its bench reads addr() keys the way its watch card does.
+	if len(chain.Descriptors) == 0 {
+		validate = func(ctx context.Context, key string) error {
+			_, _, err := addrKeyScript(ctx, rpc, key)
+			return err
+		}
+		resolve = func(ctx context.Context, keys []string) ([]walletScripts, error) {
+			resolved := make([]walletScripts, len(keys))
+			for i, key := range keys {
+				_, script, err := addrKeyScript(ctx, rpc, key)
+				if err != nil {
+					return nil, err
+				}
+				resolved[i].Scripts = [][]byte{script}
+			}
+			return resolved, nil
+		}
+		scanObjects = func(ctx context.Context, keys []string) ([]any, error) {
+			objects := make([]any, len(keys))
+			for i, key := range keys {
+				address, _, err := addrKeyScript(ctx, rpc, key)
+				if err != nil {
+					return nil, err
+				}
+				objects[i] = "addr(" + address + ")"
+			}
+			return objects, nil
+		}
+	}
 	return utxoBenchHost{
 		chain:    id,
 		prefix:   prefix,
 		stateDir: a.cfg.stateDir,
-		validate: func(ctx context.Context, key string) error {
-			_, err := validateWatchKeyRPC(ctx, rpc, key)
-			return err
-		},
-		resolve: func(ctx context.Context, keys []string) ([]walletScripts, error) {
-			return resolveWalletScripts(ctx, rpc, chain, keys)
-		},
+		validate: validate,
+		resolve:  resolve,
 		scan: func(ctx context.Context, keys []string) (benchScanRun, error) {
 			if !a.nodeWorkerRunnable(id, true) {
 				return benchScanRun{}, context.Canceled
 			}
-			return benchScanRPC(ctx, &scanRPC, keys)
+			objects, err := scanObjects(ctx, keys)
+			if err != nil {
+				return benchScanRun{}, err
+			}
+			return benchScanRPC(ctx, &scanRPC, objects)
 		},
 		txOutSet: func(ctx context.Context) (txOutSetInfo, error) {
 			var info txOutSetInfo
@@ -452,24 +505,32 @@ func (a *app) chainBenchHost(id string, rpc *rpcClient, chain *utxoChainParams, 
 	}
 }
 
-func benchScanRPC(ctx context.Context, rpc *rpcClient, keys []string) (benchScanRun, error) {
+// addrKeyScript resolves an addr() key with validateaddress and returns the node's spelling of the address and its script.
+func addrKeyScript(ctx context.Context, rpc *rpcClient, key string) (string, []byte, error) {
+	address, opened := strings.CutPrefix(key, "addr(")
+	address, closed := strings.CutSuffix(address, ")")
+	if !opened || !closed || !validFamilyWatchAddress(address) || strings.ContainsAny(address, "()#,") {
+		return "", nil, errors.New("not an addr() key")
+	}
+	var validated struct {
+		IsValid      bool   `json:"isvalid"`
+		Address      string `json:"address"`
+		ScriptPubKey string `json:"scriptPubKey"`
+	}
+	if err := rpc.call(ctx, "validateaddress", []any{address}, &validated); err != nil || !validated.IsValid || !validFamilyWatchAddress(validated.Address) {
+		return "", nil, errors.New("invalid address")
+	}
+	script, err := hex.DecodeString(validated.ScriptPubKey)
+	if err != nil || len(script) == 0 {
+		return "", nil, errors.New("invalid address script")
+	}
+	return validated.Address, script, nil
+}
+
+func benchScanRPC(ctx context.Context, rpc *rpcClient, objects []any) (benchScanRun, error) {
 	var status map[string]any
 	if rpc.call(ctx, "scantxoutset", []any{"status"}, &status) == nil && len(status) > 0 {
 		return benchScanRun{}, errors.New("scantxoutset is busy")
-	}
-	var objects []any
-	for _, key := range keys {
-		descs, err := validateWatchKeyRPC(ctx, rpc, key)
-		if err != nil {
-			return benchScanRun{}, err
-		}
-		for _, d := range descs {
-			if d.ranged {
-				objects = append(objects, map[string]any{"desc": d.desc, "range": []int{deriveRangeStart, deriveRangeEnd}})
-			} else {
-				objects = append(objects, d.desc)
-			}
-		}
 	}
 	scanCtx, cancel := context.WithTimeout(ctx, prunedScanTimeout)
 	defer cancel()

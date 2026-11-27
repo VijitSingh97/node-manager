@@ -13,7 +13,7 @@ your balance and derive your addresses, but it has no private keys and
 
 ## Add a wallet from the dashboard
 
-The dashboard has a **Watch-only balances** card with an add form:
+The dashboard has a **Watch-only wallets** card with an add form:
 
 1. **Label** (optional) — any name you like; the dashboard picks the first free
    `Wallet N` name when omitted.
@@ -22,7 +22,7 @@ The dashboard has a **Watch-only balances** card with an add form:
 3. **Birthday** (optional, archival nodes only) — bounds a Core rescan. The
    default pruned UTXO-set scan does not show or use it.
 
-Click **Add**. On the default pruned node, the row stays pending while Bitcoin
+Click **Add wallet**. On the default pruned node, the row stays pending while Bitcoin
 Core's `scantxoutset` checks the live UTXO set, then shows the confirmed balance
 and caches it with the scan height and time. A first scan commonly takes minutes,
 but its time depends on hardware and current workload. Later reads use the cache
@@ -32,7 +32,7 @@ a wallet with the **✕** next to it.
 Each scan logs its outcome and timing to the dashboard log, without any address
 or key, for example `watch scan: outcome=ok trigger=add wallets=1 outpoints=7 height=975700
 scan=84.2s waited=86.0s`. `scan` is the `scantxoutset` call itself and `waited`
-is the time from the wallet being queued (by **Add**, or by a new block) to the
+is the time from the wallet being queued (by **Add wallet**, or by a new block) to the
 result. Litecoin and the other family chains log one `<chain> watch scan:` line
 per address scan. Read them with
 `docker logs bitcoin-starter-stack-apt-dashboard-1 2>&1 | grep 'watch scan'`.
@@ -151,7 +151,7 @@ persistent; restarting the dashboard does not add it back.
 ## Monero view-only wallets
 
 A Monero address alone cannot reveal incoming outputs. Open the Monero card,
-then use **View-only wallets**:
+then use **Watch-only wallets**:
 
 1. Enter the primary mainnet address and private view key. The optional label
    defaults to **Monero wallet**. Under **Scan options**, restore height defaults
@@ -270,9 +270,9 @@ stores no private spend key.
 
 ## Unavailable wallet balances
 
-Dogecoin displays **Wallet balance not available** with no public reference
+Dogecoin shows a reason (it cannot scan the coin set for an address) with no public reference
 address or balance card by default, because its current pruned daemon cannot discover
-arbitrary address UTXOs; the opt-in archival mode below changes that. Zcash shows the same message when the
+arbitrary address UTXOs; the opt-in archival mode below changes that. Zcash shows a reason (checkpoint pruning skips the address index) when the
 transparent address index described below is off, because Zakura's
 checkpoint-pruned mode omits it; the index is on for new installs. The dashboard does not query an external
 explorer to fill those gaps.
@@ -522,7 +522,7 @@ measured seed budget, a "Needs a new seed" card, upgrades and removal.
   **Save** applies the change, restarts the dashboard, and asks first when turning off (the host
   refuses to turn it off while a seed runs; cancel it first). A badge
   in the heading of the watch-only wallets card shows the index state (ready,
-  catching up, seeding, needs a seed, degraded or off) and links to the index
+  catching up, seeding, not seeded, needs a new seed, degraded or off) and links to the index
   card. After turning it on, the index seeds itself once the node has synced, and the node
   card shows a progress bar for it; there is no Seed button. The install dialog offers the
   same option, ticked, next to the data folder.

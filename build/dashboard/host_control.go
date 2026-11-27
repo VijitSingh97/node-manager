@@ -1,10 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"cmp"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -207,14 +204,12 @@ func validInstallIndex(node string, utxoIndex *bool, dataDir string) bool {
 
 func decodeHostControlCapability(b []byte) (hostControlCapability, bool) {
 	var capability hostControlCapability
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&capability) != nil || ensureJSONEnd(decoder) != nil {
+	if !decodeStrictBytes(b, &capability) {
 		return capability, false
 	}
 	validPlatform := capability.Platform == "linux" || capability.Platform == "mac" || capability.Platform == "source"
 	validBootKind := capability.BootKind == "boot" || capability.BootKind == "login" || capability.BootKind == "unsupported"
-	validRevision := !capability.ConfigPending && capability.ConfigRevision == "" || capability.ConfigPending && len(capability.ConfigRevision) == 64 && len(bytes.Trim([]byte(capability.ConfigRevision), "0123456789abcdef")) == 0
+	validRevision := !capability.ConfigPending && capability.ConfigRevision == "" || capability.ConfigPending && lowerHex(capability.ConfigRevision, 64)
 	validPaths := capability.ConfigPath == "" || reportedHostPath(capability.ConfigPath)
 	for node, path := range capability.DataPaths {
 		if normalizeNodeID(node) == "" || !reportedHostPath(path) {
@@ -254,10 +249,8 @@ func (a *app) migrateProgressFor(id string) (migrateProgress, bool) {
 	if err != nil {
 		return progress, false
 	}
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	decoder.DisallowUnknownFields()
 	now := time.Now().Unix()
-	if decoder.Decode(&progress) != nil || ensureJSONEnd(decoder) != nil || progress.ID != id ||
+	if !decodeStrictBytes(b, &progress) || progress.ID != id ||
 		progress.Percent < 0 || progress.Percent > 100 || progress.CopiedKB < 0 || progress.TotalKB <= 0 ||
 		progress.UpdatedAt > now+30 || now-progress.UpdatedAt > 180 {
 		return progress, false
@@ -287,8 +280,8 @@ func toggleHostAction(action string) bool {
 	return action == "launch_at_boot" || action == "utxo_index" || networkHostAction(action)
 }
 
-func validHostControlShape(action, node string, enabled *bool, dataDir string, interfaces []hostInstallInterface, confirmation string, utxoIndex *bool) bool {
-	if action != "delete" && confirmation != "" || action != "install" && utxoIndex != nil || action == "install" && !validInstallIndex(node, utxoIndex, dataDir) {
+func validHostControlShape(action, node string, enabled *bool, dataDir string, interfaces []hostInstallInterface, confirmation string, utxoIndex *bool, revision string) bool {
+	if action != "delete" && confirmation != "" || action != "apply_config" && revision != "" || action != "install" && utxoIndex != nil || action == "install" && !validInstallIndex(node, utxoIndex, dataDir) {
 		return false
 	}
 	return action == "delete" && normalizeNodeID(node) != "" && confirmation == node && enabled == nil && dataDir == "" && interfaces == nil ||
@@ -296,11 +289,11 @@ func validHostControlShape(action, node string, enabled *bool, dataDir string, i
 		action == "migrate" && normalizeNodeID(node) != "" && enabled == nil && safeHostPath(dataDir) && interfaces == nil ||
 		toggleHostAction(action) && node == "" && enabled != nil && dataDir == "" && interfaces == nil ||
 		action == "utxo_index" && utxoChains[node] != nil && enabled != nil && dataDir == "" && interfaces == nil ||
-		action == "utxo_seed" && (node == nodeBitcoin || node == nodeLitecoin || node == nodeDogecoin || node == nodeBitcoinCash) && enabled == nil && dataDir == "" && interfaces == nil ||
-		action == "apply_config" && node == "" && enabled == nil && dataDir == "" && interfaces == nil
+		action == "utxo_seed" && canIndexNode(node) && enabled == nil && dataDir == "" && interfaces == nil ||
+		action == "apply_config" && node == "" && enabled == nil && lowerHex(revision, 64) && dataDir == "" && interfaces == nil
 }
 
-func canonicalHostStatusMessage(status hostControlStatus) string {
+func canonicalHostStatusMessage(status hostControlStatus, command string) string {
 	if status.State == "applied" {
 		switch status.Action {
 		case "install":
@@ -358,7 +351,7 @@ func canonicalHostStatusMessage(status hostControlStatus) string {
 		"unsupported":        "That host action is not supported by this installation.",
 		"ownership_conflict": "The node data directory is managed by another installation.",
 		"unchanged":          "The host already has that setting.",
-		"seed_running":       "A balance index seed is running. Cancel it with utxo-seed cancel, then try again.",
+		"seed_running":       "A balance index seed is running. Cancel it with " + command + " utxo-seed cancel, then try again.",
 		"busy":               "Another balance index is seeding or its chainstate is being copied.",
 		"recently_started":   "The node started a few minutes ago; the seed waits until it has settled.",
 		"not_installed":      "That node is not installed.",
@@ -411,9 +404,7 @@ func (a *app) hostControlStatus() (*hostControlStatus, bool) {
 		b, err := readSmallFile(a.nodeControlPath(name), 4096)
 		if err == nil {
 			var request hostControlRequest
-			decoder := json.NewDecoder(bytes.NewReader(b))
-			decoder.DisallowUnknownFields()
-			if decoder.Decode(&request) == nil && ensureJSONEnd(decoder) == nil && validPortControlID(request.ID) && validHostControlShape(request.Action, request.Node, request.Enabled, request.DataDir, request.Interfaces, request.Confirm, request.UTXOIndex) {
+			if decodeStrictBytes(b, &request) && validPortControlID(request.ID) && validHostControlShape(request.Action, request.Node, request.Enabled, request.DataDir, request.Interfaces, request.Confirm, request.UTXOIndex, request.Revision) {
 				return &hostControlStatus{ID: request.ID, Action: request.Action, Node: normalizeNodeID(request.Node), Enabled: request.Enabled, State: "pending", Message: a.hostControlProcessingMessage(request)}, true
 			}
 			return nil, true
@@ -426,7 +417,7 @@ func (a *app) hostControlStatus() (*hostControlStatus, bool) {
 	if !ok {
 		return nil, false
 	}
-	status.Message = canonicalHostStatusMessage(status)
+	status.Message = canonicalHostStatusMessage(status, a.commandName())
 	status.Detail = hostStatusDetail(status)
 	status.ErrorCode = ""
 	return &status, false
@@ -438,9 +429,7 @@ func (a *app) rawHostStatus() (hostControlStatus, bool) {
 		return hostControlStatus{}, false
 	}
 	var status hostControlStatus
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&status) != nil || ensureJSONEnd(decoder) != nil || !validPortControlID(status.ID) || !validHostAction(status.Action) || status.Node != "" && normalizeNodeID(status.Node) == "" || status.Port != "" && portControlLabel(status.Port) == "" || status.State != "applied" && status.State != "rejected" && status.State != "failed" {
+	if !decodeStrictBytes(b, &status) || !validPortControlID(status.ID) || !validHostAction(status.Action) || status.Node != "" && normalizeNodeID(status.Node) == "" || status.Port != "" && portControlLabel(status.Port) == "" || status.State != "applied" && status.State != "rejected" && status.State != "failed" {
 		return hostControlStatus{}, false
 	}
 	return status, true
@@ -473,25 +462,8 @@ func (a *app) apiHostControlGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func decodeHostControlInput(w http.ResponseWriter, r *http.Request) (hostControlInput, error) {
-	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	var input hostControlInput
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&input) != nil || ensureJSONEnd(decoder) != nil || !validHostAction(input.Action) {
-		return input, errors.New("invalid host control request")
-	}
-	validRevision := len(input.Revision) == 64 && len(bytes.Trim([]byte(input.Revision), "0123456789abcdef")) == 0
-	if input.Action != "delete" && input.Confirm != "" || input.Action != "install" && input.UTXOIndex != nil {
-		return input, errors.New("invalid host control request")
-	}
-	legacyInstall := input.Action == "install" && input.DataDir == "" && input.Interfaces == nil && input.UTXOIndex == nil
-	configuredInstall := input.Action == "install" && validInstallOptions(normalizeNodeID(input.Node), input.DataDir, input.Interfaces) && validInstallIndex(normalizeNodeID(input.Node), input.UTXOIndex, input.DataDir)
-	deleteNode := input.Action == "delete" && normalizeNodeID(input.Node) != "" && input.Confirm == input.Node && input.Enabled == nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil
-	valid := deleteNode || (legacyInstall || configuredInstall) && normalizeNodeID(input.Node) != "" && input.Enabled == nil && input.Revision == "" ||
-		input.Action == "migrate" && normalizeNodeID(input.Node) != "" && input.Enabled == nil && input.Revision == "" && safeHostPath(input.DataDir) && input.Interfaces == nil || toggleHostAction(input.Action) && input.Node == "" && input.Enabled != nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil ||
-		input.Action == "utxo_index" && utxoChains[input.Node] != nil && input.Enabled != nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil || input.Action == "apply_config" && input.Node == "" && input.Enabled == nil && validRevision && input.DataDir == "" && input.Interfaces == nil ||
-		input.Action == "utxo_seed" && (input.Node == nodeBitcoin || utxoChains[input.Node] != nil) && input.Enabled == nil && input.Revision == "" && input.DataDir == "" && input.Interfaces == nil
-	if !valid {
+	if !decodeStrictBody(w, r, 4096, &input) || !validHostAction(input.Action) || !validHostControlShape(input.Action, input.Node, input.Enabled, input.DataDir, input.Interfaces, input.Confirm, input.UTXOIndex, input.Revision) {
 		return input, errors.New("invalid host control request")
 	}
 	input.Node = normalizeNodeID(input.Node)
@@ -516,7 +488,7 @@ func (a *app) seedHostResult(id string) (hostSeedResult, bool) {
 	if !ok || status.ID != id {
 		return hostSeedResult{}, false
 	}
-	return hostSeedResult{State: status.State, Code: status.ErrorCode, Detail: cmp.Or(hostStatusDetail(status), canonicalHostStatusMessage(status))}, true
+	return hostSeedResult{State: status.State, Code: status.ErrorCode, Detail: cmp.Or(hostStatusDetail(status), canonicalHostStatusMessage(status, a.commandName()))}, true
 }
 
 // anySeedActive reports a balance index seeding in this dashboard, so a second seed never starts beside it.
@@ -554,7 +526,7 @@ func (a *app) requestReplaySeed(w http.ResponseWriter, m *utxoManager, node stri
 		http.Error(w, "The balance index cannot be seeded now.", http.StatusConflict)
 		return
 	}
-	id := newSeedRequestID()
+	id := newRequestID()
 	raw, _ := json.Marshal(seedRequest{ID: id, RequestedAt: m.now().Unix()})
 	if writePrivateFileAtomic(filepath.Join(m.host.stateDir, m.host.prefix+seedRequestName), raw) != nil {
 		http.Error(w, "The seed request could not be written.", http.StatusServiceUnavailable)
@@ -571,7 +543,7 @@ func (a *app) queueSeedHostAction(node string) (id, refusal string) {
 	capability, ok := a.hostControlCapability()
 	switch {
 	case !ok || !capability.UTXOSeedSupported:
-		return "", "automatic seeding needs the host helper; start the seed with utxo-seed"
+		return "", "automatic seeding needs the host helper; start the seed with " + a.commandName() + " utxo-seed"
 	case capability.ConfigPending:
 		return "", "a configuration change is waiting to be applied"
 	}
@@ -580,7 +552,7 @@ func (a *app) queueSeedHostAction(node string) (id, refusal string) {
 	if a.controlRequestPending() {
 		return "", hostChangePending
 	}
-	id = newSeedRequestID()
+	id = newRequestID()
 	b, _ := json.Marshal(hostControlRequest{ID: id, Action: "utxo_seed", Node: node, RequestedAt: time.Now().Unix()})
 	if writePrivateFileAtomic(a.nodeControlPath("request"), append(b, '\n')) != nil {
 		return "", "the host request could not be written"
@@ -667,15 +639,10 @@ func (a *app) apiHostControlPost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "another host change is already pending", http.StatusConflict)
 		return
 	}
-	id := make([]byte, 16)
-	if _, err := rand.Read(id); err != nil {
-		http.Error(w, "host control unavailable", http.StatusServiceUnavailable)
-		return
-	}
 	if input.Action == "install" && input.DataDir != "" && input.Interfaces == nil {
 		input.Interfaces = []hostInstallInterface{}
 	}
-	request := hostControlRequest{ID: hex.EncodeToString(id), Action: input.Action, Node: input.Node, Enabled: input.Enabled, Revision: input.Revision, DataDir: input.DataDir, Interfaces: input.Interfaces, Confirm: input.Confirm, UTXOIndex: input.UTXOIndex, RequestedAt: time.Now().Unix()}
+	request := hostControlRequest{ID: newRequestID(), Action: input.Action, Node: input.Node, Enabled: input.Enabled, Revision: input.Revision, DataDir: input.DataDir, Interfaces: input.Interfaces, Confirm: input.Confirm, UTXOIndex: input.UTXOIndex, RequestedAt: time.Now().Unix()}
 	var b []byte
 	if request.Action == "delete" {
 		b, _ = json.Marshal(struct {

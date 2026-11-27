@@ -52,9 +52,10 @@ is required before configuration is applied. Each
 selected authenticated node gets a separate generated `admin` login, retained
 in private state. No node RPC, gRPC, or ZMQ port is exposed by default.
 
-Global Settings installs additional nodes, controls launch at login, and
-contains Appearance, Telegram, and Healthchecks. The person icon above it holds
-Account and Dashboard password. Open a
+Global Settings installs additional nodes, controls launch at login and
+Thermal throttle, and contains Appearance, Telegram, and Healthchecks. The
+person icon at the top opens the User dialog with Account and Dashboard password, and
+the three-line button between it and Settings opens the event log. Open a
 tower for its block alerts, optional LAN interfaces, and RPC credentials.
 Personal view-only wallet material is separate from these service logins;
 never enter a seed phrase or private spend key.
@@ -149,7 +150,7 @@ images already on the machine. It does not download images. Run
 `node-manager pull` first when an upgrade needs new images. Use
 `node-manager doctor` for a read-only dependency, configuration, disk, node,
 and Tor report. See the [configuration reference](configuration.md) for every
-field. A dashboard password changed in the gear menu is stored as a hash in
+field. A dashboard password changed in the User dialog is stored as a hash in
 dashboard state and takes precedence over the baseline configuration; see
 [credential operations](operations.md#dashboard-and-node-credentials).
 
@@ -165,6 +166,12 @@ brew upgrade node-manager
 node-manager pull
 node-manager apply
 ```
+
+`node-manager pull` downloads the images of the enabled nodes, then the new
+image of every other node that already has an image on the machine, including
+inactive and deleted nodes, so Activate works afterwards. Those extra pulls are
+tried once, never start a container, and only warn on failure; activating that
+node downloads its image then. A node with no image on the machine is not pulled.
 
 Homebrew replaces the versioned Cellar payload and retains the user-owned
 configuration, dashboard state, and chain data. Uninstalling the formula also
@@ -184,16 +191,17 @@ If `bitcoin.utxo_index` was on, its Docker volume stays too; see
 
 An unreleased branch uses image tags that do not exist in GHCR. Before testing
 its Homebrew formula, archive the committed revision and build every
-first-party image with the exact `VERSION` stored in that archive. Building
-images does not start a node:
+first-party image with the exact `VERSION` stored in that revision. The archive
+carries only runtime files, so the images build from a checkout of the same
+commit. Building images does not start a node:
 
 ```sh
 source_dir=$(pwd)
 preview_dir=$(mktemp -d)
 git archive --format=tar.gz --prefix=node-manager/ \
   --output="$preview_dir/node-manager.tar.gz" HEAD
-tar -xzf "$preview_dir/node-manager.tar.gz" -C "$preview_dir"
-cd "$preview_dir/node-manager"
+git worktree add --detach "$preview_dir/source" HEAD
+cd "$preview_dir/source"
 version=$(cat VERSION)
 
 for image in tor monero; do
@@ -233,7 +241,8 @@ brew test "$tap/node-manager"
 
 For an existing test tap, use its name, skip `brew tap-new`, and use `brew reinstall`
 in place of `brew install`. This installs committed `HEAD`; uncommitted source
-changes are excluded.
+changes are excluded. Remove the checkout afterwards with
+`git -C "$source_dir" worktree remove --force "$preview_dir/source"`.
 
 Fresh Homebrew installations use the `node-manager-brew` Compose project, which
 gives their containers and named volumes project-scoped names. Existing

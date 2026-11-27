@@ -29,9 +29,7 @@ func TestNodeControlRequiresExactConfirmationAndQueuesPrivateRequest(t *testing.
 	node := nodeConfig{ID: nodeLitecoin, Name: "Litecoin", Enabled: true, Supported: true}
 	a := &app{cfg: config{bitcoinDisabled: true, dashboardPassword: "secret", stateDir: dir, dataDir: dir, nodes: map[string]nodeConfig{nodeLitecoin: node}}}
 	initializeTestDashboardAuth(t, a)
-	if err := os.WriteFile(a.nodeControlPath("capability"), []byte("ready\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeHostCapability(t, a, false)
 	for _, body := range []string{
 		`{"active":false}`, `{"active":false,"confirmation":"Deactivate"}`, `{"active":true,"confirmation":"deactivate"}`, `{"active":false,"confirmation":"deactivate","extra":true}`,
 	} {
@@ -123,9 +121,7 @@ func TestNodeControlActivationAndAvailabilityAreIndependent(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "node-runtime.json"), []byte(`{"litecoin":false}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(a.nodeControlPath("capability"), []byte("ready\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeHostCapability(t, a, false)
 	response := nodeControlHTTP(a, http.MethodPost, "/api/nodes/litecoin/power", `{"active":true,"confirmation":""}`, true)
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("activate = %d %s", response.Code, response.Body.String())
@@ -153,6 +149,61 @@ func TestNodeControlStatusCanonicalizesHostMessage(t *testing.T) {
 	}
 	got := a.readNodeControlStatus()
 	if got == nil || got.Message != "Dogecoin state could not be changed." || got.ErrorCode != "" {
+		t.Fatalf("status = %#v", got)
+	}
+}
+
+func TestNodeControlStatusUsesDashboardWordingForKnownCode(t *testing.T) {
+	dir := t.TempDir()
+	a := &app{cfg: config{stateDir: dir, nodes: map[string]nodeConfig{nodeDogecoin: {ID: nodeDogecoin, Enabled: true, Supported: true}}}}
+	status := `{"id":"11111111111111111111111111111111","node":"dogecoin","active":true,"state":"rejected","message":"private host path","error_code":"config_pending"}`
+	if err := os.WriteFile(a.nodeControlPath("status"), []byte(status), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := a.readNodeControlStatus()
+	if got == nil || got.Message != "Dogecoin was not changed: review the pending config change first." || got.ErrorCode != "config_pending" {
+		t.Fatalf("status = %#v", got)
+	}
+}
+
+func TestNodeControlStatusShowsSanitizedDetailOnlyForFailures(t *testing.T) {
+	dir := t.TempDir()
+	a := &app{cfg: config{stateDir: dir, nodes: map[string]nodeConfig{nodeLitecoin: {ID: nodeLitecoin, Enabled: true, Supported: true}}}}
+	read := func(state, code, detail string) *nodeControlStatus {
+		t.Helper()
+		body, _ := json.Marshal(map[string]any{"id": "11111111111111111111111111111111", "node": "litecoin", "active": true, "state": state, "message": "private", "error_code": code, "detail": detail})
+		if err := os.WriteFile(a.nodeControlPath("status"), body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return a.readNodeControlStatus()
+	}
+	reason := "Litecoin was not changed: its image could not be downloaded. Check the host's internet connection, then try again."
+	if got := read("failed", "image_unavailable", "Error response from daemon: manifest unknown"); got == nil || got.Message != reason+" Error response from daemon: manifest unknown" || got.ErrorCode != "image_unavailable" || got.Detail != "" {
+		t.Fatalf("status = %#v", got)
+	}
+	if got := read("rejected", "unchanged", "kept"); got == nil || !strings.HasSuffix(got.Message, " kept") {
+		t.Fatalf("status = %#v", got)
+	}
+	if got := read("applied", "", "stale detail"); got == nil || got.Message != "Litecoin activated." {
+		t.Fatalf("status = %#v", got)
+	}
+	if got := read("failed", "image_unavailable", ""); got == nil || got.Message != reason {
+		t.Fatalf("status = %#v", got)
+	}
+	got := read("failed", "apply_failed", "bad\x1b[31m\nline\u0007"+strings.Repeat("x", 400))
+	if got == nil || strings.ContainsAny(got.Message, "\x1b\n\a") || len([]rune(got.Message)) > len("Litecoin could not be changed; the prior state was restored. ")+240 {
+		t.Fatalf("status = %#v", got)
+	}
+}
+
+func TestNodeControlStatusStillRejectsUnknownFields(t *testing.T) {
+	dir := t.TempDir()
+	a := &app{cfg: config{stateDir: dir, nodes: map[string]nodeConfig{nodeLitecoin: {ID: nodeLitecoin, Enabled: true, Supported: true}}}}
+	status := `{"id":"11111111111111111111111111111111","node":"litecoin","active":true,"state":"failed","error_code":"image_unavailable","detail":"x","extra":true}`
+	if err := os.WriteFile(a.nodeControlPath("status"), []byte(status), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.readNodeControlStatus(); got != nil {
 		t.Fatalf("status = %#v", got)
 	}
 }
@@ -388,5 +439,42 @@ func TestNodeListCarriesTheLastHeightTheMonitorPersisted(t *testing.T) {
 	}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("last heights = %v, want %v", got, want)
+	}
+}
+
+func TestNodeControlAvailableUsesHostCapabilityReader(t *testing.T) {
+	a := &app{cfg: config{stateDir: t.TempDir()}}
+	if a.nodeControlAvailable() {
+		t.Fatal("missing capability reported available")
+	}
+	path := a.nodeControlPath("capability")
+	writeHostCapability(t, a, false)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	big := append(b, []byte(strings.Repeat(" ", 2048))...)
+	if err := os.WriteFile(path, big, 0o600); err != nil || !a.nodeControlAvailable() {
+		t.Fatalf("capability over 1024 bytes unavailable: %v", err)
+	}
+	for name, body := range map[string][]byte{"ready": []byte("ready\n"), "malformed": []byte(`{"platform":`), "oversize": append(b, []byte(strings.Repeat(" ", 20000))...)} {
+		if err := os.WriteFile(path, body, 0o600); err != nil || a.nodeControlAvailable() {
+			t.Fatalf("%s capability reported available (%v)", name, err)
+		}
+	}
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var capability hostControlCapability
+	if err := json.Unmarshal(b, &capability); err != nil {
+		t.Fatal(err)
+	}
+	capability.Timestamp = 1
+	stale, err := json.Marshal(capability)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, stale, 0o600); err != nil || a.nodeControlAvailable() {
+		t.Fatal("stale capability reported available")
 	}
 }

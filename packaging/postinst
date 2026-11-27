@@ -47,6 +47,13 @@ for envfile in "$state/.env" "$state/.approved.env"; do
     "$envfile"
 done
 
+systemctl daemon-reload >/dev/null 2>&1 || true
+for unit in node-control port-control; do
+  if systemctl is-enabled --quiet "node-manager-$unit.timer" 2>/dev/null; then
+    systemctl enable --now "node-manager-$unit.path" >/dev/null 2>&1 || true
+  fi
+done
+
 if [ -n "$old_version" ]; then
   /usr/bin/dpkg --compare-versions "$new_version" gt "$old_version" || exit 0
 else
@@ -60,7 +67,6 @@ if ! env -i \
   PATH=/usr/sbin:/usr/bin:/sbin:/bin \
   DEBIAN_FRONTEND=noninteractive \
   /usr/bin/node-manager package-upgrade </dev/null; then
-  echo "WARNING: Node Manager was installed, but its running containers could not be updated." >&2
-  echo "After fixing Docker, retry with: sudo node-manager package-upgrade" >&2
+  echo "NODE MANAGER ACTIVATION FAILED: $new_version is installed, but the running containers were not updated; retry with: sudo node-manager package-upgrade" >&2
 fi
 exit 0

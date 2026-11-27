@@ -1,6 +1,7 @@
 import { actuatorCurlController } from "./actuator-curl.js";
 import { credentialSettingsController } from "./credentials.js";
-import { dashboardFetch as fetch } from "./session.js";
+import { commandName, dashboardFetch as fetch, jsonRequest } from "./session.js";
+import { askConfirm } from "./confirm-dialog.js";
 
 const extraNodes = ["tari", "litecoin", "dogecoin", "bitcoincash", "zcash"];
 const allNodes = ["bitcoin", "monero", ...extraNodes];
@@ -67,18 +68,18 @@ export function configurationAccess(data) {
 
 const networkActions = ["clearnet_over_tor", "inbound_connections"];
 const balanceActions = ["utxo_index", "utxo_seed"];
-export const UTXO_INDEX_LITECOIN_OFF_PROMPT = "Turn off instant Litecoin balances? Wallets go back to the slower scan. The index volume stays on disk until you run utxo-index remove litecoin.";
-export const UTXO_INDEX_DOGECOIN_OFF_PROMPT = "Turn off instant Dogecoin balances? Wallets go back to the archival watch wallet if it is on, otherwise they wait. The index volume stays on disk until you run utxo-index remove dogecoin.";
-export const UTXO_INDEX_BITCOINCASH_OFF_PROMPT = "Turn off instant Bitcoin Cash balances? Wallets go back to the slower scan. The index volume stays on disk until you run utxo-index remove bitcoincash.";
+export const UTXO_INDEX_LITECOIN_OFF_PROMPT = () => `Turn off instant Litecoin balances? Wallets go back to the slower scan. The index volume stays on disk until you run ${commandName()} utxo-index remove litecoin.`;
+export const UTXO_INDEX_DOGECOIN_OFF_PROMPT = () => `Turn off instant Dogecoin balances? Wallets go back to the archival watch wallet if it is on, otherwise they wait. The index volume stays on disk until you run ${commandName()} utxo-index remove dogecoin.`;
+export const UTXO_INDEX_BITCOINCASH_OFF_PROMPT = () => `Turn off instant Bitcoin Cash balances? Wallets go back to the slower scan. The index volume stays on disk until you run ${commandName()} utxo-index remove bitcoincash.`;
 const chainIndexOffPrompts = { litecoin: UTXO_INDEX_LITECOIN_OFF_PROMPT, bitcoincash: UTXO_INDEX_BITCOINCASH_OFF_PROMPT, dogecoin: UTXO_INDEX_DOGECOIN_OFF_PROMPT };
 const chainIndexNode = (action) => String(action || "").startsWith("utxo_index_") && chainIndexOffPrompts[action.slice(11)] ? action.slice(11) : "";
 const toggleKey = (change) => change?.action === "utxo_index" && chainIndexOffPrompts[change?.node] ? `utxo_index_${change.node}` : change?.action;
 const toggleFields = { launch_at_boot: "boot_enabled", clearnet_over_tor: "clearnet_over_tor", inbound_connections: "inbound_connections", utxo_index: "utxo_index", utxo_index_litecoin: "utxo_index_litecoin", utxo_index_bitcoincash: "utxo_index_bitcoincash", utxo_index_dogecoin: "utxo_index_dogecoin" };
 export const hostToggleDefaults = { launch_at_boot: false, clearnet_over_tor: true, inbound_connections: true, utxo_index: false, utxo_index_litecoin: false, utxo_index_bitcoincash: false, utxo_index_dogecoin: false };
-export const UTXO_INDEX_OFF_PROMPT = "Turn off instant Bitcoin balances? Wallets go back to the slower scan. The index volume stays on disk until you run utxo-index remove.";
+export const UTXO_INDEX_OFF_PROMPT = () => `Turn off instant Bitcoin balances? Wallets go back to the slower scan. The index volume stays on disk until you run ${commandName()} utxo-index remove.`;
 
-export function balanceIndexPayload(enabled, confirmFn) {
-  if (enabled === false && !confirmFn(UTXO_INDEX_OFF_PROMPT)) return undefined;
+export async function balanceIndexPayload(enabled, confirmFn) {
+  if (enabled === false && !(await confirmFn(UTXO_INDEX_OFF_PROMPT()))) return undefined;
   return hostActionPayload("utxo_index", enabled);
 }
 
@@ -93,13 +94,16 @@ export function savedHostActions(view, draft, staged = {}) {
   return [...byAction("apply_config"), ...hostToggleChanges(view, draft), ...byAction("install"), ...byAction("migrate"), ...byAction("delete")];
 }
 
-export function confirmedHostChanges(changes, confirmFn) {
-  return changes.map((change) => {
-    if (change.action !== "utxo_index") return change;
-    const prompt = chainIndexOffPrompts[change.node];
-    if (prompt) return change.enabled === false && !confirmFn(prompt) ? undefined : change;
-    return balanceIndexPayload(change.enabled, confirmFn);
-  }).filter(Boolean);
+export async function confirmedHostChanges(changes, confirmFn) {
+  const confirmed = [];
+  for (const change of changes) {
+    const prompt = change.action === "utxo_index" && chainIndexOffPrompts[change.node];
+    const kept = change.action !== "utxo_index" ? change
+      : prompt ? (change.enabled === false && !(await confirmFn(prompt())) ? undefined : change)
+      : await balanceIndexPayload(change.enabled, confirmFn);
+    if (kept) confirmed.push(kept);
+  }
+  return confirmed;
 }
 
 const sameHostChange = (status, change) => status?.action === change?.action && (status?.node || "") === (change?.node || "") && (!change?.requestId || !status?.id || status.id === change.requestId);
@@ -109,10 +113,10 @@ export function hostQueueSettled(view, change) {
   return sameHostChange(view?.status, change) && ["rejected", "failed"].includes(view.status.state) ? "failed" : "applied";
 }
 
-export function hostChangeLabel(change, nodes = {}) {
+export function hostChangeLabel(change, nodes = {}, bootKind) {
   const name = (id) => nodes[id]?.name || id || "Bitcoin";
   const labels = { install: `Install ${name(change?.node)}`, migrate: `Move ${name(change?.node)} data`, delete: `Delete ${name(change?.node)}`, utxo_index: `${name(change?.node)} balance index`,
-    launch_at_boot: "Launch at start", apply_config: "New configuration", clearnet_over_tor: "Reach clearnet through Tor", inbound_connections: "Incoming connections" };
+    launch_at_boot: bootControlLabel(bootKind), apply_config: "New configuration", clearnet_over_tor: "Reach clearnet through Tor", inbound_connections: "Incoming connections" };
   return labels[change?.action] || "Host change";
 }
 
@@ -146,7 +150,7 @@ export function deleteControl(view, node, staged = {}) {
     : view.config_pending ? "Run the new config first."
     : view.status?.state === "pending" ? "Another host change is running."
     : !node?.installed ? "This node is not installed."
-    : node.active ? "Deactivate the node first (node settings)."
+    : node.active ? "Deactivate the node first (Node controls)."
     : node.last_enabled || Object.values(view.nodes).filter((other) => other.installed && !staged[`delete:${other.id}`]).length <= 1 ? "At least one node must stay installed."
     : !node.data_dir ? "The data folder is not known yet."
     : staged[`migrate:${node.id}`] ? "Undo the staged data move first."
@@ -316,16 +320,7 @@ export function resetSaveRequests(defaults, payload) {
 }
 
 export async function requestSettings(scope = "global", method = "GET", payload, fetcher = fetch) {
-  const response = await fetcher(settingsEndpoint(scope, method), {
-    method,
-    headers: payload ? { "Content-Type": "application/json", "X-Requested-With": "fetch" } : {},
-    ...(payload ? { body: JSON.stringify(payload) } : {}),
-  });
-  if (!response.ok) {
-    const text = (await response.text()).trim();
-    throw new Error(text.length <= 200 ? text : "Could not update settings.");
-  }
-  return response.json();
+  return jsonRequest(fetcher, settingsEndpoint(scope, method), { method, payload, failure: "Could not update settings." });
 }
 
 export function configuredNodeVisibility(data) {
@@ -412,8 +407,10 @@ export function shouldPollPort(dialogOpen, state) {
   return dialogOpen === true && state === "pending";
 }
 
-export function settingsSaveMessage(settingsSaved) {
-  return settingsSaved ? "Settings saved." : "";
+export const TELEGRAM_OFF_NOTE = "Telegram is off, so no alerts are sent.";
+
+export function settingsSaveMessage(settingsSaved, alertsOff = false) {
+  return settingsSaved ? (alertsOff ? `Settings saved. ${TELEGRAM_OFF_NOTE}` : "Settings saved.") : "";
 }
 
 const defaultCurrencies = ["USD", "EUR", "GBP", "INR", "CAD", "AUD", "JPY", "RUB", "CNY"];
@@ -489,9 +486,13 @@ if (typeof document !== "undefined") {
   byId("network").insertAdjacentHTML("afterend", `<fieldset id="settings-balance-index" hidden>
     <legend>Balance index</legend>
     <label class="settings-check"><input id="settings-utxo-index" type="checkbox" role="switch"> Instant Bitcoin balances</label>
+    <p id="settings-utxo-index-reason" class="settings-note" hidden></p>
     <label id="settings-utxo-index-litecoin-label" class="settings-check" hidden><input id="settings-utxo-index-litecoin" type="checkbox" role="switch"> Instant Litecoin balances</label>
+    <p id="settings-utxo-index-litecoin-reason" class="settings-note" hidden></p>
     <label id="settings-utxo-index-bitcoincash-label" class="settings-check" hidden><input id="settings-utxo-index-bitcoincash" type="checkbox" role="switch"> Instant Bitcoin Cash balances</label>
+    <p id="settings-utxo-index-bitcoincash-reason" class="settings-note" hidden></p>
     <label id="settings-utxo-index-dogecoin-label" class="settings-check" hidden><input id="settings-utxo-index-dogecoin" type="checkbox" role="switch"> Instant Dogecoin balances</label>
+    <p id="settings-utxo-index-dogecoin-reason" class="settings-note" hidden></p>
     <p id="settings-utxo-index-status" class="settings-note" role="status" aria-live="polite"></p>
   </fieldset>`);
   const utxoIndex = byId("utxo-index");
@@ -535,6 +536,7 @@ if (typeof document !== "undefined") {
     const panel = document.querySelector(`[data-node-panel="${node}"]`);
     const power = panel?.querySelector(".node-power-card");
     if (!details || !power) continue;
+    byId(`${node}-new-block`).closest("label").insertAdjacentHTML("afterend", `<p class="settings-note" data-telegram-off-note hidden>${TELEGRAM_OFF_NOTE}</p>`);
     const lan = splitNodeControlSections(details);
     const nodeForm = document.createElement("form");
     nodeForm.className = "node-settings-form";
@@ -551,6 +553,7 @@ if (typeof document !== "undefined") {
     actions.className = "settings-actions";
     const nodeSave = document.createElement("button");
     nodeSave.type = "submit";
+    nodeSave.className = "primary";
     nodeSave.textContent = "Save";
     actions.append(nodeSave);
     nodeForm.append(details, lan, nodeStatus, impact, actions);
@@ -572,6 +575,7 @@ if (typeof document !== "undefined") {
   let ambiguousPortDraft;
   let ambiguousStatusPrefix = "";
   let ambiguousStatusTarget;
+  let ambiguousAlerts;
   let submittedPortNode = "";
   let stagedPortDraft;
   let hostPoll;
@@ -687,18 +691,7 @@ if (typeof document !== "undefined") {
 
   const clearSecrets = () => { token.value = ""; chat.value = ""; url.value = ""; };
 
-  const requestHost = async (payload) => {
-    const response = await fetch("/api/settings/host", {
-      method: payload ? "POST" : "GET",
-      headers: payload ? { "Content-Type": "application/json", "X-Requested-With": "fetch" } : {},
-      ...(payload ? { body: JSON.stringify(payload) } : {}),
-    });
-    if (!response.ok) {
-      const message = (await response.text()).trim();
-      throw new Error(message.length <= 200 ? message : "Could not update the node set.");
-    }
-    return response.json();
-  };
+  const requestHost = (payload) => jsonRequest(fetch, "/api/settings/host", { method: payload ? "POST" : "GET", payload, failure: "Could not update the node set." });
 
   const renderHost = (data) => {
     const nextHostView = hostControlModel(data);
@@ -714,9 +707,9 @@ if (typeof document !== "undefined") {
     }
     const queueResult = hostQueueSettled(nextHostView, hostQueueChange);
     if (queueResult === "failed") {
-      hostFailures.push({ label: hostChangeLabel(hostQueueChange, nextHostView.nodes), message: nextHostView.status.message || "The host change failed." });
+      hostFailures.push({ label: hostChangeLabel(hostQueueChange, nextHostView.nodes, nextHostView.boot_kind), message: nextHostView.status.message || "The host change failed." });
       const { rest, skipped } = splitDependentChanges(hostQueue, hostQueueChange);
-      hostSkipped.push(...skipped.map((change) => hostChangeLabel(change, nextHostView.nodes)));
+      hostSkipped.push(...skipped.map((change) => hostChangeLabel(change, nextHostView.nodes, nextHostView.boot_kind)));
       hostQueue = rest;
     }
     if (queueResult && !hostQueue.length) {
@@ -762,7 +755,10 @@ if (typeof document !== "undefined") {
     for (const [node, input] of [["bitcoin", utxoIndex], ["litecoin", utxoIndexLitecoin], ["bitcoincash", utxoIndexBitcoinCash], ["dogecoin", utxoIndexDogecoin]]) {
       const refusal = hostView.nodes[node].index_refusal;
       if (refusal) input.disabled = true;
-      input.title = refusal;
+      const note = byId(node === "bitcoin" ? "utxo-index-reason" : `utxo-index-${node}-reason`);
+      note.textContent = refusal || "";
+      note.hidden = !refusal || input.closest("label").hidden;
+      if (refusal) input.setAttribute("aria-describedby", note.id); else input.removeAttribute("aria-describedby");
     }
     balanceSettings.hidden = balanceControl.hidden && utxoIndexLitecoinLabel.hidden && utxoIndexBitcoinCashLabel.hidden && utxoIndexDogecoinLabel.hidden;
     configChange.hidden = !hostView.config_pending;
@@ -793,9 +789,11 @@ if (typeof document !== "undefined") {
       const key = `${action}:${node.id}`;
       const button = document.createElement("button");
       button.type = "button";
+      const reasons = new Map();
+      const explain = (text, control) => reasons.set(text, [...(reasons.get(text) || []), control]);
       if (hostStaged[key]) {
         button.textContent = node.installed ? "Moves on Save" : "Installs on Save";
-        button.title = "Click to undo";
+        explain("Click to undo", button);
         button.disabled = busy;
         button.addEventListener("click", () => { delete hostStaged[key]; renderHostActions(); });
       } else if (node.installed) {
@@ -805,7 +803,6 @@ if (typeof document !== "undefined") {
       } else {
         button.textContent = node.id === installing ? "Installing…" : "Install";
         button.disabled = !node.data_dir || !hostView.available || !hostView.install_supported || hostView.config_pending || busy || !!node.unsupported;
-        if (node.unsupported) button.title = node.unsupported;
         button.addEventListener("click", () => openInstall(node.id));
       }
       if (node.installed) {
@@ -819,7 +816,7 @@ if (typeof document !== "undefined") {
         const deleteKey = `delete:${node.id}`;
         if (hostStaged[deleteKey]) {
           remove.textContent = "Deletes on Save";
-          remove.title = "Click to undo";
+          explain("Click to undo", remove);
           remove.disabled = busy;
           remove.addEventListener("click", () => { delete hostStaged[deleteKey]; renderHostActions(); });
           button.disabled = true;
@@ -827,7 +824,7 @@ if (typeof document !== "undefined") {
           const control = deleteControl(hostView, node, hostStaged);
           remove.textContent = node.id === deleting ? "Deleting…" : "Delete…";
           remove.disabled = control.disabled;
-          remove.title = control.reason || `Delete ${node.name} and all its data`;
+          if (control.reason) explain(control.reason, remove); else remove.title = `Delete ${node.name} and all its data`;
           remove.addEventListener("click", () => openDelete(node.id));
         }
         row.append(name, path, button, remove);
@@ -835,8 +832,19 @@ if (typeof document !== "undefined") {
         const note = document.createElement("span");
         note.className = "settings-host-note";
         note.textContent = node.unsupported;
+        note.id = `settings-host-note-${node.id}`;
+        button.setAttribute("aria-describedby", note.id);
         row.append(name, note, button);
       } else row.append(name, button);
+      let count = 0;
+      for (const [text, controls] of reasons) {
+        const reason = document.createElement("span");
+        reason.className = "settings-host-reason";
+        reason.id = `settings-host-reason-${node.id}-${count++}`;
+        reason.textContent = text;
+        for (const control of controls) control.setAttribute("aria-describedby", reason.id);
+        row.append(reason);
+      }
       hostNodes.append(row);
     }
     applyConfig.textContent = hostStaged.apply_config ? "Runs on Save" : "Run new config";
@@ -949,9 +957,9 @@ if (typeof document !== "undefined") {
       await loadHost();
     } catch (error) {
       pendingToggle = undefined;
-      hostFailures.push({ label: hostChangeLabel(payload, hostView.nodes), message: error.message });
+      hostFailures.push({ label: hostChangeLabel(payload, hostView.nodes, hostView.boot_kind), message: error.message });
       const { rest, skipped } = splitDependentChanges(hostQueue, payload);
-      hostSkipped.push(...skipped.map((change) => hostChangeLabel(change, hostView.nodes)));
+      hostSkipped.push(...skipped.map((change) => hostChangeLabel(change, hostView.nodes, hostView.boot_kind)));
       hostQueue = rest;
       hostQueueAction = "";
       hostQueueChange = null;
@@ -1019,6 +1027,7 @@ if (typeof document !== "undefined") {
     token.placeholder = "Paste your bot token";
     url.placeholder = "https://hc-ping.com/…";
     reset.disabled = !allowed || !saved.defaults;
+    for (const note of document.querySelectorAll("[data-telegram-off-note]")) note.hidden = !!saved.telegram_enabled;
     telegramEnabled.disabled = healthchecksEnabled.disabled = bitcoinNewBlock.disabled = moneroNewBlock.disabled = towerLabels.disabled = computerStats.disabled = thermalThrottle.disabled = defaultCurrency.disabled = actuatorHealth.disabled = actuatorInfo.disabled = !allowed;
     updateInputs();
     updatePortPlan();
@@ -1026,20 +1035,10 @@ if (typeof document !== "undefined") {
   async function request(method = "GET", payload, scope = "global") {
     return requestSettings(scope, method, payload);
   }
-  async function requestPortControl(method = "GET", payload) {
-    const response = await fetch("/api/settings/ports", {
-      method,
-      headers: payload ? { "Content-Type": "application/json", "X-Requested-With": "fetch" } : {},
-      ...(payload ? { body: JSON.stringify(payload) } : {}),
-    });
-    if (!response.ok) {
-      const text = (await response.text()).trim();
-      const error = new Error(text.length <= 200 ? text : "Could not update LAN ports.");
-      error.definitive = true;
-      throw error;
-    }
-    return response.json();
+  function requestPortControl(method = "GET", payload) {
+    return jsonRequest(fetch, "/api/settings/ports", { method, payload, failure: "Could not update LAN ports.", definitive: true });
   }
+  const ambiguousMessage = () => settingsSaveMessage(ambiguousStatusPrefix !== "", ambiguousAlerts ? nodeAlertsOff(ambiguousAlerts.scope, ambiguousAlerts.payload, saved) : false);
   async function loadPortControl() {
     try {
       const data = await requestPortControl();
@@ -1050,12 +1049,12 @@ if (typeof document !== "undefined") {
         const outcome = portSubmissionOutcome(view, changes);
         if (outcome === "queued") {
           ambiguousPortDraft = undefined;
-          (ambiguousStatusTarget || status).textContent = settingsSaveMessage(ambiguousStatusPrefix !== "");
+          (ambiguousStatusTarget || status).textContent = ambiguousMessage();
         } else if (outcome === "applied") {
           ambiguousPortDraft = undefined;
           stagedPortDraft = undefined;
           updatePortPlan(false);
-          (ambiguousStatusTarget || status).textContent = settingsSaveMessage(ambiguousStatusPrefix !== "");
+          (ambiguousStatusTarget || status).textContent = ambiguousMessage();
         } else {
           ambiguousPortDraft = undefined;
           applyPortDraft(draft);
@@ -1063,6 +1062,7 @@ if (typeof document !== "undefined") {
         }
         ambiguousStatusPrefix = "";
         ambiguousStatusTarget = undefined;
+        ambiguousAlerts = undefined;
       }
     }
     catch { if (dialog.open || document.body.dataset.node) portPoll = setTimeout(loadPortControl, 2000); }
@@ -1092,10 +1092,21 @@ if (typeof document !== "undefined") {
     }
     resetStaged = false;
     dialog.showModal();
-    load();
+    load().then(() => { if (discardedNotice && !status.textContent) status.textContent = "Settings closed before you confirmed, so the staged changes were discarded."; discardedNotice = false; });
     loadHost();
   });
-  for (const id of ["close", "cancel"]) byId(id).addEventListener("click", () => dialog.close());
+  let closeAsking = false;
+  let discardedNotice = false;
+  const closeSettings = async () => {
+    if (closeAsking) return;
+    closeAsking = true;
+    const discard = saving() || !(Object.keys(hostStaged).length || resetStaged) || await askConfirm("Discard the staged changes?", "Discard");
+    closeAsking = false;
+    if (!discard) return;
+    dialog.close();
+  };
+  for (const id of ["close", "cancel"]) byId(id).addEventListener("click", closeSettings);
+  dialog.addEventListener("cancel", (event) => { if (!event.cancelable) { discardedNotice = !saving() && (Object.keys(hostStaged).length > 0 || resetStaged); return; } event.preventDefault(); closeSettings(); });
   document.getElementById("account-open").addEventListener("click", () => { accountDialog.showModal(); credentialSettings.openPassword(); });
   document.getElementById("account-close").addEventListener("click", () => accountDialog.close());
   accountDialog.addEventListener("close", () => credentialSettings.closePassword());
@@ -1190,6 +1201,7 @@ if (typeof document !== "undefined") {
     return true;
   };
 
+  const nodeAlertsOff = (scope, payload, view) => scope !== "global" && Object.values(payload).includes(true) && !view.telegram_enabled;
   const saveScope = async (scope, scopeForm, targetStatus, targetSave) => {
     if (!allowed) return;
     const allChanges = updatePortPlan(true);
@@ -1207,7 +1219,7 @@ if (typeof document !== "undefined") {
       return;
     }
     if (hostChanges.length) {
-      const confirmed = confirmedHostChanges(hostChanges, (message) => window.confirm(message));
+      const confirmed = await confirmedHostChanges(hostChanges, (message) => askConfirm(message, "Turn off"));
       if (confirmed.length < hostChanges.length) {
         delete hostDraft.utxo_index;
         delete hostDraft.utxo_index_litecoin;
@@ -1240,7 +1252,7 @@ if (typeof document !== "undefined") {
     }
     if (changes.length === 0) {
       render(settingsView, scope);
-      targetStatus.textContent = hostChanges.length ? "Applying host changes…" : resetRequests.length === 1 ? "Defaults restored." : resetRequests.length || saveNotifications ? "Settings saved." : "No changes.";
+      targetStatus.textContent = hostChanges.length ? "Applying host changes…" : resetRequests.length === 1 ? "Defaults restored." : resetRequests.length || saveNotifications ? settingsSaveMessage(true, nodeAlertsOff(scope, payload, settingsView)) : "No changes.";
       if (hostChanges.length) {
         hostFailures = [];
         hostSkipped = [];
@@ -1258,7 +1270,7 @@ if (typeof document !== "undefined") {
         try { localStorage.setItem("nodeStackPortRequest", portRequestID); } catch {}
       }
       renderPortControl(portView);
-      targetStatus.textContent = portStatusMessage(portControlModel(portView)) || settingsSaveMessage(saveNotifications);
+      targetStatus.textContent = portStatusMessage(portControlModel(portView)) || settingsSaveMessage(saveNotifications, nodeAlertsOff(scope, payload, settingsView));
     } catch (error) {
       applyPortDraft(draft);
       const prefix = saveNotifications ? "Settings saved, but " : "";
@@ -1269,6 +1281,7 @@ if (typeof document !== "undefined") {
         ambiguousPortDraft = { draft, changes };
         ambiguousStatusPrefix = saveNotifications ? "Settings saved. " : "";
         ambiguousStatusTarget = targetStatus;
+        ambiguousAlerts = { scope, payload };
         targetStatus.textContent = `${ambiguousStatusPrefix}Checking whether the restart was queued…`;
         loadPortControl();
       }

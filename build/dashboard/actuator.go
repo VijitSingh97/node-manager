@@ -182,7 +182,7 @@ func (a *app) healthComponents() map[string]actuatorComponent {
 	}
 	if len(chains) > 0 && a.prices != nil {
 		tor := actuatorComponent{Status: statusUp}
-		if a.prices.SnapshotAsset("bitcoin")["stale"] == true {
+		if price := a.prices.SnapshotAsset("bitcoin"); price["stale"] == true || price["refresh_failed"] == true {
 			tor.Status = statusDegraded
 		}
 		components["tor"] = tor
@@ -252,8 +252,15 @@ func (a *app) lanServices(node string) []actuatorService {
 }
 
 func (a *app) installKind() string {
-	capability, ok := a.hostControlCapability()
-	if !ok {
+	b, err := readSmallFile(a.nodeControlPath("capability"), 16384)
+	if err != nil {
+		return "unknown"
+	}
+	// The install type never changes, so a stale capability still tells it.
+	var capability struct {
+		BootKind string `json:"boot_kind"`
+	}
+	if json.Unmarshal(b, &capability) != nil {
 		return "unknown"
 	}
 	switch capability.BootKind {
@@ -261,8 +268,20 @@ func (a *app) installKind() string {
 		return "apt"
 	case "login":
 		return "homebrew"
+	case "unsupported":
+		return "source"
 	}
-	return "source"
+	return "unknown"
+}
+
+func (a *app) commandName() string {
+	switch a.installKind() {
+	case "apt":
+		return "sudo node-manager"
+	case "homebrew":
+		return "node-manager"
+	}
+	return "./stack"
 }
 
 func (a *app) actuatorInfo(w http.ResponseWriter, _ *http.Request) {

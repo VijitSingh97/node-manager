@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -47,6 +48,9 @@ func hostRequestFile(t *testing.T, a *app, action, node string, age time.Duratio
 	}
 	if action == "migrate" {
 		request.DataDir = "/srv/data"
+	}
+	if action == "apply_config" {
+		request.Revision = strings.Repeat("a", 64)
 	}
 	writeControlFile(t, a.nodeControlPath("request"), request, age)
 }
@@ -217,6 +221,59 @@ func TestNodeActivationRestartsOnlyThatNode(t *testing.T) {
 	writeControlFile(t, a.nodeControlPath("status"), nodeControlStatus{ID: id, Node: nodeDogecoin, Active: false, State: "applied"}, time.Second)
 	if got := restartingSet(a); len(got) != 0 {
 		t.Fatalf("deactivated = %v", got)
+	}
+}
+
+func startingSet(a *app) []string {
+	_, starting := a.restartStates()
+	var ids []string
+	for _, id := range nodeOrder {
+		if starting[id] {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+func TestActivationIsStartingAndSettingsChangesAreNot(t *testing.T) {
+	a := restartTestApp(t)
+	id := "0123456789abcdef0123456789abcdef"
+	writeControlFile(t, a.nodeControlPath("status"), nodeControlStatus{ID: id, Node: nodeLitecoin, Active: true, State: "applied"}, time.Second)
+	if got := startingSet(a); !equalIDs(got, nodeLitecoin) {
+		t.Fatalf("activated = %v", got)
+	}
+	response := nodeControlHTTP(a, http.MethodGet, "/api/nodes", "", false)
+	var view struct {
+		Nodes []nodeControlNode `json:"nodes"`
+	}
+	if json.Unmarshal(response.Body.Bytes(), &view) != nil {
+		t.Fatal(response.Body.String())
+	}
+	for _, node := range view.Nodes {
+		if node.Starting != (node.ID == nodeLitecoin) || node.Restarting != (node.ID == nodeLitecoin) {
+			t.Fatalf("%s restarting=%v starting=%v", node.ID, node.Restarting, node.Starting)
+		}
+	}
+	b := restartTestApp(t)
+	hostStatusFile(t, b, "apply_config", "applied", time.Second)
+	if got := restartingSet(b); len(got) != 3 || len(startingSet(b)) != 0 {
+		t.Fatalf("settings change restarting = %v starting = %v", got, startingSet(b))
+	}
+}
+
+func TestNewestRestartEventDecidesStarting(t *testing.T) {
+	id := "0123456789abcdef0123456789abcdef"
+	a := restartTestApp(t)
+	writeControlFile(t, a.nodeControlPath("status"), nodeControlStatus{ID: id, Node: nodeLitecoin, Active: true, State: "applied"}, time.Minute)
+	writeControlFile(t, a.credentialPath("status"), credentialStatus{ID: id, Node: nodeLitecoin, State: "applied"}, time.Second)
+	if got := restartingSet(a); !equalIDs(got, nodeLitecoin) || len(startingSet(a)) != 0 {
+		t.Fatalf("newer settings change: restarting = %v starting = %v", got, startingSet(a))
+	}
+	b := restartTestApp(t)
+	writeControlFile(t, b.nodeControlPath("status"), nodeControlStatus{ID: id, Node: nodeLitecoin, Active: true, State: "applied"}, time.Second)
+	writeControlFile(t, b.credentialPath("status"), credentialStatus{ID: id, Node: nodeLitecoin, State: "applied"}, time.Minute)
+	if got := startingSet(b); !equalIDs(got, nodeLitecoin) {
+		t.Fatalf("newer activation: starting = %v", got)
 	}
 }
 

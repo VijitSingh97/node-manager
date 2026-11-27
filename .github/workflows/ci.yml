@@ -36,16 +36,10 @@ jobs:
         with:
           python-version: "3.14"
 
-      - name: Node dependency updater tests
-        run: python -m unittest tests/test_node_dependencies.py
-
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: build/dashboard/go.mod
           cache: false
-
-      - name: Lint
-        run: scripts/lint.sh
 
       - name: Dashboard vulnerability scan
         working-directory: build/dashboard
@@ -55,49 +49,15 @@ jobs:
           export GOTOOLCHAIN
           go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
-      - name: Dashboard Go checks
-        run: |
-          cd build/dashboard
-          go test -race ./...
-          go test -count=1 -run '^TestBenchIndexMatchesScanAndIsFaster$' .
-          go vet ./...
-          go build -o /tmp/dashboard .
-
-      - name: Tari wallet launcher Go checks
-        run: |
-          cd build/tari-wallet
-          go test -race ./...
-          go vet ./...
-
-      - name: Host helper Go checks
-        run: |
-          cd build/hostd
-          go test -race ./...
-          go vet ./...
-
-      - name: Python reference + HTTP parity
-        run: |
-          pip install -r build/dashboard/parity/reference/requirements.txt pytest pytest-cov
-          cd build/dashboard
-          python -m pytest tests -q --cov=parity/reference --cov-report=term-missing --cov-fail-under=85
-          python parity/generate.py --check
-          python parity/test_http.py
-          DASHBOARD_COMMAND='["/tmp/dashboard"]' python parity/test_http.py
+      - name: Install Python test dependencies
+        run: pip install -r build/dashboard/parity/reference/requirements.txt pytest
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
 
-      - name: UI flows
-        run: DASHBOARD_BIN=/tmp/dashboard node --test --test-timeout=600000 "build/dashboard/ui/*.test.mjs"
-
-      - name: Frontend unit tests
-        run: node --test build/dashboard/static/*.test.mjs
-
-      # configure.sh e2e, compose contract, CLI test, AND the full-stack boot
-      # (test_e2e.sh runs here because CI=true — it builds + boots the stack,
-      # provisions watch-only wallets, and runs the egress audit).
-      - name: Stack tests
+      # CI=true also enables the full-stack boot in test_e2e.sh and fails UI flows that lack Chrome.
+      - name: Tests
         run: tests/run.sh
 
   native-nodes:

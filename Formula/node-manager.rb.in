@@ -15,11 +15,12 @@ class NodeManager < Formula
   end
 
   def install
-    libexec.install "stack", "configure.sh", "VERSION", ".dockerignore"
+    libexec.install "stack", "configure.sh", "VERSION"
+    prefix.install "LICENSE"
     libexec.install Dir["docker-compose*.yml"]
     libexec.install "build"
     (libexec/"scripts").install "scripts/node-manager", "scripts/node-control", "scripts/node-port-control",
-                                "scripts/node-resource-profile"
+                                "scripts/node-resource-profile", "scripts/helper-common.sh"
 
     dependency_path = [formula_opt_bin("bash"), formula_opt_bin("flock"), formula_opt_bin("jq"),
                        formula_opt_bin("openssl@3")]

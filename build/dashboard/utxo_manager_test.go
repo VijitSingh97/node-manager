@@ -496,25 +496,10 @@ func TestUtxoManagerReadyOnlyWhenIdleAndAtTip(t *testing.T) {
 	}
 }
 
-func TestUtxoManagerNoTickDuringRunSeed(t *testing.T) {
-	c := utxoMgrChain(20, "b")
-	node := newFakeUtxoNode(c)
-	m := utxoMgrNew(t, t.TempDir(), nil, node, io.Discard)
-	var inSeed, violated atomic.Bool
-	node.hook = func(string, any) error {
-		if inSeed.Load() {
-			violated.Store(true)
-		}
-		return nil
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() { m.run(ctx); close(done) }()
+func TestUtxoManagerExecSeedReportsStatusAndError(t *testing.T) {
+	m := utxoMgrNew(t, t.TempDir(), nil, newFakeUtxoNode(utxoMgrChain(20, "b")), io.Discard)
 	for i := 0; i < 20; i++ {
-		err := m.runSeed(ctx, func(context.Context) error {
-			inSeed.Store(true)
-			defer inSeed.Store(false)
-			time.Sleep(5 * time.Millisecond)
+		err := m.execSeed(t.Context(), func(context.Context) error {
 			if st := m.Status(); st.State != utxoStateSeeding || st.Phase != utxoPhaseWaiting || st.StartedAt == nil {
 				t.Errorf("status during seed: %+v", st)
 			}
@@ -523,11 +508,6 @@ func TestUtxoManagerNoTickDuringRunSeed(t *testing.T) {
 		if err == nil {
 			t.Fatal("seed error not returned")
 		}
-	}
-	cancel()
-	<-done
-	if violated.Load() {
-		t.Fatal("a follower tick ran during a seed")
 	}
 }
 
@@ -595,16 +575,13 @@ func TestUtxoManagerResetStore(t *testing.T) {
 	}
 }
 
-func TestUtxoManagerRunSeedInvalidWipesFirst(t *testing.T) {
+func TestUtxoManagerExecSeedInvalidWipesFirst(t *testing.T) {
 	c := utxoMgrChain(10, "b")
 	dir := t.TempDir()
 	utxoMgrSeed(t, dir, nil, c)
 	m := utxoMgrNew(t, dir, nil, newFakeUtxoNode(c), io.Discard)
 	m.invalidate("test")
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go m.run(ctx)
-	err := m.runSeed(ctx, func(context.Context) error {
+	err := m.execSeed(t.Context(), func(context.Context) error {
 		if _, _, has, _ := m.currentStore().Tip(); has {
 			t.Error("seed started on a non-empty store")
 		}

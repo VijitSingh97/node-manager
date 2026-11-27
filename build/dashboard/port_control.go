@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -78,10 +77,8 @@ func (input *portControlChangeInput) UnmarshalJSON(data []byte) error {
 		HostPort *int   `json:"host_port"`
 	}
 	var wire wireInput
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&wire); err != nil {
-		return err
+	if !decodeStrictBytes(data, &wire) {
+		return errors.New("invalid port change")
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
@@ -124,37 +121,34 @@ func privateLANAddress(value string) bool {
 	return err == nil && address.Is4() && address.IsPrivate()
 }
 
-func portControlLabel(id string) string {
-	switch id {
-	case "bitcoin_rpc":
-		return "Bitcoin RPC"
-	case "monero_rpc":
-		return "Monero RPC"
-	case "monero_zmq":
-		return "Monero ZMQ"
-	case "tari_grpc":
-		return "Tari gRPC"
-	case "litecoin_rpc":
-		return "Litecoin RPC"
-	case "dogecoin_rpc":
-		return "Dogecoin RPC"
-	case "bitcoincash_rpc":
-		return "Bitcoin Cash RPC"
-	case "zcash_rpc":
-		return "Zcash RPC"
+var portControlLabels = func() map[string]string {
+	labels := map[string]string{"monero_zmq": "Monero ZMQ"}
+	for _, id := range nodeOrder {
+		labels[id+"_"+strings.ToLower(rpcPortKind(id))] = nodeDisplayName(id) + " " + rpcPortKind(id)
 	}
-	return ""
+	return labels
+}()
+
+func rpcPortKind(id string) string {
+	if chainPages[id].grpc {
+		return "gRPC"
+	}
+	return "RPC"
+}
+
+func portControlLabel(id string) string {
+	return portControlLabels[id]
 }
 
 func (a *app) portControlPorts() []portControlPort {
 	ports := make([]portControlPort, 0, 8)
 	if !a.cfg.bitcoinDisabled {
-		ports = append(ports, configuredPort("bitcoin_rpc", "Bitcoin RPC", a.cfg.bitcoinRPCEndpoint, "BITCOIN_RPC_BIND_IP", "BITCOIN_RPC_PORT", "8332"))
+		ports = append(ports, configuredPort("bitcoin_rpc", portControlLabel("bitcoin_rpc"), a.cfg.bitcoinRPCEndpoint, "BITCOIN_RPC_BIND_IP", "BITCOIN_RPC_PORT", "8332"))
 	}
 	if a.cfg.moneroEnabled {
 		ports = append(ports,
-			configuredPort("monero_rpc", "Monero RPC", a.cfg.moneroRPCEndpoint, "MONERO_RPC_BIND_IP", "MONERO_RPC_PORT", "18081"),
-			configuredPort("monero_zmq", "Monero ZMQ", a.cfg.moneroZMQEndpoint, "MONERO_ZMQ_BIND_IP", "MONERO_ZMQ_PORT", "18083"),
+			configuredPort("monero_rpc", portControlLabel("monero_rpc"), a.cfg.moneroRPCEndpoint, "MONERO_RPC_BIND_IP", "MONERO_RPC_PORT", "18081"),
+			configuredPort("monero_zmq", portControlLabel("monero_zmq"), a.cfg.moneroZMQEndpoint, "MONERO_ZMQ_BIND_IP", "MONERO_ZMQ_PORT", "18083"),
 		)
 	}
 	for _, id := range []string{nodeTari, nodeLitecoin, nodeDogecoin, nodeBitcoinCash, nodeZcash} {
@@ -162,17 +156,9 @@ func (a *app) portControlPorts() []portControlPort {
 		if !ok || !node.Enabled {
 			continue
 		}
-		prefix := strings.ToUpper(id)
-		if id == nodeBitcoinCash {
-			prefix = "BITCOINCASH"
-		}
-		kind := "RPC"
-		label := node.Name + " RPC"
-		if id == nodeTari {
-			kind = "GRPC"
-			label = node.Name + " gRPC"
-		}
-		ports = append(ports, configuredPort(id+"_"+strings.ToLower(kind), label, node.RPCEndpoint, prefix+"_"+kind+"_BIND_IP", prefix+"_"+kind+"_PORT", node.DefaultPort))
+		prefix, kind := strings.ToUpper(id), strings.ToUpper(rpcPortKind(id))
+		portID := id + "_" + strings.ToLower(kind)
+		ports = append(ports, configuredPort(portID, portControlLabel(portID), node.RPCEndpoint, prefix+"_"+kind+"_BIND_IP", prefix+"_"+kind+"_PORT", node.DefaultPort))
 	}
 	return ports
 }
@@ -212,9 +198,7 @@ func (a *app) readPortControlStatus() *portControlStatus {
 		return nil
 	}
 	var status portControlStatus
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&status) != nil || ensureJSONEnd(decoder) != nil || !validPortControlID(status.ID) {
+	if !decodeStrictBytes(b, &status) || !validPortControlID(status.ID) {
 		return nil
 	}
 	if status.State != "applied" && status.State != "rejected" && status.State != "failed" {
@@ -342,11 +326,8 @@ func (a *app) apiPortControlPost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "host port control is unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxPortControlBody)
 	var input portControlInput
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&input) != nil || ensureJSONEnd(decoder) != nil {
+	if !decodeStrictBody(w, r, maxPortControlBody, &input) {
 		http.Error(w, "invalid port control request", http.StatusBadRequest)
 		return
 	}
@@ -361,12 +342,7 @@ func (a *app) apiPortControlPost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, errPortControlBusy.Error(), http.StatusConflict)
 		return
 	}
-	idBytes := make([]byte, 16)
-	if _, err := rand.Read(idBytes); err != nil {
-		http.Error(w, "port control unavailable", http.StatusServiceUnavailable)
-		return
-	}
-	request := portControlRequest{ID: hex.EncodeToString(idBytes), Changes: changes, RequestedAt: time.Now().Unix()}
+	request := portControlRequest{ID: newRequestID(), Changes: changes, RequestedAt: time.Now().Unix()}
 	b, err := json.Marshal(request)
 	if err != nil || writePrivateFileAtomic(a.portControlPath("request"), append(b, '\n')) != nil {
 		http.Error(w, "port control unavailable", http.StatusServiceUnavailable)
@@ -379,13 +355,11 @@ func (a *app) apiPortControlPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func validPortControlID(value string) bool {
-	if len(value) != 32 {
-		return false
-	}
-	for _, character := range value {
-		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
-			return false
-		}
-	}
-	return true
+	return lowerHex(value, 32)
+}
+
+func newRequestID() string {
+	raw := make([]byte, 16)
+	_, _ = rand.Read(raw)
+	return hex.EncodeToString(raw)
 }

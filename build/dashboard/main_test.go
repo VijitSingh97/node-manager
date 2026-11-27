@@ -304,7 +304,7 @@ func TestIndexAuthRPCParityAndEscaping(t *testing.T) {
 	}
 	body := got.Body.String()
 	assertBitcoinPersistentMounts(t, body, true)
-	for _, want := range []string{"900000 / 900001", "4200 tx", "10 / 10 / 10", ">Pruned</span>", `Version:</span>`, `RPC:</span>`, `id="btc-price"`, `/static/prices.js`, "192.168.1.50:8332 · LAN", "Configured LAN access", `class="node-set-title">mini-1 &lt;node&gt; Node Set</h1>`} {
+	for _, want := range []string{"900000 / 900001", "4200 tx", "10 / 10 / 10", ">Pruned</span>", `Version:</span>`, `RPC:</span>`, `id="btc-price"`, `/static/prices.js`, "192.168.1.50:8332 · LAN", "LAN access is on. Use your Bitcoin RPC login.", `class="node-set-title">mini-1 &lt;node&gt; Node Set</h1>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body missing %q", want)
 		}
@@ -340,7 +340,7 @@ func TestInvalidRPCRendersLoading(t *testing.T) {
 func TestIndexSyncedFullNodeShowsSharedPanelDefaults(t *testing.T) {
 	_, handler := testApp(t, &rpcFixture{idleSynced: true}, "")
 	body := request(t, handler, http.MethodGet, "/", "").Body.String()
-	for _, want := range []string{">Full</span>", "Sync Progress:</span> <span>100.0000%", "Node Data Size:</span> <span>—</span>", "Uptime:</span> <span>—</span>"} {
+	for _, want := range []string{">Full</span>", "Sync progress:</span> <span>100.0000%", "Node data size:</span> <span>—</span>", "Uptime:</span> <span>—</span>"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body missing %q", want)
 		}

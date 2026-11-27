@@ -2,6 +2,8 @@
 Description=Apply Node Manager node state requests
 After=docker.service
 Requires=docker.service
+# A burst of dashboard requests must not trip the start limit, which would stop the .path watch until restart.
+StartLimitBurst=30
 ConditionPathExists=/var/lib/node-manager/.env
 
 [Service]

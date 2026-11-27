@@ -59,6 +59,8 @@ func (f *dashboardRPC) handler(w http.ResponseWriter, r *http.Request) {
 	switch request.Method {
 	case "getblockchaininfo":
 		result = chain
+	case "getblockheader":
+		result = map[string]any{"time": time.Now().Unix() - 300}
 	case "getnetworkinfo":
 		result = map[string]any{"subversion": "/Satoshi:31.1.0/", "connections": 2}
 	case "getpeerinfo":
@@ -105,7 +107,7 @@ func newDashboardFixture(t *testing.T) *dashboardFixture {
 	t.Setenv("TELEGRAM_CHAT_ID", "")
 	t.Setenv("HEALTHCHECKS_URL", "")
 	rpcFixture := &dashboardRPC{
-		chain:   blockchainInfo{Blocks: 900000, Headers: 900001, VerificationProgress: 0.9999, InitialBlockDownload: false, SizeOnDisk: 12 * 1024 * 1024},
+		chain:   blockchainInfo{BestBlockHash: "00ff", Blocks: 900000, Headers: 900001, VerificationProgress: 0.9999, InitialBlockDownload: false, SizeOnDisk: 12 * 1024 * 1024},
 		wallets: make(map[string]float64), entries: make(map[string]WatchEntry),
 	}
 	rpcServer := httptest.NewServer(http.HandlerFunc(rpcFixture.handler))
@@ -178,6 +180,7 @@ func TestDashboardNodePageTransitionsFromSyncedToInitializing(t *testing.T) {
 	for _, want := range []string{
 		"Bitcoin Node Status", "900000 / 900001", "42 tx · 2.0 MiB", "1.2 / 1.2 / 1.2",
 		`id="btc-price"`, `id="watch"`, `/static/prices.js`, `/static/watch.js`,
+		"Synchronizing the Bitcoin blockchain…", "Latest block:", "5m ago", "<time data-updated-at=",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("synced page missing %q", want)
@@ -232,7 +235,7 @@ func TestDashboardKeepsOnlyLastConfirmedInProgressSyncForRPCFailures(t *testing.
 	}
 }
 
-func TestDashboardPricesExposeFreshUnavailableAndCachedStaleStates(t *testing.T) {
+func TestDashboardPricesExposeFreshUnavailableAndFailedRefreshStates(t *testing.T) {
 	fixture := newDashboardFixture(t)
 	now := time.Unix(1_800_000_000, 0)
 	fixture.app.prices.now = func() time.Time { return now }
@@ -261,8 +264,8 @@ func TestDashboardPricesExposeFreshUnavailableAndCachedStaleStates(t *testing.T)
 		t.Fatal("provider failure unexpectedly succeeded")
 	}
 	cached := responseJSON(t, fixture.request(t, http.MethodGet, "/api/prices"))
-	if cached["available"] != true || cached["stale"] != true || cached["updated_at"] != float64(1_800_000_000) {
-		t.Fatalf("cached stale prices = %#v", cached)
+	if cached["available"] != true || cached["stale"] != false || cached["refresh_failed"] != true || cached["updated_at"] != float64(1_800_000_000) {
+		t.Fatalf("prices after a failed refresh = %#v", cached)
 	}
 
 	empty := newDashboardFixture(t)

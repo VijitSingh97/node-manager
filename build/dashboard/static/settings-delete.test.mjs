@@ -28,6 +28,8 @@ test("Delete is enabled only for an installed, deactivated node that is not the 
   assert.equal(deleteControl(view, view.nodes.litecoin).reason, "");
   assert.match(deleteControl(view, view.nodes.bitcoin).reason, /Deactivate the node first/);
   assert.match(deleteControl(view, view.nodes.zcash).reason, /not installed/);
+  assert.equal(deleteControl({ ...view, delete_supported: false }, view.nodes.litecoin).reason, "Deleting needs the installed host helper.");
+  assert.equal(deleteControl({ ...view, config_pending: true }, view.nodes.litecoin).reason, "Run the new config first.");
   const lonely = model([node("bitcoin", { last_enabled: true })]);
   assert.match(deleteControl(lonely, lonely.nodes.bitcoin).reason, /At least one node must stay installed/);
   const unflagged = model([node("bitcoin"), node("tari", { installed: false })]);
@@ -84,7 +86,7 @@ test("Save sends a staged delete last, and the delete status reaches the queue",
 });
 
 test("the Node set row offers Delete next to Move data, behind a typed-confirmation dialog", async () => {
-  const [source, html] = await Promise.all([readFile(new URL("./settings.js", import.meta.url), "utf8"), readFile(new URL("../index.html", import.meta.url), "utf8")]);
+  const [source, html] = await Promise.all([readFile(new URL("./settings.js", import.meta.url), "utf8"), readFile(new URL("../testdata/index.rendered.html", import.meta.url), "utf8")]);
   assert.match(source, /row\.append\(name, path, button, remove\)/);
   assert.match(source, /"Deletes on Save"/);
   assert.match(source, /deleteSubmit\.disabled = !deleteConfirmed\(/);

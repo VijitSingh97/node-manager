@@ -27,8 +27,9 @@ the Tari base node, and Zakura use pinned upstream images rather than duplicate
 first-party builds.
 `./stack pull` downloads these tags with the host's Docker settings;
 `./stack up` starts only locally available images and never builds implicitly.
-The release artifact is also a source tarball. Source builds need a controlled
-build environment with its own Tor egress; see [Privacy](privacy.md).
+The release tarball is a runtime bundle, not a source tarball. Source builds
+need a Git checkout in a controlled build environment with its own Tor egress;
+see [Privacy](privacy.md).
 
 ## Single source of truth
 
@@ -72,14 +73,21 @@ outbound-only.
    the **full CI suite** (lint, unit tests, compose contract, e2e
    boot with the egress audit) runs against the tagged commit, and only
    then is the GitHub Release published — title, notes extracted from the
-   changelog section, and a `node-manager.tar.gz` source tarball
+   changelog section, and a `node-manager.tar.gz` runtime tarball
    (`git archive`, filtered by `.gitattributes`).
 
-The tarball contains runtime source and Docker inputs, configuration, the license,
-security policy, changelog, and user guides. Tests, Python parity references,
-benchmark experiments, screenshots, maintainer scripts, and development metadata
-stay in Git. The production dashboard image contains the compiled Go binary and
-runtime web assets; test modules are excluded from the Docker build context.
+The tarball contains only what installs and runs Node Manager: `stack`,
+`configure.sh`, `VERSION`, the license, the Compose files, the four host helper
+scripts in `scripts/`, and the config files Compose mounts from `build/`
+(`bitcoin/bitcoin.conf`, `tari/`, and `zcash/`). Everything else stays in Git:
+the user guides (read them on GitHub), `README.md`, the changelog and security
+policy, `config.example.json`, the Dockerfiles and Go and web sources that the
+release workflow compiles into the GHCR images, tests, maintainer
+scripts, packaging and development metadata. The Debian package ships the same
+runtime files plus its systemd units and `/usr/share/doc/node-manager/copyright`.
+The production dashboard image contains the compiled Go binary and runtime web
+assets. `tests/test_release.sh` fails if the archive gains a file outside this set
+or loses a path that Compose mounts.
 
 Nothing is published until the gate is green. A red gate leaves the tag
 without a release — fix on `main`, bump the patch version, tag again
@@ -109,12 +117,28 @@ RUNTIME_IMAGE_DIGESTS_FILE=/tmp/node-manager-runtime-images.json scripts/build-d
 A first installation remains inert. On an actual version upgrade, the package's
 `postinst` activates images only for an initialized, running package deployment.
 It preserves approved settings, data, volumes, and deliberately stopped services.
+It also pulls the new image of every node that already has an older image on the
+machine, so a node that was off or deleted can be activated afterwards; those
+pulls never start a container and a failure only warns.
 Activation failures are reported for retry with `node-manager package-upgrade`;
 Docker or registry outages do not leave dpkg unconfigured.
 It builds the architecture-independent package, creates and signs the feed,
 verifies that feed with an isolated APT client, uploads the package and checksum
-to the GitHub Release, and deploys the feed to Pages. Do not advertise APT
-availability until that Pages deployment succeeds.
+to the GitHub Release, and uploads the feed as the Pages artifact together with
+the project page in `packaging/pages/` and the root `llms.txt`. A separate
+`pages` job then deploys it. Do not advertise APT availability until that
+deployment succeeds. If only `pages` fails, use **Re-run failed jobs** within
+one day: it deploys the artifact `apt` already uploaded, which GitHub keeps for
+one day. After that, or if `apt` must run again, first delete every
+`github-pages` artifact of that run, from all attempts, because the deploy
+refuses more than one. The run page shows only the current attempt, so use the
+API:
+
+```sh
+gh api --paginate repos/{owner}/{repo}/actions/runs/RUN_ID/artifacts \
+  --jq '.artifacts[] | select(.name=="github-pages") | .id' |
+  xargs -I{} gh api -X DELETE repos/{owner}/{repo}/actions/artifacts/{}
+```
 
 The static feed omits `Valid-Until`, so releases remain installable between
 releases but old signed snapshots do not expire. Adding an expiry requires
@@ -124,7 +148,7 @@ monitored periodic re-signing so an idle project does not break every user's
 ## How users get a release
 
 - **Tarball:** obtain and unpack `node-manager.tar.gz`, then run
-  `./stack init` to download missing images and start.
+  `./stack init` to download missing images and start. Guides are on GitHub.
 - **APT:** after the signed Pages deployment succeeds, install the package from
   `https://vijitsingh97.github.io/node-manager` and run
   `sudo node-manager init` explicitly.

@@ -96,7 +96,11 @@ flow("Install stages with every interface closed, can be undone, and installs on
   await page.click(rowButton("monero"));
   await page.click("#settings-install-submit");
   await page.waitText(rowButton("monero"), "Installs on Save");
-  assert.equal(await page.evaluate((selector) => document.querySelector(selector).title, rowButton("monero")), "Click to undo");
+  assert.equal(await page.evaluate((selector) => {
+    const button = document.querySelector(selector);
+    const hint = document.getElementById(button.getAttribute("aria-describedby"));
+    return hint.textContent;
+  }, rowButton("monero")), "Click to undo");
   await page.click(rowButton("monero"));
   assert.equal(await page.text(rowButton("monero")), "Install");
   await save(page, "No changes.");
@@ -183,4 +187,28 @@ flow("Install and Move data stay locked while the host is busy", { nodes: ["lite
   helper.release();
   await savedAndSettled(page);
   await page.waitFor((selector) => !document.querySelector(selector).disabled, { args: [rowButton("monero")] });
+});
+
+flow("Disabled Delete shows its reason and the thermal throttle sits with the host controls on a phone", { capability: { config_pending: true, config_revision: revision, delete_supported: true } }, async ({ page }) => {
+  await page.send("Emulation.setDeviceMetricsOverride", { width: 375, height: 812, deviceScaleFactor: 1, mobile: true });
+  await openHostSettings(page);
+  const shown = await page.evaluate((selector) => {
+    const button = document.querySelector(selector);
+    const reason = document.getElementById(button.getAttribute("aria-describedby"));
+    const box = reason.getBoundingClientRect();
+    return { disabled: button.disabled, text: reason.textContent, visible: box.width > 0 && box.height > 0 && box.right <= innerWidth, throttleGroup: document.getElementById("settings-thermal-throttle").closest("fieldset").id };
+  }, "#settings-host-nodes .settings-delete-button");
+  assert.deepEqual(shown, { disabled: true, text: "Run the new config first.", visible: true, throttleGroup: "settings-host" });
+});
+
+flow("A refused balance index shows its reason beside the disabled switch on a phone", { nodes: ["bitcoin"], capability: { utxo_index_blocked: { bitcoin: "The balance index requires Bitcoin to be enabled." } } }, async ({ page }) => {
+  await page.send("Emulation.setDeviceMetricsOverride", { width: 375, height: 812, deviceScaleFactor: 1, mobile: true });
+  await openHostSettings(page);
+  const shown = await page.evaluate(() => {
+    const input = document.getElementById("settings-utxo-index");
+    const reason = document.getElementById(input.getAttribute("aria-describedby"));
+    const box = reason.getBoundingClientRect();
+    return { disabled: input.disabled, text: reason.textContent, visible: box.width > 0 && box.height > 0 && box.right <= innerWidth };
+  });
+  assert.deepEqual(shown, { disabled: true, text: "The balance index requires Bitcoin to be enabled.", visible: true });
 });

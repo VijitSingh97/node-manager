@@ -1,0 +1,66 @@
+[
+  {
+    "key": "addr(MQd1fJwqBJvwLuyhr17PhEFx1swiqDbPQS)",
+    "name": "CoinCarp rich list rank 1 (2026-11-24)"
+  },
+  {
+    "key": "addr(ltc1qr07zu594qf63xm7l7x6pu3a2v39m2z6hh5pp4t)",
+    "name": "CoinCarp rich list rank 2 (2026-11-24)"
+  },
+  {
+    "key": "addr(MLj1bgnNs8iAmNxhZNnrymQaAZNqnXXV3E)",
+    "name": "CoinCarp rich list rank 3 (2026-11-24)"
+  },
+  {
+    "key": "addr(ltc1q29hm7wn047c8vgqeth8d97nn7k5xrtgrek9dzg)",
+    "name": "CoinCarp rich list rank 4 (2026-11-24)"
+  },
+  {
+    "key": "addr(LU2ztpZDcP7xwEzwJiRSHPGWToHQggwacr)",
+    "name": "CoinCarp rich list rank 7 (2026-11-24)"
+  },
+  {
+    "key": "addr(LQSSaiE9emVixvf3qgudWNZ4SHnshnrday)",
+    "name": "CoinCarp rich list rank 9 (2026-11-24)"
+  },
+  {
+    "key": "addr(LhGnUAWcqumBHzyPdK5up94ZAFfbL8JsXm)",
+    "name": "CoinSwitch proof-of-reserves LTC address 1 (list cut-off 2025-05-06, empty on 2026-11-24)"
+  },
+  {
+    "key": "addr(LdECeV1ZvkmtR3cvss2ybe2uX7XUCDwXzw)",
+    "name": "CoinSwitch proof-of-reserves LTC address 2 (list cut-off 2025-05-06, empty on 2026-11-24)"
+  },
+  {
+    "name": "Busiest P2WPKH output address in blocks 3218041-3218340",
+    "key": "addr(ltc1qe55jghmyygaradusguc3zn50l2cal3sckdapw2)"
+  },
+  {
+    "name": "Busiest P2PKH output address in blocks 3218041-3218340",
+    "key": "addr(LNhQm4699LqWSUQ4qNLNsr9815tJK2y2GW)"
+  },
+  {
+    "name": "Second busiest P2PKH output address in blocks 3218041-3218340",
+    "key": "addr(LNyMp9GPxBEJh3pQVJ3gRnUWmNZKyuErT5)"
+  },
+  {
+    "name": "Busiest P2SH output address in blocks 3218041-3218340",
+    "key": "addr(MP87zw77WvojtRdaWGFQeJZgDubrmEeN1Z)"
+  },
+  {
+    "name": "Busiest P2WSH output address in blocks 3218041-3218340",
+    "key": "addr(ltc1qzvcgmntglcuv4smv3lzj6k8szcvsrmvk0phrr9wfq8w493r096ssm2fgsw)"
+  },
+  {
+    "name": "Vector wpkh",
+    "key": "wpkh(xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8/<0;1>/*)"
+  },
+  {
+    "name": "Vector sh-wpkh",
+    "key": "sh(wpkh(xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8/<0;1>/*))"
+  },
+  {
+    "name": "Vector pkh",
+    "key": "pkh(xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8/<0;1>/*)"
+  }
+]

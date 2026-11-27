@@ -51,17 +51,15 @@ type nodeConfig struct {
 func loadAdditionalNodes(cfg *config) error {
 	cfg.nodes = map[string]nodeConfig{}
 	specs := []nodeConfig{
-		{ID: nodeTari, Name: "Tari", Supported: true, Protocol: "tari-grpc", RPCURL: "http://172.29.0.32:18142", DataDir: "/data-tari", DefaultPort: "18142", ExposureName: "GRPC"},
-		{ID: nodeLitecoin, Name: "Litecoin", Supported: true, Protocol: "bitcoin-json-rpc", RPCURL: "http://172.29.0.33:9332", DataDir: "/data-litecoin", DefaultPort: "9332", ExposureName: "RPC"},
-		{ID: nodeDogecoin, Name: "Dogecoin", Supported: true, Protocol: "bitcoin-json-rpc", RPCURL: "http://172.29.0.34:22555", DataDir: "/data-dogecoin", DefaultPort: "22555", ExposureName: "RPC"},
-		{ID: nodeBitcoinCash, Name: "Bitcoin Cash", Supported: true, Protocol: "bitcoin-json-rpc", RPCURL: "http://172.29.0.35:8332", DataDir: "/data-bitcoincash", DefaultPort: "8332", ExposureName: "RPC"},
-		{ID: nodeZcash, Name: "Zcash", Supported: true, Protocol: "zcash-json-rpc", RPCURL: "http://172.29.0.36:8232", DataDir: "/data-zcash", DefaultPort: "8232", ExposureName: "RPC"},
+		{ID: nodeTari, Supported: true, Protocol: "tari-grpc", RPCURL: "http://172.29.0.32:18142", DataDir: "/data-tari", DefaultPort: "18142", ExposureName: "GRPC"},
+		{ID: nodeLitecoin, Supported: true, Protocol: "bitcoin-json-rpc", RPCURL: "http://172.29.0.33:9332", DataDir: "/data-litecoin", DefaultPort: "9332", ExposureName: "RPC"},
+		{ID: nodeDogecoin, Supported: true, Protocol: "bitcoin-json-rpc", RPCURL: "http://172.29.0.34:22555", DataDir: "/data-dogecoin", DefaultPort: "22555", ExposureName: "RPC"},
+		{ID: nodeBitcoinCash, Supported: true, Protocol: "bitcoin-json-rpc", RPCURL: "http://172.29.0.35:8332", DataDir: "/data-bitcoincash", DefaultPort: "8332", ExposureName: "RPC"},
+		{ID: nodeZcash, Supported: true, Protocol: "zcash-json-rpc", RPCURL: "http://172.29.0.36:8232", DataDir: "/data-zcash", DefaultPort: "8232", ExposureName: "RPC"},
 	}
 	for _, spec := range specs {
+		spec.Name = nodeDisplayName(spec.ID)
 		prefix := strings.ToUpper(spec.ID)
-		if spec.ID == nodeBitcoinCash {
-			prefix = "BITCOINCASH"
-		}
 		spec.Enabled = enabled(os.Getenv(prefix + "_ENABLED"))
 		spec.Active = !explicitlyDisabled(os.Getenv(prefix + "_ACTIVE"))
 		spec.ActiveSet = true
@@ -202,6 +200,11 @@ type zcashBlockchainInfo struct {
 	SizeOnDisk           int64   `json:"size_on_disk"`
 }
 
+// Zakura's estimatedheight runs ahead of a synced tip once the newest block is 75 s old, so only headers bound the tip.
+func (c zcashBlockchainInfo) atTip() bool {
+	return c.BestBlockHash != "" && c.Blocks >= c.Headers && c.VerificationProgress >= 0.999999
+}
+
 type zcashStandardFee struct {
 	StandardFee int64 `json:"standard_fee"`
 }
@@ -305,9 +308,9 @@ func (a *app) fetchZcashStatus(ctx context.Context, node nodeConfig, status gene
 			status.LatestBlockAgeSeconds = max(0, time.Now().Unix()-header.Time)
 		}
 	}
-	status.Synced = status.Height >= status.TargetHeight && chain.VerificationProgress >= 0.999999 && status.LatestBlockAvailable && status.LatestBlockAgeSeconds <= int64((30*time.Minute)/time.Second)
+	status.Synced = chain.atTip() && status.LatestBlockAvailable && status.LatestBlockAgeSeconds <= int64((30*time.Minute)/time.Second)
 	if status.Synced {
-		status.SyncPercent = 100
+		status.SyncPercent, status.TargetHeight = 100, status.Height
 	}
 	var fee zcashStandardFee
 	if rpc.call(ctx, "getstandardfee", nil, &fee) == nil && fee.StandardFee > 0 {
@@ -429,3 +432,54 @@ func (a *app) writeBitcoinFamilyStatus(w http.ResponseWriter, r *http.Request, n
 	a.fillFromHostStats(node.ID, &status)
 	writeJSON(w, status)
 }
+
+type chainView struct {
+	ID           string
+	Label        string
+	Accent       string
+	PriceAsset   string
+	RPCName      string
+	AlertsPerDay int
+	Family       bool
+	GRPC         bool
+	Templated    bool
+	UTXOIndex    bool
+	Unavailable  bool
+}
+
+type chainPage struct {
+	label        string
+	accent       string
+	priceAsset   string
+	rpcName      string
+	alertsPerDay int
+	family       bool
+	grpc         bool
+	unavailable  bool
+}
+
+var chainPages = map[string]chainPage{
+	nodeBitcoin:     {label: "Bitcoin", accent: "#f2a900", priceAsset: "bitcoin", alertsPerDay: 144},
+	nodeMonero:      {label: "Monero", accent: "#ff6600", priceAsset: "monero", alertsPerDay: 720},
+	nodeTari:        {label: "Tari", accent: "#8f5cff", priceAsset: "tari", alertsPerDay: 720, rpcName: "gRPC", grpc: true},
+	nodeLitecoin:    {label: "Litecoin", accent: "#4d8fd8", priceAsset: "litecoin", alertsPerDay: 576, family: true, rpcName: "RPC"},
+	nodeDogecoin:    {label: "Dogecoin", accent: "#b88746", priceAsset: "dogecoin", alertsPerDay: 1440, family: true, rpcName: "RPC"},
+	nodeBitcoinCash: {label: "Bitcoin Cash", accent: "#36a852", priceAsset: "bitcoin-cash", alertsPerDay: 144, family: true, rpcName: "RPC"},
+	nodeZcash:       {label: "Zcash", accent: "#d69c35", priceAsset: "zcash", alertsPerDay: 1152, family: true, rpcName: "read-only RPC", unavailable: true},
+}
+
+func chainViewFor(id string) chainView {
+	page := chainPages[id]
+	return chainView{
+		ID: id, Label: nodeDisplayName(id), Accent: page.accent, PriceAsset: page.priceAsset, RPCName: page.rpcName,
+		AlertsPerDay: page.alertsPerDay, Family: page.family, GRPC: page.grpc, Templated: id != nodeBitcoin && id != nodeMonero, UTXOIndex: utxoChains[id] != nil, Unavailable: page.unavailable,
+	}
+}
+
+var dashboardChains = func() []chainView {
+	chains := make([]chainView, 0, len(nodeOrder))
+	for _, id := range nodeOrder {
+		chains = append(chains, chainViewFor(id))
+	}
+	return chains
+}()

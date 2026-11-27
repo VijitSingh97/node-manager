@@ -2,10 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-fail() {
-  echo "FAIL: $1"
-  exit 1
-}
+# shellcheck source=tests/lib.sh
+. tests/lib.sh
 
 verify_downloaded_key() {
   file=$1
@@ -89,6 +87,12 @@ jq -n '
 scripts/build-deb.sh >/dev/null
 scripts/build-apt.sh
 gpg --verify public/InRelease >/dev/null 2>&1 || fail "InRelease signature did not verify"
+for page in packaging/pages/* llms.txt; do
+  cmp -s "$page" "public/${page##*/}" || fail "Pages artifact is missing $page"
+done
+if grep -Eq '(index\.html|llms\.txt|robots\.txt|sitemap\.xml)$' public/Release; then
+  fail "the project page entered the signed feed metadata"
+fi
 
 state=$tmp/apt
 mkdir -p "$state/lists/partial" "$state/download"

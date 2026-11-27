@@ -187,6 +187,12 @@ def compose_violations(files):
         for volume in service.get("volumes") or []:
             if "docker.sock" in str(volume):
                 found.append(f"{name} mounts the Docker socket")
+            if name != "tor" and "tor_data" in str(volume):
+                found.append(f"{name} mounts the Tor data volume")
+            if name == "tor" and re.search(r":/tmp(:|$)", str(volume)):
+                found.append("tor mounts a volume at /tmp")
+        if name == "tor" and any(str(t).startswith("/tmp") for t in (service.get("tmpfs") or [])):
+            found.append("tor mounts a tmpfs at /tmp")
         env = service.get("environment") or {}
         for var, value in (env.items() if isinstance(env, dict) else []):
             if PROXY_ENV.match(var):
@@ -253,6 +259,11 @@ def torrc_violations(text):
     for directive in ("ORPort", "DirPort", "ExitRelay", "BridgeRelay", "ControlPort", "TransPort", "DNSPort", "SocksPolicy"):
         if re.search(r"^\s*" + directive + r"\b", text, re.MULTILINE | re.IGNORECASE):
             found.append("torrc sets " + directive)
+    for line in re.findall(r"^\s*ControlSocket\b.*$", text, re.MULTILINE | re.IGNORECASE):
+        if not re.fullmatch(r"ControlSocket /var/lib/tor/control/\S+", line.strip()):
+            found.append("torrc ControlSocket is not in the tor-only control directory")
+    if re.search(r"^\s*ControlSocketsGroupWritable\b", text, re.MULTILINE | re.IGNORECASE):
+        found.append("torrc makes the control socket group writable")
     if not re.search(r"^SocksPort 0\.0\.0\.0:9050$", text, re.MULTILINE):
         found.append("torrc SocksPort changed")
     return found
@@ -449,6 +460,19 @@ VERBS = [
 URL = re.compile(r"https?://([^/\s\"'?:]+)")
 
 
+def without_arithmetic(line):
+    out, i = "", 0
+    while (start := line.find("((", i)) != -1:
+        depth, j = 0, start
+        while j < len(line):
+            depth += {"(": 1, ")": -1}.get(line[j], 0)
+            j += 1
+            if depth == 0:
+                break
+        out, i = out + line[i:start], j
+    return out + line[i:]
+
+
 def statements(text):
     """Yield command statements with comments and line continuations removed."""
     joined = re.sub(r"\\\n\s*", " ", text)
@@ -459,7 +483,7 @@ def statements(text):
             continue
         if not line.strip().startswith("#"):
             yield line
-        here = re.search(r"<<-?\s*[\"']?(\w+)[\"']?", line)
+        here = re.search(r"(?<!<)<<-?\s*[\"']?(\w+)[\"']?", without_arithmetic(line))
         if here:
             terminator = here.group(1)
 
@@ -473,7 +497,9 @@ def compliant(token, line):
     if token == "socat":
         return bool(re.search(r"SOCKS4A:127\.0\.0\.1:[a-z0-9.\-]+:\d+,socksport=9050\b|\sTCP4:172\.29\.0\.\d+:\d+(\s|$)", line))
     if token == "nc":
-        return "127.0.0.1" in line or "localhost" in line or STACK_SUBNET_PREFIX in line
+        if re.search(r"\s-x\s", line):
+            return bool(re.search(r"\s-X 5 -x 127\.0\.0\.1:9050\s", line))
+        return bool(re.search(r"\bnc\s+-U\s", line)) or "127.0.0.1" in line or "localhost" in line or STACK_SUBNET_PREFIX in line
     if token == "docker run":
         return "--network none" in line
     if token == "compose up":

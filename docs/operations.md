@@ -11,7 +11,7 @@ installs use `node-manager` instead of `./stack` (with `sudo` for APT). Direct
 |---|---|
 | `./stack up` / `down` / `restart [svc]` | Start / stop / restart. Bitcoin Core gets up to 5 minutes to flush on stop — let it. |
 | `./stack logs [svc]` | Follow logs (`tor`, `bitcoin`, or `dashboard`). |
-| `./stack events` | Incident history (down/recovered, failed Healthchecks pings, monitor restarts) from `/state/events.log` — survives restarts and reboots. |
+| `./stack events` | Event history from `/state/events.log` (node down and recovered, host actions, settings and sign-in changes; see [Event log](#event-log)) — survives restarts and reboots. |
 | `./stack apply` | Re-render `.env` from `config.json` and apply the changes. |
 | `./stack pull` | Download prebuilt images using the host's Docker settings. |
 | `./stack status` | Container + health summary; exits non-zero if anything is down. |
@@ -19,12 +19,50 @@ installs use `node-manager` instead of `./stack` (with `sudo` for APT). Direct
 | `./stack backup` / `restore [-y] <archive>` | See [Backup](#backup). |
 | `docker compose exec -T bitcoin bitcoin-cli -datadir=/data getblockchaininfo` | Talk to the node directly (cookie auth, no credentials needed). |
 
+## Event log
+
+The **Events** button (three lines, between the person icon and the gear) lists
+what happened on this node set, newest first. Filter it by category or node, and
+press **Show older events** to page back. It reads `/state/events.log`, the file
+`./stack events` prints, so nothing is stored twice. The file keeps about 1 MB;
+past that the dashboard drops the oldest half.
+
+| Category | What is listed |
+|---|---|
+| Nodes | Node down and recovered, monitor online, activate and deactivate results, installs, deletions and data moves, and nodes that fail to start or that the host stopped |
+| Sync and blocks | Initial sync complete, and new blocks when that node's block alert is on |
+| Host | Thermal throttle and release, low disk, Tor watchdog steps, and dashboard or LAN listener address moves |
+| Settings | Saved settings (the names of the changed fields, never their values), LAN port changes, launch at boot, the Tor network switches, and a new configuration applied with the nodes it restarted |
+| Sign-in and credentials | Browser sign-ins with the client address, sign-outs, dashboard password changes, and RPC credential reveals and resets |
+| Balance index | Turned on or off, seed started, finished, cancelled or failed, and verify results |
+| Wallets | Watch-only wallets and addresses added or removed, without the name, key or address |
+| Updates and restarts | Each dashboard start with its version, so an upgrade shows as a new version, and new releases |
+| Alert delivery | Failed Healthchecks pings |
+
+Events that need attention are labelled **Warning** or **Error**. `Host:` lines
+come from the host helpers, so the panel checks them, and any line it does not
+recognise, with the helpers' own `redact_last_line` rule: if the text mentions a
+password, token, login, seed, key or onion address, or holds a word of 40 or
+more characters or a Telegram bot token, the panel shows "Details hidden because
+they may include a secret." instead. The Telegram copy of a `Host:` line is not
+listed twice. Failed sign-in attempts are not logged, because unlimited attempts
+would push real events out of the file, and failed Telegram sends go to the
+dashboard's output only (`./stack logs dashboard`).
+
+Results that the host helper finishes while the dashboard restarts are listed
+once it is back; `/state/events_seen.json` records which results were already
+listed. The panel calls `GET /api/events` with a signed-in session (or Basic
+auth) and the `X-Requested-With: fetch` header. It takes `category`, `node`,
+`limit` (1–200, default 50) and `before`, the `next` value of the previous page.
+
 ## Health checks
 
 Shared services and configured node services define Docker health checks. For
 the core Bitcoin deployment:
 
-- `tor` — SOCKS port accepting connections (5 min grace for bootstrap).
+- `tor` — SOCKS port and the internal relay port accepting connections, and a
+  real stream opened through Tor (`tor-health`, every 30 s; 2 min start period
+  for bootstrap; see the Tor troubleshooting entry below).
 - `bitcoin` — RPC answers `getblockchaininfo`, authenticated with Core's
   `.cookie` file (30 min grace: RPC returns "warming up" during startup
   block verification).
@@ -39,7 +77,7 @@ shows recent probe output when diagnosing.
 
 ## Host readings
 
-With **Node manager usage** ticked in Settings, the usage panel at the top left
+With **Node Manager usage** ticked in Settings, the usage panel at the top left
 shows the host's temperature, fan speed, uptime and network rate as four tiles
 above the disk bars. On APT installs (amd64 and arm64) the small
 `node-manager-hostd` helper writes them every 10 seconds. New installs and
@@ -131,7 +169,7 @@ rendered runtime is retained until the file is explicitly approved once.
 
 ## Dashboard and node credentials
 
-Open the gear menu to change the dashboard login. Enter the current password,
+Open the User dialog (person icon) to change the dashboard login. Enter the current password,
 then the new password twice. It must contain 12–128 characters and no control
 characters. The old password stops working immediately; reload and sign in
 with the new one. The dashboard stores only a salted PBKDF2 hash in
@@ -187,8 +225,34 @@ stays stopped, and configuration edits still awaiting approval are not applied.
 Upgrades also install newly recommended packages such as `node-manager-hostd`.
 If it is missing (for example after `--no-install-recommends`), run
 `sudo apt install node-manager-hostd` (see [Host readings](#host-readings)).
-If Docker or the registry is unavailable, APT keeps the package installed and
-reports activation as pending. After correcting the problem, retry with
+Activation pulls the images of the running services one at a time, through the
+host's Docker daemon as before (no new network path). It then also pulls the
+new image of every other node that already has an older image on the machine,
+whether that node is inactive or deleted (deleting a node never removes its
+images), so Activate works afterwards. These extra pulls are tried once, never
+start a container, and only warn on failure; activating that node pulls its
+image then. A node with no image of its repository is not pulled. Each pull may take up to
+10 minutes and is tried up to 3 times, 15 s and then 30 s apart, so a transient
+registry or Tor failure costs a retry instead of the activation. The APT output
+records every try, for example `Pulled the dashboard image in 42 s (attempt 1 of
+3).` or `Pulling the dashboard image failed after 610 s (attempt 2 of 3).` An
+image that fails all 3 tries stops activation before any running service is
+changed. An image whose pull hangs every time gives up after about 31 minutes.
+
+If an image still fails, or Docker is unavailable, APT keeps the new package
+installed and exits successfully: a failing package script would leave the
+package half-configured and make every later APT run fail until it is fixed.
+Instead, the last line Node Manager prints in the APT output is:
+
+```text
+NODE MANAGER ACTIVATION FAILED: 1.39.0 is installed, but the running containers were not updated; retry with: sudo node-manager package-upgrade
+```
+
+Until an activation succeeds, `sudo node-manager doctor` repeats this under
+`== Config` as `WARN  Node Manager 1.39.0 is installed, but its containers were
+not updated; retry with: sudo node-manager package-upgrade`. The warning also
+clears when `package-upgrade` finds no service running, since a stopped stack
+starts on the new images. After correcting the problem, retry with
 `sudo node-manager package-upgrade`. Inspect `sudo node-manager status` and
 `sudo node-manager doctor` if activation reports a failure. If activation partly
 started and left a service stopped, use the specific `node-manager up` command
@@ -335,7 +399,8 @@ first — a live copy of `chainstate/` is corrupt by construction.
     is `DEGRADED`, otherwise `UP`.
   - `GET /actuator/info` returns:
     - `app`: `name`, `version`, and `install_kind` (`apt`, `homebrew`,
-      `source`, or `unknown` without the host helper).
+      `source`, or `unknown` until the host helper has reported the install
+      type).
     - `chains`: one entry per installed node, with `name`, `active` and
       `status` (`UP`, `DEGRADED`, `DOWN`, or `OFF` when deactivated). While
       the node answers, the entry also carries `network`, `height`,
@@ -408,7 +473,8 @@ first — a live copy of `chainstate/` is corrupt by construction.
 The Litecoin balance index (`litecoin.utxo_index`) seeds the same way, through
 the same host helper, with `litecoin` after the command: `./stack utxo-seed
 litecoin`, `./stack utxo-seed litecoin cancel` and `./stack utxo-index remove
-litecoin`. Its seed time and size on mainnet are not measured yet. Only one
+litecoin`. On mini-1 its automatic seed took 346 s and the index takes 4.52 GB for
+53.8 million coins ([measurement](measurements/litecoin-index-mainnet.md)). Only one
 balance index seeds at a time; a second request is refused with the `lock`
 guard until the first finishes.
 
@@ -421,8 +487,9 @@ it needs free space for three times the chainstate and marks Bitcoin Cash as
 restarting while the node is down, so it raises no node-down alert. The dashboard
 asks for this itself on APT and Homebrew installs, and `./stack utxo-seed
 bitcoincash` does it from a source checkout. The seed reads the copy only after a
-clean stop; a copy taken while the node was flushing is refused. Seed time and
-index size on mainnet are not measured yet.
+clean stop; a copy taken while the node was flushing is refused. On mini-1 the
+first mainnet seed took 530 s and built a 5.2 GB index for 58.8 million coins
+([measurement](measurements/bitcoincash-index-mainnet.md)).
 
 An archival Bitcoin Cash node with no host helper can instead replay every block
 from genesis through the dashboard: `./stack utxo-seed bitcoincash --replay`, or
@@ -513,7 +580,7 @@ What happens:
   [Checking a balance index against the node](#checking-a-balance-index-against-the-node).
 
 To time lookups with and without the index on public test wallets, run
-`utxo-index bench`, with `--chain litecoin` for the Litecoin index; the steps
+`utxo-index bench`, with `--chain litecoin` or `--chain bitcoincash` for those indexes; the steps
 are in [the lookup benchmark](measurements/lookup-bench.md).
 
 Measured budget, from the first mainnet seed on a 2018 Mac mini with bitcoind
@@ -676,9 +743,11 @@ On APT and Homebrew installs the command is `node-manager utxo-index verify`.
   | Bitcoin Cash Node 29.2.0 | `gettxoutsetinfo none` | `ecmh`, `muhash_testing` and the default `hash_serialized_3` all hash the set |
   | Dogecoin Core 1.14.9 | `gettxoutsetinfo` | Takes no argument and always hashes the whole set, so it is the slowest |
 
-  How long this takes on mainnet has not been measured. For Bitcoin on the 2018 Mac mini with bitcoind
-  capped at 0.5 CPU, expect about 3 minutes, a guess from `scantxoutset`, which makes a similar walk there
-  in 164 seconds ([lookup bench](measurements/lookup-bench-mainnet.md)).
+  On mini-1, Litecoin took 44.5 s for `gettxoutsetinfo` and 68.6 s for the index count, 76 s for the
+  whole command ([measurement](measurements/litecoin-index-mainnet.md)). Bitcoin Cash took 60.1 s and
+  82.5 s, 87 s in all ([measurement](measurements/bitcoincash-index-mainnet.md)). Bitcoin and Dogecoin are
+  not measured yet. For Bitcoin on the same host, with bitcoind capped at 0.5 CPU, expect about 3 minutes, a guess from
+  `scantxoutset`, which makes a similar walk there in 164 seconds ([lookup bench](measurements/lookup-bench-mainnet.md)).
 - **Alerts.** In all four versions the walk reads a database snapshot without the node's main lock
   (`cs_main`). The lock is taken only for the flush before the walk and for short lookups, so the
   health probe's `getblockchaininfo` keeps answering. Node-down alerts for that chain are still held
@@ -702,13 +771,59 @@ Docker does not retry a container it could not start. After a power cut the
 host can boot before the router hands out its LAN address, so a container that
 publishes a port on that address fails with `cannot assign requested address`
 and stays down. With launch at boot/login enabled, the host helper
-(`node-control`, every 10 s) recreates any stack container that Docker could
-not start because it could not bind a published port. It retries after 30 s,
-then less often, at most every 10 minutes, until the container starts, and logs
+(`node-control`, every 60 s on APT and every 10 s under Homebrew's host
+service) recreates any stack container that Docker could not start because it
+could not bind a published port. It retries on its first run at least 30 s
+later, then less often, at most every 10 minutes, until the container starts, and logs
 the first failure and the recovery as `Host:` lines in `./stack events`. Other
 start errors, such as a data disk that is not mounted, are left for you, and so
 are containers you stopped and deactivated nodes. `./stack up --force-recreate
 <svc>` recreates a service by hand.
+
+The router can also hand the host a different LAN address after a power cut, or
+a laptop can join another network. Docker cannot bind the old address again, so
+recreating Tor alone does not help. With `dashboard.bind_ip` set to `auto`, the
+host helper remembers the last LAN address the dashboard was reachable on. Once
+that address has been gone from every host interface for a minute, and this
+host's detected LAN address has stayed the same different private address for
+that minute, it acts. A DHCP renewal or a Wi-Fi reconnect is shorter and changes
+nothing. The dashboard always follows `auto` to the new address. It re-renders
+the last approved configuration, so a pending `config.json` change stays
+pending, and recreates only Tor and the dashboard.
+
+Tor publishes every LAN RPC, ZMQ and gRPC listener and cannot start while one
+names a missing address. Listeners follow the host only onto the same network,
+because Tari gRPC and Monero ZMQ have no password. The same subnet counts as the
+same network:
+
+- If the old address is inside the new address's interface subnet (the router
+  just handed out a new lease), listeners on the old address move to the new
+  one, identically in `config.json` and the approved snapshot. They move even
+  when another start, such as the failed-start recovery above, already
+  re-rendered the dashboard. A `/32` or point-to-point address, or a subnet the
+  helper cannot read, never counts as the same LAN.
+- Otherwise the host is on a network you did not choose, so listeners never
+  follow it there; unauthenticated Tari gRPC and Monero ZMQ stay off it. Any
+  listener whose address is gone is paused instead: it is listed in
+  `.paused-listeners` in the state directory and rendered unpublished, while
+  `config.json` and the approved snapshot stay unchanged. Tor then starts, so
+  the dashboard, node peers and alerts keep working. Once a paused listener's
+  address has been back for a minute, the helper publishes it again. To use the
+  new network instead, re-point the listener from Settings.
+
+The helper also moves the dashboard off the `127.0.0.1` fallback that a start
+before the network came up leaves behind, and recreates a dashboard that still
+holds the old address after the failed-start recovery recreated only Tor. Each
+step logs one `Host:` line naming the listeners it moved, paused or published
+again. It does nothing while the network has no private address, and it leaves
+a stack you stopped alone. With a fixed `dashboard.bind_ip`, it changes nothing
+and logs one warning instead. `./stack doctor` lists every published address
+the host no longer has and every paused listener.
+
+On Homebrew the same check runs from the host service. Docker Desktop records
+no start error when a port cannot be bound, so the failed-start recovery above
+never applies there. The host service re-renders and starts the stack at login
+instead.
 The remaining case — running but unhealthy — would need something with
 Docker-socket access to act on, and a socket proxy is a bigger attack
 surface than the failure it heals on a single-node stack. So: unhealthy
@@ -724,6 +839,93 @@ missing or incomplete.
 Check `docker compose logs tor` for connection failures; a restrictive
 firewall needs outbound 443/9001 open.
 
+**Tor is up but nothing connects (Healthchecks.io alerts, nodes keep their old
+peers)** — Tor can stop completing circuits while the container stays up, for
+example after the host's link drops and returns. The tor container's
+healthcheck runs `tor-health` every 30 seconds. Each run opens a real stream
+through Tor's own SocksPort to `www.torproject.org:443`, then
+`check.torproject.org:443`, then `api.github.com:443` while each fails (one
+success counts as a good probe, no data is sent). It does not count circuits, so
+it gives the same answer under light or heavy load. It also reads Tor's
+bootstrap phase, network liveness and the number of connected relay channels
+over a unix control socket inside the container, only to explain a failure.
+`docker inspect` on the tor container shows the last output, one line such as
+`tor: ok via www.torproject.org bootstrap=100 liveness=up orconns=3`, `tor:
+probe-failed for 130s ... probes_ok=3/9`, `tor: offline for 130s ...` (Tor
+reports the network down and holds no relay connection) or `tor: bootstrapping
+...`.
+
+The container turns `unhealthy` when either holds. The probes have failed
+continuously for 4 minutes (a total stall), or at least 5 probes fall in the last
+10 minutes and fewer than half succeeded (a brown-out like the 2026-11-18
+incident, where a few streams still got through). One success does not clear
+either state: the container turns healthy again only after 3 good probes in a
+row. Time spent offline (Tor reports the network down and holds no relay
+connection) is not counted: the failure record is dropped while offline, so the
+4-minute timer starts when the link returns. Tor notices the network is down
+only after about 5-6 minutes, so a host outage can still cost one restart before
+that; after it, the outage costs nothing more. Only after an hour of Tor saying offline does it count as stuck. Tor
+not yet fully bootstrapped in its first 10 minutes of uptime is neutral. The host helper
+(`node-control`, run every 10 seconds by the APT timer and by the
+`host-service` loop, which `brew services` runs on Homebrew and which
+`./stack up` starts on source checkouts: a login-session process on macOS, a
+process plus an `@reboot` cron entry on Linux; a source checkout whose
+`host-service` is not running has no watchdog) then handles each incident,
+which starts when the container turns unhealthy and ends only when it is healthy
+with a good probe, and writes each step to the dashboard events log
+(`./stack events`, lines starting `Host:`). The events are local, so they are
+readable even while Tor is down; only their forwarding to Telegram waits for Tor
+to work again, so during the outage you see only the Healthchecks.io alert and
+this log. A container that stays unhealthy for 10 minutes without a probe result
+(for example SocksPort not listening) is treated as an incident too.
+
+1. **Save a snapshot and restart Tor** (`docker restart tor`; the nodes keep
+   running). The snapshot (relay channels, circuit counts by state, bootstrap
+   phase, liveness, `status/circuit-established`, `status/enough-dir-info`,
+   `dormant`, the entry guards and the last 40 Tor log lines) goes to
+   `node-control/tor-snapshots/` in the state directory, root-only, 64 KiB each,
+   newest 5 kept. Onion addresses stay the same, but Bitcoin, Litecoin and
+   Bitcoin Cash are unreachable over onion for a few minutes.
+2. **Clear Tor's saved state and restart once more**, if the container is
+   unhealthy again at least 8 minutes later while Tor holds at least one connected
+   relay channel (checked after the restart, so stale connections do not count),
+   so the host link works and Tor reaches relays. The state file holds both the
+   chosen guards and the learned circuit build timeout; which of the two helps
+   is not known, so both are discarded: Tor's whole state file is deleted, and Tor rebuilds it on start. This has a
+   small anonymity cost, runs at most once in 7 days, and is recorded only after
+   the restart succeeds.
+3. **Pause and tell you**, otherwise: the event names the likely cause (host
+   offline or blocked from relays, or Tor stuck). A long internet outage costs at
+   most one restart, about 6 minutes in, before Tor reports the network down; a Tor that stays broken costs one restart, one reset
+   and one pause event, never a loop. The helper does nothing more until the
+   probe succeeds, then logs `Tor working again after N min (actions taken)`, with N counted from
+   the first failed probe (or the start of the unhealthy state) to the first good
+   probe.
+
+Limits: at most 3 automatic restarts in 6 hours across incidents, so a Tor that
+flaps is paused, not restarted forever. The helper skips a tick while an install
+or upgrade holds the config lock and only acts on a tor container that belongs to
+this stack.
+
+Timeline against the recommended Healthchecks.io check (5-minute period,
+10-minute grace; the dashboard pings every 60 seconds through Tor). These are
+estimates from the settings, not measurements: a total stall is flagged after 4
+to 5 minutes of failed probes (probes that fail take up to 60 seconds each) and a
+brown-out after roughly 3 to 8 minutes, the helper restarts Tor within about 40
+seconds of that, and Tor takes 2 to 4 minutes to bootstrap, so the first ping
+after a successful restart lands around 8 to 12 minutes in. If the restart does
+not cure it, the checker starts counting again from the restart, so the reset
+comes at least 8 minutes after it (17 minutes after the first restart in a
+fault-injection run on a real Tor), and the alert can still fire. The events log and the snapshots show what happened.
+
+To disable the automatic recovery, create `node-control/tor-watchdog.disabled`
+in the state directory (`touch /var/lib/node-manager/node-control/tor-watchdog.disabled`
+on APT installs; the state directory is the checkout for source installs and
+`BITCOIN_STACK_STATE_DIR` for Homebrew) and remove it to turn it back on. The
+healthcheck keeps running and only reports. Tor's own check needs outbound
+access through Tor to the three probe hosts, the same as everything else the
+stack does.
+
 **bitcoind exits immediately** — almost always data-dir permissions. The
 container runs as uid 1000; `ls -ld <data_dir>` should show your user (uid
 1000) as owner. Also check `docker compose logs bitcoin` for the actual
@@ -736,7 +938,7 @@ credentials, make sure you re-ran `./configure.sh` *and*
 `./stack apply` so both containers got the new values.
 
 **The dashboard rejects the password from `.env`** — a password changed in the
-gear menu takes precedence over that baseline. Use the changed password or the
+User dialog takes precedence over that baseline. Use the changed password or the
 offline recovery procedure in [Dashboard and node credentials](#dashboard-and-node-credentials).
 
 **A wallet app fails after an RPC credential reset** — reveal the new login in

@@ -2,9 +2,11 @@
 
 ## Dashboard settings
 
-The gear at the bottom right opens node installation, launch at boot/login,
-Network, Balance index, Appearance, Telegram, and Healthchecks. The person icon
-above it holds Account (sign out) and Dashboard password. Each tower contains
+The gear at the bottom right opens Appearance, the Node set (node installation,
+launch at boot/login, Thermal throttle), Network, Balance index, Telegram, and
+Healthchecks. The person icon at the top opens the User dialog, which holds
+Account (sign out) and Dashboard password, and the three-line **Events** button
+between them lists the [event log](operations.md#event-log). Each tower contains
 its own separate Alerts and LAN access sections under Node controls. Nothing in
 Settings takes effect until you press **Save**, including Install, Move data,
 Delete, Run new config and Reset to default; their dialogs only check the values.
@@ -23,7 +25,7 @@ includes them. Saved overrides take priority over the notification values in
 `config.json`. **Reset to default** followed by **Save** removes the override
 and restores those values, including each node's new-block alert (off unless
 `config.json` turns it on). It also fills in the default for every other
-Settings control: Label towers, Node manager usage and Thermal throttle off,
+Settings control: Label towers, Node Manager usage and Thermal throttle off,
 USD, all six Alert preferences on with 3 minutes and 50 GiB, both actuator
 switches (health and info) off, launch at boot/login off, both Network switches on, and the Balance index
 off. It drops staged installs, data
@@ -64,14 +66,14 @@ momentary blip never pings you and each incident fires exactly once. Nothing
 controls the node over Telegram — there are no commands, so a leaked chat can
 read alerts but never change anything.
 
-| Alert | When it fires |
+| Alert (Settings name) | When it fires |
 |---|---|
-| 🚀 **Monitor online** | The dashboard started with an already-synced node — confirms the bot works after setup. |
-| 🔴 **Node down** | One configured node's RPC is unreachable for 3 consecutive minutes. |
-| 🟢 **Node recovered** | That node's RPC answers again after a down alert. |
-| ✅ **Sync complete** | A node's initial sync finished. |
-| 💾 **Disk low** | A node's data volume has less than 50 GB free. Re-arms if space is freed. |
-| 🆕 **Update available** | A new stack release exists (checked daily, over Tor). Also a dashboard badge. Informational only; update manually through APT, Homebrew, or [GitHub](operations.md#upgrading). |
+| 🚀 **Monitor online** (Monitor starts) | The dashboard started with an already-synced node — confirms the bot works after setup. |
+| 🔴 **Node down** (Node offline) | One configured node's RPC is unreachable for 3 consecutive minutes. |
+| 🟢 **Node recovered** (Node recovered) | That node's RPC answers again after a down alert. |
+| ✅ **Initial sync complete** (Sync complete) | A node's initial sync finished. |
+| 💾 **Disk low** (Low disk) | A node's data volume has less than 50 GiB free by default (Low disk threshold (free GiB) in Settings). Re-arms if space is freed. |
+| 🆕 **Update available** (Dashboard update) | A new stack release exists (checked daily, over Tor). Also a dashboard badge. Informational only; update manually through APT, Homebrew, or [GitHub](operations.md#upgrading). |
 | 🟧 **New block** | A synced node accepted a new block. **Off by default**; Bitcoin produces about 144 a day and Monero about 720. Enable either node separately. |
 
 Every message is prefixed with the host's name (`NODE_NAME`, the box's

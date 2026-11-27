@@ -9,7 +9,6 @@ backups/
 .venv/
 node_modules/
 tests/
-experiments/
 build/dashboard/tests/
 build/dashboard/parity/
 build/dashboard/*_test.go

@@ -1,5 +1,5 @@
-import { atomicToDecimal, bigSeries, formatAmount, joinNote, scanNote } from "./wallet-format.js";
-import { el, managerRow, renderWalletList, setMessage as showMessage, walletRequest } from "./wallet-ui.js";
+import { WATCH_COPY, atomicToDecimal, bigSeries, formatAmount, joinNote, scanNote } from "./wallet-format.js";
+import { el, managerRow, renderWalletList, replaceIfChanged, setMessage as showMessage, walletRequest } from "./wallet-ui.js";
 
 const HEX_KEY = /^[0-9a-fA-F]{64}$/;
 const BIRTHDAY_MIN = "2022-01-01";
@@ -59,7 +59,7 @@ export function tariRow(wallet) {
   let stateText = "Pending scan…";
   if (state === "waiting") stateText = "Waiting for node sync…";
   else if (state === "removing") stateText = "Removing…";
-  else if (state === "error") stateText = "Scan failed";
+  else if (state === "error") stateText = WATCH_COPY.scanFailed;
   else if (verified || stale) stateText = "Balance unavailable";
   const status = [];
   if (state === "pending" || state === "waiting") {
@@ -110,7 +110,7 @@ if (typeof document !== "undefined") {
   const stats = document.querySelector('[data-wallet-tower="tari"]');
   if (card && stats) {
     const request = walletRequest("/api/tari/watch", "Tari wallet service unavailable.");
-    const heading = el("h2", null, "Watch-only wallet");
+    const heading = el("h2", null, WATCH_COPY.heading);
     const status = el("p", "node-state", "Loading wallet service…");
     status.setAttribute("role", "status");
     const list = el("div", "watch-list");
@@ -138,7 +138,7 @@ if (typeof document !== "undefined") {
     const file = input("Tari view-only wallet JSON", "file");
     file.accept = ".json,application/json";
     fileLabel.append(file);
-    const add = el("button", null, "Add wallet");
+    const add = el("button", null, WATCH_COPY.add);
     add.type = "submit";
     const hint = el("p", "watch-hint", "The private view key reveals funds but cannot spend them. The spend key entered here is public. Leave the birthday blank to scan from genesis. Never enter a seed or private spend key.");
     const message = el("p", "watch-msg");
@@ -165,9 +165,10 @@ if (typeof document !== "undefined") {
       for (const field of [name, publicSpendKey, viewKey, birthday, file, add]) field.disabled = busy || !access.canEdit || Boolean(wallet);
       status.textContent = access.status || (wallet ? "" : "No view-only wallet configured.");
       status.classList.remove("watch-msg-error");
-      list.replaceChildren();
       renderWalletList(stats, wallet ? [tariRow(wallet)] : []);
-      if (!wallet) return;
+      replaceIfChanged(list, JSON.stringify([wallet, busy, access.canEdit]), () => (wallet ? [walletManagerRow(wallet, access, queued)] : []));
+    }
+    function walletManagerRow(wallet, access, queued) {
       const row = tariRow(wallet);
       const details = el("div", "tari-wallet-metrics");
       for (const detail of tariDetails(wallet)) {
@@ -175,7 +176,7 @@ if (typeof document !== "undefined") {
         metric.append(el("span", "label", `${detail.label}:`), el("span", null, detail.value));
         details.append(metric);
       }
-      list.append(managerRow({
+      return managerRow({
         label: row.label,
         keyText: String(wallet.public_spend_key || ""),
         canRemove: !busy && access.canEdit && !queued,
@@ -186,17 +187,17 @@ if (typeof document !== "undefined") {
           setMessage("Removing wallet…");
           try {
             await request(`/${encodeURIComponent(String(wallet.id || ""))}`, "DELETE");
-            setMessage("Wallet removal queued.");
+            setMessage(WATCH_COPY.removed);
             await refresh(true);
           } catch (error) {
-            setMessage(error.message || "Wallet could not be removed.", true);
+            setMessage(error.message || WATCH_COPY.removeFailed, true);
           } finally {
             busy = false;
             render(last);
           }
         },
         extras: details.childElementCount ? [details] : [],
-      }));
+      });
     }
     async function refresh(force = false) {
       const panel = document.getElementById("tari-panel");
@@ -215,7 +216,7 @@ if (typeof document !== "undefined") {
         if (!selected) return;
         if (selected.size > 16384) throw new Error("View-only wallet JSON is too large.");
         setDraft(tariWalletImport(JSON.parse(await selected.text()), birthday.max));
-        setMessage("View-only details loaded. Choose Add wallet to start scanning.");
+        setMessage(`View-only details loaded. Choose ${WATCH_COPY.add} to start scanning.`);
       } catch (error) {
         viewKey.value = "";
         setMessage(error instanceof SyntaxError ? "Choose a valid JSON file." : error.message, true);
@@ -235,10 +236,10 @@ if (typeof document !== "undefined") {
         await request("", "POST", payload);
         accepted = true;
         viewKey.value = "";
-        setMessage("Wallet accepted. Scanning will continue in the background.");
+        setMessage(WATCH_COPY.added);
         await refresh(true);
       } catch (error) {
-        setMessage(error.message || "Wallet could not be added.", true);
+        setMessage(error.message || WATCH_COPY.addFailed, true);
       } finally {
         setDraft(tariDraftAfterSubmit(draft, accepted));
         busy = false;

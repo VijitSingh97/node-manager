@@ -104,7 +104,7 @@ func TestDogecoinIndexSeedsFromAChainstateCopy(t *testing.T) {
 	swapReplayRetries(t, 3, time.Millisecond)
 	rpc := &chainstateSeedRPC{best: "2f9d802dd325448211bc2d04b33f63739f0e4f9e49319588c1700c37e23868dc", height: 202, warmup: 2}
 	m, _ := newChainstateSeedManager(t, rpc)
-	m.seedRequested(t.Context(), newSeedRequestID())
+	m.seedRequested(t.Context(), newRequestID())
 	if st := m.Status(); st.LastSeed == nil || st.LastSeed.Outcome != "ok" || st.State != utxoStateCatching {
 		t.Fatalf("the seed from the chainstate copy ended as %+v, last %+v", st, st.LastSeed)
 	}
@@ -146,7 +146,7 @@ func TestDogecoinChainstateSeedFailsCleanlyOnABadCopyOrAForkedTip(t *testing.T) 
 		rpc := &chainstateSeedRPC{best: "2f9d802dd325448211bc2d04b33f63739f0e4f9e49319588c1700c37e23868dc", height: 202}
 		m, data := newChainstateSeedManager(t, rpc)
 		setup(rpc, data)
-		m.seedRequested(t.Context(), newSeedRequestID())
+		m.seedRequested(t.Context(), newRequestID())
 		st := m.Status()
 		if st.LastSeed == nil || st.LastSeed.Outcome != "failed" || st.State != utxoStateNotSeeded {
 			t.Fatalf("%s: %+v, last %+v", name, st, st.LastSeed)
@@ -164,7 +164,7 @@ func TestDogecoinIndexAsksForASeedOnceAPrunedNodeDropsBlocksItNeeds(t *testing.T
 	swapReplayRetries(t, 1, time.Millisecond)
 	rpc := &chainstateSeedRPC{best: "2f9d802dd325448211bc2d04b33f63739f0e4f9e49319588c1700c37e23868dc", height: 202, pruneHeight: 300}
 	m, _ := newChainstateSeedManager(t, rpc)
-	m.seedRequested(t.Context(), newSeedRequestID())
+	m.seedRequested(t.Context(), newRequestID())
 	m.tick(t.Context())
 	if st := m.Status(); st.State != utxoStateInvalid || !strings.Contains(st.Reason, "seed it again") {
 		t.Fatalf("an index behind a pruned node's blocks reads %+v", st)
@@ -225,7 +225,7 @@ func TestChainstateSeedNeedsThreeTimesTheChainstateFree(t *testing.T) {
 }
 
 func TestHostControlAcceptsADogecoinSeedButNotZcash(t *testing.T) {
-	if !validHostControlShape("utxo_seed", nodeDogecoin, nil, "", nil, "", nil) || validHostControlShape("utxo_seed", nodeZcash, nil, "", nil, "", nil) {
+	if !validHostControlShape("utxo_seed", nodeDogecoin, nil, "", nil, "", nil, "") || validHostControlShape("utxo_seed", nodeZcash, nil, "", nil, "", nil, "") {
 		t.Fatal("the pending seed shape is wrong for Dogecoin or Zcash")
 	}
 }

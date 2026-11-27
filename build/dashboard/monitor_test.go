@@ -51,7 +51,16 @@ func configuredMonitor(t *testing.T, handler roundTripFunc) *Monitor {
 	m.freshTorClient = testFreshTorClient
 	m.diskFreeGB = func(string) (float64, error) { return 1000, nil }
 	m.output = io.Discard
+	m.healthTicks = 1
 	return m
+}
+
+func (m *Monitor) tickBitcoin(ctx context.Context, info map[string]any) {
+	m.tickConfiguredNodes(ctx, map[string]map[string]any{nodeBitcoin: info})
+}
+
+func (m *Monitor) tickBitcoinMonero(ctx context.Context, bitcoin, monero map[string]any) {
+	m.tickConfiguredNodes(ctx, map[string]map[string]any{nodeBitcoin: bitcoin, nodeMonero: monero})
 }
 
 func TestMonitorStateTransitionsAndExactMessages(t *testing.T) {
@@ -71,17 +80,17 @@ func TestMonitorStateTransitionsAndExactMessages(t *testing.T) {
 		return response(http.StatusOK, `{"ok":true}`), nil
 	})
 
-	m.tick(t.Context(), map[string]any{"initialblockdownload": true, "blocks": float64(100)}, nil)
-	m.tick(t.Context(), nil, nil)
-	m.tick(t.Context(), nil, nil)
-	m.tick(t.Context(), nil, nil)
-	m.tick(t.Context(), map[string]any{"initialblockdownload": true, "blocks": float64(200)}, nil)
-	m.tick(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(900000)}, nil)
-	m.tick(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(900001)}, nil)
+	m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": true, "blocks": float64(100)})
+	m.tickBitcoin(t.Context(), nil)
+	m.tickBitcoin(t.Context(), nil)
+	m.tickBitcoin(t.Context(), nil)
+	m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": true, "blocks": float64(200)})
+	m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(900000)})
+	m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(900001)})
 
 	want := []string{
-		"[alice] ✅ initial sync complete at height 900000",
-		"[alice] 🟧 new block 900001",
+		"[alice] Bitcoin: ✅ initial sync complete at height 900000",
+		"[alice] Bitcoin: 🟧 new block 900001",
 	}
 	if strings.Join(messages, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("messages:\n%s\nwant:\n%s", strings.Join(messages, "\n"), strings.Join(want, "\n"))
@@ -104,11 +113,11 @@ func TestMultiNodeAlertsKeepIndependentState(t *testing.T) {
 	m.settings.AlertNewBlock = false
 	m.healthTicks = 1
 	synced := map[string]any{"initialblockdownload": false, "blocks": float64(100)}
-	m.tickNodes(t.Context(), synced, synced)
+	m.tickBitcoinMonero(t.Context(), synced, synced)
 	for range downAfterTicks {
-		m.tickNodes(t.Context(), nil, synced)
+		m.tickBitcoinMonero(t.Context(), nil, synced)
 	}
-	m.tickNodes(t.Context(), synced, synced)
+	m.tickBitcoinMonero(t.Context(), synced, synced)
 
 	want := []string{
 		"[alice] Bitcoin: 🔴 node down — RPC unreachable for 3 minutes",
@@ -135,10 +144,10 @@ func TestHealthchecksStayLivenessOnlyWhileANodeIsDown(t *testing.T) {
 	m.healthTicks = 1
 	m.healthPingDue = 0
 	synced := map[string]any{"initialblockdownload": false, "blocks": float64(100)}
-	m.tickNodes(t.Context(), synced, synced)
+	m.tickBitcoinMonero(t.Context(), synced, synced)
 	for range downAfterTicks {
 		m.healthPingDue = 0
-		m.tickNodes(t.Context(), synced, nil)
+		m.tickBitcoinMonero(t.Context(), synced, nil)
 	}
 
 	want := []string{"/shared-check", "/shared-check", "/shared-check", "/shared-check"}
@@ -156,11 +165,12 @@ func TestMultiNodeIgnoresDisabledNodesAndSuppressesSyncFailures(t *testing.T) {
 	m.healthTicks = 1
 	m.configureNodes(true, false, t.TempDir())
 	syncing := map[string]any{"initialblockdownload": true, "blocks": float64(100)}
-	m.tickNodes(t.Context(), syncing, nil)
+	disabled := map[string]any{"active": false, "initialblockdownload": false, "blocks": float64(100)}
+	m.tickBitcoinMonero(t.Context(), syncing, disabled)
 	for range downAfterTicks {
-		m.tickNodes(t.Context(), nil, nil)
+		m.tickBitcoinMonero(t.Context(), nil, disabled)
 	}
-	if telegrams != 0 || m.moneroState.fails != 0 {
+	if telegrams != 0 || m.moneroState != (monitorState{}) {
 		t.Fatalf("syncing or disabled node produced alerts=%d, Monero state=%#v", telegrams, m.moneroState)
 	}
 }
@@ -179,8 +189,8 @@ func TestMultiNodeNewBlockChoicesAreIndependent(t *testing.T) {
 	m.settings.AlertNewBlock = false
 	m.settings.AlertNewBlockMonero = true
 	m.healthTicks = 1
-	m.tickNodes(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)}, map[string]any{"initialblockdownload": false, "blocks": float64(100)})
-	m.tickNodes(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(101)}, map[string]any{"initialblockdownload": false, "blocks": float64(101)})
+	m.tickBitcoinMonero(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)}, map[string]any{"initialblockdownload": false, "blocks": float64(100)})
+	m.tickBitcoinMonero(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(101)}, map[string]any{"initialblockdownload": false, "blocks": float64(101)})
 	if len(messages) != 1 || messages[0] != "[alice] Monero: 🟧 new block 101" {
 		t.Fatalf("new-block messages = %#v", messages)
 	}
@@ -207,8 +217,8 @@ func TestMultiNodeSyncAndDiskAlertsIdentifyMonero(t *testing.T) {
 		return 1000, nil
 	}
 	bitcoin := map[string]any{"initialblockdownload": false, "blocks": float64(900000)}
-	m.tickNodes(t.Context(), bitcoin, map[string]any{"initialblockdownload": true, "blocks": float64(100)})
-	m.tickNodes(t.Context(), bitcoin, map[string]any{"initialblockdownload": false, "blocks": float64(200)})
+	m.tickBitcoinMonero(t.Context(), bitcoin, map[string]any{"initialblockdownload": true, "blocks": float64(100)})
+	m.tickBitcoinMonero(t.Context(), bitcoin, map[string]any{"initialblockdownload": false, "blocks": float64(200)})
 	want := []string{
 		"[alice] Monero: ✅ initial sync complete at height 200",
 		"[alice] Monero: 💾 disk low: 40 GiB free",
@@ -237,12 +247,12 @@ func TestSyncCompleteIgnoresBriefSyncFlapsAfterSync(t *testing.T) {
 		return map[string]any{"initialblockdownload": ibd, "blocks": float64(height)}
 	}
 	flap := func(height int) {
-		m.tickNodes(t.Context(), bitcoin, monero(true, height))
-		m.tickNodes(t.Context(), bitcoin, monero(false, height))
+		m.tickBitcoinMonero(t.Context(), bitcoin, monero(true, height))
+		m.tickBitcoinMonero(t.Context(), bitcoin, monero(false, height))
 	}
 
-	m.tickNodes(t.Context(), bitcoin, monero(true, 100))
-	m.tickNodes(t.Context(), bitcoin, monero(false, 200))
+	m.tickBitcoinMonero(t.Context(), bitcoin, monero(true, 100))
+	m.tickBitcoinMonero(t.Context(), bitcoin, monero(false, 200))
 	flap(201)
 	flap(202)
 
@@ -259,9 +269,9 @@ func TestSyncCompleteIgnoresBriefSyncFlapsAfterSync(t *testing.T) {
 	flap(203)
 
 	for height := 300; height < 300+resyncAlertTicks; height++ {
-		m.tickNodes(t.Context(), bitcoin, monero(true, height))
+		m.tickBitcoinMonero(t.Context(), bitcoin, monero(true, height))
 	}
-	m.tickNodes(t.Context(), bitcoin, monero(false, 500))
+	m.tickBitcoinMonero(t.Context(), bitcoin, monero(false, 500))
 	flap(501)
 
 	want := []string{
@@ -291,10 +301,10 @@ func TestMultiNodeOperationalStatePersistsAcrossRestart(t *testing.T) {
 	m.healthTicks = 1
 	m.diskFreeGB = func(string) (float64, error) { return 1000, nil }
 	synced := map[string]any{"initialblockdownload": false, "blocks": float64(100)}
-	m.tickNodes(t.Context(), synced, map[string]any{"initialblockdownload": true, "blocks": float64(50)})
-	m.tickNodes(t.Context(), nil, map[string]any{"initialblockdownload": false, "blocks": float64(75)})
-	m.tickNodes(t.Context(), nil, map[string]any{"initialblockdownload": false, "blocks": float64(76)})
-	m.tickNodes(t.Context(), nil, map[string]any{"initialblockdownload": false, "blocks": float64(77)})
+	m.tickBitcoinMonero(t.Context(), synced, map[string]any{"initialblockdownload": true, "blocks": float64(50)})
+	m.tickBitcoinMonero(t.Context(), nil, map[string]any{"initialblockdownload": false, "blocks": float64(75)})
+	m.tickBitcoinMonero(t.Context(), nil, map[string]any{"initialblockdownload": false, "blocks": float64(76)})
+	m.tickBitcoinMonero(t.Context(), nil, map[string]any{"initialblockdownload": false, "blocks": float64(77)})
 
 	restarted := NewMonitor("dev", bitcoinDir, stateDir)
 	if restarted.state.chainKnown || !restarted.state.downAlerted || restarted.state.fails != downAfterTicks {
@@ -305,7 +315,7 @@ func TestMultiNodeOperationalStatePersistsAcrossRestart(t *testing.T) {
 	}
 }
 
-func TestRunNodesRestartAfterSyncOnlyAnnouncesCompletion(t *testing.T) {
+func TestRunConfiguredNodesRestartAfterSyncOnlyAnnouncesCompletion(t *testing.T) {
 	initial := configuredMonitor(t, func(*http.Request) (*http.Response, error) {
 		return response(http.StatusOK, `{"ok":true}`), nil
 	})
@@ -333,9 +343,9 @@ func TestRunNodesRestartAfterSyncOnlyAnnouncesCompletion(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		restarted.RunNodes(ctx, func() map[string]any {
+		restarted.RunConfiguredNodes(ctx, map[string]func() map[string]any{nodeBitcoin: func() map[string]any {
 			return map[string]any{"initialblockdownload": false, "blocks": float64(200)}
-		}, nil)
+		}})
 		close(done)
 	}()
 
@@ -351,7 +361,7 @@ func TestRunNodesRestartAfterSyncOnlyAnnouncesCompletion(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("RunNodes did not stop after cancellation")
+		t.Fatal("RunConfiguredNodes did not stop after cancellation")
 	}
 	select {
 	case extra := <-messages:
@@ -360,7 +370,7 @@ func TestRunNodesRestartAfterSyncOnlyAnnouncesCompletion(t *testing.T) {
 	}
 }
 
-func TestRunNodesRestartRequiresFreshChainStateBeforeDownAlert(t *testing.T) {
+func TestRunConfiguredNodesRestartRequiresFreshChainStateBeforeDownAlert(t *testing.T) {
 	initial := configuredMonitor(t, func(*http.Request) (*http.Response, error) {
 		return response(http.StatusOK, `{"ok":true}`), nil
 	})
@@ -390,7 +400,7 @@ func TestRunNodesRestartRequiresFreshChainStateBeforeDownAlert(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		restarted.RunNodes(ctx, func() map[string]any { return nil }, nil)
+		restarted.RunConfiguredNodes(ctx, map[string]func() map[string]any{nodeBitcoin: func() map[string]any { return nil }})
 		close(done)
 	}()
 
@@ -406,14 +416,14 @@ func TestRunNodesRestartRequiresFreshChainStateBeforeDownAlert(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("RunNodes did not stop after cancellation")
+		t.Fatal("RunConfiguredNodes did not stop after cancellation")
 	}
 	if got := telegrams.Load(); got != 0 {
 		t.Fatalf("restart without a fresh chain state sent %d down alerts", got)
 	}
 }
 
-func TestRunNodesPollsEnabledNodesConcurrently(t *testing.T) {
+func TestRunConfiguredNodesPollsEnabledNodesConcurrently(t *testing.T) {
 	m := NewMonitor("dev", t.TempDir(), t.TempDir())
 	m.configureNodes(true, true, t.TempDir())
 	m.healthTicks = 1
@@ -426,18 +436,18 @@ func TestRunNodesPollsEnabledNodesConcurrently(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		m.RunNodes(ctx,
-			func() map[string]any {
+		m.RunConfiguredNodes(ctx, map[string]func() map[string]any{
+			nodeBitcoin: func() map[string]any {
 				close(bitcoinStarted)
 				<-release
 				return map[string]any{"initialblockdownload": true}
 			},
-			func() map[string]any {
+			nodeMonero: func() map[string]any {
 				close(moneroStarted)
 				<-release
 				return map[string]any{"initialblockdownload": true}
 			},
-		)
+		})
 	}()
 	for _, started := range []<-chan struct{}{bitcoinStarted, moneroStarted} {
 		select {
@@ -499,13 +509,13 @@ func TestUnknownStartupAndInitialSyncSuppressAutomaticTelegram(t *testing.T) {
 	})
 	m.diskFreeGB = func(string) (float64, error) { return 40, nil }
 
-	m.tick(t.Context(), nil, nil)
-	m.tick(t.Context(), nil, nil)
-	m.tick(t.Context(), nil, nil)
-	m.state.ticks = 0
-	m.tick(t.Context(), map[string]any{"blocks": float64(1)}, map[string]any{})
-	m.state.ticks = 0
-	m.tick(t.Context(), map[string]any{"initialblockdownload": true, "blocks": float64(100)}, map[string]any{})
+	m.tickBitcoin(t.Context(), nil)
+	m.tickBitcoin(t.Context(), nil)
+	m.tickBitcoin(t.Context(), nil)
+	m.healthTicks = 0
+	m.tickBitcoin(t.Context(), map[string]any{"blocks": float64(1)})
+	m.healthTicks = 0
+	m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": true, "blocks": float64(100)})
 
 	if telegrams != 0 {
 		t.Fatalf("automatic Telegram sends during unknown startup or sync = %d", telegrams)
@@ -540,20 +550,20 @@ func TestOperationalAlertsRetryUntilDelivered(t *testing.T) {
 		}
 	})
 
-	m.tick(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)}, nil)
-	m.tick(t.Context(), nil, nil)
-	m.tick(t.Context(), nil, nil)
-	m.tick(t.Context(), nil, nil)
-	m.tick(t.Context(), nil, nil)
-	m.tick(t.Context(), map[string]any{"initialblockdownload": false}, nil)
-	m.tick(t.Context(), map[string]any{"initialblockdownload": false}, nil)
-	m.tick(t.Context(), map[string]any{"initialblockdownload": false}, nil)
+	m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)})
+	m.tickBitcoin(t.Context(), nil)
+	m.tickBitcoin(t.Context(), nil)
+	m.tickBitcoin(t.Context(), nil)
+	m.tickBitcoin(t.Context(), nil)
+	m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": false})
+	m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": false})
+	m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": false})
 
 	want := []string{
-		"[alice] 🔴 node down — RPC unreachable for 3 minutes",
-		"[alice] 🔴 node down — RPC unreachable for 3 minutes",
-		"[alice] 🟢 node recovered — RPC is answering again",
-		"[alice] 🟢 node recovered — RPC is answering again",
+		"[alice] Bitcoin: 🔴 node down — RPC unreachable for 3 minutes",
+		"[alice] Bitcoin: 🔴 node down — RPC unreachable for 3 minutes",
+		"[alice] Bitcoin: 🟢 node recovered — RPC is answering again",
+		"[alice] Bitcoin: 🟢 node recovered — RPC is answering again",
 	}
 	if strings.Join(messages, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("operational retries:\n%s\nwant:\n%s", strings.Join(messages, "\n"), strings.Join(want, "\n"))
@@ -577,7 +587,7 @@ func TestSyncAndNewBlockAlertsRetryUntilDelivered(t *testing.T) {
 				{"initialblockdownload": false, "blocks": float64(100)},
 				{"initialblockdownload": false, "blocks": float64(100)},
 			},
-			want: "[alice] ✅ initial sync complete at height 100",
+			want: "[alice] Bitcoin: ✅ initial sync complete at height 100",
 		},
 		{
 			name: "new block",
@@ -587,7 +597,7 @@ func TestSyncAndNewBlockAlertsRetryUntilDelivered(t *testing.T) {
 				{"initialblockdownload": false, "blocks": float64(101)},
 				{"initialblockdownload": false, "blocks": float64(101)},
 			},
-			want: "[alice] 🟧 new block 101",
+			want: "[alice] Bitcoin: 🟧 new block 101",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -604,7 +614,7 @@ func TestSyncAndNewBlockAlertsRetryUntilDelivered(t *testing.T) {
 				return response(http.StatusOK, `{"ok":true}`), nil
 			})
 			for _, info := range test.ticks {
-				m.tick(t.Context(), info, nil)
+				m.tickBitcoin(t.Context(), info)
 			}
 			if len(messages) != 2 || messages[0] != test.want || messages[1] != test.want {
 				t.Fatalf("retry messages = %#v, want two %q", messages, test.want)
@@ -628,16 +638,16 @@ func TestSyncCompleteRetryWaitsForConfirmedCompletedState(t *testing.T) {
 	})
 	m.settings.AlertNewBlock = false
 
-	m.tick(t.Context(), map[string]any{"initialblockdownload": true, "blocks": float64(100)}, nil)
-	m.tick(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(200)}, nil)
-	m.tick(t.Context(), map[string]any{"initialblockdownload": true, "blocks": float64(201)}, nil)
-	m.tick(t.Context(), map[string]any{"blocks": float64(202)}, nil)
+	m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": true, "blocks": float64(100)})
+	m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(200)})
+	m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": true, "blocks": float64(201)})
+	m.tickBitcoin(t.Context(), map[string]any{"blocks": float64(202)})
 	if len(messages) != 1 {
 		t.Fatalf("sync completion retried without a confirmed completed state: %#v", messages)
 	}
-	m.tick(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(203)}, nil)
+	m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(203)})
 
-	want := "[alice] ✅ initial sync complete"
+	want := "[alice] Bitcoin: ✅ initial sync complete"
 	if len(messages) != 2 || !strings.Contains(messages[0], want) || !strings.Contains(messages[1], want) {
 		t.Fatalf("sync completion retries = %#v", messages)
 	}
@@ -649,12 +659,12 @@ func TestPendingNewBlockAlertIsClearedWhenSyncResumes(t *testing.T) {
 		attempts++
 		return response(http.StatusBadGateway, `{"ok":false}`), nil
 	})
-	m.tick(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)}, nil)
-	m.tick(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(101)}, nil)
+	m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)})
+	m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(101)})
 	if attempts != 1 || m.state.pendingBlock != 101 {
 		t.Fatalf("failed alert attempts=%d state=%#v", attempts, m.state)
 	}
-	m.tick(t.Context(), map[string]any{"initialblockdownload": true, "blocks": float64(101)}, nil)
+	m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": true, "blocks": float64(101)})
 	if attempts != 1 || m.state.pendingBlock != 0 {
 		t.Fatalf("syncing retried stale block alert: attempts=%d state=%#v", attempts, m.state)
 	}
@@ -676,17 +686,17 @@ func TestDiskAlertRetriesUntilDelivered(t *testing.T) {
 	})
 	m.diskFreeGB = func(string) (float64, error) { return free, nil }
 	info := map[string]any{"initialblockdownload": false}
-	m.tick(t.Context(), info, nil)
-	m.tick(t.Context(), info, nil)
-	m.tick(t.Context(), info, nil)
+	m.tickBitcoin(t.Context(), info)
+	m.tickBitcoin(t.Context(), info)
+	m.tickBitcoin(t.Context(), info)
 	free = 100
-	m.tick(t.Context(), info, nil)
+	m.tickBitcoin(t.Context(), info)
 	free = 40
-	m.tick(t.Context(), info, nil)
+	m.tickBitcoin(t.Context(), info)
 	if got, want := strings.Join(messages, "\n"), strings.Join([]string{
-		"[alice] 💾 disk low: 40 GiB free",
-		"[alice] 💾 disk low: 40 GiB free",
-		"[alice] 💾 disk low: 40 GiB free",
+		"[alice] Bitcoin: 💾 disk low: 40 GiB free",
+		"[alice] Bitcoin: 💾 disk low: 40 GiB free",
+		"[alice] Bitcoin: 💾 disk low: 40 GiB free",
 	}, "\n"); got != want {
 		t.Fatalf("disk retry messages:\n%s\nwant:\n%s", got, want)
 	}
@@ -711,16 +721,16 @@ func TestGlobalAlertClassesSuppressEpisodesAndReenable(t *testing.T) {
 	m.settings.NodeDownAfterMinutes = 2
 	m.settings.LowDiskGiB = 30
 
-	m.tick(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)}, nil)
-	m.tick(t.Context(), nil, nil)
-	m.tick(t.Context(), nil, nil)
-	m.tick(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)}, nil)
+	m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)})
+	m.tickBitcoin(t.Context(), nil)
+	m.tickBitcoin(t.Context(), nil)
+	m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)})
 	for range resyncAlertTicks {
-		m.tick(t.Context(), map[string]any{"initialblockdownload": true, "blocks": float64(100)}, nil)
+		m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": true, "blocks": float64(100)})
 	}
-	m.tick(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)}, nil)
+	m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)})
 	m.diskFreeGB = func(string) (float64, error) { return 20, nil }
-	m.tick(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)}, nil)
+	m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)})
 	if len(messages) != 0 || m.state.downAlerted || m.state.syncPending || !m.state.diskAlerted {
 		t.Fatalf("disabled alert classes messages=%#v state=%#v", messages, m.state)
 	}
@@ -730,22 +740,22 @@ func TestGlobalAlertClassesSuppressEpisodesAndReenable(t *testing.T) {
 	m.settings.AlertSyncComplete = true
 	m.settings.AlertLowDisk = true
 	m.diskFreeGB = func(string) (float64, error) { return 100, nil }
-	m.tick(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)}, nil)
-	m.tick(t.Context(), nil, nil)
-	m.tick(t.Context(), nil, nil)
-	m.tick(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)}, nil)
+	m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)})
+	m.tickBitcoin(t.Context(), nil)
+	m.tickBitcoin(t.Context(), nil)
+	m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)})
 	for range resyncAlertTicks {
-		m.tick(t.Context(), map[string]any{"initialblockdownload": true, "blocks": float64(100)}, nil)
+		m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": true, "blocks": float64(100)})
 	}
-	m.tick(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)}, nil)
+	m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)})
 	m.diskFreeGB = func(string) (float64, error) { return 20, nil }
-	m.tick(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)}, nil)
+	m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": false, "blocks": float64(100)})
 
 	want := []string{
-		"[alice] 🔴 node down — RPC unreachable for 2 minutes",
-		"[alice] 🟢 node recovered — RPC is answering again",
-		"[alice] ✅ initial sync complete at height 100",
-		"[alice] 💾 disk low: 20 GiB free",
+		"[alice] Bitcoin: 🔴 node down — RPC unreachable for 2 minutes",
+		"[alice] Bitcoin: 🟢 node recovered — RPC is answering again",
+		"[alice] Bitcoin: ✅ initial sync complete at height 100",
+		"[alice] Bitcoin: 💾 disk low: 20 GiB free",
 	}
 	if strings.Join(messages, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("reenabled alerts:\n%s\nwant:\n%s", strings.Join(messages, "\n"), strings.Join(want, "\n"))
@@ -798,17 +808,18 @@ func TestDisabledTelegramDoesNotRetryOperationalAlerts(t *testing.T) {
 	m := NewMonitor("dev", t.TempDir(), stateDir)
 	m.output = io.Discard
 	m.diskFreeGB = func(string) (float64, error) { return 40, nil }
+	m.healthTicks = 1
 	m.client = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 		t.Fatal("disabled Telegram made an HTTP request")
 		return nil, nil
 	})}
 	info := map[string]any{"initialblockdownload": false}
-	m.tick(t.Context(), info, nil)
-	m.tick(t.Context(), info, nil)
-	m.tick(t.Context(), nil, nil)
-	m.tick(t.Context(), nil, nil)
-	m.tick(t.Context(), nil, nil)
-	m.tick(t.Context(), nil, nil)
+	m.tickBitcoin(t.Context(), info)
+	m.tickBitcoin(t.Context(), info)
+	m.tickBitcoin(t.Context(), nil)
+	m.tickBitcoin(t.Context(), nil)
+	m.tickBitcoin(t.Context(), nil)
+	m.tickBitcoin(t.Context(), nil)
 
 	events, err := os.ReadFile(filepath.Join(stateDir, "events.log"))
 	if err != nil {
@@ -827,6 +838,7 @@ func TestHealthchecksRetryThrottleAndLivenessWhileNodeDown(t *testing.T) {
 	m.diskFreeGB = func(string) (float64, error) { return 1000, nil }
 	m.output = io.Discard
 	m.settings.NodeDownAfterMinutes = 60
+	m.healthTicks = 1
 	var paths []string
 	attempt := 0
 	m.client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -839,23 +851,23 @@ func TestHealthchecksRetryThrottleAndLivenessWhileNodeDown(t *testing.T) {
 	})}
 
 	for range 3 {
-		m.tick(t.Context(), nil, nil)
+		m.tickBitcoin(t.Context(), nil)
 	}
 	if got, want := strings.Join(paths, ","), "/private-uuid/?source=node,/private-uuid/?source=node,/private-uuid/?source=node"; got != want {
 		t.Fatalf("retried due pings = %q, want %q", got, want)
 	}
 	for range 4 {
-		m.tick(t.Context(), nil, nil)
+		m.tickBitcoin(t.Context(), nil)
 	}
 	if len(paths) != 3 {
 		t.Fatalf("throttled window pinged Healthchecks: %v", paths)
 	}
-	m.tick(t.Context(), nil, nil)
+	m.tickBitcoin(t.Context(), nil)
 	if len(paths) != 4 || paths[3] != "/private-uuid/?source=node" {
 		t.Fatalf("down node changed the liveness ping: %v", paths)
 	}
 	for range 5 {
-		m.tick(t.Context(), map[string]any{"initialblockdownload": false}, nil)
+		m.tickBitcoin(t.Context(), map[string]any{"initialblockdownload": false})
 	}
 	if len(paths) != 5 || paths[4] != "/private-uuid/?source=node" {
 		t.Fatalf("paths after cadence = %v", paths)
@@ -1026,7 +1038,7 @@ func TestEventLogRotatesAndUsesUTCTimestamp(t *testing.T) {
 	}
 }
 
-func TestRunSendsOnlineAndStopsWithContext(t *testing.T) {
+func TestRunConfiguredNodesSendsOnlineAndStopsWithContext(t *testing.T) {
 	seen := make(chan string, 2)
 	m := configuredMonitor(t, func(r *http.Request) (*http.Response, error) {
 		var payload struct {
@@ -1040,12 +1052,12 @@ func TestRunSendsOnlineAndStopsWithContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		m.Run(ctx, func() map[string]any { return map[string]any{"initialblockdownload": false} }, nil)
+		m.RunConfiguredNodes(ctx, map[string]func() map[string]any{nodeBitcoin: func() map[string]any { return map[string]any{"initialblockdownload": false} }})
 		close(done)
 	}()
 	select {
 	case got := <-seen:
-		if got != "[alice] 🚀 node monitor online" {
+		if got != "[alice] Bitcoin: 🚀 monitor online" {
 			t.Fatalf("online message = %q", got)
 		}
 	case <-time.After(time.Second):
@@ -1055,11 +1067,11 @@ func TestRunSendsOnlineAndStopsWithContext(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("Run did not stop after cancellation")
+		t.Fatal("RunConfiguredNodes did not stop after cancellation")
 	}
 }
 
-func TestRunDoesNotSendOnlineDuringInitialSync(t *testing.T) {
+func TestRunConfiguredNodesDoesNotSendOnlineDuringInitialSync(t *testing.T) {
 	var telegrams atomic.Int32
 	m := configuredMonitor(t, func(*http.Request) (*http.Response, error) {
 		telegrams.Add(1)
@@ -1069,7 +1081,7 @@ func TestRunDoesNotSendOnlineDuringInitialSync(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		m.Run(ctx, func() map[string]any { return map[string]any{"initialblockdownload": true} }, nil)
+		m.RunConfiguredNodes(ctx, map[string]func() map[string]any{nodeBitcoin: func() map[string]any { return map[string]any{"initialblockdownload": true} }})
 		close(done)
 	}()
 	time.Sleep(10 * time.Millisecond)
@@ -1077,14 +1089,14 @@ func TestRunDoesNotSendOnlineDuringInitialSync(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("Run did not stop after cancellation")
+		t.Fatal("RunConfiguredNodes did not stop after cancellation")
 	}
 	if got := telegrams.Load(); got != 0 {
 		t.Fatalf("initial sync Telegram sends = %d", got)
 	}
 }
 
-func TestRunCancellationStopsReleaseCheck(t *testing.T) {
+func TestRunConfiguredNodesCancellationStopsReleaseCheck(t *testing.T) {
 	m := NewMonitor("1.2.0", t.TempDir(), t.TempDir())
 	m.diskFreeGB = func(string) (float64, error) { return 1000, nil }
 	started := make(chan struct{})
@@ -1096,10 +1108,9 @@ func TestRunCancellationStopsReleaseCheck(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		m.Run(ctx,
-			func() map[string]any { return map[string]any{"initialblockdownload": false} },
-			func() map[string]any { return map[string]any{} },
-		)
+		m.RunConfiguredNodes(ctx, map[string]func() map[string]any{
+			nodeBitcoin: func() map[string]any { return map[string]any{"initialblockdownload": false} },
+		})
 		close(done)
 	}()
 	select {
@@ -1111,7 +1122,7 @@ func TestRunCancellationStopsReleaseCheck(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("Run did not cancel an in-flight release check")
+		t.Fatal("RunConfiguredNodes did not cancel an in-flight release check")
 	}
 }
 
@@ -1163,7 +1174,7 @@ func TestMonitorRequestsHonorParentCancellation(t *testing.T) {
 	}
 }
 
-func TestRunSyncsWithoutOnlineAndSendsOneCompletion(t *testing.T) {
+func TestRunConfiguredNodesSyncsWithoutOnlineAndSendsOneCompletion(t *testing.T) {
 	messages := make(chan string, 4)
 	m := configuredMonitor(t, func(r *http.Request) (*http.Response, error) {
 		var payload struct {
@@ -1179,7 +1190,7 @@ func TestRunSyncsWithoutOnlineAndSendsOneCompletion(t *testing.T) {
 	var calls atomic.Int32
 	done := make(chan struct{})
 	go func() {
-		m.Run(ctx, func() map[string]any {
+		m.RunConfiguredNodes(ctx, map[string]func() map[string]any{nodeBitcoin: func() map[string]any {
 			switch calls.Add(1) {
 			case 1:
 				return map[string]any{"initialblockdownload": true, "blocks": float64(100)}
@@ -1189,13 +1200,13 @@ func TestRunSyncsWithoutOnlineAndSendsOneCompletion(t *testing.T) {
 				<-ctx.Done()
 				return nil
 			}
-		}, nil)
+		}})
 		close(done)
 	}()
 
 	select {
 	case got := <-messages:
-		if got != "[alice] ✅ initial sync complete at height 200" {
+		if got != "[alice] Bitcoin: ✅ initial sync complete at height 200" {
 			t.Fatalf("sync transition message = %q", got)
 		}
 	case <-time.After(time.Second):
@@ -1205,7 +1216,7 @@ func TestRunSyncsWithoutOnlineAndSendsOneCompletion(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("Run did not stop after cancellation")
+		t.Fatal("RunConfiguredNodes did not stop after cancellation")
 	}
 	select {
 	case extra := <-messages:
@@ -1524,6 +1535,43 @@ func handleSOCKSConn(conn net.Conn, backend string, reject bool, domains chan<- 
 	_, _ = io.Copy(conn, upstream)
 }
 
+func TestRunConfiguredNodesForwardsHostEvents(t *testing.T) {
+	messages := make(chan string, 8)
+	m := configuredMonitor(t, func(r *http.Request) (*http.Response, error) {
+		var payload struct {
+			Text string `json:"text"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		messages <- payload.Text
+		return response(http.StatusOK, `{"ok":true}`), nil
+	})
+	m.tickEvery = time.Millisecond
+	line := time.Now().UTC().Format(time.RFC3339) + " Host: thermal throttle at 91C — capped monero at 2.00 CPUs\n"
+	if err := os.WriteFile(m.eventsLog, []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		m.RunConfiguredNodes(ctx, map[string]func() map[string]any{nodeLitecoin: func() map[string]any { return map[string]any{"active": true} }})
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+	select {
+	case got := <-messages:
+		if want := "[alice] 🌡 thermal throttle at 91C — capped monero at 2.00 CPUs"; got != want {
+			t.Fatalf("alert = %q, want %q", got, want)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("RunConfiguredNodes never forwarded the Host event")
+	}
+}
+
 func TestForwardHostEventsTelegramsNewHostLinesOnce(t *testing.T) {
 	var messages []string
 	m := configuredMonitor(t, func(r *http.Request) (*http.Response, error) {
@@ -1536,6 +1584,7 @@ func TestForwardHostEventsTelegramsNewHostLinesOnce(t *testing.T) {
 		messages = append(messages, payload.Text)
 		return response(http.StatusOK, `{"ok":true}`), nil
 	})
+	m.now = func() time.Time { return time.Date(2026, 11, 10, 20, 5, 0, 0, time.UTC) }
 
 	m.forwardHostEvents(t.Context())
 	append2 := func(line string) {
@@ -1556,9 +1605,9 @@ func TestForwardHostEventsTelegramsNewHostLinesOnce(t *testing.T) {
 	m.forwardHostEvents(t.Context())
 
 	want := []string{
-		"[alice] 🌡 thermal throttle at 91C — capped monero at 2.00 CPUs",
-		"[alice] 🌡 thermal throttle released at 75C — restored monero",
-		"[alice] 🔴 Zcash is not coming up: it kept failing to start for 11 minutes, so it was stopped. Last error: lacks adx",
+		"[alice] 🌡 thermal throttle at 91C — capped monero at 2.00 CPUs\n" +
+			"🌡 thermal throttle released at 75C — restored monero\n" +
+			"🔴 Zcash is not coming up: it kept failing to start for 11 minutes, so it was stopped. Last error: lacks adx",
 	}
 	if strings.Join(messages, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("messages:\n%s\nwant:\n%s", strings.Join(messages, "\n"), strings.Join(want, "\n"))
@@ -1571,12 +1620,12 @@ func TestForwardHostEventsTelegramsNewHostLinesOnce(t *testing.T) {
 
 	append2("2026-11-10T20:03:00Z Host: thermal throttle at 92C — capped bitcoin at 0.25 CPUs")
 	m.forwardHostEvents(t.Context())
-	if len(messages) != 3 {
+	if len(messages) != 1 {
 		t.Fatalf("partial line without newline was forwarded: %v", messages)
 	}
 	append2("\n")
 	m.forwardHostEvents(t.Context())
-	if len(messages) != 4 || !strings.Contains(messages[3], "capped bitcoin at 0.25 CPUs") {
+	if len(messages) != 2 || !strings.Contains(messages[1], "capped bitcoin at 0.25 CPUs") {
 		t.Fatalf("completed line was not forwarded: %v", messages)
 	}
 }
@@ -1597,6 +1646,7 @@ func TestForwardHostEventsRetriesFailedSends(t *testing.T) {
 		messages = append(messages, payload.Text)
 		return response(http.StatusOK, `{"ok":true}`), nil
 	})
+	m.now = func() time.Time { return time.Date(2026, 11, 10, 21, 5, 0, 0, time.UTC) }
 	m.forwardHostEvents(t.Context())
 	if err := os.WriteFile(m.eventsLog, []byte("2026-11-10T21:00:00Z Host: thermal throttle at 95C — capped monero at 1.00 CPUs\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -1630,10 +1680,102 @@ func TestForwardHostEventsSurvivesLogRotation(t *testing.T) {
 	if err := os.WriteFile(m.eventsLog, []byte(filler+hostLine), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	m.now = func() time.Time { return time.Date(2026, 11, 10, 21, 5, 0, 0, time.UTC) }
 	m.hostEventsOffset = int64(len(filler))
 	m.logEvent("trigger rotation")
 	m.forwardHostEvents(t.Context())
 	if len(messages) != 1 || !strings.Contains(messages[0], "capped bitcoin at 0.50 CPUs") {
 		t.Fatalf("host line lost or duplicated across rotation: %v", messages)
+	}
+}
+
+func TestForwardHostEventsSkipsOldEventsAndBatchesNewOnes(t *testing.T) {
+	var messages []string
+	m := configuredMonitor(t, func(r *http.Request) (*http.Response, error) {
+		var payload struct {
+			Text string `json:"text"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		messages = append(messages, payload.Text)
+		return response(http.StatusOK, `{"ok":true}`), nil
+	})
+	now := time.Date(2026, 11, 24, 3, 0, 0, 0, time.UTC)
+	m.now = func() time.Time { return now }
+	m.hostEventsOffset = 0
+	var log strings.Builder
+	for i := range 3 {
+		fmt.Fprintf(&log, "%s Host: thermal throttle at 90C — capped old%d at 0.50 CPUs\n", now.Add(-7*time.Hour).Format(time.RFC3339), i)
+	}
+	log.WriteString("not-a-time Host: thermal throttle at 90C — capped undated at 0.50 CPUs\n")
+	for i := range 25 {
+		fmt.Fprintf(&log, "%s Host: thermal throttle at 90C — capped new%d at 0.50 CPUs\n", now.Add(-time.Minute).Format(time.RFC3339), i)
+	}
+	if err := os.WriteFile(m.eventsLog, []byte(log.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m.forwardHostEvents(t.Context())
+	m.forwardHostEvents(t.Context())
+	if len(messages) != 1 {
+		t.Fatalf("want one batched message, got %d: %v", len(messages), messages)
+	}
+	got := messages[0]
+	if strings.Contains(got, "old") || strings.Contains(got, "undated") {
+		t.Fatalf("an old or undated host event was sent: %q", got)
+	}
+	if !strings.Contains(got, "capped new0 ") || !strings.Contains(got, "capped new19 ") || strings.Contains(got, "capped new20 ") || !strings.HasSuffix(got, "… and 5 more host events") {
+		t.Fatalf("batch not capped at 20 events: %q", got)
+	}
+	logged, err := os.ReadFile(m.eventsLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := strings.TrimSuffix(string(logged), "\n")
+	last = last[strings.LastIndexByte(last, '\n')+1:]
+	if !strings.Contains(last, "capped new0 at 0.50 CPUs | 🌡 thermal throttle") {
+		t.Fatalf("batched alert was not logged as one line: %q", last)
+	}
+}
+
+func TestForwardHostEventsRetriesPastOldCutoffAndCapsMessageSize(t *testing.T) {
+	var messages []string
+	failing := true
+	m := configuredMonitor(t, func(r *http.Request) (*http.Response, error) {
+		if failing {
+			return response(http.StatusInternalServerError, `{}`), nil
+		}
+		var payload struct {
+			Text string `json:"text"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		messages = append(messages, payload.Text)
+		return response(http.StatusOK, `{"ok":true}`), nil
+	})
+	at := time.Date(2026, 11, 24, 3, 0, 0, 0, time.UTC)
+	now := at.Add(time.Minute)
+	m.now = func() time.Time { return now }
+	m.hostEventsOffset = 0
+	var log strings.Builder
+	for i := range 20 {
+		fmt.Fprintf(&log, "%s Host: node%d is not coming up. Last error: %s\n", at.Format(time.RFC3339), i, strings.Repeat("x", 300))
+	}
+	if err := os.WriteFile(m.eventsLog, []byte(log.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m.forwardHostEvents(t.Context())
+	now = at.Add(2 * time.Hour)
+	m.forwardHostEvents(t.Context())
+	failing = false
+	m.forwardHostEvents(t.Context())
+	m.forwardHostEvents(t.Context())
+	if len(messages) != 1 {
+		t.Fatalf("want one retried message after a long failure, got %d", len(messages))
+	}
+	got := messages[0]
+	if len([]rune(got)) > 4000 || !strings.Contains(got, "node0 ") || !strings.Contains(got, "more host events") {
+		t.Fatalf("message not size-capped (%d runes): %.200q", len([]rune(got)), got)
 	}
 }

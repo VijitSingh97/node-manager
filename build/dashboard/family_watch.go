@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -166,7 +168,7 @@ func (s *familyWatchStore) load(seed familyWatchEntry) {
 		return
 	}
 	for id, balance := range cached.Balances {
-		if !validFamilyWatchID(id) || !validFamilyWatchBalance(balance, s.maxSupply) {
+		if !lowerHex(id, 24) || !validFamilyWatchBalance(balance, s.maxSupply) {
 			s.err = errFamilyWatchUnavailable
 			return
 		}
@@ -199,10 +201,27 @@ func decodeFamilyWatchRoster(data []byte, wallets *[]familyWatchEntry, seed fami
 	return true
 }
 
-func decodeStrictBytes(data []byte, value any) bool {
-	decoder := json.NewDecoder(bytes.NewReader(data))
+func decodeStrictReader(reader io.Reader, value any) bool {
+	decoder := json.NewDecoder(reader)
 	decoder.DisallowUnknownFields()
 	return decoder.Decode(value) == nil && ensureJSONEnd(decoder) == nil
+}
+
+func decodeStrictBytes(data []byte, value any) bool {
+	return decodeStrictReader(bytes.NewReader(data), value)
+}
+
+func decodeStrictBody(w http.ResponseWriter, r *http.Request, limit int64, value any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
+	return decodeStrictReader(r.Body, value)
+}
+
+func decodeStrictJSON(w http.ResponseWriter, r *http.Request, limit int64, value any) bool {
+	if !decodeStrictBody(w, r, limit, value) {
+		http.Error(w, "Invalid request.", http.StatusBadRequest)
+		return false
+	}
+	return true
 }
 
 func (s *familyWatchStore) saveRosterLocked() error {

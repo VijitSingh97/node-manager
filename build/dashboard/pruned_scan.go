@@ -68,6 +68,7 @@ type deltaBlock struct {
 type scanTxOutSetResult struct {
 	Success     bool                  `json:"success"`
 	TxOuts      int64                 `json:"txouts"`
+	Searched    int64                 `json:"searched_items"`
 	Height      int64                 `json:"height"`
 	BestBlock   string                `json:"bestblock"`
 	Unspents    []scanTxOutSetUnspent `json:"unspents"`
@@ -593,11 +594,16 @@ func (s *prunedScanner) publicScanObject(ctx context.Context, descriptor string)
 }
 
 func validatedScanOutputs(result scanTxOutSetResult) ([]validatedScanOutput, error) {
+	for _, output := range result.Unspents {
+		if output.Desc == "" {
+			return nil, errors.New("invalid scantxoutset output")
+		}
+	}
 	return scanOutputsUpTo(result, 21_000_000*1e8)
 }
 
 func scanOutputsUpTo(result scanTxOutSetResult, maxSatoshis int64) ([]validatedScanOutput, error) {
-	if !result.Success || result.Height < 0 || len(result.BestBlock) != 64 || result.TxOuts < int64(len(result.Unspents)) {
+	if !result.Success || result.Height < 0 || len(result.BestBlock) != 64 || max(result.TxOuts, result.Searched) < int64(len(result.Unspents)) {
 		return nil, errors.New("invalid scantxoutset result")
 	}
 	if _, err := hex.DecodeString(result.BestBlock); err != nil {
@@ -607,7 +613,7 @@ func scanOutputsUpTo(result scanTxOutSetResult, maxSatoshis int64) ([]validatedS
 	outputs := make([]validatedScanOutput, 0, len(result.Unspents))
 	var total int64
 	for _, output := range result.Unspents {
-		if len(output.TxID) != 64 || output.Vout < 0 || output.ScriptPubKey == "" || output.Desc == "" || output.Height < 0 || output.Height > result.Height {
+		if len(output.TxID) != 64 || output.Vout < 0 || output.ScriptPubKey == "" || output.Height < 0 || output.Height > result.Height {
 			return nil, errors.New("invalid scantxoutset output")
 		}
 		if _, err := hex.DecodeString(output.TxID); err != nil {

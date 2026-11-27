@@ -1,5 +1,6 @@
-import { NODE_IDS, genericNodeView, updateTowerProgress } from "./nodes.js";
-import { dashboardFetch as fetch } from "./session.js";
+import { NODE_IDS, genericNodeView, setText, updateTowerProgress, writeNodeRows } from "./nodes.js";
+import { dashboardFetch as fetch, jsonRequest } from "./session.js";
+import { liveBlockElement, nodeUnreachable } from "./tower.js";
 
 export const NODE_LABELS = {
   bitcoin: "Bitcoin",
@@ -14,13 +15,14 @@ export const NODE_LABELS = {
 export function powerView(node) {
   if (!node?.configured) return {active:false,disabled:true,button:"Not configured",status:"This node is not configured."};
   if (!node?.supported) return { active: false, disabled: true, button: "Unavailable", status: "This node is unavailable in this build." };
+  if (node.active && node.restarting && node.starting) return { active: false, restarting: true, starting: true, disabled: true, button: "Starting…", status: "Starting the node…" };
   if (node.active && node.restarting) return { active: false, restarting: true, disabled: true, button: "Restarting…", status: "Restarting after a settings change…" };
   if (node.active && node.stopped) {
     const status = node.failure ? `Stopped: the node failed to start. ${node.failure}` : "Stopped: the node's container is not running.";
     return { active: false, stopped: true, disabled: false, button: "Start node", status };
   }
   if (node.active) return { active: true, disabled: false, button: "Deactivate node", status: "Deactivate this node to free its CPU and memory. Stored blockchain data is kept." };
-  return { active: false, disabled: false, button: "Activate node", status: "Node is inactive" };
+  return { active: false, disabled: false, button: "Activate node", status: "Node is inactive." };
 }
 
 export function nodePollDelay(pending, nodes) {
@@ -32,7 +34,7 @@ export function nodeRefreshable(id, node) {
 }
 
 export function powerBadge(view) {
-  return view.restarting ? "Restarting" : view.disabled ? "Unavailable" : view.stopped ? "Stopped" : "Inactive";
+  return view.starting ? "Starting" : view.restarting ? "Restarting" : view.disabled ? "Unavailable" : view.stopped ? "Stopped" : "Inactive";
 }
 
 export function powerRequest(node, confirmation = "") {
@@ -53,12 +55,16 @@ export function chainFeesView(id, data) {
 
 function byId(id) { return document.getElementById(id); }
 
-function setText(id, value) {
-  const element = byId(id);
-  if (element) element.textContent = value;
+function refreshNodeLabel(id) {
+  const next = liveBlockElement(id)?.dataset.nextBlock;
+  for (const choice of document.querySelectorAll(`[data-select-node="${id}"]`)) {
+    const note = choice.dataset.powerNote || (nodeUnreachable(choice.dataset, next) ? " — not responding" : "");
+    choice.setAttribute("aria-label", NODE_LABELS[id] + note);
+  }
 }
 
 function announceNodeStatus(id) {
+  refreshNodeLabel(id);
   window.dispatchEvent(new CustomEvent("node-status-updated", { detail: { node: id } }));
 }
 
@@ -72,7 +78,7 @@ export function setNodeActive(id, node) {
     choice.dataset.lastNextBlock = Number.isSafeInteger(node.last_height) && node.last_height >= 0 ? String(node.last_height + 1) : "";
     choice.dataset.lastSyncPercent = Number.isFinite(node.last_sync_percent) ? String(node.last_sync_percent) : "";
     choice.classList.toggle("inactive", !view.active);
-    choice.setAttribute("aria-label", `${NODE_LABELS[id]}${view.active ? (offline ? " — not responding" : "") : view.restarting ? " — restarting" : view.stopped ? " — stopped" : " — inactive"}`);
+    choice.dataset.powerNote = view.active ? "" : view.starting ? " — starting" : view.restarting ? " — restarting" : view.stopped ? " — stopped" : " — inactive";
   }
   const panel = byId(`${id}-panel`);
   if (panel) panel.dataset.nodeActive = view.active ? "1" : "0";
@@ -113,18 +119,7 @@ function renderNode(id, data) {
     announceNodeStatus(id);
     return;
   }
-  setText(`${id}-version`, view.version);
-  setText(`${id}-uptime`, view.uptime);
-  setText(`${id}-connections`, view.connections);
-  setText(`${id}-blocks`, view.blocks);
-  const progress = byId(`${id}-progress`);
-  if (progress) progress.style.width = `${view.progress}%`;
-  setText(`${id}-sync`, `${view.progress.toFixed(4)}%`);
-  setText(`${id}-size`, view.size);
-  setText(`${id}-mempool`, view.mempool);
-  setText(`${id}-last-block`, view.lastBlock);
-  setText(`${id}-rpc-exposure`, view.rpcExposure);
-  setText(`${id}-updated`, `Updated: ${view.updated}`);
+  writeNodeRows(id, view);
   const feeSection=byId(`${id}-fee-section`);
   if(feeSection) feeSection.hidden=data.fees_available!==true;
   const fees=chainFeesView(id,data);
@@ -137,6 +132,11 @@ export function controlView(payload) {
   const status=payload?.status;
   const valid=status && /^[0-9a-f]{32}$/.test(status.id || "") && NODE_IDS.includes(status.node) && ["pending","applied","rejected","failed"].includes(status.state);
   return {available:payload?.control_available===true,pending:payload?.control_pending===true || valid && status.state==="pending",status:valid?status:null};
+}
+
+export function powerResultMessage(status, node) {
+  if (!status?.message || status.state !== "failed" || node?.stopped === true) return "";
+  return status.active !== (node?.active === true) ? status.message : "";
 }
 
 export function nodeBecameActive(previous, current) {
@@ -154,7 +154,7 @@ if (typeof document !== "undefined") {
     const node=state.get(id);
     if(!nodeRefreshable(id,node)) return;
     try {
-      const response=await fetch(`/api/${id}`,{headers:{"X-Requested-With":"fetch"}});
+      const response=await fetch(`/api/${id}`);
       const data=await response.json();
       if(!response.ok && !data?.enabled) throw new Error("unavailable");
       renderNode(id,data);
@@ -169,7 +169,9 @@ if (typeof document !== "undefined") {
       const view=powerView(node), pending=control.pending && control.status?.node===id;
       button.disabled=view.disabled || !control.available || control.pending || busy;
       button.textContent=pending ? (control.status.active ? (node.stopped ? "Starting…" : "Activating…") : "Deactivating…") : view.button;
+      const failed=control.pending || control.status?.node!==id ? "" : powerResultMessage(control.status,node);
       if(pending) setText(`${id}-power-status`, "Applying node state change…");
+      else if(failed) setText(`${id}-power-status`, failed);
       else if(node.configured && !control.available && !view.restarting) setText(`${id}-power-status`, "Node controls require the installed host helper.");
     }
   };
@@ -177,9 +179,7 @@ if (typeof document !== "undefined") {
   const loadNodes=async()=>{
     clearTimeout(poll);
     try {
-      const response=await fetch("/api/nodes",{headers:{"X-Requested-With":"fetch"}});
-      if(!response.ok) throw new Error("unavailable");
-      const payload=await response.json();
+      const payload=await jsonRequest(fetch,"/api/nodes",{failure:"unavailable"});
       control=controlView(payload);
       window.dispatchEvent(new CustomEvent("host-stats-data",{detail:payload.host||null}));
       for(const id of NODE_IDS) {
@@ -242,9 +242,7 @@ if (typeof document !== "undefined") {
     try {body=powerRequest(node,input.value);} catch(error) {setText("node-power-error",error.message);return;}
     busy=true; updateSubmit(); updateButtons();
     try {
-      const response=await fetch(`/api/nodes/${selected}/power`,{method:"POST",headers:{"Content-Type":"application/json","X-Requested-With":"fetch"},body:JSON.stringify(body)});
-      if(!response.ok) throw new Error((await response.text()).trim().slice(0,200) || "The node state could not be changed.");
-      const result=await response.json();
+      const result=await jsonRequest(fetch,`/api/nodes/${selected}/power`,{method:"POST",payload:body,failure:"The node state could not be changed."});
       if(!/^[0-9a-f]{32}$/.test(result?.id || "")) throw new Error("The node state request could not be confirmed.");
       requestID=result.id;
       try {localStorage.setItem("nodeStackPowerRequest",requestID);} catch {}
@@ -255,5 +253,7 @@ if (typeof document !== "undefined") {
     finally {busy=false;updateSubmit();updateButtons();await loadNodes();}
   });
   window.addEventListener("node-catalog-updated", loadNodes);
+  window.addEventListener("live-updated", () => refreshNodeLabel("bitcoin"));
+  window.addEventListener("node-height", (event) => refreshNodeLabel(event.detail.node));
   loadNodes();
 }

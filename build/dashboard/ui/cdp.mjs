@@ -19,6 +19,8 @@ export function findChrome(env = process.env) {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const KEYS = {
   Enter: { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, text: "\r" },
+  Tab: { key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 },
+  Space: { key: " ", code: "Space", windowsVirtualKeyCode: 32, text: " " },
   Escape: { key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 },
   Backspace: { key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8 },
 };
@@ -96,7 +98,12 @@ export class Page {
 
   async init() {
     await Promise.all(["Page.enable", "Runtime.enable", "Network.enable", "DOM.enable"].map((method) => this.send(method)));
+    await this.send("Page.addScriptToEvaluateOnNewDocument", { source: "window.confirmOpens = 0; const show = HTMLDialogElement.prototype.showModal; HTMLDialogElement.prototype.showModal = function () { if (this.id === 'confirm-dialog') window.confirmOpens++; return show.call(this); };" });
     await this.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 1000, deviceScaleFactor: 1, mobile: false });
+  }
+
+  confirmOpens() {
+    return this.evaluate(() => window.confirmOpens);
   }
 
   async goto(url) {

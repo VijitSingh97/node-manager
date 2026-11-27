@@ -2,10 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-fail() {
-  echo "FAIL: $1"
-  exit 1
-}
+# shellcheck source=tests/lib.sh
+. tests/lib.sh
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -31,6 +29,8 @@ entrypoint=$tmp/entrypoint.sh
 sed \
   -e "s|/etc/tor/torrc|$tmp/torrc.source|g" \
   -e "s|/tmp/torrc|$tmp/torrc.rendered|g" \
+  -e "s|/var/lib/tor|$tmp/lib/tor|g" \
+  -e "s|/tmp/tor-health|$tmp/tor-health|g" \
   build/tor/entrypoint.sh >"$entrypoint"
 chmod +x "$entrypoint"
 printf 'SocksPort 9050\n' >"$tmp/torrc.source"
@@ -60,6 +60,31 @@ wait_status() {
   supervisor_status=$?
   set -e
 }
+
+mkdir -p "$tmp/lib/tor/bitcoin_onion" "$tmp/lib/tor-onions"
+printf 'guards\n' >"$tmp/lib/tor/state"
+printf 'key\n' >"$tmp/lib/tor/bitcoin_onion/hs_ed25519_secret_key"
+
+printf 'first_seen 1\nfail_since 2\n' >"$tmp/tor-health.state"
+start_supervisor
+[ ! -e "$tmp/tor-health.state" ] || fail "stale health checker state survived a Tor start"
+[ -f "$tmp/lib/tor/state" ] || fail "Tor state moved without a reset request"
+kill -TERM "$supervisor_pid"
+wait_status
+
+: >"$tmp/lib/tor/.reset-state"
+start_supervisor
+[ ! -e "$tmp/lib/tor/state" ] || fail "reset request did not move the Tor state aside"
+[ ! -e "$tmp/lib/tor/state.reset" ] || fail "reset request kept the old guard list on disk"
+[ ! -e "$tmp/lib/tor/.reset-state" ] || fail "reset request flag was not removed"
+[ -f "$tmp/lib/tor/bitcoin_onion/hs_ed25519_secret_key" ] || fail "reset request touched the onion keys"
+kill -TERM "$supervisor_pid"
+wait_status
+: >"$tmp/lib/tor/.reset-state"
+start_supervisor
+[ ! -e "$tmp/lib/tor/.reset-state" ] || fail "reset request without a state file did not clear its flag"
+kill -TERM "$supervisor_pid"
+wait_status
 
 start_supervisor
 kill -TERM "$(cat "$tmp/tor.pid")"
