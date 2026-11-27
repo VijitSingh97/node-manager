@@ -288,6 +288,9 @@ func TestChainstateCopyRefusesACorruptLog(t *testing.T) {
 
 // A Dogecoin 1.14 node writes its whole dbcache, 450 MiB by default, as one log batch when it stops; Pebble's replay held four times the batch, the reader a fixed few tens of MiB.
 func TestChainstateCopyKeepsALargeLogOutOfMemory(t *testing.T) {
+	if raceEnabled {
+		t.Skip("the race detector slows the replay about 20 times; CI runs this test without it")
+	}
 	const logBytes = 64 << 20
 	key := append([]byte{8}, 1, 2, 3, 4, 5, 6, 7, 8)
 	dir := writeTestChainstate(t, key, bytes.Repeat([]byte{0x42}, 32), nil)
