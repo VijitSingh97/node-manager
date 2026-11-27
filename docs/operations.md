@@ -393,7 +393,8 @@ first — a live copy of `chainstate/` is corrupt by construction.
       service can fail on its own, so it never reports `DOWN`.
     - `balance_index` (only when turned on): `UP` when `ready`, otherwise
       `DEGRADED`, with the index state in `details.state`. Wallet balances
-      fall back to the slower scan meanwhile.
+      fall back to the slower scan meanwhile, and the index counts as
+      `catching_up` while its node is itself behind the network.
 
     The overall status is `DOWN` if any component is `DOWN`, `DEGRADED` if any
     is `DEGRADED`, otherwise `UP`.
@@ -460,7 +461,10 @@ first — a live copy of `chainstate/` is corrupt by construction.
   `blocks_behind` and `seed_progress` (0 to 1). Heights and `blocks_behind`
   are `null` until the index has a tip and the node has answered once;
   `seed_progress` is `null` unless a seed is running. `ready` means the index
-  is valid, idle and within 2 blocks of the node tip; a wallet balance comes
+  is valid, idle and within 2 blocks of the node tip, and the node is not itself
+  syncing (initial download, or its headers more than 2 blocks ahead of its blocks),
+  in which case it reports `catching_up` with `blocks_behind` counted to the headers;
+  a wallet balance comes
   from the index only at `blocks_behind` 0, otherwise the scan answers. Seed status adds `phase`
   (`waiting`, `importing`, `merging`, `paused` or `cancelling`; empty when no
   seed runs), `started_at`, `refusals` (a list of `guard` and `detail` for each

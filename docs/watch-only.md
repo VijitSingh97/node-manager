@@ -489,10 +489,10 @@ design and its measurements are in
 [ADR 0001](adr/0001-bitcoin-utxo-index.md). Operations also covers the
 measured seed budget, a "Needs a new seed" card, upgrades and removal.
 
-- **When the index answers.** Only while it is `ready` and level with the node
-  tip, and only for a wallet whose scripts it can derive. Every other wallet, and
+- **When the index answers.** Only while it is `ready` (which needs the node itself to be
+  synced with the network) and level with the node tip, and only for a wallet whose scripts it can derive. Every other wallet, and
   every wallet while the index is seeding, catching up, degraded or invalid,
-  uses the scan above. Each wallet in `/api/watch` reports `balance_source` as
+  uses the scan above, which waits while the node is still syncing. Each wallet in `/api/watch` reports `balance_source` as
   `index` or `scan`, and its row says "From the balance index" when the index
   answered.
 - **New blocks.** While the index is `ready`, the dashboard waits on bitcoind's

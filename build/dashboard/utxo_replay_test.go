@@ -645,6 +645,27 @@ func TestReplaySeedNowResumesAReplayTheUserCancelled(t *testing.T) {
 	utxoMgrCheck(t, m.store, c, "u", 59)
 }
 
+func TestReplaySeedNowIgnoresHeadersLead(t *testing.T) {
+	a, _ := testApp(t, &rpcFixture{}, "")
+	fx := newReplayFixture(t, t.TempDir(), newFakeUtxoNode(utxoMgrChain(2, "r")))
+	m := fx.m
+	a.chainUtxo = map[string]*utxoManager{nodeLitecoin: m}
+	tip := uint32(100)
+	set := func(nodeTip, headers int64) {
+		m.mu.Lock()
+		m.state, m.indexTip, m.nodeTip, m.nodeHeaders = utxoStateReady, &tip, nodeTip, headers
+		m.mu.Unlock()
+	}
+	set(100, 100+utxoReplayGap+1)
+	if st := m.Status(); st.State != utxoStateCatching || a.seedNow(nodeLitecoin) {
+		t.Fatalf("a node that is only syncing was offered a replay seed: %+v", st)
+	}
+	set(100+utxoReplayGap+1, 100+utxoReplayGap+1)
+	if !a.seedNow(nodeLitecoin) {
+		t.Fatalf("a replay seed is not offered when the node is far ahead: %+v", m.Status())
+	}
+}
+
 func TestUtxoIndexParksAtABlockTooLargeWithoutInvalidating(t *testing.T) {
 	swapReplayKnobs(t, 5, 1000, 10)
 	swapReplayRetries(t, 30, time.Second)

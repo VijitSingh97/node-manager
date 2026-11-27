@@ -6,7 +6,7 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
-### Added
+### Changed
 
 - `node-manager utxo-index bench --chain dogecoin` now runs the index lookup
   bench for Dogecoin. The command line refused it, although the dashboard
@@ -15,6 +15,19 @@ All notable changes to this project are documented here. Format follows
   Dogecoin Core 1.14.9 has no `scantxoutset` and that
   `utxo-index verify --chain dogecoin` is the full check; the dashboard refuses
   a Dogecoin scan too.
+
+### Fixed
+
+- The balance index no longer says "ready" while its own node is behind the
+  network. After a Bitcoin node had been offline for days, the tower read
+  "Synchronizing the Bitcoin blockchain" while the index showed a full green
+  "ready" bar, because the index only compared itself with the node's blocks,
+  never with its headers. It now reports "catching up" with the number of
+  blocks still to go (or "waiting for the node to sync" during the initial
+  download), and returns to ready by itself once the node has caught up. While
+  the node syncs, pruned wallets keep their cached balances instead of running
+  a full scan on every block. Index log lines for Litecoin, Bitcoin Cash and
+  Dogecoin now name the chain so they can be told apart.
 
 ## [1.42.2] - 2026-11-25
 

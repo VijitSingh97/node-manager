@@ -32,6 +32,8 @@ type fakeUtxoNode struct {
 	chain       string
 	pruned      bool
 	pruneHeight int64
+	headers     int64
+	ibd         bool
 	hook        func(method string, params any) error
 }
 
@@ -42,7 +44,7 @@ func (n *fakeUtxoNode) call(ctx context.Context, method string, params any, out 
 		}
 	}
 	if method == "getblockchaininfo" {
-		raw, _ := json.Marshal(map[string]any{"chain": n.chain, "blocks": len(n.hashes) - 1, "pruned": n.pruned, "pruneheight": n.pruneHeight})
+		raw, _ := json.Marshal(map[string]any{"chain": n.chain, "blocks": len(n.hashes) - 1, "pruned": n.pruned, "pruneheight": n.pruneHeight, "headers": n.headers, "initialblockdownload": n.ibd})
 		return json.Unmarshal(raw, out)
 	}
 	return n.fakeUtxoChain.call(ctx, method, params, out)
@@ -1182,5 +1184,102 @@ func TestUtxoIndexOffSkipsPrunedLookupWhenBitcoinDisabled(t *testing.T) {
 	defer fixture.mu.Unlock()
 	if st.NodePruned != nil || len(fixture.calls) != 0 {
 		t.Fatalf("node_pruned %v, rpc calls %v", st.NodePruned, fixture.calls)
+	}
+}
+
+func TestUtxoManagerStaysCatchingWhileNodeIsBehindNetwork(t *testing.T) {
+	ctx := context.Background()
+	for name, chain := range map[string]*utxoChainParams{"bitcoin": utxoBitcoin} {
+		t.Run(name, func(t *testing.T) {
+			c := utxoMgrChain(10, "b")
+			node := newFakeUtxoNode(c)
+			dir := t.TempDir()
+			utxoMgrSeed(t, dir, nil, c)
+			m := utxoMgrNewChain(t, dir, nil, node, io.Discard, chain)
+			expect := func(label, state, reason string, behind int64) {
+				t.Helper()
+				st := m.Status()
+				if st.Behind == nil {
+					t.Fatalf("%s: %+v", label, st)
+				}
+				if st.State != state || st.Reason != reason || *st.Behind != behind || utxoMgrState(m) != state {
+					t.Fatalf("%s: %+v behind=%d", label, st, *st.Behind)
+				}
+			}
+			m.tick(ctx)
+			expect("level", utxoStateReady, "", 0)
+			node.headers = 9 + 768
+			m.tick(ctx)
+			expect("headers lead", utxoStateCatching, utxoReasonNodeSync, 768)
+			if got := balanceIndexComponent(m.Status().State).Status; got != statusDegraded {
+				t.Fatalf("actuator = %s", got)
+			}
+			node.headers, node.ibd = 0, true
+			m.tick(ctx)
+			expect("ibd", utxoStateCatching, utxoReasonNodeSync, 0)
+			node.ibd, node.headers = false, 9+utxoReadyLag
+			m.tick(ctx)
+			expect("small lead", utxoStateReady, "", 0)
+			node.headers = 9 + 768
+			m.tick(ctx)
+			applied := 0
+			m.onApplied = func() { applied++ }
+			node.headers = 9
+			m.tick(ctx)
+			expect("level again", utxoStateReady, "", 0)
+			if applied != 1 {
+				t.Fatalf("onApplied after the node caught up = %d", applied)
+			}
+			m.tick(ctx)
+			if applied != 1 {
+				t.Fatalf("onApplied on a steady tick = %d", applied)
+			}
+		})
+	}
+}
+
+func TestUtxoManagerFollowsBlocksWhileNodeIsBehindNetwork(t *testing.T) {
+	ctx := context.Background()
+	c := utxoMgrChain(10, "b")
+	node := newFakeUtxoNode(c)
+	node.headers = 500
+	dir := t.TempDir()
+	utxoMgrSeed(t, dir, nil, c)
+	m := utxoMgrNew(t, dir, nil, node, io.Discard)
+	m.tick(ctx)
+	if st := m.Status(); *st.IndexTip != 9 || st.State != utxoStateCatching || *st.Behind != 491 {
+		t.Fatalf("status = %+v", st)
+	}
+}
+
+func TestUtxoManagerLogsNameTheChain(t *testing.T) {
+	var logs bytes.Buffer
+	logger := log.New(&logs, "go-dashboard: ", log.LstdFlags)
+	a := &app{}
+	m := a.newChainUtxo(nodeConfig{ID: nodeDogecoin, UTXOIndexDir: t.TempDir()}, utxoDogecoin, logger)
+	t.Cleanup(func() { _ = m.store.Close() })
+	if line := logs.String(); !strings.HasPrefix(line, "go-dashboard: dogecoin: ") || !strings.Contains(line, " utxo index: state=") {
+		t.Fatalf("logs = %q", logs.String())
+	}
+}
+
+func TestUtxoStatusDemotesReadyWhileNodeIsBehindOnEveryChain(t *testing.T) {
+	for name, chain := range map[string]*utxoChainParams{"bitcoin": utxoBitcoin, "litecoin": utxoLitecoin, "bitcoincash": utxoBitcoinCash, "dogecoin": utxoDogecoin} {
+		t.Run(name, func(t *testing.T) {
+			m := utxoMgrNewChain(t, t.TempDir(), nil, newFakeUtxoNode(utxoMgrChain(2, "b")), io.Discard, chain)
+			tip := uint32(1000)
+			m.mu.Lock()
+			m.state, m.indexTip, m.nodeTip, m.nodeHeaders = utxoStateReady, &tip, 1000, 1768
+			m.mu.Unlock()
+			if st := m.Status(); st.State != utxoStateCatching || st.Reason != utxoReasonNodeSync || *st.Behind != 768 {
+				t.Fatalf("behind: %+v", st)
+			}
+			m.mu.Lock()
+			m.nodeHeaders = 0
+			m.mu.Unlock()
+			if st := m.Status(); st.State != utxoStateReady || st.Reason != "" {
+				t.Fatalf("unknown headers: %+v", st)
+			}
+		})
 	}
 }
