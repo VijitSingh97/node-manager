@@ -279,5 +279,6 @@ if (typeof document !== "undefined") {
   window.addEventListener("node-catalog-updated", loadNodes);
   window.addEventListener("live-updated", () => refreshNodeLabel("bitcoin"));
   window.addEventListener("node-height", (event) => refreshNodeLabel(event.detail.node));
-  loadNodes();
+  // Later module scripts register their host-stats-data listeners before DOMContentLoaded.
+  document.addEventListener("DOMContentLoaded",loadNodes,{once:true});
 }

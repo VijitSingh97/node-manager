@@ -531,7 +531,10 @@ if (typeof document !== "undefined") {
   const installError = byId("install-error");
   const installWarning = byId("install-warning");
   let hostStats = null;
-  window.addEventListener("host-stats-data", (event) => { hostStats = event.detail?.stats || null; });
+  window.addEventListener("host-stats-data", (event) => {
+    hostStats = event.detail?.stats || null;
+    if (installDialog.open && installAction === "install") showInstallWarning();
+  });
   const installSubmit = byId("install-submit");
   let installAction = "install";
   const nodeViews = {};
@@ -895,6 +898,11 @@ if (typeof document !== "undefined") {
     installDialog.showModal();
   };
 
+  const showInstallWarning = () => {
+    installWarning.textContent = powerWarning("Install", { id: installNode }, hostStats);
+    installWarning.hidden = !installWarning.textContent;
+  };
+
   const openInstall = (nodeID) => {
     const node = hostView.nodes[nodeID];
     if (!node || node.installed || !node.data_dir) return;
@@ -933,8 +941,7 @@ if (typeof document !== "undefined") {
     installIndexLabel.hidden = installIndexHint.hidden = !offered;
     installIndex.checked = true;
     installError.textContent = "";
-    installWarning.textContent = powerWarning("Install", { id: nodeID }, hostStats);
-    installWarning.hidden = !installWarning.textContent;
+    showInstallWarning();
     installSubmit.textContent = "Install on Save";
     installDialog.showModal();
   };
