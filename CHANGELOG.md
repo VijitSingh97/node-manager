@@ -15,8 +15,29 @@ All notable changes to this project are documented here. Format follows
   Dogecoin Core 1.14.9 has no `scantxoutset` and that
   `utxo-index verify --chain dogecoin` is the full check; the dashboard refuses
   a Dogecoin scan too.
+- CI now runs the real Monero 0.18.5.4 daemon on regtest with two
+  `monero-wallet-rpc` services: it mines to a known address, adds that address
+  as a view-only watch wallet, imports key images, checks the verified balance,
+  and mines blocks between refreshes. The job fails if the test is skipped. The
+  wallet service needs `allow-mismatched-daemon-version` for regtest, which
+  production does not use.
+- The native-node CI job now logs the optional status fields each chain serves
+  and fails if Monero (fees, mempool), Tari (connections, mempool) or Zcash
+  (fees, connections) stops reporting its required fields as available. A
+  separate check proves a renamed field is caught. The required lists should be
+  confirmed against one real CI run before this is merged.
+- The Tari wallet gRPC probe can now wait for the dashboard's balance
+  conditions (online, initial validation done, scanned height within two blocks
+  of the node) and assert the balance total, and `docs/releasing.md` describes
+  this as a pre-release check against a funded watch wallet.
 
 ### Fixed
+
+- A Monero watch wallet no longer loses its balance for a refresh when a block
+  arrives between the node and the wallet service catching up. A wallet one
+  block behind the node now refreshes to the tip and keeps its verified
+  balance; a wallet further behind still waits as before. A real regtest run
+  showed the balance blanking in this window.
 
 - A Dogecoin balance-index seed no longer gets the dashboard OOM-killed. A
   Dogecoin 1.14 node writes its whole coin cache, 450 MiB by default, to its

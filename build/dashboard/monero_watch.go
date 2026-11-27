@@ -22,6 +22,7 @@ const (
 	maxMoneroWatchWallets = 8
 	maxMoneroWatchHistory = 288
 	moneroRefreshTimeout  = 30 * time.Minute
+	moneroWalletTipLag    = 1
 )
 
 var (
@@ -444,12 +445,16 @@ func (s *MoneroWatchStore) refresh(parent context.Context, wallet MoneroWatchWal
 			return err
 		}
 		snapshot.walletHeight, snapshot.daemonHeight = walletHeight.Height, targetHeight
-		if walletHeight.Height < targetHeight {
+		if walletHeight.Height+moneroWalletTipLag < targetHeight {
 			return errMoneroScanPending
 		}
 		if err := s.walletCall(ctx, "refresh", map[string]any{}, nil); err != nil {
 			return err
 		}
+		if err := s.walletCall(ctx, "get_height", map[string]any{}, &walletHeight); err != nil {
+			return err
+		}
+		snapshot.walletHeight = walletHeight.Height
 		var balance moneroWalletBalance
 		if err := s.walletCall(ctx, "get_balance", map[string]any{"all_accounts": true, "strict": true}, &balance); err != nil {
 			return err

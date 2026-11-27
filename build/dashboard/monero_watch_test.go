@@ -30,6 +30,7 @@ type moneroWalletFixture struct {
 	refreshFails  bool
 	secondAccount bool
 	scanPending   bool
+	walletLag     uint64
 	daemonPending bool
 	closed        bool
 	openedFile    string
@@ -83,7 +84,7 @@ func (f *moneroWalletFixture) handler(w http.ResponseWriter, r *http.Request) {
 	if viewKey, ok := f.generated["viewkey"].(string); ok {
 		generatedViewKey = viewKey
 	}
-	imported, newOutput, generateFails, refreshFails, secondAccount, scanPending, daemonPending := f.imported, f.newOutput, f.generateFails, f.refreshFails, f.secondAccount, f.scanPending, f.daemonPending
+	imported, newOutput, generateFails, refreshFails, secondAccount, scanPending, daemonPending, walletLag := f.imported, f.newOutput, f.generateFails, f.refreshFails, f.secondAccount, f.scanPending, f.daemonPending, f.walletLag
 	f.mu.Unlock()
 	if request.Method == "generate_from_keys" && generateFails {
 		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": "dashboard", "error": map[string]any{"code": -1, "message": "wallet exists"}})
@@ -108,6 +109,9 @@ func (f *moneroWalletFixture) handler(w http.ResponseWriter, r *http.Request) {
 		if scanPending {
 			walletHeight = 300
 		}
+		if walletLag > 0 {
+			walletHeight = 310 - walletLag
+		}
 		result = map[string]any{"height": walletHeight}
 	case "get_info":
 		result = map[string]any{"synchronized": !daemonPending, "busy_syncing": daemonPending, "height": 310, "target_height": 310}
@@ -118,9 +122,10 @@ func (f *moneroWalletFixture) handler(w http.ResponseWriter, r *http.Request) {
 		if secondAccount {
 			balance, unlocked = 1_500_000_000_000, 1_400_000_000_000
 		}
-		result = map[string]any{"balance": balance, "unlocked_balance": unlocked}
+		result = map[string]any{"balance": balance, "unlocked_balance": unlocked, "blocks_to_unlock": 0, "time_to_unlock": 0, "multisig_import_needed": false,
+			"per_subaddress": []any{map[string]any{"account_index": 0, "address_index": 0, "balance": balance, "unlocked_balance": unlocked, "label": "Primary account", "num_unspent_outputs": 1}}}
 	case "get_accounts":
-		accounts := []any{map[string]any{"account_index": 0}}
+		accounts := []any{map[string]any{"account_index": 0, "balance": 1_000_000_000_000, "unlocked_balance": 900_000_000_000, "label": "Primary account", "tag": ""}}
 		if secondAccount {
 			accounts = append(accounts, map[string]any{"account_index": 1})
 		}
@@ -135,7 +140,7 @@ func (f *moneroWalletFixture) handler(w http.ResponseWriter, r *http.Request) {
 		if imported {
 			keyImage = strings.Repeat("c", 64)
 		}
-		transfers := []any{map[string]any{"amount": 1_000_000_000_000, "key_image": keyImage}}
+		transfers := []any{map[string]any{"amount": 1_000_000_000_000, "key_image": keyImage, "block_height": 1, "frozen": false, "global_index": 0, "spent": false, "unlocked": true, "subaddr_index": map[string]any{"major": 0, "minor": 0}}}
 		f.mu.Lock()
 		if f.largeReply {
 			transfers[0].(map[string]any)["padding"] = strings.Repeat("x", 2<<20)
@@ -361,6 +366,24 @@ func TestMoneroWatchRequiresCompleteCoverageAcrossEveryAccount(t *testing.T) {
 	status := a.moneroWatch.List()[0]
 	if status.KeyImages.TotalOutputs != 2 || status.KeyImages.CoveredOutputs != 1 || status.KeyImages.Complete || status.BalanceAtomic != "" || status.SpendingStatus != "stale" {
 		t.Fatalf("secondary account was omitted from coverage: %#v", status)
+	}
+}
+
+func TestMoneroWatchToleratesWalletOneBlockBehind(t *testing.T) {
+	for lag, want := range map[uint64]string{1: "ready", 2: "pending"} {
+		fixture := &moneroWalletFixture{}
+		a, _, _ := newMoneroWatchTestApp(t, fixture)
+		wallet, err := a.moneroWatch.Add(context.Background(), "Lagging", testMoneroAddress, strings.Repeat("a", 64), 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fixture.mu.Lock()
+		fixture.walletLag = lag
+		fixture.mu.Unlock()
+		a.moneroWatch.refresh(context.Background(), wallet)
+		if status := a.moneroWatch.List()[0]; status.State != want {
+			t.Fatalf("wallet %d blocks behind: state %q, want %q", lag, status.State, want)
+		}
 	}
 }
 
