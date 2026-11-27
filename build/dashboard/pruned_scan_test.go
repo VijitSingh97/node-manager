@@ -65,6 +65,7 @@ type prunedRPCMock struct {
 	walletEntry        WatchEntry
 	foreignScan        bool
 	deriveFailure      string
+	requireChecksum    bool
 	result             scanTxOutSetResult
 	startCalls         int
 	allCalls           int
@@ -123,6 +124,8 @@ func (m *prunedRPCMock) handler(w http.ResponseWriter, r *http.Request) {
 		m.mu.Unlock()
 		if m.deriveFailure != "" && strings.Contains(desc, m.deriveFailure) {
 			rpcError = map[string]any{"code": -5, "message": "cannot derive"}
+		} else if m.requireChecksum && !strings.Contains(desc, "#") {
+			rpcError = map[string]any{"code": -5, "message": "Missing checksum"}
 		} else {
 			result = []string{"mock-address"}
 		}
@@ -945,6 +948,25 @@ func TestPrunedRefreshRejectsWrongCachedCoreWallet(t *testing.T) {
 	defer mock.mu.Unlock()
 	if mock.startCalls != 1 {
 		t.Fatalf("wrong cached wallet started %d scans", mock.startCalls)
+	}
+}
+
+func TestPrunedBatchCountsAPublicKeyOutputUnderItsWallet(t *testing.T) {
+	bestBlock := strings.Repeat("6", 64)
+	scan := validPrunedScan(bestBlock)
+	scan.TotalAmount = 1.75
+	scan.Unspents = append(scan.Unspents, scanTxOutSetUnspent{TxID: strings.Repeat("b", 64), Vout: 1, ScriptPubKey: "21abac", Desc: "pk(02abcdef)#scan", Amount: 0.5, Height: 800001})
+	mock := &prunedRPCMock{bestBlock: bestBlock, result: scan, deriveFailure: "pk(", requireChecksum: true}
+	a, handler, _ := newPrunedTestApp(t, t.TempDir(), mock)
+	entry, err := a.watch.Add("Combo", genesisAddress, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !a.scanner.enqueue(entry, true) {
+		t.Fatal("scan was not queued")
+	}
+	if row := waitPrunedState(t, handler, "ok"); row["btc"] != "1.75" {
+		t.Fatalf("pk() output not counted: %#v", row)
 	}
 }
 

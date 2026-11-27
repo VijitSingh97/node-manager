@@ -154,7 +154,7 @@ func (s *familyWatchStore) load(seed familyWatchEntry) {
 			s.err = errFamilyWatchUnavailable
 			return
 		}
-	} else if err != nil || !decodeFamilyWatchRoster(data, &s.wallets, seed, s.maxWallets) {
+	} else if err != nil || !decodeFamilyWatchRoster(data, &s.wallets, seed, max(s.maxWallets, maxIndexedWatchWallets)) {
 		s.err = errFamilyWatchUnavailable
 		return
 	}

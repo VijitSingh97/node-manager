@@ -414,3 +414,22 @@ func (m *utxoManager) mustTip() [32]byte {
 	_, hash, _ := m.Tip()
 	return hash
 }
+
+func TestPrunedCacheRowNotOkWhileHeadersAhead(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("WATCH_STORE", filepath.Join(dir, "wallets.json"))
+	t.Setenv("BALANCE_HISTORY", filepath.Join(dir, "history.json"))
+	store := NewWatchStore(dir)
+	entry, _ := store.Add("One", genesisAddress, "")
+	best := strings.Repeat("4", 64)
+	if !store.StoreScanIfCurrent(entry, cachedPrunedScan(entry, 1, 1, best, time.Now())) {
+		t.Fatal("seed failed")
+	}
+	none := func(string, string, []any, time.Duration) any { return nil }
+	if view := store.ListWithChain(none, blockchainInfo{Pruned: true, BestBlockHash: best, Blocks: 100, Headers: 100}); view["total_state"] != "ok" {
+		t.Fatalf("caught-up view = %#v", view)
+	}
+	if view := store.ListWithChain(none, blockchainInfo{Pruned: true, BestBlockHash: best, Blocks: 100, Headers: 110}); view["total_state"] == "ok" {
+		t.Fatalf("headers-ahead view counted cache as ok: %#v", view)
+	}
+}

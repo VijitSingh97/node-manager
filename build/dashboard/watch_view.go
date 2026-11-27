@@ -168,7 +168,7 @@ func (s *WatchStore) walletBalances(walletRPC WalletRPCFunc, entries []WatchEntr
 				if series := chainHistorySeries(cache.Outpoints, cache.Height); series != nil {
 					row["chain_history"] = series
 				}
-				if !scanUnavailable && chain.Pruned && !chain.InitialBlockDownload && chain.BestBlockHash != "" && cache.BestBlock == chain.BestBlockHash {
+				if !scanUnavailable && chain.Pruned && !nodeBehindNetwork(chain.InitialBlockDownload, chain.Blocks, chain.Headers) && chain.BestBlockHash != "" && cache.BestBlock == chain.BestBlockHash {
 					row["state"] = "ok"
 					if !example {
 						scanCount++

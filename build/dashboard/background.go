@@ -124,19 +124,7 @@ func (a *app) startBackground(ctx context.Context) <-chan struct{} {
 	}
 	chain := func() map[string]any { return a.healthBlockchain(ctx) }
 	start(func() {
-		a.every(ctx, time.Minute, func(ctx context.Context) {
-			if !a.nodeWorkerRunnable(nodeBitcoin, true) {
-				return
-			}
-			var info blockchainInfo
-			if a.rpc.call(ctx, "getblockchaininfo", nil, &info) != nil || info.InitialBlockDownload {
-				return
-			}
-			var estimate feeEstimate
-			if a.rpc.call(ctx, "estimatesmartfee", []any{1}, &estimate) == nil && estimate.FeeRate != nil {
-				a.recordFee(math.RoundToEven(*estimate.FeeRate*1000000) / 10)
-			}
-		})
+		a.every(ctx, time.Minute, a.sampleBitcoinFee)
 	})
 	start(func() {
 		a.every(ctx, 10*time.Minute, func(context.Context) {
@@ -144,7 +132,7 @@ func (a *app) startBackground(ctx context.Context) <-chan struct{} {
 				return
 			}
 			info := chain()
-			if info != nil && info["initialblockdownload"] != true {
+			if info != nil && info["initialblockdownload"] != true && info["tip_stale"] != true {
 				a.watch.Sample(a.walletRPC)
 			}
 		})
@@ -162,8 +150,7 @@ func (a *app) startBackground(ctx context.Context) <-chan struct{} {
 					continue
 				}
 			}
-			var info blockchainInfo
-			if a.rpc.call(ctx, "getblockchaininfo", nil, &info) == nil {
+			if info, err := a.readBitcoinChain(ctx); err == nil {
 				if !a.nodeWorkerRunnable(nodeBitcoin, true) {
 					continue
 				}
@@ -242,6 +229,7 @@ func (a *app) healthBlockchain(parent context.Context) map[string]any {
 	}
 	if !ibd {
 		a.rememberSync(blockchainInfo{})
+		a.markNodeBehind(ctx, nodeBitcoin, &rpc, result)
 		return result
 	}
 	blocks, blocksOK := integer(result["blocks"])
@@ -289,15 +277,54 @@ func (a *app) healthAdditionalNode(parent context.Context, id string, node nodeC
 	}
 	a.recordNodeHealth(id, true)
 	result["active"] = true
+	a.markNodeBehind(ctx, id, rpc, result)
 	return result
 }
 
 func nodeStatusInfo(status genericNodeStatus) map[string]any {
-	info := map[string]any{"active": true, "initialblockdownload": !status.Synced, "blocks": status.Height, "sync_progress": status.SyncPercent / 100, "version": status.Version}
+	info := map[string]any{"active": true, "initialblockdownload": !status.Synced && !status.TipStale, "tip_stale": status.TipStale, "blocks": status.Height, "sync_progress": status.SyncPercent / 100, "version": status.Version}
 	if status.ConnectionsAvailable {
 		info["peers"] = status.Connections
 	}
 	return info
+}
+
+func (a *app) chainTipTime(ctx context.Context, id string, rpc utxoRPC, hash string) int64 {
+	clock, _ := a.tipClocks.LoadOrStore(id, &tipClock{})
+	return clock.(*tipClock).at(ctx, rpc, hash)
+}
+
+func (a *app) readBitcoinChain(ctx context.Context) (blockchainInfo, error) {
+	var info blockchainInfo
+	err := a.rpc.call(ctx, "getblockchaininfo", nil, &info)
+	if err == nil && chainTipStale(a.chainTipTime(ctx, nodeBitcoin, a.rpc, info.BestBlockHash), time.Now()) {
+		info.InitialBlockDownload = true
+	}
+	return info, err
+}
+
+func (a *app) sampleBitcoinFee(ctx context.Context) {
+	if !a.nodeWorkerRunnable(nodeBitcoin, true) {
+		return
+	}
+	info, err := a.readBitcoinChain(ctx)
+	if err != nil || nodeBehindNetwork(info.InitialBlockDownload, info.Blocks, info.Headers) {
+		return
+	}
+	var estimate feeEstimate
+	if a.rpc.call(ctx, "estimatesmartfee", []any{1}, &estimate) == nil && estimate.FeeRate != nil {
+		a.recordFee(math.RoundToEven(*estimate.FeeRate*1000000) / 10)
+	}
+}
+
+func (a *app) markNodeBehind(ctx context.Context, id string, rpc utxoRPC, result map[string]any) {
+	ibd, _ := result["initialblockdownload"].(bool)
+	blocks, _ := integer(result["blocks"])
+	headers, _ := integer(result["headers"])
+	hash, _ := result["bestblockhash"].(string)
+	if !ibd && chainBehind(ibd, blocks, headers, a.chainTipTime(ctx, id, rpc, hash), time.Now()) {
+		result["tip_stale"] = true
+	}
 }
 
 func (a *app) provision(entry WatchEntry, pruned bool) {
@@ -311,7 +338,7 @@ func (a *app) provisionForChain(entry WatchEntry, chain blockchainInfo) {
 	if !a.nodeWorkerRunnable(nodeBitcoin, true) {
 		return
 	}
-	if chain.Pruned && !chain.InitialBlockDownload && chain.BestBlockHash != "" {
+	if chain.Pruned && !nodeBehindNetwork(chain.InitialBlockDownload, chain.Blocks, chain.Headers) && chain.BestBlockHash != "" {
 		if cache, _, ok := a.watch.scanSnapshot(entry); ok && cache.BestBlock == chain.BestBlockHash {
 			a.watch.ClearPendingIfCurrent(entry)
 			return
@@ -389,8 +416,7 @@ func (a *app) refreshWatchLoop(ctx context.Context) {
 		if !a.nodeWorkerRunnable(nodeBitcoin, true) {
 			return
 		}
-		var info blockchainInfo
-		if a.rpc.call(ctx, "getblockchaininfo", nil, &info) == nil {
+		if info, err := a.readBitcoinChain(ctx); err == nil {
 			entries := a.watch.Entries()
 			a.scanner.refresh(entries, info)
 			a.retryProvision(entries, info, time.Now())

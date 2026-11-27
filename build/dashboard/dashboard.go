@@ -127,6 +127,7 @@ type app struct {
 	controlSeen      map[string]string
 	provisionLocks   sync.Map
 	provisionRetries sync.Map
+	tipClocks        sync.Map
 	ctx              context.Context
 }
 
@@ -294,22 +295,22 @@ func (a *app) index(w http.ResponseWriter, r *http.Request) {
 		FeeNext: "—", Fee30m: "—", FeeHour: "—",
 		BitcoinRPCEndpoint: a.cfg.bitcoinRPCEndpoint,
 	}
-	if !chain.InitialBlockDownload && chain.Blocks == chain.Headers {
+	now := time.Now()
+	tipTime := a.chainTipTime(ctx, nodeBitcoin, a.rpc, chain.BestBlockHash)
+	tipStale := chainTipStale(tipTime, now)
+	if !chain.InitialBlockDownload && chain.Blocks == chain.Headers && !tipStale {
 		data.Progress = 100
 	}
 	data.StateLine = "Synchronizing the Bitcoin blockchain…"
-	if !chain.InitialBlockDownload && chain.Blocks >= chain.Headers {
+	if !chain.InitialBlockDownload && chain.Blocks >= chain.Headers && !tipStale {
 		data.StateLine = "Synced"
 	}
 	data.LastBlock = "—"
-	if chain.BestBlockHash != "" {
-		var header familyBlockHeader
-		if a.rpc.call(ctx, "getblockheader", []any{chain.BestBlockHash}, &header) == nil && header.Time > 0 {
-			if age := max(0, time.Now().Unix()-header.Time); age < 60 {
-				data.LastBlock = "<1m ago"
-			} else {
-				data.LastBlock = formatUptime(float64(age)) + " ago"
-			}
+	if tipTime > 0 {
+		if age := max(0, now.Unix()-tipTime); age < 60 {
+			data.LastBlock = "<1m ago"
+		} else {
+			data.LastBlock = formatUptime(float64(age)) + " ago"
 		}
 	}
 	if !chain.InitialBlockDownload {
@@ -319,9 +320,11 @@ func (a *app) index(w http.ResponseWriter, r *http.Request) {
 			data.MempoolTxs = mempool.Size
 			data.MempoolMB = float64(mempool.Bytes) / (1024 * 1024)
 		}
-		data.FeeNext = a.fee(ctx, 1)
-		data.Fee30m = a.fee(ctx, 3)
-		data.FeeHour = a.fee(ctx, 6)
+		if !chainBehind(false, chain.Blocks, chain.Headers, tipTime, now) {
+			data.FeeNext = a.fee(ctx, 1)
+			data.Fee30m = a.fee(ctx, 3)
+			data.FeeHour = a.fee(ctx, 6)
+		}
 	}
 	a.render(w, data)
 }

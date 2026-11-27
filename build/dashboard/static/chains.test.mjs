@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {powerView,powerBadge,powerRequest,controlView,chainFeesView,nodeBecameActive,setNodeActive,nodePollDelay,nodeRefreshable,powerResultMessage} from './chains.js';
+import {powerView,powerBadge,powerRequest,controlView,chainFeesView,nodeBecameActive,setNodeActive,nodePollDelay,nodeRefreshable,powerResultMessage,powerWarning} from './chains.js';
 import {genericNodeView,normalizeNode} from './nodes.js';
 import {overviewLayout,previewDepth,GRID} from './tower.js';
 
@@ -171,4 +171,32 @@ test('a failed request stays visible only while the node is not in the requested
   assert.equal(powerResultMessage({...base,state:'failed',message:''},off),'');
   assert.equal(powerResultMessage({...base,state:'failed',active:false},off),'');
   assert.equal(powerResultMessage(null,off),'');
+});
+
+const GIB=2**30;
+const hostStats=(freeGiB,idleCpus)=>({cpus:4,mem_total_bytes:16*GIB,host_mem_bytes:(16-freeGiB)*GIB,host_cpu_pct:100*(1-idleCpus/4)});
+const synced={id:'litecoin',last_sync_percent:100,steady_cpus:1,steady_mem_limit_mb:2048};
+test('power warning is empty when the node fits, host stats are missing, or the action is Deactivate',()=>{
+  assert.equal(powerWarning('Activate',synced,hostStats(8,3)),'');
+  assert.equal(powerWarning('Activate',synced,null),'');
+  assert.equal(powerWarning('Deactivate',synced,hostStats(0,0)),'');
+});
+test('power warning names the shortfall in memory or CPU and stays advisory',()=>{
+  const memory=powerWarning('Activate',synced,hostStats(1.5,3));
+  assert.match(memory,/^Litecoin is expected to need 2\.0 GiB of memory and 1\.0 CPUs, but this host has 1\.5 GiB and 3\.0 CPUs free/);
+  assert.match(memory,/may become unstable\. You can still activate it\.$/);
+  assert.match(powerWarning('Activate',synced,hostStats(8,0.5)),/0\.5 CPUs free/);
+});
+test('an unsynced node is budgeted at 4 GiB and 2 CPUs',()=>{
+  const syncing={...synced,last_sync_percent:40};
+  assert.match(powerWarning('Activate',syncing,hostStats(3,3)),/4\.0 GiB of memory and 2\.0 CPUs/);
+  assert.equal(powerWarning('Activate',syncing,hostStats(4,2)),'');
+  assert.equal(powerWarning('Activate',{id:'litecoin'},hostStats(4,2)),'');
+});
+test('wallet sidecar memory counts for Monero and Tari, and Start words the closing sentence',()=>{
+  const tari={id:'tari',last_sync_percent:100,steady_cpus:1,steady_mem_limit_mb:4096};
+  assert.equal(powerWarning('Start',tari,hostStats(4.5,3)),'');
+  const text=powerWarning('Start',tari,hostStats(4.2,3));
+  assert.match(text,/4\.5 GiB of memory/);
+  assert.match(text,/You can still start it\.$/);
 });

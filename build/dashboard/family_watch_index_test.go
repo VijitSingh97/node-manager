@@ -123,6 +123,27 @@ func TestLitecoinAndBitcoinCashWatchesHoldFiftyWallets(t *testing.T) {
 	}
 }
 
+func TestDogecoinRosterAboveTheNoIndexCapStillLoadsAndShrinks(t *testing.T) {
+	a := &app{cfg: config{stateDir: t.TempDir(), nodes: map[string]nodeConfig{nodeDogecoin: {ID: nodeDogecoin, Enabled: true, UTXOIndex: true}}}}
+	store := newFamilyWatchManager(a).stores[nodeDogecoin]
+	for i := len(store.wallets); i < 30; i++ {
+		if _, err := store.add(fmt.Sprintf("w%02d", i), fmt.Sprintf("address-%02d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a.cfg.nodes[nodeDogecoin], a.cfg.dogecoinWatchWallet = nodeConfig{ID: nodeDogecoin, Enabled: true}, true
+	store = newFamilyWatchManager(a).stores[nodeDogecoin]
+	if store.maxWallets != maxFamilyWatchWallets || store.Err() != nil || len(store.wallets) != 30 {
+		t.Fatalf("cap %d, err %v, wallets %d", store.maxWallets, store.Err(), len(store.wallets))
+	}
+	if _, err := store.add("extra", "address-extra"); err == nil || !strings.Contains(err.Error(), "At most 25") {
+		t.Fatalf("add above the cap: %v", err)
+	}
+	if ok, err := store.remove(store.wallets[0].ID); !ok || err != nil {
+		t.Fatalf("remove: %v %v", ok, err)
+	}
+}
+
 func TestDogecoinIndexOnlyWatchWaitsForAnIndexOneBlockBehind(t *testing.T) {
 	now := time.Unix(2_000_000_000, 0)
 	_, store, fixture := newFamilyScanTest(t, now, familyWatchEntry{ID: "wallet-a", Address: "address-a"})

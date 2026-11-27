@@ -107,8 +107,11 @@ func TestTariStaleTipAndDeactivationRemoveSyncMarker(t *testing.T) {
 	node := nodeConfig{ID: nodeTari, Name: "Tari", Enabled: true, Supported: true, Protocol: "tari-grpc", RPCURL: "http://" + listener.Addr().String(), DataDir: dir}
 	a := &app{cfg: config{stateDir: dir, nodes: map[string]nodeConfig{nodeTari: node}}}
 	status, err := a.fetchTariStatus(t.Context(), node, genericNodeStatus{Enabled: true, Active: true, Supported: true})
-	if err != nil || !status.Synced || !status.LatestBlockAvailable {
+	if err != nil || status.Synced || !status.LatestBlockAvailable {
 		t.Fatalf("stale Tari status = %#v, %v", status, err)
+	}
+	if info := nodeStatusInfo(status); info["initialblockdownload"] != false || info["tip_stale"] != true {
+		t.Fatalf("stale Tari health = %#v", info)
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("stale tip retained sync marker: %v", err)
@@ -233,10 +236,28 @@ func TestTariFutureTipDoesNotCreateSyncMarker(t *testing.T) {
 	node := nodeConfig{ID: nodeTari, Enabled: true, Supported: true, RPCURL: "http://" + listener.Addr().String(), DataDir: dir}
 	a := &app{cfg: config{stateDir: dir}}
 	status, err := a.fetchTariStatus(t.Context(), node, genericNodeStatus{Enabled: true, Active: true, Supported: true})
-	if err != nil || !status.Synced || status.LatestBlockAvailable || status.LatestBlockTimestamp != 0 || status.LatestBlockAgeSeconds != 0 {
+	if err != nil || !status.Synced || status.TipStale || status.LatestBlockAvailable || status.LatestBlockTimestamp != 0 || status.LatestBlockAgeSeconds != 0 {
 		t.Fatalf("future-tip Tari status = %#v, %v", status, err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "tari.synced")); !os.IsNotExist(err) {
 		t.Fatalf("future Tari tip created sync marker: %v", err)
+	}
+}
+
+func TestTariTipSlightlyAheadOfClockCountsAsFresh(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := grpc.NewServer()
+	RegisterBaseNodeServer(server, tariFixture{timestamp: uint64(time.Now().Add(30 * time.Second).Unix())})
+	go server.Serve(listener)
+	defer server.Stop()
+	dir := t.TempDir()
+	node := nodeConfig{ID: nodeTari, Enabled: true, Supported: true, RPCURL: "http://" + listener.Addr().String(), DataDir: dir}
+	a := &app{cfg: config{stateDir: dir}}
+	status, err := a.fetchTariStatus(t.Context(), node, genericNodeStatus{Enabled: true, Active: true, Supported: true})
+	if err != nil || !status.Synced || status.LatestBlockAgeSeconds != 0 {
+		t.Fatalf("skewed Tari status = %#v, %v", status, err)
 	}
 }

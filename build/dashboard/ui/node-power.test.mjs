@@ -80,6 +80,25 @@ flow("A stopped node offers Start node, which needs no confirmation word", { hos
   assert.equal(await page.disabled(button("bitcoin")), true);
 });
 
+const lowMemory = { host_mem_bytes: 7.5 * 2 ** 30 };
+
+flow("Start warns about low free memory but stays enabled", { hostStats: { running: { bitcoin: false }, ...lowMemory } }, async ({ page }) => {
+  await openNode(page, "bitcoin");
+  await page.waitText(button("bitcoin"), "Start node");
+  await page.click(button("bitcoin"));
+  await page.waitText("#node-power-warning", /may become unstable\. You can still start it\.$/);
+  assert.equal(await page.visible("#node-power-warning"), true);
+  assert.equal(await page.disabled("#node-power-submit"), false);
+});
+
+flow("Deactivate shows no resource warning", { hostStats: lowMemory }, async ({ page }) => {
+  await openNode(page, "bitcoin");
+  await page.waitText(button("bitcoin"), "Deactivate node");
+  await page.click(button("bitcoin"));
+  await page.waitText("#node-power-title", "Deactivate Bitcoin");
+  assert.equal(await page.visible("#node-power-warning"), false);
+});
+
 flow("Node power stays disabled without the host helper", { host: false }, async ({ page }) => {
   await openNode(page, "bitcoin");
   await page.waitFor((selector) => document.querySelector(selector).disabled, { args: [button("bitcoin")] });
