@@ -133,7 +133,7 @@ func (s *familyWatchStore) walletsDue(now int64, tip familyWatchTip) []familyWat
 		}
 		balance, cached := s.balances[wallet.ID]
 		state := s.states[wallet.ID]
-		if !cached || state == "error" || state == "stale" || state == "rescanning" || balance.ScanTime > now || now-balance.ScanTime >= int64(familyWatchInterval/time.Second) || s.backend.refreshOnTip && balance.BestBlock != tip.Best {
+		if !cached || state == "" || state == "error" || state == "stale" || state == "rescanning" || balance.ScanTime > now || now-balance.ScanTime >= int64(familyWatchInterval/time.Second) || s.backend.refreshOnTip && balance.BestBlock != tip.Best {
 			wallets = append(wallets, wallet)
 		}
 	}
@@ -209,7 +209,12 @@ func (s *familyWatchStore) fromIndex(ctx context.Context, tip familyWatchTip, no
 		return false
 	}
 	s.mu.RLock()
-	wallets := append([]familyWatchEntry(nil), s.wallets...)
+	wallets := make([]familyWatchEntry, 0, len(s.wallets))
+	for _, wallet := range s.wallets {
+		if !(wallet.Example && s.skipExample) {
+			wallets = append(wallets, wallet)
+		}
+	}
 	s.mu.RUnlock()
 	hashes := make(map[string][utxoPrefixLen]byte, len(wallets))
 	scripts := make([][]byte, 0, len(wallets))

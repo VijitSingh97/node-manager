@@ -546,8 +546,9 @@ rosters, hourly confirmed-UTXO cache, and saved balance snapshots in the private
 dashboard state volume. Their sourced public examples are created automatically
 on fresh state: Linux Mint for Litecoin and Bitcoin Cash Node for Bitcoin Cash.
 The Monero General Fund is a received-only example because it has no signed key
-images. All examples are excluded from personal totals. Dogecoin and Zcash show
-no balance and no public reference address; the card explains why. Tari imports
+images. All examples are excluded from personal totals. Zcash shows no balance
+and no public reference address; Dogecoin shows its Foundation example once the
+balance index serves it; otherwise the card explains why. Tari imports
 one view-only wallet and has no bundled example.
 
 Keep the following in the server file: Bitcoin storage paths, pruning, indexes,
