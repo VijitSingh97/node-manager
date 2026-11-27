@@ -33,16 +33,19 @@ Manager never accepts a seed phrase or private spend key.
   | Bitcoin | 163.6 s | about 0.1 s (the genesis address, 83,490 coins) |
   | Litecoin | 39 to 58 s | 5 to 8 ms (6,526 coins) |
   | Bitcoin Cash | 44 to 82 s | 7.4 ms or less (6,667 coins) |
+  | Dogecoin | no scan: Dogecoin Core 1.14.9 has no `scantxoutset` | under 1 ms (2,555 coins); 0.84 s for a 917,097-coin address |
 
   The index and the scan agreed on every wallet tested (13 on Bitcoin, 16 on
   Litecoin, 16 on Bitcoin Cash), and the public addresses among them matched
-  block explorers. A new Bitcoin block reached watched balances in about 5 s
-  (median of 12 blocks). Indexes exist for Bitcoin (pruned nodes), Litecoin,
+  block explorers. Dogecoin has no scan to compare with; its index matched the
+  node's whole coin set, and 8 of 8 rich-list addresses matched two explorers.
+  A new Bitcoin block reached watched balances in about 5 s (median of 12
+  blocks). Indexes exist for Bitcoin (pruned nodes), Litecoin,
   Bitcoin Cash and Dogecoin. APT and Homebrew installs seed each one from the
   node once it has synced (a source checkout seeds by hand); a Bitcoin seed
   takes about 20 minutes, with its RPC down for about 5. Disk is about 4.5 GB
-  for Litecoin, 5.2 GB for Bitcoin Cash and 7.5 GiB for Bitcoin, which needs up
-  to about 17 GiB while it seeds; Dogecoin's index is not measured yet. See
+  for Litecoin, 5.2 GB for Bitcoin Cash, 18.4 GB for Dogecoin and 7.5 GiB for
+  Bitcoin, which needs up to about 17 GiB while it seeds. See
   [Watch-only wallets](docs/watch-only.md) and the
   [performance history](docs/measurements/performance-history.md).
 - **Tor-only at runtime.** The nodes, wallet services and dashboard share an

@@ -36,6 +36,8 @@ const (
 	utxoIngestTmpDir    = "ingest-tmp"
 )
 
+const utxoChainstateLogDir = "chainstate-log"
+
 // A block with more coin operations than this commits in pieces of about 9 MB of batch each, so a 32 MB Bitcoin Cash block fits the 1 GiB cap.
 var utxoBlockPieceOps = 50_000
 
@@ -226,9 +228,11 @@ func openUtxoStoreFS(dir string, fs vfs.FS, reverse bool) (*utxoStore, error) {
 		_ = s.Close()
 		return nil, fmt.Errorf("roll back a partly applied block: %w", err)
 	}
-	if err := fs.RemoveAll(fs.PathJoin(dir, utxoIngestTmpDir)); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("clear utxo ingest temp: %w", err)
+	for _, tmp := range []string{utxoIngestTmpDir, utxoChainstateLogDir} {
+		if err := fs.RemoveAll(fs.PathJoin(dir, tmp)); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("clear utxo ingest temp: %w", err)
+		}
 	}
 	return s, nil
 }

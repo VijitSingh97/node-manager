@@ -15,6 +15,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/cockroachdb/pebble/vfs"
 )
 
 const bchChainstateFixture = "testdata/bitcoincash-chainstate-regtest"
@@ -57,7 +59,7 @@ func loadBCHFixture(t *testing.T) *bchFixture {
 
 func openBCHChainstate(t *testing.T, dir string) *chainstateCopy {
 	t.Helper()
-	c, err := openChainstateCopy(dir)
+	c, err := openChainstateCopy(dir, vfs.Default, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +292,7 @@ func TestBitcoinCashChainstateRefusesABadKey(t *testing.T) {
 func TestChainstateCopyRefusesACopyTakenMidFlush(t *testing.T) {
 	key := append([]byte{8}, 1, 2, 3, 4, 5, 6, 7, 8)
 	dir := writeTestChainstate(t, key, bytes.Repeat([]byte{0x42}, 32), map[string][]byte{"H": bytes.Repeat([]byte{0x01}, 64)})
-	if c, err := openChainstateCopy(dir); err == nil {
+	if c, err := openChainstateCopy(dir, vfs.Default, t.TempDir()); err == nil {
 		_ = c.Close()
 		t.Fatal("a chainstate with a head-blocks marker opened")
 	}

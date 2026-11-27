@@ -672,8 +672,8 @@ case "$args" in
         ;;
     esac
     ;;
-  *'.utxo-bench.request.tmp'* | *'.litecoin-utxo-bench.request.tmp'*) cat >"$FAKE_UTXO/bench-request.json" ;;
-  *' exec -T -u 1000 dashboard cat /state/utxo-bench.result '* | *' exec -T -u 1000 dashboard cat /state/litecoin-utxo-bench.result '*)
+  *'.utxo-bench.request.tmp'* | *'.litecoin-utxo-bench.request.tmp'* | *'.dogecoin-utxo-bench.request.tmp'*) cat >"$FAKE_UTXO/bench-request.json" ;;
+  *' exec -T -u 1000 dashboard cat /state/utxo-bench.result '* | *' exec -T -u 1000 dashboard cat /state/litecoin-utxo-bench.result '* | *' exec -T -u 1000 dashboard cat /state/dogecoin-utxo-bench.result '*)
     [ -f "$FAKE_UTXO/bench-request.json" ] || exit 1
     case "${FAKE_BENCH_SCENARIO:-ok}" in
       none) echo '{"id":"someone-else","wallets":[]}' ;;
@@ -939,7 +939,7 @@ for bad in "$tmp"/bad[1-7].json; do
   grep -q 'must be a JSON array of 1 to 50' "$tmp/ubench.out" || fail "utxo-index bench did not explain $bad"
   bench_written && fail "utxo-index bench wrote a request for $bad"
 done
-for args in "--repeat 0" "--repeat 201" "--repeat x" "--repeat" "--bogus" "extra.json" "--chain" "--chain dogecoin" "--chain zcash"; do
+for args in "--repeat 0" "--repeat 201" "--repeat x" "--repeat" "--bogus" "extra.json" "--chain" "--chain zcash"; do
   reset_ubench
   # shellcheck disable=SC2086
   ubench utxo-index bench "$bench_wallets" $args >/dev/null 2>&1 && fail "utxo-index bench accepted arguments '$args'"
@@ -1265,6 +1265,19 @@ printf '{"bitcoin": {"enabled": true}, "dogecoin": {"enabled": true, "utxo_index
 grep -q '^COMPOSE_FILE=.*docker-compose.dogecoin-utxo-index.yml' "$doge_dir/.env" || fail "dogecoin.utxo_index did not render its overlay"
 dseed() { (cd "$doge_dir" && HOME="$tmp" FAKE_DOGE_DATA="$doge_data" BITCOIN_STACK_UTXO_SEED_POLL_SECONDS=1 BITCOIN_STACK_UTXO_SEED_ACK_SECONDS=2 PATH="$utxo_stub:$stub:$PATH" ./stack "$@"); }
 reset_useed
+rm -f "$FAKE_UTXO/bench-request.json"
+dseed utxo-index bench "$bench_wallets" --chain dogecoin >"$tmp/dbench.out" 2>&1 || fail "utxo-index bench --chain dogecoin failed on the happy path"
+jq -e '.chain == "dogecoin" and .scan == false and (.wallets | length == 2)' "$FAKE_UTXO/bench-request.json" >/dev/null || fail "utxo-index bench --chain dogecoin did not write a plain dogecoin request"
+grep -q ' /state/.dogecoin-utxo-bench.request.tmp' "$FAKE_LOG" || fail "utxo-index bench --chain dogecoin did not write into the dogecoin request file"
+grep -q 'Batched lookups' "$tmp/dbench.out" || fail "utxo-index bench --chain dogecoin did not print the batches"
+reset_useed
+rm -f "$FAKE_UTXO/bench-request.json"
+dseed utxo-index bench "$bench_wallets" --chain dogecoin --scan -y >"$tmp/dbench.out" 2>&1 && fail "utxo-index bench --chain dogecoin accepted --scan"
+if ! { grep -q 'no scantxoutset' "$tmp/dbench.out" && grep -q 'utxo-index verify --chain dogecoin' "$tmp/dbench.out"; }; then
+  fail "utxo-index bench --chain dogecoin --scan did not point at verify"
+fi
+bench_written && fail "utxo-index bench --chain dogecoin --scan wrote a request"
+reset_useed
 dseed utxo-seed dogecoin -y </dev/null >"$tmp/dseed.out" 2>&1 || {
   cat "$tmp/dseed.out"
   fail "utxo-seed dogecoin failed on the happy path"
@@ -1346,8 +1359,6 @@ dseed_status=0
 FAKE_CP_INTERRUPT=HUP dseed utxo-chainstate-copy dogecoin </dev/null >"$tmp/dseed.out" 2>&1 || dseed_status=$?
 [ "$dseed_status" = 130 ] && [ ! -f "$FAKE_UTXO/stopped" ] && [ ! -e "$doge_data/utxo-seed-chainstate" ] ||
   fail "the host helper's copy, hung up, exited $dseed_status and left the node stopped or a partial copy"
-dseed utxo-index bench "$tmp/wallets.json" --chain dogecoin >"$tmp/dbench.out" 2>&1 && fail "utxo-index bench took --chain dogecoin"
-grep -q 'Dogecoin is not in utxo-index bench' "$tmp/dbench.out" || fail "utxo-index bench --chain dogecoin did not say why"
 reset_uverify
 (cd "$doge_dir" && HOME="$tmp" BITCOIN_STACK_UTXO_VERIFY_POLL_SECONDS=1 BITCOIN_STACK_UTXO_VERIFY_TIMEOUT_SECONDS=5 PATH="$utxo_stub:$stub:$PATH" ./stack utxo-index verify --chain dogecoin -y) >"$tmp/dverify.out" 2>&1 || fail "utxo-index verify --chain dogecoin failed"
 grep -q 'cat > /state/.dogecoin-utxo-verify.request.tmp' "$FAKE_LOG" || fail "utxo-index verify --chain dogecoin did not write the Dogecoin request"

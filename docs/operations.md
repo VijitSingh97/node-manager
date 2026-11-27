@@ -584,7 +584,7 @@ What happens:
   [Checking a balance index against the node](#checking-a-balance-index-against-the-node).
 
 To time lookups with and without the index on public test wallets, run
-`utxo-index bench`, with `--chain litecoin` or `--chain bitcoincash` for those indexes; the steps
+`utxo-index bench`, with `--chain litecoin`, `--chain dogecoin` or `--chain bitcoincash` for those indexes; the steps
 are in [the lookup benchmark](measurements/lookup-bench.md).
 
 Measured budget, from the first mainnet seed on a 2018 Mac mini with bitcoind
@@ -708,7 +708,7 @@ chainstate, which a pruned node keeps whole.
   applied.
 - If a pruned node drops blocks the index still needs, the index turns invalid and is seeded again
   automatically (not within a day of a successful seed).
-- Dogecoin is not in `utxo-index bench` or its CI test; see [the lookup bench](measurements/lookup-bench.md).
+- `./stack utxo-index bench <file> --chain dogecoin` runs the plain lookup bench with `addr(<address>)` wallet keys. `--scan` is refused: Dogecoin Core 1.14.9 has no `scantxoutset`, so `utxo-index verify --chain dogecoin` is the full check. See [the lookup bench](measurements/lookup-bench.md).
 - After the first seed, once the card reads ready, run `./stack utxo-index verify --chain dogecoin`; see
   [Checking a balance index against the node](#checking-a-balance-index-against-the-node).
 
@@ -749,8 +749,8 @@ On APT and Homebrew installs the command is `node-manager utxo-index verify`.
 
   On mini-1, Litecoin took 44.5 s for `gettxoutsetinfo` and 68.6 s for the index count, 76 s for the
   whole command ([measurement](measurements/litecoin-index-mainnet.md)). Bitcoin Cash took 60.1 s and
-  82.5 s, 87 s in all ([measurement](measurements/bitcoincash-index-mainnet.md)). Bitcoin and Dogecoin are
-  not measured yet. For Bitcoin on the same host, with bitcoind capped at 0.5 CPU, expect about 3 minutes, a guess from
+  82.5 s, 87 s in all ([measurement](measurements/bitcoincash-index-mainnet.md)). Dogecoin took 304.6 s and
+  305.1 s, 310 s in all ([measurement](measurements/dogecoin-index-mainnet.md)). Bitcoin is not measured yet. For Bitcoin on the same host, with bitcoind capped at 0.5 CPU, expect about 3 minutes, a guess from
   `scantxoutset`, which makes a similar walk there in 164 seconds ([lookup bench](measurements/lookup-bench-mainnet.md)).
 - **Alerts.** In all four versions the walk reads a database snapshot without the node's main lock
   (`cs_main`). The lock is taken only for the flush before the walk and for short lookups, so the

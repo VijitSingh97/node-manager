@@ -748,7 +748,8 @@ func (m *utxoManager) seedFromChainstate(parent context.Context) (err error) {
 			err = errSeedChainstate
 		}
 	}()
-	copied, err := openChainstateCopy(filepath.Join(m.host.dataDir, utxoChainstateCopyName))
+	store := m.currentStore()
+	copied, err := openChainstateCopy(filepath.Join(m.host.dataDir, utxoChainstateCopyName), store.fs, store.fs.PathJoin(store.dir, utxoChainstateLogDir))
 	if err != nil {
 		m.log.Printf("utxo index: %v", err)
 		return errSeedChainstate
@@ -759,7 +760,7 @@ func (m *utxoManager) seedFromChainstate(parent context.Context) (err error) {
 	prog := &utxoIngestProgress{}
 	gate := &seedGate{m: m, ctx: ctx, prog: prog}
 	prog.Checkpoint = gate.checkpoint
-	_, err = ingestUtxoRecords(m.currentStore(), copied.parse, func(hash [32]byte) (uint32, error) { return m.chainstateBaseHeight(ctx, hash) }, prog)
+	_, err = ingestUtxoRecords(store, copied.parse, func(hash [32]byte) (uint32, error) { return m.chainstateBaseHeight(ctx, hash) }, prog)
 	if err != nil {
 		if cause := context.Cause(ctx); cause != nil {
 			return cause

@@ -43,7 +43,7 @@ if command -v go >/dev/null; then
   (
     cd build/dashboard
     go test -race ./...
-    go test -count=1 -run '^TestBenchIndexMatchesScanAndIsFaster$' .
+    go test -count=1 -run '^(TestBenchIndexMatchesScanAndIsFaster|TestChainstateCopyKeepsALargeLogOutOfMemory)$' .
     go vet ./...
   )
   (cd build/dashboard && go build -o "$work/dashboard" .)

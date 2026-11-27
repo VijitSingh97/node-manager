@@ -15,7 +15,27 @@ All notable changes to this project are documented here. Format follows
   512 MiB for the Monero and Tari wallet sidecars) with what the host has free
   right now. The warning is advisory: Activate and Start stay enabled.
 
+### Changed
+
+- `node-manager utxo-index bench --chain dogecoin` now runs the index lookup
+  bench for Dogecoin. The command line refused it, although the dashboard
+  already set up a bench for every indexed chain. Wallets are `addr(<address>)`
+  keys, as for Bitcoin Cash. `--scan` is still refused, with a message that
+  Dogecoin Core 1.14.9 has no `scantxoutset` and that
+  `utxo-index verify --chain dogecoin` is the full check; the dashboard refuses
+  a Dogecoin scan too.
+
 ### Fixed
+
+- A Dogecoin balance-index seed no longer gets the dashboard OOM-killed. A
+  Dogecoin 1.14 node writes its whole coin cache, 450 MiB by default, to its
+  database log as one batch when it stops, and the seed read that log from
+  the chainstate copy into memory, peaking at about four times its size. On
+  the reference host the dashboard reached its 1 GiB limit 47 s into a seed
+  that started right after the node finished its initial sync. The seed now
+  streams the log to a scratch store on the index volume, removed when the
+  seed ends, so reading the copy takes a few tens of MiB of memory whatever
+  the log's size. Bitcoin Cash seeds read their copy the same way.
 
 - The balance index no longer says "ready" while its own node is behind the
   network. After a Bitcoin node had been offline for days, the tower read
@@ -27,6 +47,16 @@ All notable changes to this project are documented here. Format follows
   the node syncs, pruned wallets keep their cached balances instead of running
   a full scan on every block. Index log lines for Litecoin, Bitcoin Cash and
   Dogecoin now name the chain so they can be told apart.
+
+- Family-chain watch wallets no longer show "Cached balance; a fresh scan is
+  unavailable" while the balance index is serving them fine. On Dogecoin
+  without the Core watch wallet, the public example was skipped from every
+  refresh, so its balance froze at the first index seed and read stale
+  forever; it is now served and refreshed hourly like any other wallet, and a
+  watch-wallet node no longer records an example balance it would never show.
+  On every chain, a dashboard restart also left each wallet read as stale for
+  up to an hour, because balances younger than an hour were not re-checked;
+  the first pass after a start now confirms every cached balance.
 
 ## [1.42.2] - 2026-11-25
 

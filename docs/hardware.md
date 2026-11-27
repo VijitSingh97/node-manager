@@ -116,7 +116,7 @@ on upgrade.
 |---|---|---|---|
 | Bitcoin | about 7.5 GiB, up to about 17 GiB during the seed | 1 GiB | one `dumptxoutset` seed; 27 GB free |
 | Litecoin | about 4.5 GB (53.8 million coins on mini-1; [measurement](measurements/litecoin-index-mainnet.md)) | 1 GiB | one `dumptxoutset` seed; 27 GB free |
-| Dogecoin | not measured | 1 GiB | node stopped briefly; free space for 3 times its chainstate |
+| Dogecoin | about 18.4 GB (202.1 million coins on mini-1; [measurement](measurements/dogecoin-index-mainnet.md)) | 1 GiB | node stopped briefly; free space for 3 times its chainstate |
 | Bitcoin Cash | about 5.2 GB (58.8 million coins on mini-1; [measurement](measurements/bitcoincash-index-mainnet.md)) | 1 GiB | node stopped briefly; free space for 3 times its chainstate |
 
 - Every index sets the same 1 GiB dashboard limit, whichever are on. Bitcoin Cash's
@@ -132,6 +132,13 @@ on upgrade.
 - A Dogecoin or Bitcoin Cash seed hardlinks the node's chainstate tables into
   `<data_dir>/utxo-seed-chainstate`; the copy is small, but the seed needs free space
   for three times the chainstate and the copy is removed once the seed finishes.
+- The copy also holds the node's database log. A Dogecoin node that stops with a full
+  cache leaves its whole cache in that log, up to a few hundred MB. The seed streams the
+  log to a scratch store on the index volume, removed when the seed ends, so the log
+  costs disk there rather than dashboard memory. In a test with a 256 MiB log, a whole
+  seed peaked at about 270 MiB of Go heap, most of it the import's 128 MiB of sort
+  buffers; reading the log into memory, as 1.42.2 and earlier did, peaked at about
+  1.5 GiB.
 
 ## RAM
 

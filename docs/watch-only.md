@@ -306,8 +306,8 @@ for Dogecoin installed from the dashboard) gives Dogecoin addresses instant
 balances, on a pruned node too. Dogecoin Core 1.14.9 has neither `dumptxoutset`
 nor `scantxoutset`, but its chainstate holds every unspent coin whether or not the
 node prunes. To seed the index, the stack stops the Dogecoin node, copies its chainstate beside it
-with the tables hardlinked, and starts it again; the copy itself is quick, and the
-node's shutdown and restart time on mainnet is not measured. The dashboard builds the index from the copy, then follows new blocks from
+with the tables hardlinked, and starts it again; the copy itself is quick, and on
+mini-1 the node was down about 1 min 45 s. The dashboard builds the index from the copy, then follows new blocks from
 the copy's tip, reading merge-mined blocks raw. The copy is removed once the seed
 has finished; until then it keeps the node's older tables on disk.
 
@@ -315,7 +315,8 @@ When the index is ready, Dogecoin balances come from it and update within a minu
 of each block, and the archival watch wallet below is not needed. Without the watch
 wallet, balances wait until the index is ready. If a pruned node drops blocks the
 index still needs, the index is marked invalid and is seeded again automatically.
-The seed time and index size on mainnet are not measured yet.
+On mini-1 the seed took 27 minutes and the index holds 202 million coins in 18.4 GB
+([measurement](measurements/dogecoin-index-mainnet.md)).
 
 ## Dogecoin archival watch wallet (opt-in)
 
@@ -362,10 +363,11 @@ Limits to accept before enabling it:
 - Node traffic stays Tor-only; address lookups are local RPC calls and no
   explorer is queried.
 
-With the option on, the dashboard seeds the Dogecoin Foundation address from the
+The dashboard seeds the Dogecoin Foundation address from the
 [Foundation's About page](https://foundation.dogecoin.com/about/) as a public
-example, excluded from personal totals and never imported or scanned, so it does
-not delay your own addresses. Without the option, Dogecoin has no example.
+example, excluded from personal totals. With the option on it is never imported
+or scanned, so it does not delay your own addresses. Without the option the
+balance index serves it like any other wallet and refreshes it hourly.
 
 ## Zcash transparent addresses
 
