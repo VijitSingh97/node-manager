@@ -36,10 +36,11 @@ All notable changes to this project are documented here. Format follows
   wallet service needs `allow-mismatched-daemon-version` for regtest, which
   production does not use.
 - The native-node CI job now logs the optional status fields each chain serves
-  and fails if Monero (fees, mempool), Tari (connections, mempool) or Zcash
-  (fees, connections) stops reporting its required fields as available. A
-  separate check proves a renamed field is caught. The required lists should be
-  confirmed against one real CI run before this is merged.
+  and fails if Monero (mempool), Tari (connections, mempool) or Zcash (fees,
+  connections) stops reporting its required fields as available. A separate
+  check proves a renamed field is caught. Monero's fee estimate is checked on
+  the regtest daemon instead: the mainnet node in this job never syncs past the
+  2021 hard fork, before which monerod returns no fee tiers.
 - The Tari wallet gRPC probe can now wait for the dashboard's balance
   conditions (online, initial validation done, scanned height within two blocks
   of the node) and assert the balance total, and `docs/releasing.md` describes

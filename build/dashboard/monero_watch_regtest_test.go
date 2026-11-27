@@ -57,6 +57,13 @@ func TestMoneroWatchRegtest(t *testing.T) {
 	moneroRegtestCall(t, signer, "query_key", map[string]any{"key_type": "view_key"}, &viewKey)
 	const funded = 70
 	moneroRegtestCall(t, daemon, "generateblocks", map[string]any{"amount_of_blocks": funded, "wallet_address": address.Address}, nil)
+	// A mainnet node in the native-nodes job never syncs past the 2021 hard fork, the first with four fee tiers; regtest starts there.
+	feeApp := &app{cfg: config{moneroRPCURL: daemon.url, moneroRPCUser: user, moneroRPCPassword: password}}
+	if fees, err := feeApp.fetchMoneroFeeEstimate(context.Background()); err != nil {
+		t.Fatalf("fee estimate from the regtest daemon: %v", err)
+	} else {
+		t.Logf("fee estimate: %v", fees)
+	}
 	moneroRegtestCall(t, signer, "refresh", map[string]any{}, nil)
 	var balance moneroWalletBalance
 	moneroRegtestCall(t, signer, "get_balance", map[string]any{"all_accounts": true, "strict": true}, &balance)

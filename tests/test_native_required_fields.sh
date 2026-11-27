@@ -13,9 +13,8 @@ check() {
   [ "$got" = "$want" ] || { echo "FAIL: $chain want missing '$want', got '$got'" >&2; exit 1; }
 }
 
-check monero '{"fees_available":true,"mempool_txs_available":true}' ""
+check monero '{"fees_available":false,"mempool_txs_available":true}' ""
 check monero '{"fees_available":true,"mempool_txs_avail":true}' "mempool_txs_available"
-check monero '{"fees_available":false,"mempool_txs_available":true}' "fees_available"
 check tari '{"connections_available":true,"mempool_txs_available":true}' ""
 check tari '{"connection_available":true,"mempool_txs_available":true}' "connections_available"
 check zcash '{"fees_available":true,"connections_available":true}' ""

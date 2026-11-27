@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 native_required_fields() {
   case "$1" in
-    monero) echo "fees_available mempool_txs_available" ;;
+    monero) echo "mempool_txs_available" ;;
     tari) echo "connections_available mempool_txs_available" ;;
     zcash) echo "fees_available connections_available" ;;
   esac
