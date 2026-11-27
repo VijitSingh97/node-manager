@@ -1008,7 +1008,7 @@ Usage: $stack_command <command> [args]
   restore [-y] <archive>     Restore a backup archive (prompts before overwrite)
   utxo-seed [litecoin | bitcoincash | dogecoin] [-y | cancel]
                              Seed or cancel a balance index (needs <chain>.utxo_index); bitcoincash --replay replays every block of an archival node
-  utxo-index remove [litecoin] [-y]
+  utxo-index remove [litecoin | bitcoincash | dogecoin] [-y]
                              Delete the balance index volume (needs <chain>.utxo_index off and applied)
   utxo-index bench <file> [--chain bitcoin|litecoin|dogecoin|bitcoincash] [--scan [-y]] [--repeat N]
                              Time balance lookups for the wallets in <file> (needs the index seeded)

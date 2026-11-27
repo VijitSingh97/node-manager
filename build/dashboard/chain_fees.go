@@ -54,7 +54,7 @@ func (a *app) sampleAdditionalFee(ctx context.Context, id string, node nodeConfi
 		return
 	}
 	var chain familyBlockchainInfo
-	if rpc.call(ctx, "getblockchaininfo", nil, &chain) != nil || chain.InitialBlockDownload {
+	if rpc.call(ctx, "getblockchaininfo", nil, &chain) != nil || chainBehind(chain.InitialBlockDownload, chain.Blocks, chain.Headers, a.chainTipTime(ctx, id, rpc, chain.BestBlockHash), time.Now()) {
 		return
 	}
 	if rate, ok := familyFeeRate(ctx, rpc, id, 1); ok {

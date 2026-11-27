@@ -104,6 +104,10 @@ type moneroRPC struct {
 	maxBody  int64
 }
 
+const moneroTipFreshFor = 30 * time.Minute
+
+const tipFutureSkewSeconds = 60
+
 func (a *app) apiMonero(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	status := moneroStatus{
@@ -161,6 +165,9 @@ func (a *app) apiMonero(w http.ResponseWriter, r *http.Request) {
 		if now > last.BlockHeader.Timestamp {
 			status.LatestBlockAgeSeconds = now - last.BlockHeader.Timestamp
 		}
+	}
+	if status.LatestBlockAvailable {
+		status.Synced = status.Synced && status.LatestBlockAgeSeconds <= uint64(moneroTipFreshFor/time.Second)
 	}
 	var pool moneroPoolStats
 	if rpc.callPath(ctx, "/get_transaction_pool_stats", &pool) == nil && strings.EqualFold(pool.Status, "OK") && pool.PoolStats != nil && pool.PoolStats.TxsTotal != nil && pool.PoolStats.BytesTotal != nil {

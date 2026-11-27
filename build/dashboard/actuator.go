@@ -88,6 +88,8 @@ func (a *app) recordNodeInfo(id string, probe func() map[string]any) func() map[
 				snapshot.Height = &height
 			}
 			if syncing, ok := info["initialblockdownload"].(bool); ok {
+				stale, _ := info["tip_stale"].(bool)
+				syncing = syncing || stale
 				snapshot.Syncing = &syncing
 			}
 			for _, key := range []string{"verificationprogress", "sync_progress"} {
@@ -189,6 +191,11 @@ func (a *app) healthComponents() map[string]actuatorComponent {
 	}
 	if state := a.utxo.Status().State; state != utxoStateOff {
 		components["balance_index"] = balanceIndexComponent(state)
+	}
+	for id, m := range a.chainUtxo {
+		if state := m.Status().State; state != utxoStateOff {
+			components["balance_index_"+id] = balanceIndexComponent(state)
+		}
 	}
 	return components
 }

@@ -31,6 +31,7 @@ cd "$tmp"
 
 # help works, unknown command fails loudly
 ./stack help | grep -q "Usage:" || fail "help does not print usage"
+./stack help | grep -qF 'utxo-index remove [litecoin | bitcoincash | dogecoin] [-y]' || fail "help does not list every chain for utxo-index remove"
 ./stack definitely-not-a-command >/dev/null 2>&1 && fail "unknown command exited 0"
 
 # backup captures config + .env; restore round-trips them

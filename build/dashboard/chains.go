@@ -159,6 +159,7 @@ type genericNodeStatus struct {
 	Supported                 bool     `json:"supported"`
 	Available                 bool     `json:"available"`
 	Synced                    bool     `json:"synced"`
+	TipStale                  bool     `json:"-"`
 	Height                    int64    `json:"height"`
 	TargetHeight              int64    `json:"target_height"`
 	SyncPercent               float64  `json:"sync_percent"`
@@ -379,7 +380,9 @@ func (a *app) writeBitcoinFamilyStatus(w http.ResponseWriter, r *http.Request, n
 	if status.TargetHeight < status.Height {
 		status.TargetHeight = status.Height
 	}
-	status.Synced = !chain.InitialBlockDownload && status.Height >= status.TargetHeight
+	tipTime := a.chainTipTime(ctx, node.ID, rpc, chain.BestBlockHash)
+	behind := chainBehind(chain.InitialBlockDownload, chain.Blocks, chain.Headers, tipTime, time.Now())
+	status.Synced = !chain.InitialBlockDownload && status.Height >= status.TargetHeight && !chainTipStale(tipTime, time.Now())
 	if status.Synced {
 		status.SyncPercent = 100
 	} else if chain.VerificationProgress > 0 {
@@ -421,12 +424,9 @@ func (a *app) writeBitcoinFamilyStatus(w http.ResponseWriter, r *http.Request, n
 		status.MempoolTxs, status.MempoolBytes = mempool.Size, mempool.Bytes
 		status.MempoolTxsAvailable, status.MempoolBytesAvailable = true, true
 	}
-	if chain.BestBlockHash != "" {
-		var header familyBlockHeader
-		if rpc.call(ctx, "getblockheader", []any{chain.BestBlockHash}, &header) == nil && header.Time > 0 {
-			status.LatestBlockTimestamp, status.LatestBlockAvailable = header.Time, true
-			status.LatestBlockAgeSeconds = max(0, time.Now().Unix()-header.Time)
-		}
+	if tipTime > 0 {
+		status.LatestBlockTimestamp, status.LatestBlockAvailable = tipTime, true
+		status.LatestBlockAgeSeconds = max(0, time.Now().Unix()-tipTime)
 	}
 	targets := []int{1, 3, 6}
 	unit := "litoshi/vB"
@@ -436,6 +436,9 @@ func (a *app) writeBitcoinFamilyStatus(w http.ResponseWriter, r *http.Request, n
 		unit = "DOGE/kB"
 	}
 	for _, blocks := range targets {
+		if behind {
+			break
+		}
 		rate, ok := familyFeeRate(ctx, rpc, node.ID, blocks)
 		if !ok {
 			status.FeeEstimates = nil

@@ -70,7 +70,7 @@ export function configurationAccess(data) {
 const networkActions = ["clearnet_over_tor", "inbound_connections"];
 const balanceActions = ["utxo_index", "utxo_seed"];
 export const UTXO_INDEX_LITECOIN_OFF_PROMPT = () => `Turn off instant Litecoin balances? Wallets go back to the slower scan. The index volume stays on disk until you run ${commandName()} utxo-index remove litecoin.`;
-export const UTXO_INDEX_DOGECOIN_OFF_PROMPT = () => `Turn off instant Dogecoin balances? Wallets go back to the archival watch wallet if it is on, otherwise they wait. The index volume stays on disk until you run ${commandName()} utxo-index remove dogecoin.`;
+export const UTXO_INDEX_DOGECOIN_OFF_PROMPT = () => `Turn off instant Dogecoin balances? Wallets go back to the archival watch wallet if it is on, otherwise they wait. Without the index no more than 25 addresses can be added; a longer saved list stays and its addresses can be removed. The index volume stays on disk until you run ${commandName()} utxo-index remove dogecoin.`;
 export const UTXO_INDEX_BITCOINCASH_OFF_PROMPT = () => `Turn off instant Bitcoin Cash balances? Wallets go back to the slower scan. The index volume stays on disk until you run ${commandName()} utxo-index remove bitcoincash.`;
 const chainIndexOffPrompts = { litecoin: UTXO_INDEX_LITECOIN_OFF_PROMPT, bitcoincash: UTXO_INDEX_BITCOINCASH_OFF_PROMPT, dogecoin: UTXO_INDEX_DOGECOIN_OFF_PROMPT };
 const chainIndexNode = (action) => String(action || "").startsWith("utxo_index_") && chainIndexOffPrompts[action.slice(11)] ? action.slice(11) : "";

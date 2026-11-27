@@ -33,8 +33,31 @@ All notable changes to this project are documented here. Format follows
   Dogecoin Core 1.14.9 has no `scantxoutset` and that
   `utxo-index verify --chain dogecoin` is the full check; the dashboard refuses
   a Dogecoin scan too.
+- Documented that an address wallet on Litecoin, Bitcoin Cash, Dogecoin and
+  Bitcoin does not count coins paid directly to its public key (P2PK, common in
+  mining payouts; issue 494), and the Litecoin, Bitcoin Cash and Dogecoin
+  cards now say so. A second index key for those outputs needs a new seed and
+  is not built yet.
 
 ### Fixed
+
+- A pruned Bitcoin node no longer fails every watched wallet in a scan when a
+  `combo()` wallet has a coin paid straight to its public key. Core reports
+  that coin as `pk(...)`, which the dashboard could not turn into an address,
+  so the whole batch ended in an error. The coin is now counted under the
+  wallet that asked for it.
+- Turning off the Dogecoin balance index with more than 25 addresses saved no
+  longer makes the Dogecoin watch fail to load (503) with no way to remove
+  addresses. The list stays visible, addresses can be removed, and none can be
+  added until it is back under 25. The Settings prompt for turning the index
+  off now says so.
+- `stack help` lists all three chains for `utxo-index remove`, not only
+  Litecoin.
+- `/actuator/health` now reports each Litecoin, Bitcoin Cash and Dogecoin
+  balance index as `balance_index_litecoin`, `balance_index_bitcoincash` and
+  `balance_index_dogecoin` (only for an index that is turned on), with the same
+  `UP` or `DEGRADED` rule as Bitcoin's `balance_index`. Before, an invalid
+  index on those chains left the health check at `UP`.
 
 - A Dogecoin balance-index seed no longer gets the dashboard OOM-killed. A
   Dogecoin 1.14 node writes its whole coin cache, 450 MiB by default, to its
@@ -56,6 +79,14 @@ All notable changes to this project are documented here. Format follows
   the node syncs, pruned wallets keep their cached balances instead of running
   a full scan on every block. Index log lines for Litecoin, Bitcoin Cash and
   Dogecoin now name the chain so they can be told apart.
+- A node that has lost its peers no longer reads as synced. When headers stop
+  advancing and the node's newest block is more than 2 hours old, the Bitcoin,
+  Litecoin, Bitcoin Cash and Dogecoin towers, the balance index, wallet balances
+  and history, fee estimates, `/metrics` and `/actuator/health` all report it
+  as syncing, using one shared rule. Telegram sync alerts still follow the
+  node's own sync state. The Monero and Tari towers now also
+  require a fresh tip (under 30 minutes) before they say synced, and Monero fee
+  history skips samples while the node is syncing.
 
 - Family-chain watch wallets no longer show "Cached balance; a fresh scan is
   unavailable" while the balance index is serving them fine. On Dogecoin

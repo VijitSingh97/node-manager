@@ -64,9 +64,13 @@ func TestRunMoneroFeesSamplesNormalPriorityAndStops(t *testing.T) {
 	called := make(chan struct{}, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"result": map[string]any{
-			"status": "OK", "fees": []uint64{20_000, 80_000, 320_000, 4_000_000},
+			"status": "OK", "fees": []uint64{20_000, 80_000, 320_000, 4_000_000}, "synchronized": true,
+			"block_header": map[string]any{"timestamp": time.Now().Unix()},
 		}})
-		called <- struct{}{}
+		select {
+		case called <- struct{}{}:
+		default:
+		}
 	}))
 	defer server.Close()
 	a := &app{cfg: config{moneroEnabled: true, moneroRPCURL: server.URL, stateDir: t.TempDir()}, moneroFees: NewMoneroFeeHistory(t.TempDir())}
@@ -113,7 +117,7 @@ func TestMoneroFeeWorkerPausesDuringNodeTransition(t *testing.T) {
 
 func TestMoneroFeeFailureDoesNotRecordZero(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"result": map[string]any{"status": "BUSY", "fees": []uint64{0, 0, 0, 0}}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"result": map[string]any{"status": "BUSY", "fees": []uint64{0, 0, 0, 0}, "synchronized": true}})
 	}))
 	defer server.Close()
 	a := &app{cfg: config{moneroRPCURL: server.URL}, moneroFees: NewMoneroFeeHistory(t.TempDir())}
@@ -131,5 +135,29 @@ func TestMoneroFeesAPIUsesNativeUnits(t *testing.T) {
 	a.apiMoneroFees(response, httptest.NewRequest(http.MethodGet, "/api/monero/fees", nil))
 	if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "no-store" || response.Body.String() != "{\"fee_xmr_per_kb\":[0.00008]}\n" {
 		t.Fatalf("response = %d %q, cache = %q", response.Code, response.Body.String(), response.Header().Get("Cache-Control"))
+	}
+}
+
+func TestMoneroFeeSamplingSkipsWhileNotSynchronized(t *testing.T) {
+	for name, info := range map[string]map[string]any{
+		"not synchronized": {"synchronized": false},
+		"busy syncing":     {"synchronized": true, "busy_syncing": true},
+		"stale tip":        {"synchronized": true, "block_header": map[string]any{"timestamp": time.Now().Add(-3 * time.Hour).Unix()}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				result := map[string]any{"status": "OK", "fees": []uint64{20_000, 80_000, 320_000, 4_000_000}}
+				for key, value := range info {
+					result[key] = value
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"result": result})
+			}))
+			defer server.Close()
+			a := &app{cfg: config{moneroRPCURL: server.URL}, moneroFees: NewMoneroFeeHistory(t.TempDir())}
+			a.sampleMoneroFee(context.Background())
+			if got := a.moneroFees.snapshot(); len(got) != 0 {
+				t.Fatalf("sampled while behind: %#v", got)
+			}
+		})
 	}
 }
