@@ -28,9 +28,10 @@ const (
 	utxoStateDegraded  = "degraded"
 	utxoStateInvalid   = "invalid"
 
-	utxoReadyLag     = 2
-	utxoMinFreeBytes = 2_000_000_000
-	utxoMilestone    = 1000
+	utxoReadyLag       = 2
+	utxoReasonNodeSync = "waiting for the node to sync"
+	utxoMinFreeBytes   = 2_000_000_000
+	utxoMilestone      = 1000
 
 	utxoPhaseWaiting    = "waiting"
 	utxoPhaseImporting  = "importing"
@@ -105,6 +106,8 @@ type utxoManager struct {
 	state         string
 	reason        string
 	nodeTip       int64
+	nodeHeaders   int64
+	nodeIBD       bool
 	indexTip      *uint32
 	seeding       bool
 	autoSeedAt    time.Time
@@ -281,8 +284,22 @@ func (m *utxoManager) Status() utxoIndexStatus {
 	}
 	if st.State == utxoStateReady && ((st.Behind != nil && *st.Behind > utxoReadyLag) || (m.follower != nil && m.follower.Status().State == utxoFollowRollback)) {
 		st.State = utxoStateCatching
+	} else if st.State == utxoStateReady && m.nodeBehindLocked() {
+		st.State, st.Reason = utxoStateCatching, utxoReasonNodeSync
+		if m.indexTip != nil {
+			behind := max(m.nodeHeaders, m.nodeTip) - int64(*m.indexTip)
+			st.Behind = &behind
+		}
 	}
 	return st
+}
+
+func nodeBehindNetwork(ibd bool, blocks, headers int64) bool {
+	return ibd || headers > 0 && headers-blocks > utxoReadyLag
+}
+
+func (m *utxoManager) nodeBehindLocked() bool {
+	return nodeBehindNetwork(m.nodeIBD, m.nodeTip, m.nodeHeaders)
 }
 
 func (m *utxoManager) currentStore() *utxoStore {
@@ -626,7 +643,9 @@ func (m *utxoManager) tick(ctx context.Context) {
 		return
 	}
 	m.mu.Lock()
-	m.nodeTip = info.Blocks
+	wasNodeBehind := m.nodeBehindLocked()
+	m.nodeTip, m.nodeHeaders, m.nodeIBD = info.Blocks, info.Headers, info.InitialBlockDownload
+	nodeBehind := m.nodeBehindLocked()
 	m.mu.Unlock()
 	if !m.bound {
 		var genesis string
@@ -702,7 +721,7 @@ func (m *utxoManager) tick(ctx context.Context) {
 	m.setTip(height)
 	if err == nil && info.Blocks-int64(height) <= utxoReadyLag {
 		m.set(utxoStateReady, "")
-		if (after != before || !wasReady) && m.onApplied != nil {
+		if (after != before || !wasReady || wasNodeBehind != nodeBehind) && m.onApplied != nil {
 			m.onApplied()
 		}
 		return
@@ -815,6 +834,7 @@ func pathsOverlap(a, b string) bool {
 func (a *app) newChainUtxo(node nodeConfig, chain *utxoChainParams, logger *log.Logger) *utxoManager {
 	// shortcut: 64 MiB holds a 32 MB Bitcoin Cash block as hex; raise it, and utxoBlockOpsCap, if Bitcoin Cash blocks grow past 32 MB.
 	rpc := &rpcClient{url: node.RPCURL, user: node.RPCUser, password: node.RPCPassword, client: newInternalHTTPClient(2 * time.Minute), maxBody: 64 << 20}
+	logger = log.New(logger.Writer(), logger.Prefix()+node.ID+": ", logger.Flags())
 	m := newUtxoManager(node.UTXOIndexDir, nil, rpc, logger, chain)
 	m.blockWait = rpc
 	m.event = a.indexEvent(node.ID)
