@@ -24,6 +24,15 @@ All notable changes to this project are documented here. Format follows
   Dogecoin Core 1.14.9 has no `scantxoutset` and that
   `utxo-index verify --chain dogecoin` is the full check; the dashboard refuses
   a Dogecoin scan too.
+- CI now runs the balance-index live tests against real regtest nodes: the
+  pinned Bitcoin Core image, and Litecoin, Bitcoin Cash and Dogecoin built from
+  `build/bitcoin-family`. Litecoin and Bitcoin Cash also check the bench host
+  (validate, resolve and scan) against the node's own `scantxoutset`, so a scan
+  check that a real node rejects, as v1.42.0 did for Bitcoin Cash, fails CI
+  before release. A new Bitcoin Cash test seeds from a chainstate copy,
+  follows new blocks and compares with `scantxoutset`, CashTokens included.
+  A job fails if a required test skips, and a Dependabot bump of the Bitcoin
+  image now runs it before merge.
 - Documented that an address wallet on Litecoin, Bitcoin Cash, Dogecoin and
   Bitcoin does not count coins paid directly to its public key (P2PK, common in
   mining payouts; issue 494), and the Litecoin, Bitcoin Cash and Dogecoin

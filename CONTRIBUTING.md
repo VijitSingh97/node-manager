@@ -61,7 +61,7 @@ that it removes on exit, so set `DASHBOARD_BIN` to build once.
 The UTXO dump parser tests read small regtest fixtures committed in
 `build/dashboard/testdata/utxo/`, so CI and `go test` need no bitcoind. To
 regenerate them from the pinned bitcoin image, or to re-check the harness
-(local only, not run in CI), use Docker and Python 3:
+(CI runs them in the `regtest-live` job), use Docker and Python 3:
 
 ```bash
 tests/utxo_regtest.py build/dashboard/testdata/utxo
@@ -69,6 +69,13 @@ UTXO_REGTEST=1 go test -run RegtestLive ./...   # from build/dashboard
 UTXO_REGTEST=1 go test -run UtxoIngestRegtestLive ./...   # ingest vs scantxoutset
 UTXO_REGTEST=1 go test -run UtxoStorageFullTmpfsLive ./...   # real full tmpfs: ENOSPC and low-disk handling
 UTXO_INGEST_BENCH=25000000 go test -run UtxoIngestLargeMeasure -v ./...   # large synthetic ingest
+```
+
+The `regtest-live` CI job runs the live tests against real regtest nodes, one
+matrix entry per chain, and fails if a required test skips. To run one locally:
+
+```bash
+RUN_REGTEST_LIVE=1 REGTEST_CHAIN=bitcoincash tests/test_regtest_live.sh   # bitcoin, litecoin, bitcoincash or dogecoin
 ```
 
 Native daemon checks run separately for Monero, Tari, Litecoin, Dogecoin,
