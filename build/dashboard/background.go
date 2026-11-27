@@ -317,7 +317,7 @@ func (a *app) provisionForChain(entry WatchEntry, chain blockchainInfo) {
 			return
 		}
 	}
-	a.provisionState(entry, chain.Pruned, chain.InitialBlockDownload)
+	a.provisionState(entry, chain.Pruned, nodeBehindNetwork(chain.InitialBlockDownload, chain.Blocks, chain.Headers))
 }
 
 func (a *app) provisionState(entry WatchEntry, pruned, initialBlockDownload bool) {
