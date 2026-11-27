@@ -88,6 +88,8 @@ func (a *app) recordNodeInfo(id string, probe func() map[string]any) func() map[
 				snapshot.Height = &height
 			}
 			if syncing, ok := info["initialblockdownload"].(bool); ok {
+				stale, _ := info["tip_stale"].(bool)
+				syncing = syncing || stale
 				snapshot.Syncing = &syncing
 			}
 			for _, key := range []string{"verificationprogress", "sync_progress"} {

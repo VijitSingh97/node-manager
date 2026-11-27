@@ -9,8 +9,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,6 +27,7 @@ type rpcFixture struct {
 	unpruned             bool
 	idleSynced           bool
 	noPeers              bool
+	staleTip             bool
 }
 
 type lifecycleRPC struct {
@@ -169,10 +172,14 @@ func (f *rpcFixture) handler(w http.ResponseWriter, r *http.Request) {
 		"uptime":            90061,
 		"getmempoolinfo":    map[string]any{"size": 4200, "bytes": 12 * 1024 * 1024},
 		"estimatesmartfee":  map[string]any{"feerate": 0.0001},
+		"getblockheader":    map[string]any{"time": time.Now().Add(-3 * time.Hour).Unix()},
 	}
 	var rpcError any
 	if f.idleSynced {
-		results["getblockchaininfo"] = map[string]any{"blocks": 900000, "headers": 900000, "verificationprogress": 0.99999, "initialblockdownload": false, "pruned": false, "size_on_disk": 0}
+		results["getblockchaininfo"] = map[string]any{"blocks": 900000, "headers": 900000, "verificationprogress": 0.99999, "initialblockdownload": false, "pruned": false, "size_on_disk": 0, "bestblockhash": "tip"}
+		if !f.staleTip {
+			results["getblockheader"] = map[string]any{"time": time.Now().Unix()}
+		}
 		if request.Method == "uptime" {
 			rpcError = map[string]any{"code": -32601, "message": "unavailable"}
 		}
@@ -1219,5 +1226,116 @@ func TestCorePrivateKeyFlagPreventsPersistence(t *testing.T) {
 	raw, _ := os.ReadFile(filepath.Join(cfg.stateDir, "wallets.json"))
 	if strings.Contains(string(raw), "Cold") || strings.Contains(response.Body.String(), "private") {
 		t.Fatal("rejected input was persisted or echoed")
+	}
+}
+
+func TestStaleBitcoinTipCountsAsBehindForMonitorSampleGateAndWatch(t *testing.T) {
+	var age atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Method string `json:"method"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		var result any
+		switch request.Method {
+		case "getblockchaininfo":
+			result = map[string]any{"blocks": 100, "headers": 100, "bestblockhash": "tip-" + strconv.FormatInt(age.Load(), 10), "verificationprogress": 1, "initialblockdownload": false, "pruned": true}
+		case "getblockheader":
+			result = map[string]any{"time": time.Now().Unix() - age.Load()}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"result": result, "error": nil})
+	}))
+	defer server.Close()
+	a := &app{rpc: &rpcClient{url: server.URL, client: server.Client()}}
+	age.Store(60)
+	if info := a.healthBlockchain(t.Context()); info["initialblockdownload"] != false {
+		t.Fatalf("fresh tip health = %#v", info)
+	}
+	if chain, err := a.readBitcoinChain(t.Context()); err != nil || chain.InitialBlockDownload {
+		t.Fatalf("fresh tip chain = %#v, %v", chain, err)
+	}
+	age.Store(3 * 3600)
+	if info := a.healthBlockchain(t.Context()); info["initialblockdownload"] != false || info["tip_stale"] != true {
+		t.Fatalf("stale tip health = %#v", info)
+	}
+	if chain, err := a.readBitcoinChain(t.Context()); err != nil || !chain.InitialBlockDownload {
+		t.Fatalf("stale tip chain = %#v, %v", chain, err)
+	}
+}
+
+func TestStaleTipBitcoinTowerAndFeeSamplingTreatNodeAsBehind(t *testing.T) {
+	fixture := &rpcFixture{idleSynced: true, staleTip: true}
+	a, handler := testApp(t, fixture, "")
+	body := request(t, handler, http.MethodGet, "/", "").Body.String()
+	if !strings.Contains(body, "Synchronizing the Bitcoin blockchain") || strings.Contains(body, "Sync progress:</span> <span>100.0000%") {
+		t.Fatalf("stale tip tower rendered as synced: %q", body)
+	}
+	a.sampleBitcoinFee(t.Context())
+	fixture.mu.Lock()
+	calls := strings.Join(fixture.calls, ",")
+	fixture.mu.Unlock()
+	if strings.Contains(calls, "estimatesmartfee") {
+		t.Fatalf("stale tip sampled or showed fees: %s", calls)
+	}
+	fresh := &rpcFixture{idleSynced: true}
+	freshApp, freshHandler := testApp(t, fresh, "")
+	if body := request(t, freshHandler, http.MethodGet, "/", "").Body.String(); !strings.Contains(body, "Sync progress:</span> <span>100.0000%") {
+		t.Fatalf("fresh tip tower not synced: %q", body)
+	}
+	freshApp.sampleBitcoinFee(t.Context())
+	fresh.mu.Lock()
+	freshCalls := strings.Join(fresh.calls, ",")
+	fresh.mu.Unlock()
+	if !strings.Contains(freshCalls, "estimatesmartfee") {
+		t.Fatalf("fresh tip did not sample fees: %s", freshCalls)
+	}
+}
+
+func TestStaleTipLitecoinHealthIsBehind(t *testing.T) {
+	var age atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Method string `json:"method"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		result := map[string]any{"blocks": 100, "headers": 100, "bestblockhash": "ltc-" + strconv.FormatInt(age.Load(), 10), "initialblockdownload": false}
+		if request.Method == "getblockheader" {
+			result = map[string]any{"time": time.Now().Unix() - age.Load()}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"result": result, "error": nil})
+	}))
+	defer server.Close()
+	node := nodeConfig{ID: nodeLitecoin, Enabled: true, RPCURL: server.URL}
+	a := &app{cfg: config{stateDir: t.TempDir()}}
+	age.Store(60)
+	if info := a.healthAdditionalNode(t.Context(), nodeLitecoin, node); info["initialblockdownload"] != false {
+		t.Fatalf("fresh Litecoin health = %#v", info)
+	}
+	age.Store(3 * 3600)
+	if info := a.healthAdditionalNode(t.Context(), nodeLitecoin, node); info["initialblockdownload"] != false || info["tip_stale"] != true {
+		t.Fatalf("stale Litecoin health = %#v", info)
+	}
+}
+
+func TestStaleTipMetricsHideMempoolAndFees(t *testing.T) {
+	for name, stale := range map[string]bool{"fresh": false, "stale": true} {
+		t.Run(name, func(t *testing.T) {
+			_, handler := testApp(t, &rpcFixture{idleSynced: true, staleTip: stale}, "")
+			body := request(t, handler, http.MethodGet, "/metrics", "").Body.String()
+			if has := strings.Contains(body, "bitcoin_mempool_txs") || strings.Contains(body, "bitcoin_fee_sat_vb"); has == stale {
+				t.Fatalf("stale=%v metrics = %q", stale, body)
+			}
+		})
+	}
+}
+
+func TestStaleTipReportsActuatorSyncingWithoutMonitorSync(t *testing.T) {
+	a := &app{}
+	probe := a.recordNodeInfo(nodeBitcoin, func() map[string]any {
+		return map[string]any{"active": true, "initialblockdownload": false, "tip_stale": true, "blocks": int64(1)}
+	})
+	probe()
+	if s := a.nodeInfo[nodeBitcoin].Syncing; s == nil || !*s {
+		t.Fatalf("snapshot = %#v", a.nodeInfo[nodeBitcoin])
 	}
 }
