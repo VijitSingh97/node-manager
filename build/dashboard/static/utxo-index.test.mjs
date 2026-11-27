@@ -124,6 +124,8 @@ test("the node card bar follows the index state", () => {
   assert.equal(view({ state: "seeding", seed_progress: 0.5, phase: "paused" }).label, "Balance index: paused, 50%");
   assert.deepEqual(view({ state: "seeding", seed_progress: null, phase: "waiting" }), { hidden: false, label: "Balance index: building", value: null, tone: "info" });
   assert.deepEqual(view({ state: "catching_up", blocks_behind: 120, index_tip_height: 880, node_tip_height: 1000 }), { hidden: false, label: "Balance index: catching up 120 blocks", value: null, tone: "info" });
+  assert.equal(view({ state: "catching_up", blocks_behind: 768, reason: "waiting for the node to sync" }).label, "Balance index: catching up 768 blocks");
+  assert.equal(view({ state: "catching_up", blocks_behind: 0, reason: "waiting for the node to sync" }).label, "Balance index: waiting for the node to sync");
   assert.deepEqual(view({ state: "ready" }), { hidden: false, label: "Balance index: ready", value: 1, tone: "ok" });
   assert.deepEqual(view({ state: "degraded", reason: "node unreachable" }), { hidden: false, label: "Balance index: degraded: node unreachable", value: null, tone: "warn" });
   assert.equal(view({ state: "invalid", reason: "x".repeat(200) }).label.length < 120, true);

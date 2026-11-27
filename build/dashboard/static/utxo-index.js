@@ -110,6 +110,7 @@ export function indexBarView(status) {
       return bar(`${paused ? "paused" : "building"}${pct == null ? "" : `, ${pct}%`}`, status.seed_progress);
     }
     case "catching_up":
+      if (!status.blocks_behind && status.reason === "waiting for the node to sync") return bar(status.reason, null);
       return bar(status.blocks_behind == null ? "catching up" : `catching up ${status.blocks_behind} blocks`, null);
     case "degraded":
     case "invalid": {

@@ -60,6 +60,7 @@ type prunedRPCMock struct {
 	mu                 sync.Mutex
 	bestBlock          string
 	ibd                bool
+	headers            int64
 	wallet             string
 	walletEntry        WatchEntry
 	foreignScan        bool
@@ -88,7 +89,7 @@ func (m *prunedRPCMock) handler(w http.ResponseWriter, r *http.Request) {
 	m.mu.Lock()
 	m.allCalls++
 	bestBlock := m.bestBlock
-	ibd := m.ibd
+	ibd, headers := m.ibd, m.headers
 	wallet := m.wallet
 	scanResult := m.result
 	foreignScan := m.foreignScan
@@ -97,7 +98,7 @@ func (m *prunedRPCMock) handler(w http.ResponseWriter, r *http.Request) {
 	var rpcError any
 	switch request.Method {
 	case "getblockchaininfo":
-		result = map[string]any{"pruned": true, "initialblockdownload": ibd, "bestblockhash": bestBlock, "blocks": scanResult.Height}
+		result = map[string]any{"pruned": true, "initialblockdownload": ibd, "bestblockhash": bestBlock, "blocks": scanResult.Height, "headers": headers}
 	case "getdescriptorinfo":
 		desc := request.Params[0].(string)
 		m.mu.Lock()
@@ -726,6 +727,36 @@ func TestPrunedWatchDefersInitialScanDuringIBD(t *testing.T) {
 	a.scanner.refresh(a.watch.Entries(), blockchainInfo{Pruned: true, BestBlockHash: bestBlock})
 	if row = waitPrunedState(t, handler, "ok"); row["btc"] != "1.25" {
 		t.Fatalf("post-IBD row = %#v", row)
+	}
+	waitPrunedScannerIdle(t, a.scanner)
+}
+
+func TestPrunedWatchWaitsWhileHeadersLeadBlocks(t *testing.T) {
+	bestBlock := strings.Repeat("9", 64)
+	mock := &prunedRPCMock{bestBlock: bestBlock, result: validPrunedScan(bestBlock)}
+	mock.headers = mock.result.Height + utxoReadyLag + 1
+	a, handler, _ := newPrunedTestApp(t, t.TempDir(), mock)
+	if response := addPrunedWatch(t, handler, "Ledger", parityZpub); response.Code != http.StatusOK {
+		t.Fatalf("add response = %d %q", response.Code, response.Body.String())
+	}
+	time.Sleep(20 * time.Millisecond)
+	behind := blockchainInfo{Pruned: true, BestBlockHash: bestBlock, Blocks: mock.result.Height, Headers: mock.headers}
+	a.scanner.refresh(a.watch.Entries(), behind)
+	if row := prunedRow(t, handler); row["state"] != "pending" {
+		t.Fatalf("behind row = %#v", row)
+	}
+	mock.mu.Lock()
+	starts := mock.startCalls
+	mock.mu.Unlock()
+	if starts != 0 {
+		t.Fatalf("catch-up started %d scans", starts)
+	}
+	mock.mu.Lock()
+	mock.headers = 0
+	mock.mu.Unlock()
+	a.scanner.refresh(a.watch.Entries(), blockchainInfo{Pruned: true, BestBlockHash: bestBlock, Blocks: mock.result.Height, Headers: mock.result.Height + utxoReadyLag})
+	if row := waitPrunedState(t, handler, "ok"); row["btc"] != "1.25" {
+		t.Fatalf("level row = %#v", row)
 	}
 	waitPrunedScannerIdle(t, a.scanner)
 }

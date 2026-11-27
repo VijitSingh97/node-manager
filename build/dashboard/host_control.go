@@ -515,7 +515,7 @@ func (a *app) seedNow(node string) bool {
 	}
 	st := m.Status()
 	if m.replays() {
-		return m.host != nil && (st.State == utxoStateNotSeeded || st.State == utxoStateInvalid || st.State == utxoStateCatching && st.Behind != nil && *st.Behind > utxoReplayGap)
+		return m.host != nil && (st.State == utxoStateNotSeeded || st.State == utxoStateInvalid || st.State == utxoStateCatching && st.NodeTip != nil && st.IndexTip != nil && *st.NodeTip-int64(*st.IndexTip) > utxoReplayGap)
 	}
 	capability, ok := a.hostControlCapability()
 	return (st.State == utxoStateNotSeeded || st.State == utxoStateInvalid) && ok && capability.UTXOSeedSupported && !capability.ConfigPending
