@@ -117,7 +117,7 @@ func newFamilyWatchManager(a *app) *familyWatchManager {
 		case nodeBitcoinCash:
 			store.maxWallets = maxIndexedWatchWallets
 		case nodeDogecoin:
-			store.maxSupply, store.backend, store.skipExample = dogecoinMaxSupply, dogecoinFamilyWatchBackend(), true
+			store.maxSupply, store.backend, store.skipExample = dogecoinMaxSupply, dogecoinFamilyWatchBackend(), a.cfg.dogecoinWatchWallet
 			if node.UTXOIndex {
 				store.maxWallets = maxIndexedWatchWallets
 			}

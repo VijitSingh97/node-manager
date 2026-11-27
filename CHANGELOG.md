@@ -6,6 +6,18 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Family-chain watch wallets no longer show "Cached balance; a fresh scan is
+  unavailable" while the balance index is serving them fine. On Dogecoin
+  without the Core watch wallet, the public example was skipped from every
+  refresh, so its balance froze at the first index seed and read stale
+  forever; it is now served and refreshed hourly like any other wallet, and a
+  watch-wallet node no longer records an example balance it would never show.
+  On every chain, a dashboard restart also left each wallet read as stale for
+  up to an hour, because balances younger than an hour were not re-checked;
+  the first pass after a start now confirms every cached balance.
+
 ## [1.42.2] - 2026-11-25
 
 ### Fixed

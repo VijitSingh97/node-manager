@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 	"testing"
 	"time"
@@ -139,5 +140,74 @@ func TestDogecoinIndexOnlyWatchWaitsForAnIndexOneBlockBehind(t *testing.T) {
 	})
 	if _, ok := store.backend.ready(t.Context(), store, now.Unix()); ok {
 		t.Fatal("an index one block behind the node let the wallets scan and fail")
+	}
+}
+
+func dogecoinSkipsExample(t *testing.T, watchWallet bool) bool {
+	t.Helper()
+	a := &app{cfg: config{stateDir: t.TempDir(), dogecoinWatchWallet: watchWallet, nodes: map[string]nodeConfig{
+		nodeDogecoin: {ID: nodeDogecoin, Enabled: true, Active: true, ActiveSet: true, UTXOIndex: true, RPCURL: "http://127.0.0.1:1"}, nodeLitecoin: {ID: nodeLitecoin}, nodeBitcoinCash: {ID: nodeBitcoinCash},
+	}}, log: log.New(io.Discard, "", 0), nodeHealth: make(map[string]nodeHealthSnapshot)}
+	return newFamilyWatchManager(a).stores[nodeDogecoin].skipExample
+}
+
+func readyDogecoinIndexStore(t *testing.T, now *time.Time, skipExample bool, wallets ...familyWatchEntry) (*familyWatchManager, *familyWatchStore, *familyScanRPCFixture) {
+	t.Helper()
+	manager, store, fixture := newFamilyScanTest(t, *now, wallets...)
+	store.now = func() time.Time { return *now }
+	store.backend, store.skipExample = dogecoinIndexFamilyWatchBackend(), skipExample
+	manager.app.cfg.nodes[nodeDogecoin] = nodeConfig{ID: nodeDogecoin, Enabled: true, Active: true, ActiveSet: true}
+	manager.stores = map[string]*familyWatchStore{nodeDogecoin: store}
+	index := utxoMgrNew(t, t.TempDir(), nil, newFakeUtxoNode(utxoMgrChain(2, "b")), io.Discard)
+	store.index = index
+	tip100, _ := utxoRevHex(familyScanHash100)
+	coin := utxoCreate{utxoOutpoint: utxoOutpoint{Txid: utxoTestTxid(1), Vout: 0}, Script: []byte(wallets[0].Address), Amount: 100_000_000}
+	if err := index.currentStore().ApplyBlock(utxoBlock{Height: 100, Hash: tip100, Creates: []utxoCreate{coin}}); err != nil {
+		t.Fatal(err)
+	}
+	index.set(utxoStateReady, "")
+	index.setTip(100)
+	return manager, store, fixture
+}
+
+func TestDogecoinIndexOnlyServesAndRefreshesTheExample(t *testing.T) {
+	now := time.Unix(2_000_000_000, 0)
+	example := familyWatchEntry{ID: "wallet-example", Label: "Example", Address: "address-a", Example: true}
+	manager, store, fixture := readyDogecoinIndexStore(t, &now, dogecoinSkipsExample(t, false), example)
+	manager.scanNode(t.Context(), nodeDogecoin, store)
+	views, _ := store.list(false)
+	if v := views[0]; v.State != "ok" || v.ScanTime != now.Unix() || v.Amount == nil {
+		t.Fatalf("example = %+v", v)
+	}
+	now = now.Add(time.Hour)
+	fixture.update(func(f *familyScanRPCFixture) { f.tipTime = now.Add(-time.Minute).Unix() })
+	manager.scanNode(t.Context(), nodeDogecoin, store)
+	if views, _ = store.list(false); views[0].State != "ok" || views[0].ScanTime != now.Unix() {
+		t.Fatalf("example not refreshed an hour later: %+v", views[0])
+	}
+}
+
+func TestDogecoinWatchWalletNodeNeverRecordsTheExampleFromTheIndex(t *testing.T) {
+	now := time.Unix(2_000_000_000, 0)
+	example := familyWatchEntry{ID: "wallet-example", Label: "Example", Address: "address-a", Example: true}
+	manager, store, _ := readyDogecoinIndexStore(t, &now, dogecoinSkipsExample(t, true), example)
+	manager.scanNode(t.Context(), nodeDogecoin, store)
+	views, _ := store.list(false)
+	if v := views[0]; v.State != "unscanned" || v.Amount != nil || len(store.balances) != 0 {
+		t.Fatalf("example = %+v balances=%v", v, store.balances)
+	}
+}
+
+func TestFamilyWatchConfirmsCachedBalancesOnTheFirstPassAfterARestart(t *testing.T) {
+	now := time.Unix(2_000_000_000, 0)
+	wallet := familyWatchEntry{ID: "wallet-a", Label: "A", Address: "address-a"}
+	manager, store, _ := readyDogecoinIndexStore(t, &now, false, wallet)
+	store.balances[wallet.ID] = familyWatchBalance{Amount: "100000000", ScanHeight: 100, ScanTime: now.Add(-10 * time.Minute).Unix(), BestBlock: familyScanHash100}
+	if views, _ := store.list(false); views[0].State != "stale" {
+		t.Fatalf("a cached balance with no state should read stale before the first pass: %+v", views[0])
+	}
+	manager.scanNode(t.Context(), nodeDogecoin, store)
+	if views, _ := store.list(false); views[0].State != "ok" {
+		t.Fatalf("first pass left %+v", views[0])
 	}
 }

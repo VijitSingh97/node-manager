@@ -362,10 +362,11 @@ Limits to accept before enabling it:
 - Node traffic stays Tor-only; address lookups are local RPC calls and no
   explorer is queried.
 
-With the option on, the dashboard seeds the Dogecoin Foundation address from the
+The dashboard seeds the Dogecoin Foundation address from the
 [Foundation's About page](https://foundation.dogecoin.com/about/) as a public
-example, excluded from personal totals and never imported or scanned, so it does
-not delay your own addresses. Without the option, Dogecoin has no example.
+example, excluded from personal totals. With the option on it is never imported
+or scanned, so it does not delay your own addresses. Without the option the
+balance index serves it like any other wallet and refreshes it hourly.
 
 ## Zcash transparent addresses
 
