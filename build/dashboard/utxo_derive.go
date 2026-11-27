@@ -127,7 +127,16 @@ func sortedUniqueScripts(scripts [][]byte) [][]byte {
 	return out
 }
 
-const deriveBatchSize = 20
+const (
+	deriveBatchSize = 20
+	deriveChunkSize = 250
+)
+
+type walletDerivation struct {
+	w      int
+	desc   string
+	ranged bool
+}
 
 func batchChunks(ctx context.Context, rpc *rpcClient, calls []rpcBatchCall) ([]rpcResponse, error) {
 	var out []rpcResponse
@@ -143,7 +152,7 @@ func batchChunks(ctx context.Context, rpc *rpcClient, calls []rpcBatchCall) ([]r
 }
 
 // One batched call per chunk of descriptors; a wallet that cannot be turned into a complete script set is marked Fallback for the scantxoutset path.
-func resolveWalletScripts(ctx context.Context, rpc *rpcClient, chain *utxoChainParams, keys []string) ([]walletScripts, error) {
+func resolveWalletScripts(ctx context.Context, rpc *rpcClient, chain *utxoChainParams, keys []string, onChunk func([][]byte)) ([]walletScripts, error) {
 	var infoCalls []rpcBatchCall
 	var owners []int
 	result := make([]walletScripts, len(keys))
@@ -173,9 +182,7 @@ func resolveWalletScripts(ctx context.Context, rpc *rpcClient, chain *utxoChainP
 	if err != nil {
 		return nil, err
 	}
-	var deriveCalls []rpcBatchCall
-	var deriveOwners []int
-	var deriveWant []int
+	var derivations []walletDerivation
 	for i, r := range infos {
 		w := owners[i]
 		if result[w].Fallback {
@@ -193,19 +200,56 @@ func resolveWalletScripts(ctx context.Context, rpc *rpcClient, chain *utxoChainP
 		if *info.HasPrivateKeys {
 			return nil, errors.New("private key material is not allowed")
 		}
-		params := []any{info.Descriptor}
-		want := 1
-		if *info.IsRange {
-			params = append(params, []int{deriveRangeStart, deriveRangeEnd})
-			want = deriveRangeEnd - deriveRangeStart + 1
+		derivations = append(derivations, walletDerivation{w, info.Descriptor, *info.IsRange})
+	}
+	before := make([]int, len(result))
+	// Sequential chunks let onChunk's lookup overlap the next derivation; parallel calls were slower (#370).
+	for start := deriveRangeStart; start <= deriveRangeEnd; start += deriveChunkSize {
+		for w := range result {
+			before[w] = len(result[w].Scripts)
 		}
-		deriveCalls = append(deriveCalls, rpcBatchCall{"deriveaddresses", params})
-		deriveOwners = append(deriveOwners, w)
-		deriveWant = append(deriveWant, want)
+		if err := deriveChunk(ctx, rpc, chain, derivations, start, min(start+deriveChunkSize-1, deriveRangeEnd), result); err != nil {
+			return nil, err
+		}
+		if onChunk == nil {
+			continue
+		}
+		var fresh [][]byte
+		for w := range result {
+			if !result[w].Fallback {
+				fresh = append(fresh, result[w].Scripts[before[w]:]...)
+			}
+		}
+		onChunk(fresh)
+	}
+	for w := range result {
+		result[w].Scripts = sortedUniqueScripts(result[w].Scripts)
+	}
+	return result, nil
+}
+
+func deriveChunk(ctx context.Context, rpc *rpcClient, chain *utxoChainParams, derivations []walletDerivation, start, end int, result []walletScripts) error {
+	var deriveCalls []rpcBatchCall
+	var deriveOwners []int
+	var deriveWant []int
+	for _, d := range derivations {
+		switch {
+		case result[d.w].Fallback:
+			continue
+		case d.ranged:
+			deriveCalls = append(deriveCalls, rpcBatchCall{"deriveaddresses", []any{d.desc, []int{start, end}}})
+			deriveWant = append(deriveWant, end-start+1)
+		case start == deriveRangeStart:
+			deriveCalls = append(deriveCalls, rpcBatchCall{"deriveaddresses", []any{d.desc}})
+			deriveWant = append(deriveWant, 1)
+		default:
+			continue
+		}
+		deriveOwners = append(deriveOwners, d.w)
 	}
 	derived, err := batchChunks(ctx, rpc, deriveCalls)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	var scriptCalls []rpcBatchCall
 	var scriptOwners []int
@@ -235,7 +279,7 @@ func resolveWalletScripts(ctx context.Context, rpc *rpcClient, chain *utxoChainP
 	}
 	validated, err := batchChunks(ctx, rpc, scriptCalls)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	for i, r := range validated {
 		w := scriptOwners[i]
@@ -258,8 +302,5 @@ func resolveWalletScripts(ctx context.Context, rpc *rpcClient, chain *utxoChainP
 		}
 		result[w].Scripts = append(result[w].Scripts, script)
 	}
-	for w := range result {
-		result[w].Scripts = sortedUniqueScripts(result[w].Scripts)
-	}
-	return result, nil
+	return nil
 }

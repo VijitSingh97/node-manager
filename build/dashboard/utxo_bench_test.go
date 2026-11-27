@@ -183,8 +183,8 @@ func TestBenchFullRunWithoutScan(t *testing.T) {
 	}
 	const fallbackKey = "pkh(placeholder)"
 	inner := host.resolve
-	host.resolve = func(ctx context.Context, got []string) ([]walletScripts, error) {
-		out, err := inner(ctx, got)
+	host.resolve = func(ctx context.Context, got []string, onChunk func([][]byte)) ([]walletScripts, error) {
+		out, err := inner(ctx, got, onChunk)
 		if got[0] == fallbackKey {
 			out[0] = walletScripts{Fallback: true}
 		}
@@ -278,8 +278,8 @@ func TestBenchScanComparesEachWalletAtTheSameBlock(t *testing.T) {
 	}
 	const fallbackKey = "pkh(placeholder)"
 	inner := host.resolve
-	host.resolve = func(ctx context.Context, got []string) ([]walletScripts, error) {
-		out, err := inner(ctx, got)
+	host.resolve = func(ctx context.Context, got []string, onChunk func([][]byte)) ([]walletScripts, error) {
+		out, err := inner(ctx, got, onChunk)
 		if got[0] == fallbackKey {
 			out[0] = walletScripts{Fallback: true}
 		}

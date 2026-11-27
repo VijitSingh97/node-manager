@@ -34,7 +34,7 @@ type prunedScanner struct {
 
 	scriptMu       sync.Mutex
 	scripts        map[string]indexScriptRecord
-	resolveScripts func(context.Context, []string) ([]walletScripts, error)
+	resolveScripts func(context.Context, []string, func([][]byte)) ([]walletScripts, error)
 }
 
 type scanWait struct {
@@ -101,8 +101,8 @@ func newPrunedScanner(a *app) *prunedScanner {
 	return &prunedScanner{
 		app: a, queued: map[string]bool{}, failures: map[string]int{}, lastTry: map[string]time.Time{},
 		jobs: make(chan WatchEntry, maxWatchWallets), now: time.Now, derived: map[string]derivedAddresses{}, waiting: map[string]scanWait{},
-		resolveScripts: func(ctx context.Context, keys []string) ([]walletScripts, error) {
-			return resolveWalletScripts(ctx, a.rpc, utxoBitcoin, keys)
+		resolveScripts: func(ctx context.Context, keys []string, onChunk func([][]byte)) ([]walletScripts, error) {
+			return resolveWalletScripts(ctx, a.rpc, utxoBitcoin, keys, onChunk)
 		},
 	}
 }

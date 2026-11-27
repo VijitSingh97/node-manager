@@ -65,7 +65,7 @@ func (s *prunedScanner) pruneScripts(entries []WatchEntry) {
 	}
 }
 
-func (s *prunedScanner) indexScripts(ctx context.Context, entry WatchEntry) [][]byte {
+func (s *prunedScanner) indexScripts(ctx context.Context, entry WatchEntry, onChunk func([][]byte)) [][]byte {
 	identity, descriptorID := watchKeyID(entry.Key), descriptorSetID(entry)
 	if descriptorID == "" {
 		return nil
@@ -76,7 +76,7 @@ func (s *prunedScanner) indexScripts(ctx context.Context, entry WatchEntry) [][]
 	s.loadScriptsLocked()
 	record, ok := s.scripts[identity]
 	if !ok || record.DescriptorID != descriptorID {
-		resolved, err := s.resolveScripts(ctx, []string{entry.Key})
+		resolved, err := s.resolveScripts(ctx, []string{entry.Key}, onChunk)
 		if err != nil || len(resolved) != 1 {
 			return nil
 		}
@@ -118,11 +118,12 @@ func (s *prunedScanner) fromIndex(entry WatchEntry, nodeTip string) bool {
 	started := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), indexQueryLimit)
 	defer cancel()
-	scripts := s.indexScripts(ctx, entry)
+	lookup := s.app.utxo.chunkLookup()
+	scripts := s.indexScripts(ctx, entry, lookup.add)
 	if len(scripts) == 0 {
 		return false
 	}
-	coins, height, hash, ok := s.app.utxo.Lookup(scripts)
+	coins, height, hash, ok := lookup.wait(scripts)
 	if !ok {
 		return false
 	}

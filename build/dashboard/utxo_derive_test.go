@@ -1,11 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -51,6 +56,7 @@ type fakeBatch struct {
 	deriveFn   func(desc string) (any, string)
 	infoFail   func(desc string) bool
 	validateFn func(address string) any
+	requested  map[string][]int
 }
 
 func (f *fakeBatch) server() *httptest.Server {
@@ -85,9 +91,14 @@ func (f *fakeBatch) server() *httptest.Server {
 				} else {
 					item["result"] = result
 					if list, ok := result.([]string); ok && strings.Contains(desc, "*") {
-						padded := make([]string, 1000)
+						bounds := c.Params[1].([]any)
+						start, end := int(bounds[0].(float64)), int(bounds[1].(float64))
+						padded := make([]string, end-start+1)
 						for k := range padded {
-							padded[k] = list[k%len(list)]
+							padded[k] = list[(start+k)%len(list)]
+							if f.requested != nil {
+								f.requested[desc] = append(f.requested[desc], start+k)
+							}
 						}
 						item["result"] = padded
 					}
@@ -114,12 +125,12 @@ func TestResolveWalletScriptsBatchesSortsAndFallsBack(t *testing.T) {
 	srv := f.server()
 	defer srv.Close()
 	rpc := &rpcClient{url: srv.URL, client: srv.Client()}
-	got, err := resolveWalletScripts(context.Background(), rpc, utxoBitcoin, []string{testXpub, "pk(" + strings.Repeat("02", 33) + ")", "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080"})
+	got, err := resolveWalletScripts(context.Background(), rpc, utxoBitcoin, []string{testXpub, "pk(" + strings.Repeat("02", 33) + ")", "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.batches != 2 {
-		t.Fatalf("%d HTTP calls for three wallets, want 2", f.batches)
+	if f.batches != 5 {
+		t.Fatalf("%d HTTP calls for three wallets, want 5: one info batch, then one derive batch per range chunk", f.batches)
 	}
 	if got[0].Fallback || len(got[0].Scripts) != 2 || hex.EncodeToString(got[0].Scripts[0]) != "0014751e76e8199196d454941c45d1b3a323f1433bd6" {
 		t.Fatalf("xpub wallet: %+v", got[0])
@@ -135,7 +146,7 @@ func TestResolveWalletScriptsBatchesSortsAndFallsBack(t *testing.T) {
 func TestResolveWalletScriptsRejectsPrivateKeys(t *testing.T) {
 	rpc := &rpcClient{url: "http://127.0.0.1:1", client: http.DefaultClient}
 	xprv := "xprv9s21ZrQH143K3QTDL4LXw2F7HEK3wJUD2nW2nRk4stbPy6cq3jPPqjiChkVvvNKmPGJxWUtg6LnF5kejMRNNU3TGtRBeJgk33yuGBxrMPHi"
-	if _, err := resolveWalletScripts(context.Background(), rpc, utxoBitcoin, []string{xprv}); err == nil {
+	if _, err := resolveWalletScripts(context.Background(), rpc, utxoBitcoin, []string{xprv}, nil); err == nil {
 		t.Fatal("private key accepted")
 	}
 }
@@ -167,7 +178,7 @@ func TestResolveWalletScriptsFallsBackPerWallet(t *testing.T) {
 		"not a key",
 		"pk(" + strings.Repeat("02", 33) + ")",
 	}
-	got, err := resolveWalletScripts(context.Background(), rpc, utxoBitcoin, keys)
+	got, err := resolveWalletScripts(context.Background(), rpc, utxoBitcoin, keys, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,8 +190,8 @@ func TestResolveWalletScriptsFallsBackPerWallet(t *testing.T) {
 			t.Fatalf("wallet %d did not fall back: %+v", w, got[w])
 		}
 	}
-	if derived != 2 {
-		t.Fatalf("%d derive calls, want 2 (only the valid wallet)", derived)
+	if derived != 8 {
+		t.Fatalf("%d derive calls, want 8 (only the valid wallet's two branches, in four range chunks)", derived)
 	}
 }
 
@@ -206,7 +217,7 @@ func TestResolveWalletScriptsFallsBackOnShortRange(t *testing.T) {
 	}))
 	defer srv.Close()
 	rpc := &rpcClient{url: srv.URL, client: srv.Client()}
-	got, err := resolveWalletScripts(context.Background(), rpc, utxoBitcoin, []string{testXpub})
+	got, err := resolveWalletScripts(context.Background(), rpc, utxoBitcoin, []string{testXpub}, nil)
 	if err != nil || !got[0].Fallback {
 		t.Fatalf("short derivation accepted: %+v, %v", got, err)
 	}
@@ -223,7 +234,7 @@ func TestResolveWalletScriptsChunksLargeSets(t *testing.T) {
 	for i := range keys {
 		keys[i] = testXpub
 	}
-	got, err := resolveWalletScripts(context.Background(), rpc, utxoBitcoin, keys)
+	got, err := resolveWalletScripts(context.Background(), rpc, utxoBitcoin, keys, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,8 +243,8 @@ func TestResolveWalletScriptsChunksLargeSets(t *testing.T) {
 			t.Fatalf("wallet %d: %+v", w, got[w])
 		}
 	}
-	if f.batches != 6 {
-		t.Fatalf("%d HTTP calls for 60 descriptors, want 6", f.batches)
+	if f.batches != 15 {
+		t.Fatalf("%d HTTP calls for 60 descriptors, want 15: three info batches, then three derive batches per range chunk", f.batches)
 	}
 }
 
@@ -262,7 +273,7 @@ func TestResolveWalletScriptsAsksTheNodeForFamilyScripts(t *testing.T) {
 	srv := f.server()
 	defer srv.Close()
 	rpc := &rpcClient{url: srv.URL, client: srv.Client()}
-	got, err := resolveWalletScripts(context.Background(), rpc, utxoLitecoin, []string{testXpub, "addr(bad)", "addr(odd)", "addr(fine)"})
+	got, err := resolveWalletScripts(context.Background(), rpc, utxoLitecoin, []string{testXpub, "addr(bad)", "addr(odd)", "addr(fine)"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +286,128 @@ func TestResolveWalletScriptsAsksTheNodeForFamilyScripts(t *testing.T) {
 	if got[3].Fallback || len(got[3].Scripts) != 1 {
 		t.Fatalf("address wallet: %+v", got[3])
 	}
-	if want := 2 + (2000+4+deriveBatchSize-1)/deriveBatchSize; f.batches != want {
-		t.Fatalf("%d HTTP calls, want %d: one info and one derive batch, then 2,004 addresses validated %d at a time", f.batches, want, deriveBatchSize)
+	if want := 1 + 4 + 26 + 3*25; f.batches != want {
+		t.Fatalf("%d HTTP calls, want %d: one info batch, then per range chunk one derive batch and its addresses validated %d at a time", f.batches, want, deriveBatchSize)
+	}
+}
+
+func chunkTestAddress(branch, index int) (string, []byte) {
+	sum := sha256.Sum256(fmt.Appendf(nil, "%d/%d", branch, index))
+	return base58EncodeCheck(append([]byte{0x00}, sum[:20]...)), append(append([]byte{0x76, 0xa9, 20}, sum[:20]...), 0x88, 0xac)
+}
+
+func chunkTestNode(t *testing.T, failBranch, failCall int) (*rpcClient, *[2]int, map[string][]int) {
+	var calls [2]int
+	var branches [2][]string
+	for b := range branches {
+		for i := range 1000 {
+			address, _ := chunkTestAddress(b, i)
+			branches[b] = append(branches[b], address)
+		}
+	}
+	f := &fakeBatch{t: t, requested: map[string][]int{}, deriveFn: func(desc string) (any, string) {
+		b := 0
+		if strings.Contains(desc, "/1/*") {
+			b = 1
+		}
+		calls[b]++
+		if b == failBranch && calls[b] == failCall {
+			return nil, "chunk failed"
+		}
+		return branches[b], ""
+	}}
+	srv := f.server()
+	t.Cleanup(srv.Close)
+	return &rpcClient{url: srv.URL, client: srv.Client()}, &calls, f.requested
+}
+
+func chunkTestCoins(coins []utxoCoin) map[string]uint64 {
+	out := map[string]uint64{}
+	for _, c := range coins {
+		out[fmt.Sprintf("%x:%d", c.Txid, c.Vout)] += c.Amount
+	}
+	return out
+}
+
+func TestChunkedDeriveAndLookupMatchOneCall(t *testing.T) {
+	var want [][]byte
+	for b := range 2 {
+		for i := range 1000 {
+			_, script := chunkTestAddress(b, i)
+			want = append(want, script)
+		}
+	}
+	want = sortedUniqueScripts(want)
+	var outs []fakeOut
+	for k, at := range [][2]int{{0, 0}, {0, 249}, {0, 250}, {0, 999}, {1, 500}, {1, 749}} {
+		_, script := chunkTestAddress(at[0], at[1])
+		outs = append(outs, fakeOut{hex.EncodeToString(script), fmt.Sprintf("0.%08d", 1000*(k+1))})
+	}
+	_, outside := chunkTestAddress(2, 0)
+	outs = append(outs, fakeOut{hex.EncodeToString(outside), "1.00000000"})
+	c := indexTestChain(outs)
+	m := indexTestManager(t, c)
+	ctx := context.Background()
+
+	rpc, calls, requested := chunkTestNode(t, -1, 0)
+	lookup := m.chunkLookup()
+	chunks := 0
+	got, err := resolveWalletScripts(ctx, rpc, utxoBitcoin, []string{testXpub}, func(s [][]byte) { chunks++; lookup.add(s) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[0].Fallback || !slices.EqualFunc(got[0].Scripts, want, bytes.Equal) {
+		t.Fatalf("chunked derivation gave %d scripts (fallback %v), want the same %d as one call over 0-999", len(got[0].Scripts), got[0].Fallback, len(want))
+	}
+	if chunks != 4 || *calls != [2]int{4, 4} || len(requested) != 2 {
+		t.Fatalf("%d chunks and derive calls %v, want 4 chunks of one call per branch", chunks, *calls)
+	}
+	every := make([]int, deriveRangeEnd-deriveRangeStart+1)
+	for i := range every {
+		every[i] = deriveRangeStart + i
+	}
+	for desc, indexes := range requested {
+		if !slices.Equal(indexes, every) {
+			t.Fatalf("%s: indexes %d..%d (%d), want each of 0-999 exactly once in order", desc, indexes[0], indexes[len(indexes)-1], len(indexes))
+		}
+	}
+	coins, height, hash, ok := lookup.wait(got[0].Scripts)
+	oneCoins, oneHeight, oneHash, oneOK := m.Lookup(want)
+	if !ok || !oneOK || lookup.failed || lookup.chunks != 4 || height != oneHeight || hash != oneHash {
+		t.Fatalf("overlapped lookup ok=%v failed=%v chunks=%d at %d, one lookup ok=%v at %d", ok, lookup.failed, lookup.chunks, height, oneOK, oneHeight)
+	}
+	byOutpoint := chunkTestCoins(coins)
+	if !maps.Equal(byOutpoint, chunkTestCoins(oneCoins)) || len(byOutpoint) != 6 || len(coins) != 6 || benchTotalsOf(coins) != benchTotalsOf(oneCoins) || benchTotalsOf(coins).Sats != 21000 {
+		t.Fatalf("overlapped coins %v, one lookup %v; want the same 6 coins and 21000 sats", byOutpoint, chunkTestCoins(oneCoins))
+	}
+
+	rpc, calls, _ = chunkTestNode(t, 1, 3)
+	lookup = m.chunkLookup()
+	got, err = resolveWalletScripts(ctx, rpc, utxoBitcoin, []string{testXpub}, lookup.add)
+	if err != nil || !got[0].Fallback || got[0].Scripts != nil {
+		t.Fatalf("a failed chunk must send the whole wallet to the scan fallback: %+v, %v", got, err)
+	}
+	if *calls != [2]int{3, 3} {
+		t.Fatalf("derive calls %v, want none after the failed third chunk", *calls)
+	}
+
+	for _, fed := range [][][]byte{{want[0], outside}, append(slices.Clone(want), outside)} {
+		lookup = m.chunkLookup()
+		lookup.add(fed)
+		if coins, _, _, ok = lookup.wait(want); !ok || !maps.Equal(chunkTestCoins(coins), byOutpoint) {
+			t.Fatalf("chunks of %d scripts gave %v, want one lookup's %v", len(fed), chunkTestCoins(coins), byOutpoint)
+		}
+	}
+
+	lookup = m.chunkLookup()
+	lookup.add(want[:1000])
+	lookup.wg.Wait()
+	c.add("y", []fakeOut{{hex.EncodeToString(want[0]), "0.00000777"}}, nil)
+	m.tick(ctx)
+	lookup.add(want[1000:])
+	coins, height, _, ok = lookup.wait(want)
+	oneCoins, oneHeight, _, _ = m.Lookup(want)
+	if !ok || !lookup.failed || height != oneHeight || height != 11 || !maps.Equal(chunkTestCoins(coins), chunkTestCoins(oneCoins)) || len(coins) != 7 {
+		t.Fatalf("chunks across a new block: ok=%v failed=%v height %d/%d, %d coins; want one lookup's 7 coins at 11", ok, lookup.failed, height, oneHeight, len(coins))
 	}
 }

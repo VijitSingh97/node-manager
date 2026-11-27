@@ -33,7 +33,7 @@ type utxoBenchHost struct {
 	prefix     string
 	stateDir   string
 	validate   func(context.Context, string) error
-	resolve    func(context.Context, []string) ([]walletScripts, error)
+	resolve    func(context.Context, []string, func([][]byte)) ([]walletScripts, error)
 	cachedRead func(context.Context) (func(), int, error)
 	scan       func(context.Context, []string) (benchScanRun, error)
 	txOutSet   func(context.Context) (txOutSetInfo, error)
@@ -167,15 +167,19 @@ func benchSummary(samples []float64) benchTimes {
 	return benchTimes{First: samples[0], P50: at(0.5), P99: at(0.99), Max: sorted[len(sorted)-1]}
 }
 
-func (m *utxoManager) benchLookup(ctx context.Context, scripts [][]byte, repeat int) (benchTimes, []utxoCoin, bool) {
+func (m *utxoManager) benchLookup(ctx context.Context, scripts [][]byte, repeat int, first func([][]byte) ([]utxoCoin, uint32, [32]byte, bool)) (benchTimes, []utxoCoin, bool) {
 	samples := make([]float64, repeat)
 	var coins []utxoCoin
 	for i := range samples {
 		if ctx.Err() != nil {
 			return benchTimes{}, nil, false
 		}
+		lookup := m.Lookup
+		if i == 0 {
+			lookup = first
+		}
 		started := time.Now()
-		found, _, _, ok := m.Lookup(scripts)
+		found, _, _, ok := lookup(scripts)
 		samples[i] = time.Since(started).Seconds()
 		if !ok {
 			return benchTimes{}, nil, false
@@ -272,7 +276,8 @@ func (m *utxoManager) execBench(ctx context.Context, req benchRequest, res *benc
 	scripts := make([][][]byte, len(req.Wallets))
 	for i, w := range req.Wallets {
 		started := time.Now()
-		resolved, err := h.resolve(ctx, []string{w.Key})
+		lookup := m.chunkLookup()
+		resolved, err := h.resolve(ctx, []string{w.Key}, lookup.add)
 		derive := time.Since(started).Seconds()
 		if err != nil || len(resolved) != 1 {
 			refuse("wallet %d: script derivation failed", i+1)
@@ -281,7 +286,7 @@ func (m *utxoManager) execBench(ctx context.Context, req benchRequest, res *benc
 		wr := benchWalletResult{Name: w.Name, DeriveSeconds: derive, Scripts: len(resolved[0].Scripts), Fallback: resolved[0].Fallback}
 		if !wr.Fallback {
 			scripts[i] = resolved[0].Scripts
-			times, coins, ok := m.benchLookup(ctx, scripts[i], req.Repeat)
+			times, coins, ok := m.benchLookup(ctx, scripts[i], req.Repeat, lookup.wait)
 			if !ok {
 				refuse("wallet %d: the index stopped answering or the run timed out", i+1)
 				return
@@ -299,7 +304,7 @@ func (m *utxoManager) execBench(ctx context.Context, req benchRequest, res *benc
 		}
 		seen[n] = true
 		batch := sortedUniqueScripts(slices.Concat(scripts[:n]...))
-		times, coins, ok := m.benchLookup(ctx, batch, req.Repeat)
+		times, coins, ok := m.benchLookup(ctx, batch, req.Repeat, m.Lookup)
 		if !ok {
 			refuse("batch of %d: the index stopped answering or the run timed out", n)
 			return
@@ -424,8 +429,8 @@ func (a *app) chainBenchHost(id string, rpc *rpcClient, chain *utxoChainParams, 
 		_, err := validateWatchKeyRPC(ctx, rpc, key)
 		return err
 	}
-	resolve := func(ctx context.Context, keys []string) ([]walletScripts, error) {
-		return resolveWalletScripts(ctx, rpc, chain, keys)
+	resolve := func(ctx context.Context, keys []string, onChunk func([][]byte)) ([]walletScripts, error) {
+		return resolveWalletScripts(ctx, rpc, chain, keys, onChunk)
 	}
 	scanObjects := func(ctx context.Context, keys []string) ([]any, error) {
 		var objects []any
@@ -450,7 +455,7 @@ func (a *app) chainBenchHost(id string, rpc *rpcClient, chain *utxoChainParams, 
 			_, _, err := addrKeyScript(ctx, rpc, key)
 			return err
 		}
-		resolve = func(ctx context.Context, keys []string) ([]walletScripts, error) {
+		resolve = func(ctx context.Context, keys []string, _ func([][]byte)) ([]walletScripts, error) {
 			resolved := make([]walletScripts, len(keys))
 			for i, key := range keys {
 				_, script, err := addrKeyScript(ctx, rpc, key)

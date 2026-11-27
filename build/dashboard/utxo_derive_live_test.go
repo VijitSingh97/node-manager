@@ -77,7 +77,7 @@ func TestResolveWalletScriptsRegtestLive(t *testing.T) {
 		"wpkh(" + testXpub + "/0/*)",
 	}
 	start := time.Now()
-	got, err := resolveWalletScripts(ctx, rpc, utxoBitcoin, keys)
+	got, err := resolveWalletScripts(ctx, rpc, utxoBitcoin, keys, nil)
 	elapsed := time.Since(start)
 	if err != nil {
 		t.Fatal(err)
@@ -149,7 +149,7 @@ func TestResolveTwoThousandAddressesRegtestLiveTiming(t *testing.T) {
 	var best time.Duration
 	for i := 0; i < 5; i++ {
 		start := time.Now()
-		got, err := resolveWalletScripts(context.Background(), rpc, utxoBitcoin, []string{regtestKey(t)})
+		got, err := resolveWalletScripts(context.Background(), rpc, utxoBitcoin, []string{regtestKey(t)}, nil)
 		took := time.Since(start)
 		if err != nil || got[0].Fallback || len(got[0].Scripts) != 2000 {
 			t.Fatalf("resolve: %v %+v", err, got)

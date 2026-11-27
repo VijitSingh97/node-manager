@@ -339,9 +339,9 @@ func TestPrunedScriptRegistryWriteFailureKeepsServingAndRecovers(t *testing.T) {
 	a.log.SetOutput(logs)
 	calls := 0
 	resolve := indexTestScripts(indexTestScript)
-	a.scanner.resolveScripts = func(ctx context.Context, keys []string) ([]walletScripts, error) {
+	a.scanner.resolveScripts = func(ctx context.Context, keys []string, onChunk func([][]byte)) ([]walletScripts, error) {
 		calls++
-		return resolve(ctx, keys)
+		return resolve(ctx, keys, onChunk)
 	}
 	unblock := utxoRecoveryBlockWrites(t, a.scanner.scriptsPath())
 	if response := addPrunedWatch(t, handler, "Cold", genesisAddress); response.Code != http.StatusOK {
@@ -356,14 +356,14 @@ func TestPrunedScriptRegistryWriteFailureKeepsServingAndRecovers(t *testing.T) {
 		t.Fatalf("failure not logged: %q", logs.String())
 	}
 	entry := a.watch.Entries()[0]
-	if len(a.scanner.indexScripts(context.Background(), entry)) != 1 || calls != 1 {
+	if len(a.scanner.indexScripts(context.Background(), entry, nil)) != 1 || calls != 1 {
 		t.Fatalf("in-memory registry lost: %d derivations", calls)
 	}
 	unblock()
 	a.scanner.scriptMu.Lock()
 	delete(a.scanner.scripts, watchKeyID(entry.Key))
 	a.scanner.scriptMu.Unlock()
-	if len(a.scanner.indexScripts(context.Background(), entry)) != 1 {
+	if len(a.scanner.indexScripts(context.Background(), entry, nil)) != 1 {
 		t.Fatal("scripts missing after space returned")
 	}
 	if b, _ := os.ReadFile(a.scanner.scriptsPath()); !strings.Contains(string(b), indexTestScript) {

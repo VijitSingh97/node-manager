@@ -73,7 +73,12 @@ func (n *benchFakeNode) call(method string, params []any) (any, string) {
 	case "deriveaddresses":
 		desc, _ := params[0].(string)
 		desc, _, _ = strings.Cut(desc, "#")
-		return n.addresses[desc], ""
+		addresses := n.addresses[desc]
+		if len(params) > 1 {
+			bounds := params[1].([]any)
+			addresses = addresses[int(bounds[0].(float64)) : int(bounds[1].(float64))+1]
+		}
+		return addresses, ""
 	case "validateaddress":
 		address, _ := params[0].(string)
 		if canonical, ok := n.aliases[address]; ok {
