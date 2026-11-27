@@ -1,24 +1,29 @@
 #!/usr/bin/env bash
 # Maintainer script: how long after a new block does a watched wallet first refresh (#236)?
-# Matches each bitcoind UpdateTip to the first dashboard refresh at that height or higher.
+# Matches each node UpdateTip to the first dashboard refresh at that height or higher.
 set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: scripts/measure-block-latency.sh --since TIME [--until TIME] [--bitcoin CONTAINER] [--dashboard CONTAINER]
+Usage: scripts/measure-block-latency.sh --since TIME [--until TIME] [--chain bitcoin|litecoin|bitcoincash|dogecoin]
+                                        [--bitcoin CONTAINER] [--dashboard CONTAINER]
                                         [--bitcoin-log FILE] [--dashboard-log FILE]
 
 TIME is UTC, like 2026-11-15T06:30:00Z. Run it on the host with docker access.
-Containers default to the single running Compose bitcoin and dashboard services.
---bitcoin-log reads a bitcoind debug.log copy and --dashboard-log a copy of
+--chain picks the node and its balance-index refresh lines (default bitcoin); the
+node's Compose service is named after the chain, and --bitcoin and --bitcoin-log
+then name that node's container and debug.log copy. A Dogecoin debug.log stamped
+without T and Z is read as UTC.
+Containers default to the single running Compose node and dashboard services.
+--bitcoin-log reads a node debug.log copy and --dashboard-log a copy of
 `docker logs --timestamps` output instead of docker. No addresses are printed.
 EOF
 }
 
-since='' until='' bitcoin='' dashboard='' bitcoin_log='' dashboard_log=''
+since='' until='' chain=bitcoin bitcoin='' dashboard='' bitcoin_log='' dashboard_log=''
 while [ $# -gt 0 ]; do
   case "$1" in
-  --since | --until | --bitcoin | --dashboard | --bitcoin-log | --dashboard-log)
+  --since | --until | --chain | --bitcoin | --dashboard | --bitcoin-log | --dashboard-log)
     [ $# -ge 2 ] || {
       usage >&2
       exit 1
@@ -26,6 +31,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
     --since) since=$2 ;;
     --until) until=$2 ;;
+    --chain) chain=$2 ;;
     --bitcoin) bitcoin=$2 ;;
     --dashboard) dashboard=$2 ;;
     --bitcoin-log) bitcoin_log=$2 ;;
@@ -43,6 +49,17 @@ while [ $# -gt 0 ]; do
     ;;
   esac
 done
+case "$chain" in
+bitcoin | litecoin | bitcoincash | dogecoin) ;;
+*)
+  echo "--chain must be bitcoin, litecoin, bitcoincash or dogecoin." >&2
+  exit 1
+  ;;
+esac
+index_re='[:0-9] watch index' block_re='watch block update'
+if [ "$chain" != bitcoin ]; then
+  index_re=" $chain watch index" block_re='no block update on this chain'
+fi
 time_re='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
 [[ "$since" =~ $time_re ]] || {
   echo "--since needs a UTC time like 2026-11-15T06:30:00Z." >&2
@@ -58,7 +75,7 @@ service_container() {
   local ids
   ids=$(docker ps -q --filter "label=com.docker.compose.service=$1")
   [ -n "$ids" ] && [ "$(wc -l <<<"$ids")" = 1 ] || {
-    echo "Need exactly one running $1 container; pass --$1 NAME." >&2
+    echo "Need exactly one running $1 container; pass --bitcoin NAME for the node or --dashboard NAME." >&2
     return 1
   }
   printf '%s' "$ids"
@@ -69,7 +86,7 @@ trap 'rm -rf "$work"' EXIT
 if [ -n "$bitcoin_log" ]; then
   cp "$bitcoin_log" "$work/bitcoin.log"
 else
-  bitcoin=${bitcoin:-$(service_container bitcoin)}
+  bitcoin=${bitcoin:-$(service_container "$chain")}
   docker exec "$bitcoin" grep -h UpdateTip: /data/debug.log >"$work/bitcoin.log"
 fi
 if [ -n "$dashboard_log" ]; then
@@ -80,9 +97,9 @@ else
 fi
 
 {
-  grep 'UpdateTip:' "$work/bitcoin.log" | sed -n 's/^\([0-9T:Z.-]*\) .*UpdateTip:.* height=\([0-9]*\) .*/B \1 \2/p'
-  sed -n 's/^\([0-9T:Z.-]*\) .*watch index: outcome=ok .* height=\([0-9]*\) .*/R index \1 \2/p;
-    s/^\([0-9T:Z.-]*\) .*watch block update: .* height=\([0-9]*\) .*/R block \1 \2/p' "$work/dashboard.log"
+  grep 'UpdateTip:' "$work/bitcoin.log" | sed -E 's/^([0-9]{4}-[0-9]{2}-[0-9]{2}) ([0-9:]{8})/\1T\2Z/' | sed -n 's/^\([0-9T:Z.-]*\) .*UpdateTip:.* height=\([0-9]*\) .*/B \1 \2/p'
+  sed -n "s/^\([0-9T:Z.-]*\) .*${index_re}: outcome=ok .* height=\([0-9]*\) .*/R index \1 \2/p;
+    s/^\([0-9T:Z.-]*\) .*${block_re}: .* height=\([0-9]*\) .*/R block \1 \2/p" "$work/dashboard.log"
   head -n 1 "$work/dashboard.log" | sed -n 's/^\([0-9T:Z.-]*\) .*/F \1/p'
 } | awk -v since="$since" -v until="$until" '
 function epoch(ts,   y, m, d, era, yoe, doy, doe) {
@@ -129,7 +146,7 @@ END {
     }
   }
   if (nb == 0) {
-    print "No UpdateTip lines parsed in the window; check --since, --bitcoin and the bitcoind log timestamp format." > "/dev/stderr"
+    print "No UpdateTip lines parsed in the window; check --since, --bitcoin and the node log timestamp format." > "/dev/stderr"
     exit 1
   }
   if (first > lo + 60) print "Warning: dashboard logs start after --since (log rotation?); early blocks may show no refresh, so the figures are biased." > "/dev/stderr"

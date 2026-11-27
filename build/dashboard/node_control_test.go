@@ -415,7 +415,7 @@ func TestNodesStoppedFromHostStats(t *testing.T) {
 
 func TestNodeListCarriesTheLastHeightTheMonitorPersisted(t *testing.T) {
 	dir := t.TempDir()
-	state := `{"bitcoin":{"last_block":900000,"has_last_block":true,"sync_percent":100},"nodes":{"tari":{"last_block":150000,"has_last_block":true,"sync_percent":61.5}}}`
+	state := `{"bitcoin":{"last_block":900000,"has_last_block":true,"sync_percent":100},"nodes":{"tari":{"last_block":150000,"has_last_block":true,"sync_percent":61.5,"seen_at":1700000000}}}`
 	if err := os.WriteFile(filepath.Join(dir, "monitor_state.json"), []byte(state), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -432,6 +432,9 @@ func TestNodeListCarriesTheLastHeightTheMonitorPersisted(t *testing.T) {
 	got := map[string][2]any{}
 	for _, node := range payload.Nodes {
 		got[node["id"].(string)] = [2]any{node["last_height"], node["last_sync_percent"]}
+		if node["id"] == nodeTari && node["last_seen_at"] != float64(1700000000) {
+			t.Fatalf("tari last_seen_at = %v", node["last_seen_at"])
+		}
 	}
 	want := map[string][2]any{
 		nodeBitcoin: {float64(900000), float64(100)}, nodeMonero: {nil, nil}, nodeTari: {float64(150000), 61.5},
@@ -502,5 +505,34 @@ func TestNodesReportConfiguredSteadyCaps(t *testing.T) {
 				t.Fatalf("unconfigured caps must be omitted: %#v", n)
 			}
 		}
+	}
+}
+
+func TestNodesReportBitcoinAndMoneroSteadyCaps(t *testing.T) {
+	t.Setenv("BITCOIN_STEADY_CPUS", "2")
+	t.Setenv("BITCOIN_STEADY_MEM_LIMIT_MB", "3072")
+	cfg := config{bitcoinDisabled: true, dashboardPassword: "secret", stateDir: t.TempDir()}
+	cfg.dataDir = cfg.stateDir
+	if err := loadAdditionalNodes(&cfg); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{cfg: cfg}
+	initializeTestDashboardAuth(t, a)
+	response := nodeControlHTTP(a, http.MethodGet, "/api/nodes", "", false)
+	var view struct {
+		Nodes []map[string]any `json:"nodes"`
+	}
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &view) != nil {
+		t.Fatalf("nodes view = %d %s", response.Code, response.Body.String())
+	}
+	want := map[string][2]float64{nodeBitcoin: {2, 3072}, nodeMonero: {1, 2048}}
+	for _, n := range view.Nodes {
+		if w, ok := want[n["id"].(string)]; ok && (n["steady_cpus"] != w[0] || n["steady_mem_limit_mb"] != w[1]) {
+			t.Fatalf("%v caps = %#v", n["id"], n)
+		}
+	}
+	t.Setenv("MONERO_STEADY_CPUS", "0")
+	if loadAdditionalNodes(&config{}) == nil {
+		t.Fatal("invalid monero cap accepted")
 	}
 }

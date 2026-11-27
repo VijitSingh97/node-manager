@@ -1,4 +1,4 @@
-import { WATCH_COPY, atomicToDecimal, bigSeries, formatAmount, joinNote, scanNote } from "./wallet-format.js";
+import { WATCH_COPY, atomicToDecimal, bigSeries, formatAmount, joinNote, scanNote, staleWallets } from "./wallet-format.js";
 import { el, managerRow, renderWalletList, replaceIfChanged, setMessage as showMessage, walletRequest } from "./wallet-ui.js";
 
 const HEX_KEY = /^[0-9a-fA-F]{64}$/;
@@ -201,7 +201,10 @@ if (typeof document !== "undefined") {
     }
     async function refresh(force = false) {
       const panel = document.getElementById("tari-panel");
-      if (!force && panel?.dataset.nodeActive === "0") return;
+      if (!force && panel?.dataset.nodeActive === "0") {
+        if (last.wallets?.length) render(staleWallets(last));
+        return;
+      }
       try {
         const data = await request();
         render(data);

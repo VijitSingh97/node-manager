@@ -141,7 +141,7 @@ func zcashFamilyWatchBackend() familyWatchBackend {
 			}
 			err := s.rpc.call(ctx, "getaddressbalance", []any{map[string]any{"addresses": []string{address}}}, &balance)
 			if err != nil {
-				if strings.Contains(strings.ReplaceAll(strings.ToLower(err.Error()), " ", ""), "indexesunavailable") {
+				if message := strings.ToLower(err.Error()); strings.Contains(message, "indexes") && strings.Contains(message, "unavailable") {
 					return familyWatchResult{}, "index_unavailable"
 				}
 				return familyWatchResult{}, "failed"

@@ -18,18 +18,19 @@ import (
 const zcashTestAddress = "t1Hsc1LR8yKnbbe3twRp88p6vFfC5t7DLbs"
 
 type zcashWatchFixture struct {
-	mu          sync.Mutex
-	balance     uint64
-	balanceErr  bool
-	tipMoves    bool
-	best        string
-	balanceHits int
-	balanceHit  bool
-	tipTime     int64
-	progress    float64
-	methods     []string
-	params      []any
-	auth        string
+	mu             sync.Mutex
+	balance        uint64
+	balanceErr     bool
+	balanceErrText string
+	tipMoves       bool
+	best           string
+	balanceHits    int
+	balanceHit     bool
+	tipTime        int64
+	progress       float64
+	methods        []string
+	params         []any
+	auth           string
 }
 
 func (f *zcashWatchFixture) handler(w http.ResponseWriter, r *http.Request) {
@@ -64,12 +65,19 @@ func (f *zcashWatchFixture) handler(w http.ResponseWriter, r *http.Request) {
 		f.balanceHit = true
 		f.balanceHits++
 		if f.balanceErr {
-			_ = json.NewEncoder(w).Encode(map[string]any{"result": nil, "error": map[string]any{"code": -1, "message": "transparent indexes unavailable"}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"result": nil, "error": map[string]any{"code": -1, "message": f.errMessage()}})
 			return
 		}
 		result = map[string]any{"balance": f.balance, "received": f.balance + 5}
 	}
 	_ = json.NewEncoder(w).Encode(map[string]any{"result": result, "error": nil})
+}
+
+func (f *zcashWatchFixture) errMessage() string {
+	if f.balanceErrText != "" {
+		return f.balanceErrText
+	}
+	return "transparent address and spender indexes are unavailable"
 }
 
 func newZcashWatchTest(t *testing.T, balance uint64) (*familyWatchManager, *familyWatchStore, *zcashWatchFixture) {
@@ -146,6 +154,17 @@ func TestZcashWatchIndexUnavailableIsDistinct(t *testing.T) {
 	manager.app.log = log.New(&logs, "", 0)
 	manager.scanNode(t.Context(), nodeZcash, store)
 	if !strings.Contains(logs.String(), "outcome=index_unavailable") {
+		t.Fatalf("log=%q", logs.String())
+	}
+}
+
+func TestZcashWatchOtherErrorsStayFailed(t *testing.T) {
+	manager, store, fixture := newZcashWatchTest(t, 1)
+	fixture.balanceErr, fixture.balanceErrText = true, "internal error"
+	var logs bytes.Buffer
+	manager.app.log = log.New(&logs, "", 0)
+	manager.scanNode(t.Context(), nodeZcash, store)
+	if !strings.Contains(logs.String(), "outcome=failed") || strings.Contains(logs.String(), "index_unavailable") {
 		t.Fatalf("log=%q", logs.String())
 	}
 }

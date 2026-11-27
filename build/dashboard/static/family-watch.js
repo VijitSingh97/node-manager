@@ -1,6 +1,6 @@
 import { NODE_LABELS } from "./chains.js";
 import { dashboardFetch as fetch, jsonRequest } from "./session.js";
-import { WATCH_COPY, bigSeries, formatAmount, httpsURL, joinNote, scanNote } from "./wallet-format.js";
+import { WATCH_COPY, bigSeries, formatAmount, httpsURL, joinNote, scanNote, staleWallets } from "./wallet-format.js";
 import { el, managerRow, renderWalletList, replaceIfChanged, safeLink } from "./wallet-ui.js";
 
 const SUPPORTED = new Set(["litecoin", "dogecoin", "bitcoincash", "zcash"]);
@@ -26,6 +26,7 @@ export function familyRow(wallet, node) {
   let stateText = "Scanning for confirmed funds…";
   if (state === "waiting" || state === "waiting_sync") stateText = "Waiting for node sync…";
   else if (state === "unscanned") stateText = "Example only; not scanned";
+  else if (state === "index_off") stateText = "The balance index is not running; see the dashboard log";
   else if (state === "rescanning") stateText = "Rescanning the chain; this can take hours…";
   else if (ready || stale) stateText = "Balance unavailable";
   else if (state === "error") stateText = WATCH_COPY.scanFailed;
@@ -136,7 +137,10 @@ if (typeof document !== "undefined") {
     };
 
     async function refresh(force = false) {
-      if (!force && panel?.dataset.nodeActive === "0") return;
+      if (!force && panel?.dataset.nodeActive === "0") {
+        if (last.wallets?.length) render(staleWallets(last));
+        return;
+      }
       try {
         render(await jsonRequest(fetch, `/api/${node}/watch`, { failure: "Watch-only addresses could not be refreshed." }));
       } catch (error) {

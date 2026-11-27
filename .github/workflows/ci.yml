@@ -89,6 +89,31 @@ jobs:
           RUN_TARI_WALLET_NATIVE_SMOKE: "1"
         run: tests/test_tari_wallet_native.sh
 
+  regtest-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        chain: [bitcoin, litecoin, bitcoincash, dogecoin]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: build/dashboard/go.mod
+          cache: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+
+      - name: Run the live tests against a real regtest node
+        env:
+          RUN_REGTEST_LIVE: "1"
+          REGTEST_CHAIN: ${{ matrix.chain }}
+        run: tests/test_regtest_live.sh
+
   macos-host:
     runs-on: macos-latest
     timeout-minutes: 15
@@ -111,6 +136,22 @@ jobs:
           tests/test_host_install.sh
           tests/test_brew_data.sh
           tests/test_port_control.sh
+
+  monero-regtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: build/dashboard/go.mod
+          cache: false
+
+      - name: Test Monero watch wallets against regtest monerod and wallet-rpc
+        env:
+          RUN_MONERO_REGTEST: "1"
+        run: tests/test_monero_regtest.sh
 
   package:
     runs-on: ubuntu-latest

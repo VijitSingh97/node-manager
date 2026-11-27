@@ -3,25 +3,29 @@ import { el, managerRow, renderWalletList, replaceIfChanged, safeLink, setMessag
 
 const EXAMPLE_NOTE = "Public example: the official Monero General Fund address, excluded from your totals. A view key reveals funds received but not spending, so this is the total ever received, not a current balance.";
 
+const NOT_AT_TIP = "Monero node is not at the chain tip";
+
 const xmr = (atomic) => atomicToDecimal(atomic, 12);
 
 export function moneroRow(wallet) {
   const example = wallet.example === true;
   const balance = xmr(wallet.balance_atomic);
   const verified = !example && wallet.state === "ready" && wallet.spending_status === "verified" && wallet.key_images?.complete === true && balance !== null;
+  const kept = verified || (!example && wallet.spending_status === "stale" && wallet.key_images?.complete === true && balance !== null);
   const pending = wallet.state === "pending";
-  const decimal = pending ? null : verified ? balance : xmr(wallet.received_atomic);
+  const decimal = kept ? balance : pending ? null : xmr(wallet.received_atomic);
   const status = [];
   if (pending) {
     const scanned = Number(wallet.scan_height), target = Number(wallet.target_height);
-    status.push(target > 0 ? `Scanning · ${Math.min(100, 100 * scanned / target).toFixed(1)}%` : "Scanning wallet outputs");
+    status.push(wallet.error === NOT_AT_TIP ? "Waiting for the Monero node" : target > 0 ? `Scanning · ${Math.min(100, 100 * scanned / target).toFixed(1)}%` : "Scanning wallet outputs");
   } else if (verified) status.push("Balance verified with key images");
+  else if (kept) status.push("Last verified balance");
   else if (decimal !== null) status.push(example ? "Total received" : "Received funds only · import current key images to verify balance");
   if (wallet.spending_status === "stale" || wallet.state === "error") status.push("Waiting for a fresh scan");
   if (wallet.error) status.push(String(wallet.error).slice(0, 200));
   if (wallet.key_images?.present) status.push(`${wallet.key_images.covered_outputs ?? 0}/${wallet.key_images.total_outputs ?? 0} outputs covered`);
   if (!pending) status.push(scanNote(wallet.updated_at));
-  const history = (wallet.history || []).filter((item) => item.verified === verified).map((item) => item.amount_atomic);
+  const history = (wallet.history || []).filter((item) => item.verified === kept).map((item) => item.amount_atomic);
   return {
     label: String(wallet.name || "Monero wallet"),
     note: example ? EXAMPLE_NOTE : "",
@@ -33,8 +37,9 @@ export function moneroRow(wallet) {
     fiatAsset: "monero",
     status: joinNote(status),
     series: bigSeries(history),
-    seriesTitle: verified ? "Saved verified balance snapshots" : "Saved incoming-funds snapshots; spending unknown",
+    seriesTitle: kept ? "Saved verified balance snapshots" : "Saved incoming-funds snapshots; spending unknown",
     verified,
+    kept,
     example,
   };
 }
@@ -42,9 +47,10 @@ export function moneroRow(wallet) {
 export function moneroTotal(wallets) {
   const personal = wallets.filter((wallet) => wallet.example !== true);
   if (!personal.length) return null;
-  if (personal.some((wallet) => !moneroRow(wallet).verified)) return { text: "Pending…" };
+  if (personal.some((wallet) => !moneroRow(wallet).kept)) return { text: "Pending…" };
   const decimal = xmr(String(personal.reduce((sum, wallet) => sum + BigInt(wallet.balance_atomic), 0n)));
-  return { text: `${formatAmount(decimal, true)} XMR`, value: decimal, fiatAsset: "monero" };
+  const reason = personal.some((wallet) => !moneroRow(wallet).verified) ? "Includes last verified balances awaiting a fresh scan" : undefined;
+  return { text: `${formatAmount(decimal, true)} XMR`, value: decimal, fiatAsset: "monero", ...(reason && { reason }) };
 }
 
 export function walletImport(value) {

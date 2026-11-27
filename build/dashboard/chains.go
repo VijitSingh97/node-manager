@@ -48,8 +48,33 @@ type nodeConfig struct {
 	UTXOIndexDir     string
 }
 
+type steadyCaps struct {
+	CPUs  float64
+	MemMB int64
+}
+
+func parseSteadyCaps(prefix, defaultMemMB string) (steadyCaps, error) {
+	cpus, err := strconv.ParseFloat(strings.TrimSpace(envOr(prefix+"_STEADY_CPUS", "1")), 64)
+	if err != nil || cpus <= 0 || cpus > 1024 {
+		return steadyCaps{}, errors.New(prefix + "_STEADY_CPUS must be greater than 0")
+	}
+	memory, err := strconv.ParseInt(strings.TrimSpace(envOr(prefix+"_STEADY_MEM_LIMIT_MB", defaultMemMB)), 10, 64)
+	if err != nil || memory < 128 || memory > 1<<30 {
+		return steadyCaps{}, errors.New(prefix + "_STEADY_MEM_LIMIT_MB must be between 128 and 1073741824")
+	}
+	return steadyCaps{cpus, memory}, nil
+}
+
 func loadAdditionalNodes(cfg *config) error {
 	cfg.nodes = map[string]nodeConfig{}
+	cfg.coreSteady = map[string]steadyCaps{}
+	for _, id := range []string{nodeBitcoin, nodeMonero} {
+		caps, err := parseSteadyCaps(strings.ToUpper(id), "2048")
+		if err != nil {
+			return err
+		}
+		cfg.coreSteady[id] = caps
+	}
 	specs := []nodeConfig{
 		{ID: nodeTari, Supported: true, Protocol: "tari-grpc", RPCURL: "http://172.29.0.32:18142", DataDir: "/data-tari", DefaultPort: "18142", ExposureName: "GRPC"},
 		{ID: nodeLitecoin, Supported: true, Protocol: "bitcoin-json-rpc", RPCURL: "http://172.29.0.33:9332", DataDir: "/data-litecoin", DefaultPort: "9332", ExposureName: "RPC"},
@@ -73,19 +98,15 @@ func loadAdditionalNodes(cfg *config) error {
 		if spec.ID == nodeZcash {
 			spec.RPCCookiePath = envOr("ZCASH_RPC_COOKIE_PATH", spec.DataDir+"/.cookie")
 		}
-		cpus, err := strconv.ParseFloat(strings.TrimSpace(envOr(prefix+"_STEADY_CPUS", "1")), 64)
-		if err != nil || cpus <= 0 || cpus > 1024 {
-			return errors.New(prefix + "_STEADY_CPUS must be greater than 0")
-		}
-		memory, err := strconv.ParseInt(strings.TrimSpace(envOr(prefix+"_STEADY_MEM_LIMIT_MB", "4096")), 10, 64)
-		if err != nil || memory < 128 || memory > 1<<30 {
-			return errors.New(prefix + "_STEADY_MEM_LIMIT_MB must be between 128 and 1073741824")
+		caps, err := parseSteadyCaps(prefix, "4096")
+		if err != nil {
+			return err
 		}
 		profile := strings.ToLower(strings.TrimSpace(envOr(prefix+"_RESOURCE_PROFILE", "compact")))
 		if profile != "compact" && profile != "off" {
 			return errors.New(prefix + "_RESOURCE_PROFILE must be compact or off")
 		}
-		spec.SteadyCPUs, spec.SteadyMemLimitMB, spec.ResourceProfile = cpus, memory, profile
+		spec.SteadyCPUs, spec.SteadyMemLimitMB, spec.ResourceProfile = caps.CPUs, caps.MemMB, profile
 		if utxoChains[spec.ID] != nil {
 			spec.UTXOIndex = utxoIndexFlag(prefix + "_UTXO_INDEX_ENABLED")
 			spec.UTXOIndexDir = envOr(prefix+"_UTXO_INDEX_DIR", "/utxo-index-"+spec.ID)

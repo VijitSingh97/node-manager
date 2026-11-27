@@ -239,3 +239,34 @@ func watchResponseRow(t *testing.T, response *httptest.ResponseRecorder) map[str
 	wallets := body["wallets"].([]any)
 	return wallets[0].(map[string]any)
 }
+
+func TestProvisionRetriesAHalfProvisionedWalletWithBackoff(t *testing.T) {
+	bitcoin := &retryBitcoinMock{}
+	server := httptest.NewServer(http.HandlerFunc(bitcoin.handler))
+	defer server.Close()
+	cfg := config{dashboardPassword: "secret", stateDir: t.TempDir(), dataDir: t.TempDir(), version: "1.31.1"}
+	dashboard, err := newApp(cfg, &rpcClient{url: server.URL, client: server.Client()}, "index.html", "static", log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, err := dashboard.watch.Add("Cold", parityZpub, "2021-01-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := blockchainInfo{}
+	dashboard.provisionState(entry, false, false)
+	if dashboard.watch.hasResolvedWallet(dashboard.walletRPC, entry) {
+		t.Fatal("the first provisioning attempt was meant to fail")
+	}
+	dashboard.retryProvision(dashboard.watch.Entries(), info, time.Now())
+	bitcoin.mu.Lock()
+	imports := bitcoin.imports
+	bitcoin.mu.Unlock()
+	if imports != 1 {
+		t.Fatalf("retried before the backoff passed: %d imports", imports)
+	}
+	dashboard.retryProvision(dashboard.watch.Entries(), info, time.Now().Add(time.Minute))
+	if !dashboard.watch.hasResolvedWallet(dashboard.walletRPC, entry) {
+		t.Fatal("the retry did not finish provisioning")
+	}
+}

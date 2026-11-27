@@ -172,6 +172,7 @@ cat >"$stub/docker" <<'EOS'
 #!/usr/bin/env bash
 echo "docker $*" >>"$FAKE_LOG"
 case " $* " in
+  *' info --format '*) [ -z "${FAKE_DOCKER_MEMTOTAL:-}" ] || printf '%s\n' "$FAKE_DOCKER_MEMTOTAL"; exit ;;
   *' info '*) [ "${FAKE_DOCKER_INFO_FAIL:-0}" != 1 ]; exit ;;
   *' exec dashboard cat /state/dashboard_auth.json '*) [ -f "${FAKE_DASH_AUTH_FILE:-}" ] && cat "$FAKE_DASH_AUTH_FILE"; exit ;;
   *' compose '*' config --images '*) printf 'example.invalid/stack:test\n' ;;
@@ -351,6 +352,29 @@ grep -q '^HELPER_SENTINEL=1$' "$pending/.env" || fail "helper start re-rendered 
 (cd "$pending" && BITCOIN_STACK_DEFAULT_BIND_IP=192.168.1.117 HOME="$tmp" PATH="$stub:$PATH" ./stack up >/dev/null)
 ! grep -q '^HELPER_SENTINEL=1$' "$pending/.env" || fail "plain start skipped the config render"
 [ -e "$FAKE_CRON" ] || fail "plain start skipped the host timer and agent setup"
+
+advisory_dir="$tmp/advisory"
+mkdir "$advisory_dir"
+cp stack configure.sh "$advisory_dir/"
+printf '1.2.3\n' >"$advisory_dir/VERSION"
+printf '{"bitcoin":{"enabled":true},"monero":{"enabled":true},"tari":{"enabled":true,"active":false},"dashboard":{"password":"advisorypassword1234"}}\n' >"$advisory_dir/config.json"
+(cd "$advisory_dir" && HOME="$tmp" PATH="$stub:$PATH" ./stack init >/dev/null)
+advisory_up() { (cd "$advisory_dir" && FAKE_DOCKER_MEMTOTAL="$1" HOME="$tmp" PATH="$stub:$PATH" env "${@:2}" ./stack up 2>&1); }
+advisory=$(advisory_up 8589934592 A=1)
+printf '%s\n' "$advisory" | grep -q 'Note: 2 selected node(s) can use up to 9 GiB while syncing, but Docker reports 8 GiB' || fail "up did not warn that the selected nodes exceed host memory: $advisory"
+advisory_stdout=$(cd "$advisory_dir" && FAKE_DOCKER_MEMTOTAL=8589934592 A=1 HOME="$tmp" PATH="$stub:$PATH" ./stack up 2>/dev/null)
+printf '%s\n' "$advisory_stdout" | grep -q 'Note:' && fail "the resource advisory was printed to stdout"
+advisory=$(advisory_up 17179869184 A=1)
+printf '%s\n' "$advisory" | grep -q 'Note:' && fail "up warned although the selected nodes fit"
+advisory=$(advisory_up 8589934592 BITCOIN_STACK_HELPER_START=1)
+printf '%s\n' "$advisory" | grep -q 'Note:' && fail "a boot start printed the resource advisory"
+named_up() { (cd "$advisory_dir" && FAKE_DOCKER_MEMTOTAL=4831838208 HOME="$tmp" PATH="$stub:$PATH" ./stack up "$@" 2>&1); }
+advisory=$(named_up)
+printf '%s\n' "$advisory" | grep -q 'Note: 2 selected node(s) can use up to 9 GiB' || fail "up without names did not count both nodes: $advisory"
+advisory=$(named_up bitcoin)
+printf '%s\n' "$advisory" | grep -q 'Note:' && fail "up with a node that fits warned: $advisory"
+advisory=$(named_up monero)
+printf '%s\n' "$advisory" | grep -q 'Note: 1 selected node(s) can use up to 5 GiB' || fail "up with one named node did not count only it: $advisory"
 jq '.dashboard.port=8088' "$pending/config.json" >"$pending/config.next"
 mv "$pending/config.next" "$pending/config.json"
 (cd "$pending" && BITCOIN_STACK_DEFAULT_BIND_IP=192.168.1.117 ./configure.sh >/dev/null)
@@ -1118,9 +1142,9 @@ cat >"$tmp/block.log" <<'EOF'
 2026-11-15T06:40:00Z UpdateTip: new best=dd height=103 version=0x1 log2_work=1 tx=1 date='x' progress=1.0 cache=1.0MiB(1txo)
 EOF
 cat >"$tmp/dash.log" <<'EOF'
-2026-11-15T06:30:20.123456789Z 2026/11/15 06:30:20 watch index: outcome=ok outpoints=7 height=100 took=0.500s
+2026-11-15T06:30:20.123456789Z 2026/11/15 06:30:20 go-dashboard: watch index: outcome=ok outpoints=7 height=100 took=0.500s
 2026-11-15T06:31:40.000000001Z 2026/11/15 06:31:40 watch block update: wallets=2 blocks=1 height=101 took=2.0s
-2026-11-15T06:33:30.5Z 2026/11/15 06:33:30 watch index: outcome=ok outpoints=7 height=102 took=0.100s
+2026-11-15T06:33:30.5Z 2026/11/15 06:33:30 go-dashboard: watch index: outcome=ok outpoints=7 height=102 took=0.100s
 EOF
 "$repo_root/scripts/measure-block-latency.sh" --since 2026-11-15T06:00:00Z --bitcoin-log "$tmp/block.log" --dashboard-log "$tmp/dash.log" >"$tmp/latency.out" || fail "measure-block-latency.sh failed"
 grep -q 'Blocks seen: 4, matched to a refresh: 3, with no refresh yet: 1' "$tmp/latency.out" || fail "measure-block-latency.sh miscounted the blocks"
@@ -1128,6 +1152,20 @@ grep -Eq 'Served by the index  *2  *20.0  *90.0  *90.0' "$tmp/latency.out" || fa
 grep -Eq 'Fell back to the block update  *1  *40.0  *40.0  *40.0' "$tmp/latency.out" || fail "measure-block-latency.sh got the block update row wrong"
 grep -Eq '^All  *3  *40.0  *90.0  *90.0' "$tmp/latency.out" || fail "measure-block-latency.sh got the overall row wrong"
 "$repo_root/scripts/measure-block-latency.sh" --bitcoin-log "$tmp/block.log" --dashboard-log "$tmp/dash.log" >/dev/null 2>&1 && fail "measure-block-latency.sh ran without --since"
+cat >"$tmp/doge-block.log" <<'EOF'
+2026-11-15 06:30:00 UpdateTip: new best=aa height=100 version=0x1 log2_work=1 tx=1 date='x' progress=1.0 cache=1.0MiB(1txo)
+2026-11-15 06:31:00 UpdateTip: new best=bb height=101 version=0x1 log2_work=1 tx=1 date='x' progress=1.0 cache=1.0MiB(1txo)
+EOF
+cat >"$tmp/doge-dash.log" <<'EOF'
+2026-11-15T06:30:20.1Z 2026/11/15 06:30:20 go-dashboard: dogecoin watch index: outcome=ok wallets=2 height=100 took=0.020s
+2026-11-15T06:31:10.1Z 2026/11/15 06:31:10 go-dashboard: litecoin watch index: outcome=ok wallets=2 height=101 took=0.020s
+2026-11-15T06:31:45.1Z 2026/11/15 06:31:45 go-dashboard: dogecoin watch index: outcome=ok wallets=2 height=101 took=0.020s
+EOF
+"$repo_root/scripts/measure-block-latency.sh" --chain dogecoin --since 2026-11-15T06:00:00Z --bitcoin-log "$tmp/doge-block.log" --dashboard-log "$tmp/doge-dash.log" >"$tmp/doge-latency.out" || fail "measure-block-latency.sh --chain dogecoin failed"
+grep -q 'Blocks seen: 2, matched to a refresh: 2, with no refresh yet: 0' "$tmp/doge-latency.out" || fail "measure-block-latency.sh --chain dogecoin miscounted the blocks"
+grep -Eq 'Served by the index  *2  *20.0  *45.0  *45.0' "$tmp/doge-latency.out" || fail "measure-block-latency.sh --chain dogecoin matched another chain's refresh or misread the log time"
+"$repo_root/scripts/measure-block-latency.sh" --since 2026-11-15T06:00:00Z --bitcoin-log "$tmp/block.log" --dashboard-log "$tmp/doge-dash.log" >/dev/null 2>&1 && fail "measure-block-latency.sh counted another chain's refresh lines as Bitcoin's"
+"$repo_root/scripts/measure-block-latency.sh" --chain zcash --since 2026-11-15T06:00:00Z --bitcoin-log "$tmp/block.log" --dashboard-log "$tmp/dash.log" >/dev/null 2>&1 && fail "measure-block-latency.sh accepted an unsupported chain"
 
 # stop, down and restart open a parked dump once; a running seed is cancelled first.
 for action in stop down restart; do

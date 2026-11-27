@@ -20,11 +20,12 @@ data_volume="tari-wallet-native-data-$run_id"
 db_copy=$(mktemp)
 previous_dockerfile=$(mktemp)
 probe_copy="build/dashboard/tari_grpc_probe_$run_id.go"
+gate_copy="build/dashboard/tari_probe_gate_$run_id.go"
 cleanup() {
   docker container rm -f "$container" >/dev/null 2>&1 || true
   docker volume rm "$control_volume" "$data_volume" >/dev/null 2>&1 || true
   docker image rm "$image" "$previous_image" >/dev/null 2>&1 || true
-  rm -f "$db_copy" "$previous_dockerfile" "$probe_copy"
+  rm -f "$db_copy" "$previous_dockerfile" "$probe_copy" "$gate_copy"
 }
 trap cleanup EXIT
 
@@ -70,10 +71,11 @@ done
 
 host_port=$(docker port "$container" 18143/tcp | sed 's/.*://')
 cp tests/tari_grpc_probe.go "$probe_copy"
+cp tests/tari_probe_gate.go "$gate_copy"
 (
   cd build/dashboard
   TARI_PROOF_ENDPOINT="127.0.0.1:$host_port" TARI_PROOF_USER=nativeproofuser TARI_PROOF_PASSWORD=nativeproofrpcpassword \
-    go run "$(basename "$probe_copy")" node-stack-tari-wallet.pb.go node-stack-tari-wallet_grpc.pb.go
+    go run "$(basename "$probe_copy")" "$(basename "$gate_copy")" node-stack-tari-wallet.pb.go node-stack-tari-wallet_grpc.pb.go
 )
 
 inspect=$(docker inspect "$container")
@@ -133,7 +135,7 @@ host_port=$(docker port "$container" 18143/tcp | sed 's/.*://')
 (
   cd build/dashboard
   TARI_PROOF_ENDPOINT="127.0.0.1:$host_port" TARI_PROOF_USER=nativeproofuser TARI_PROOF_PASSWORD=nativeproofrpcpassword \
-    go run "$(basename "$probe_copy")" node-stack-tari-wallet.pb.go node-stack-tari-wallet_grpc.pb.go
+    go run "$(basename "$probe_copy")" "$(basename "$gate_copy")" node-stack-tari-wallet.pb.go node-stack-tari-wallet_grpc.pb.go
 )
 
 operation_id=22222222222222222222222222222222

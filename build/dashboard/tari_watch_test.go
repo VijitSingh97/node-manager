@@ -513,3 +513,40 @@ func TestTariWatchInFlightBalanceCannotCrossWalletReplacement(t *testing.T) {
 		t.Fatalf("old RPC result crossed wallet replacement = %#v", got)
 	}
 }
+
+func TestTariWatchFailedSaveDoesNotLatchTheStore(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, time.October, 31, 12, 0, 0, 0, time.UTC)
+	fixture := &tariWatchRPCFixture{}
+	fixture.set(true, &TariGetBalanceResponse{AvailableBalance: 700})
+	endpoint := startTariWatchRPC(t, fixture, "wallet-user", "wallet-password")
+	cfg := config{stateDir: filepath.Join(dir, "state"), tariWalletDir: filepath.Join(dir, "wallet"), tariWalletURL: endpoint, tariWalletRPCUser: "wallet-user", tariWalletRPCPassword: "wallet-password"}
+	store := NewTariWatchStore(cfg)
+	store.now = func() time.Time { return now }
+	writeTariCapability(t, store, now)
+	wallet, err := store.Add("Cold", strings.Repeat("b", 64), strings.Repeat("a", 64), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := readTariRequest(t, store)
+	identityData, _ := json.Marshal(tariWatchIdentity{WalletID: wallet.ID, PublicSpendKey: wallet.PublicSpendKey})
+	statusData, _ := json.Marshal(tariWatchStatus{ID: request.ID, Action: "create", WalletID: wallet.ID, State: "ready"})
+	if writePrivateFileAtomic(store.identityPath, identityData) != nil || writePrivateFileAtomic(store.statusPath, statusData) != nil {
+		t.Fatal("write ready state")
+	}
+	probe := func(context.Context) (tariWatchNodeSnapshot, error) {
+		return tariWatchNodeSnapshot{Ready: true, Height: 100, TargetHeight: 100}, nil
+	}
+	store.step(context.Background(), func() bool { return true }, probe)
+	good := store.path
+	store.path = t.TempDir()
+	store.step(context.Background(), func() bool { return true }, probe)
+	if store.Err() != nil || store.List()[0].State != "stale" {
+		t.Fatalf("a failed save latched the store: err=%v wallet=%#v", store.Err(), store.List()[0])
+	}
+	store.path = good
+	store.step(context.Background(), func() bool { return true }, probe)
+	if got := store.List()[0]; got.State != "ok" || got.BalanceAtomic != "700" {
+		t.Fatalf("the next step did not recover: %#v", got)
+	}
+}

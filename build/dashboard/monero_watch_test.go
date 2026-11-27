@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -28,9 +29,11 @@ type moneroWalletFixture struct {
 	newOutput     bool
 	generateFails bool
 	refreshFails  bool
+	walletLag     uint64
 	secondAccount bool
 	scanPending   bool
 	daemonPending bool
+	staleTip      bool
 	closed        bool
 	openedFile    string
 	largeReply    bool
@@ -83,7 +86,7 @@ func (f *moneroWalletFixture) handler(w http.ResponseWriter, r *http.Request) {
 	if viewKey, ok := f.generated["viewkey"].(string); ok {
 		generatedViewKey = viewKey
 	}
-	imported, newOutput, generateFails, refreshFails, secondAccount, scanPending, daemonPending := f.imported, f.newOutput, f.generateFails, f.refreshFails, f.secondAccount, f.scanPending, f.daemonPending
+	imported, newOutput, generateFails, refreshFails, secondAccount, scanPending, daemonPending, staleTip := f.imported, f.newOutput, f.generateFails, f.refreshFails, f.secondAccount, f.scanPending, f.daemonPending, f.staleTip
 	f.mu.Unlock()
 	if request.Method == "generate_from_keys" && generateFails {
 		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": "dashboard", "error": map[string]any{"code": -1, "message": "wallet exists"}})
@@ -104,11 +107,19 @@ func (f *moneroWalletFixture) handler(w http.ResponseWriter, r *http.Request) {
 	case "get_address":
 		result = map[string]any{"address": generatedAddress, "addresses": []any{map[string]any{"address": generatedAddress, "address_index": 0}}}
 	case "get_height":
-		walletHeight := uint64(310)
+		f.mu.Lock()
+		walletHeight := 310 - f.walletLag
+		f.mu.Unlock()
 		if scanPending {
 			walletHeight = 300
 		}
 		result = map[string]any{"height": walletHeight}
+	case "get_last_block_header":
+		stamp := time.Now().Unix()
+		if staleTip {
+			stamp -= 3600
+		}
+		result = map[string]any{"block_header": map[string]any{"timestamp": stamp}}
 	case "get_info":
 		result = map[string]any{"synchronized": !daemonPending, "busy_syncing": daemonPending, "height": 310, "target_height": 310}
 	case "query_key":
@@ -118,9 +129,10 @@ func (f *moneroWalletFixture) handler(w http.ResponseWriter, r *http.Request) {
 		if secondAccount {
 			balance, unlocked = 1_500_000_000_000, 1_400_000_000_000
 		}
-		result = map[string]any{"balance": balance, "unlocked_balance": unlocked}
+		result = map[string]any{"balance": balance, "unlocked_balance": unlocked, "blocks_to_unlock": 0, "time_to_unlock": 0, "multisig_import_needed": false,
+			"per_subaddress": []any{map[string]any{"account_index": 0, "address_index": 0, "balance": balance, "unlocked_balance": unlocked, "label": "Primary account", "num_unspent_outputs": 1}}}
 	case "get_accounts":
-		accounts := []any{map[string]any{"account_index": 0}}
+		accounts := []any{map[string]any{"account_index": 0, "balance": 1_000_000_000_000, "unlocked_balance": 900_000_000_000, "label": "Primary account", "tag": ""}}
 		if secondAccount {
 			accounts = append(accounts, map[string]any{"account_index": 1})
 		}
@@ -135,7 +147,7 @@ func (f *moneroWalletFixture) handler(w http.ResponseWriter, r *http.Request) {
 		if imported {
 			keyImage = strings.Repeat("c", 64)
 		}
-		transfers := []any{map[string]any{"amount": 1_000_000_000_000, "key_image": keyImage}}
+		transfers := []any{map[string]any{"amount": 1_000_000_000_000, "key_image": keyImage, "block_height": 1, "frozen": false, "global_index": 0, "spent": false, "unlocked": true, "subaddr_index": map[string]any{"major": 0, "minor": 0}}}
 		f.mu.Lock()
 		if f.largeReply {
 			transfers[0].(map[string]any)["padding"] = strings.Repeat("x", 2<<20)
@@ -304,8 +316,8 @@ func TestMoneroWatchKeyImageCoverageControlsBalanceClaims(t *testing.T) {
 	fixture.mu.Unlock()
 	a.moneroWatch.refresh(context.Background(), wallet)
 	pending := a.moneroWatch.List()[0]
-	if pending.State != "pending" || pending.BalanceAtomic != "" || pending.BalanceXMR != "" || pending.UnlockedBalanceAtomic != "" || pending.KeyImages.Complete || pending.SpendingStatus != "stale" {
-		t.Fatalf("pending refresh retained a verified current balance: %#v", pending)
+	if pending.State != "pending" || pending.BalanceAtomic != "1000000000000" || pending.BalanceXMR != "1.000000000000" || !pending.KeyImages.Complete || pending.SpendingStatus != "stale" {
+		t.Fatalf("pending refresh dropped the last verified balance or left it unmarked: %#v", pending)
 	}
 	fixture.mu.Lock()
 	fixture.scanPending = false
@@ -361,6 +373,24 @@ func TestMoneroWatchRequiresCompleteCoverageAcrossEveryAccount(t *testing.T) {
 	status := a.moneroWatch.List()[0]
 	if status.KeyImages.TotalOutputs != 2 || status.KeyImages.CoveredOutputs != 1 || status.KeyImages.Complete || status.BalanceAtomic != "" || status.SpendingStatus != "stale" {
 		t.Fatalf("secondary account was omitted from coverage: %#v", status)
+	}
+}
+
+func TestMoneroWatchToleratesWalletOneBlockBehind(t *testing.T) {
+	for lag, want := range map[uint64]string{1: "ready", 2: "pending"} {
+		fixture := &moneroWalletFixture{}
+		a, _, _ := newMoneroWatchTestApp(t, fixture)
+		wallet, err := a.moneroWatch.Add(context.Background(), "Lagging", testMoneroAddress, strings.Repeat("a", 64), 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fixture.mu.Lock()
+		fixture.walletLag = lag
+		fixture.mu.Unlock()
+		a.moneroWatch.refresh(context.Background(), wallet)
+		if status := a.moneroWatch.List()[0]; status.State != want {
+			t.Fatalf("wallet %d blocks behind: state %q, want %q", lag, status.State, want)
+		}
 	}
 }
 
@@ -470,7 +500,7 @@ func TestMoneroWatchStaysPendingDuringDaemonInitialSync(t *testing.T) {
 	fixture.mu.Unlock()
 	a.moneroWatch.refresh(context.Background(), wallet)
 	status := a.moneroWatch.List()[0]
-	if status.State != "pending" || status.BalanceAtomic != "" || status.Error != "Monero wallet scan is still pending." {
+	if status.State != "pending" || status.BalanceAtomic != "" || status.Error != "Monero node is not at the chain tip" {
 		t.Fatalf("daemon IBD claimed readiness: %#v", status)
 	}
 	fixture.mu.Lock()
@@ -565,7 +595,7 @@ func TestMoneroWatchSerializedWaitHonorsContext(t *testing.T) {
 	}
 }
 
-func TestMoneroWatchInterruptedRPCPoisonsService(t *testing.T) {
+func TestMoneroWatchInterruptedRPCPausesServiceUntilTheWalletRPCAnswers(t *testing.T) {
 	fixture := &moneroWalletFixture{}
 	a, _, _ := newMoneroWatchTestApp(t, fixture)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -575,20 +605,10 @@ func TestMoneroWatchInterruptedRPCPoisonsService(t *testing.T) {
 		return ctx.Err()
 	})
 	if !errors.Is(err, context.Canceled) || !a.moneroWatch.isRPCPoisoned() {
-		t.Fatalf("interrupted RPC did not poison service: %v", err)
+		t.Fatalf("interrupted RPC did not pause the service: %v", err)
 	}
-	fixture.mu.Lock()
-	before := len(fixture.methods)
-	fixture.mu.Unlock()
-	_, err = a.moneroWatch.Add(context.Background(), "Cold", testMoneroAddress, strings.Repeat("a", 64), 0)
-	if err == nil || !strings.Contains(err.Error(), "requires a dashboard restart") {
-		t.Fatalf("poisoned service accepted another wallet RPC: %v", err)
-	}
-	fixture.mu.Lock()
-	after := len(fixture.methods)
-	fixture.mu.Unlock()
-	if after != before {
-		t.Fatalf("poisoned service sent another wallet RPC: before=%d after=%d", before, after)
+	if _, err = a.moneroWatch.Add(context.Background(), "Cold", testMoneroAddress, strings.Repeat("a", 64), 0); err != nil || a.moneroWatch.isRPCPoisoned() {
+		t.Fatalf("a healthy wallet RPC did not resume the service: %v", err)
 	}
 }
 
@@ -634,12 +654,13 @@ func TestMoneroWatchInterruptedCreationBlocksFurtherWalletChanges(t *testing.T) 
 		return nil, io.ErrUnexpectedEOF
 	})}
 	_, err := a.moneroWatch.Add(context.Background(), "Cold", testMoneroAddress, strings.Repeat("a", 64), 0)
-	if err == nil || !a.moneroWatch.isRPCPoisoned() || !strings.Contains(err.Error(), "requires a dashboard restart") {
+	if err == nil || !a.moneroWatch.isRPCPoisoned() || !errors.Is(err, errMoneroInterrupted) {
 		t.Fatalf("interrupted creation did not stop wallet changes: %v", err)
 	}
+	before := calls
 	_, err = a.moneroWatch.Add(context.Background(), "Another", testMoneroAddress, strings.Repeat("a", 64), 0)
-	if err == nil || calls != 2 {
-		t.Fatalf("another wallet operation reached the interrupted service: %v, calls=%d", err, calls)
+	if !errors.Is(err, errMoneroInterrupted) || !a.moneroWatch.isRPCPoisoned() || calls == before {
+		t.Fatalf("a still-dead service must stay paused after a probe: %v, calls=%d", err, calls)
 	}
 }
 
@@ -759,5 +780,108 @@ func TestMoneroWatchAcceptsOnlyMainnetPrimaryAddressShape(t *testing.T) {
 		if validMoneroAddress(address) {
 			t.Fatalf("non-primary or non-mainnet address shape accepted: %q", address[:1])
 		}
+	}
+}
+
+func verifiedMoneroWallet(t *testing.T, fixture *moneroWalletFixture) (*app, MoneroWatchWallet, string) {
+	t.Helper()
+	a, _, stateDir := newMoneroWatchTestApp(t, fixture)
+	wallet, err := a.moneroWatch.Add(context.Background(), "Cold", testMoneroAddress, strings.Repeat("a", 64), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	upload := moneroKeyImageUpload{SignedKeyImages: []moneroSignedKeyImage{{KeyImage: strings.Repeat("c", 64), Signature: strings.Repeat("d", 128)}}}
+	if err := a.moneroWatch.ImportKeyImages(context.Background(), wallet.ID, upload); err != nil {
+		t.Fatal(err)
+	}
+	a.moneroWatch.refresh(context.Background(), wallet)
+	if got := a.moneroWatch.List()[0]; got.SpendingStatus != "verified" || got.BalanceAtomic != "1000000000000" {
+		t.Fatalf("setup = %#v", got)
+	}
+	return a, wallet, stateDir
+}
+
+func TestMoneroWatchKeepsTheVerifiedBalanceAcrossARestart(t *testing.T) {
+	_, _, stateDir := verifiedMoneroWallet(t, &moneroWalletFixture{})
+	restored := NewMoneroWatchStore(config{stateDir: stateDir}).List()[0]
+	if restored.BalanceAtomic != "1000000000000" || restored.BalanceXMR != "1.000000000000" || !restored.KeyImages.Complete || restored.SpendingStatus != "stale" || restored.State != "pending" {
+		t.Fatalf("restart dropped the verified balance: %#v", restored)
+	}
+}
+
+func TestMoneroWatchKeepsTheBalanceWhileTheNodeIsBusyOrTheTipIsOld(t *testing.T) {
+	for name, set := range map[string]func(*moneroWalletFixture){
+		"busy syncing": func(f *moneroWalletFixture) { f.daemonPending = true },
+		"old tip":      func(f *moneroWalletFixture) { f.staleTip = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			fixture := &moneroWalletFixture{}
+			a, wallet, _ := verifiedMoneroWallet(t, fixture)
+			fixture.mu.Lock()
+			set(fixture)
+			fixture.mu.Unlock()
+			a.moneroWatch.refresh(context.Background(), wallet)
+			got := a.moneroWatch.List()[0]
+			if got.State != "pending" || got.BalanceAtomic != "1000000000000" || !got.KeyImages.Complete || got.SpendingStatus != "stale" || got.Error != "Monero node is not at the chain tip" {
+				t.Fatalf("%s = %#v", name, got)
+			}
+		})
+	}
+}
+
+func TestMoneroWatchMarksWalletsStaleWhileTheNodeIsInactive(t *testing.T) {
+	a, _, _ := verifiedMoneroWallet(t, &moneroWalletFixture{})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { a.moneroWatch.run(ctx, func() bool { return false }); close(done) }()
+	deadline := time.Now().Add(time.Second)
+	for a.moneroWatch.List()[0].SpendingStatus != "stale" && time.Now().Before(deadline) {
+		a.moneroWatch.Queue(a.moneroWatch.List()[0].ID)
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	<-done
+	if got := a.moneroWatch.List()[0]; got.SpendingStatus != "stale" || got.BalanceAtomic != "1000000000000" {
+		t.Fatalf("inactive node left %#v", got)
+	}
+}
+
+func TestMoneroWatchRecoversFromATimedOutRefresh(t *testing.T) {
+	fixture := &moneroWalletFixture{}
+	a, wallet, _ := verifiedMoneroWallet(t, fixture)
+	a.moneroWatch.poisonRPC(context.DeadlineExceeded)
+	if got := a.moneroWatch.List()[0]; got.State != "error" || got.BalanceAtomic != "1000000000000" || got.SpendingStatus != "stale" {
+		t.Fatalf("poisoned wallet = %#v", got)
+	}
+	a.moneroWatch.refresh(context.Background(), wallet)
+	if got := a.moneroWatch.List()[0]; a.moneroWatch.isRPCPoisoned() || got.State != "ready" || got.SpendingStatus != "verified" {
+		t.Fatalf("the next tick did not recover: %#v", got)
+	}
+}
+
+func TestMoneroWatchLostKeyImageImportReplyClearsTheOldBalance(t *testing.T) {
+	a, wallet, _ := verifiedMoneroWallet(t, &moneroWalletFixture{})
+	healthy := a.moneroWatch.rpc.client
+	transport := healthy.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	a.moneroWatch.rpc.client = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Header.Get("Authorization") != "" && request.Body != nil {
+			body, _ := io.ReadAll(request.Body)
+			request.Body = io.NopCloser(bytes.NewReader(body))
+			if bytes.Contains(body, []byte("import_key_images")) {
+				return nil, io.ErrUnexpectedEOF
+			}
+		}
+		return transport.RoundTrip(request)
+	})}
+	upload := moneroKeyImageUpload{SignedKeyImages: []moneroSignedKeyImage{{KeyImage: strings.Repeat("c", 64), Signature: strings.Repeat("d", 128)}}}
+	if err := a.moneroWatch.ImportKeyImages(context.Background(), wallet.ID, upload); err == nil {
+		t.Fatal("a lost import reply reported success")
+	}
+	got := a.moneroWatch.List()[0]
+	if got.KeyImages.Complete || got.BalanceAtomic != "" || got.UnlockedBalanceAtomic != "" || got.SpendingStatus != "stale" {
+		t.Fatalf("unknown import outcome kept the old balance: %#v", got)
 	}
 }

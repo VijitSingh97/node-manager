@@ -8,12 +8,21 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
-- Activating or starting a node now warns when the host has less free memory
-  or idle CPU than the node is expected to need, since bringing it up anyway
-  can make it and other nodes unstable. The dialog compares the node's budget
-  (4 GiB and 2 CPUs until it has synced, then its configured steady caps, plus
-  512 MiB for the Monero and Tari wallet sidecars) with what the host has free
-  right now. The warning is advisory: Activate and Start stay enabled.
+- Activating, starting or installing a node now warns when the host has less
+  free memory or idle CPU than the node is expected to need, since bringing it
+  up anyway can make it and other nodes unstable. The dialog compares the
+  node's budget with what the host has free right now: 4 GiB and 2 CPUs for an
+  install, a node that has not synced, or a node last seen over 2 hours ago,
+  and its configured steady caps otherwise, plus the wallet sidecar's real
+  limit (1 GiB for Monero, 512 MiB for Tari, 0.5 CPU each). Bitcoin and
+  Monero now report their configured caps too. The warning is advisory: the
+  buttons stay enabled. `stack up` and `stack apply` print one advisory line
+  when the selected nodes' sync budgets exceed the memory Docker reports,
+  except on boot starts; the line goes to stderr.
+- A balance-index seed now waits, with a reason, when the host has under
+  512 MiB of memory available (rechecked every 30 seconds) or the dashboard's
+  memory limit is under 512 MiB. An unreadable memory figure no longer blocks
+  a seed, and the index bar shows why a waiting reseed has not started.
 
 ### Changed
 
@@ -24,14 +33,44 @@ All notable changes to this project are documented here. Format follows
   Dogecoin Core 1.14.9 has no `scantxoutset` and that
   `utxo-index verify --chain dogecoin` is the full check; the dashboard refuses
   a Dogecoin scan too.
+- CI now runs the balance-index live tests against real regtest nodes: the
+  pinned Bitcoin Core image, and Litecoin, Bitcoin Cash and Dogecoin built from
+  `build/bitcoin-family`. Litecoin and Bitcoin Cash also check the bench host
+  (validate, resolve and scan) against the node's own `scantxoutset`, so a scan
+  check that a real node rejects, as v1.42.0 did for Bitcoin Cash, fails CI
+  before release. A new Bitcoin Cash test seeds from a chainstate copy,
+  follows new blocks and compares with `scantxoutset`, CashTokens included.
+  A job fails if a required test skips, and a Dependabot bump of the Bitcoin
+  image now runs it before merge.
 - Documented that an address wallet on Litecoin, Bitcoin Cash, Dogecoin and
   Bitcoin does not count coins paid directly to its public key (P2PK, common in
   mining payouts; issue 494), and the Litecoin, Bitcoin Cash and Dogecoin
   cards now say so. A second index key for those outputs needs a new seed and
   is not built yet.
+- CI now runs the real Monero 0.18.5.4 daemon on regtest with two
+  `monero-wallet-rpc` services: it mines to a known address, adds that address
+  as a view-only watch wallet, imports key images, checks the verified balance,
+  and mines blocks between refreshes. The job fails if the test is skipped. The
+  wallet service needs `allow-mismatched-daemon-version` for regtest, which
+  production does not use.
+- The native-node CI job now logs the optional status fields each chain serves
+  and fails if Monero (mempool), Tari (connections, mempool) or Zcash (fees,
+  connections) stops reporting its required fields as available. A separate
+  check proves a renamed field is caught. Monero's fee estimate is checked on
+  the regtest daemon instead: the mainnet node in this job never syncs past the
+  2021 hard fork, before which monerod returns no fee tiers.
+- The Tari wallet gRPC probe can now wait for the dashboard's balance
+  conditions (online, initial validation done, scanned height within two blocks
+  of the node) and assert the balance total, and `docs/releasing.md` describes
+  this as a pre-release check against a funded watch wallet.
 
 ### Fixed
 
+- A Monero watch wallet no longer loses its balance for a refresh when a block
+  arrives between the node and the wallet service catching up. A wallet one
+  block behind the node now refreshes to the tip and keeps its verified
+  balance; a wallet further behind still waits as before. A real regtest run
+  showed the balance blanking in this window.
 - A pruned Bitcoin node no longer fails every watched wallet in a scan when a
   `combo()` wallet has a coin paid straight to its public key. Core reports
   that coin as `pk(...)`, which the dashboard could not turn into an address,
@@ -83,11 +122,43 @@ All notable changes to this project are documented here. Format follows
   unavailable" while the balance index is serving them fine. On Dogecoin
   without the Core watch wallet, the public example was skipped from every
   refresh, so its balance froze at the first index seed and read stale
-  forever; it is now served and refreshed hourly like any other wallet, and a
-  watch-wallet node no longer records an example balance it would never show.
+  forever; it is now served and refreshed hourly like any other wallet, and
+  only the node's own watch-wallet import skips the example.
   On every chain, a dashboard restart also left each wallet read as stale for
   up to an hour, because balances younger than an hour were not re-checked;
   the first pass after a start now confirms every cached balance.
+  On Dogecoin with both the watch wallet and the balance index on, the index
+  now serves the example and an address import rescan no longer turns every
+  wallet stale; the example reads "not scanned" only when it has no balance.
+  When the Dogecoin balance index cannot start, the card says so instead of
+  waiting for node sync forever.
+- A single failed cache write no longer latches a watch store into an error
+  until the dashboard restarts, on Litecoin, Bitcoin Cash, Dogecoin, Zcash,
+  Tari and the Bitcoin pruned-scan cache. The wallets read stale and the write
+  is retried on the next pass; only a corrupt or unreadable file still stops
+  the store. An archival Bitcoin wallet whose provisioning stopped halfway is
+  retried with a growing delay.
+- Monero watch-only wallets keep their last verified balance, marked stale,
+  across a dashboard restart, while the node is syncing, behind the tip,
+  deactivated, or after a failed refresh, instead of showing "Pending scan".
+  The wallet service now resumes by itself after a wallet-RPC restart or a
+  timed-out refresh, instead of staying in error until the dashboard restarts,
+  and a refresh waits for a Monero tip under 30 minutes old, saying "Monero
+  node is not at the chain tip" instead of a scan percentage. The Monero total
+  says when it includes last verified balances, and a key-image import whose
+  outcome is unknown clears the kept balance.
+- Litecoin, Bitcoin Cash, Dogecoin and Tari wallet cards mark their rows stale
+  when the node is deactivated, instead of keeping the last "ok".
+- The Zcash address watch now recognises Zakura's real "transparent address and
+  spender indexes are unavailable" message and logs `outcome=index_unavailable`
+  for it (#485).
+- The family-chain balance index now logs `<chain> watch index: outcome=ok` with
+  the height on each new block, and scan lines carry the height.
+
+### Added
+
+- `scripts/measure-block-latency.sh --chain` measures block-to-balance latency
+  for Litecoin, Bitcoin Cash and Dogecoin as well as Bitcoin.
 
 ## [1.42.2] - 2026-11-25
 

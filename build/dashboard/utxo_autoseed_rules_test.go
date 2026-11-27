@@ -178,6 +178,8 @@ func TestWaitingForNamesWhatBlocksTheSeed(t *testing.T) {
 		{[]seedRefusal{{"lock", "another balance index is seeding"}}, waitOtherSeed},
 		{[]seedRefusal{{"thermal", "hottest zone 80 C is above 75 C"}}, waitHostBusy},
 		{[]seedRefusal{{"thermal", "temperature sensor unreadable"}}, waitBlocked},
+		{[]seedRefusal{{"memory", "300 MiB of host memory available, 512 MiB needed"}}, waitHostBusy},
+		{[]seedRefusal{{"memory", "dashboard memory limit is 256 MiB, 512 MiB needed"}}, waitBlocked},
 		{[]seedRefusal{{"cpu_cap", "cpu limit is above 0.5"}}, waitBlocked},
 	}
 	for _, c := range cases {

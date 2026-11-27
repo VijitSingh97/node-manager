@@ -28,6 +28,7 @@ const GUARD_TEXT = {
   thermal: "Temperature",
   cpu_cap: "CPU cap",
   free_space: "Disk",
+  memory: "Memory",
   rpc_idle: "Node commands",
   fifo: "Seed pipe",
   request: "Request",
@@ -115,7 +116,8 @@ export function indexBarView(status) {
     case "degraded":
     case "invalid": {
       const reason = shortReason(status.reason);
-      return bar(`${STATE_LABEL[status.state]}${reason ? `: ${reason}` : ""}`, null, "warn");
+      const held = status.waiting_for ? shortReason(status.refusals && status.refusals[0] && status.refusals[0].detail) : "";
+      return bar(`${STATE_LABEL[status.state]}${reason ? `: ${reason}` : ""}${held ? `, reseed waiting: ${held}` : ""}`, null, "warn");
     }
     case "not_seeded": {
       if (status.needs_host) return bar(`${STATE_LABEL.not_seeded}, needs the host helper`, null, "warn");

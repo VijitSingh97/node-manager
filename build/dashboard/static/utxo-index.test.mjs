@@ -129,6 +129,7 @@ test("the node card bar follows the index state", () => {
   assert.deepEqual(view({ state: "ready" }), { hidden: false, label: "Balance index: ready", value: 1, tone: "ok" });
   assert.deepEqual(view({ state: "degraded", reason: "node unreachable" }), { hidden: false, label: "Balance index: degraded: node unreachable", value: null, tone: "warn" });
   assert.equal(view({ state: "invalid", reason: "x".repeat(200) }).label.length < 120, true);
+  assert.equal(view({ state: "invalid", reason: "x", waiting_for: "host_busy", refusals: [{ guard: "memory", detail: "300 MiB of host memory available, 512 MiB needed" }] }).label, "Balance index: needs a new seed: x, reseed waiting: 300 MiB of host memory available, 512 MiB needed");
   const stopped = view({ state: "not_seeded", seed_stopped: "failed", last_seed: { outcome: "failed", reason: "less than 2 GB free during the seed" } });
   assert.deepEqual(stopped, { hidden: false, label: "Balance index: seeding failed: less than 2 GB free during the seed", value: null, tone: "warn" });
   assert.equal(view({ state: "not_seeded", seed_stopped: "cancelled" }).label, "Balance index: seeding stopped");
@@ -173,7 +174,7 @@ test("one label per state is shared by badge and card, and no guard id reaches u
   const goDir = new URL("../", import.meta.url);
   const sources = await Promise.all((await readdir(goDir)).filter((f) => f.endsWith(".go") && !f.endsWith("_test.go")).map((f) => readFile(new URL(f, goDir), "utf8")));
   const ids = [...new Set(sources.flatMap((src) => [...src.matchAll(/seedRefusal\{\{?"(\w+)"/g)].map((m) => m[1])))];
-  assert.equal(ids.length, 11);
+  assert.equal(ids.length, 12);
   assert.ok(ids.includes("host"));
   for (const guard of ids) assert.doesNotMatch(guardText({ guard, detail: "x" }), /_|^[a-z]+:|^Blocked/, guard);
   assert.equal(guardText({ guard: "mystery", detail: "x" }), "Blocked: x");

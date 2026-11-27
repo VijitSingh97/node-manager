@@ -93,6 +93,29 @@ Nothing is published until the gate is green. A red gate leaves the tag
 without a release — fix on `main`, bump the patch version, tag again
 (release tags are protected from deletion and rewrite by a repo ruleset).
 
+## Pre-release check: Tari watch wallet
+
+CI cannot give the Tari wallet a funded, scanned chain, so a release that touches
+the Tari watch wallet needs one live check against a synced Tari node. Add a
+watch wallet for a known funded address with a recent birthday, then run the
+probe against its wallet gRPC port with the balance you expect (in microtari) and
+the node's current height:
+
+```bash
+cd build/dashboard
+cp ../../tests/tari_grpc_probe.go zz_probe.go && cp ../../tests/tari_probe_gate.go zz_gate.go
+TARI_PROOF_ENDPOINT=<host:port> TARI_PROOF_USER=<user> TARI_PROOF_PASSWORD=<password> \
+  TARI_PROOF_EXPECT_TOTAL=<available + time-locked> TARI_PROOF_NODE_HEIGHT=<node height> \
+  TARI_PROOF_TIMEOUT_SECONDS=3600 \
+  go run zz_probe.go zz_gate.go node-stack-tari-wallet.pb.go node-stack-tari-wallet_grpc.pb.go
+rm zz_probe.go zz_gate.go
+```
+
+The probe waits for the same conditions the dashboard needs before it shows a
+balance (wallet ONLINE, initial validation done, scanned height within two blocks
+of the node height you recorded, or past it) and then fails unless available plus time-locked equals the
+expected total. Record the result and the height in `docs/measurements/`.
+
 ## APT feed
 
 Version `v1.32.0` is the first APT release. Its dedicated public-key fingerprint
