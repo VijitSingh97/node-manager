@@ -19,10 +19,10 @@ import (
 )
 
 const (
+	moneroWalletTipLag    = 1
 	maxMoneroWatchWallets = 8
 	maxMoneroWatchHistory = 288
 	moneroRefreshTimeout  = 30 * time.Minute
-	moneroWalletTipLag    = 1
 )
 
 var (

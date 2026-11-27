@@ -28,9 +28,9 @@ type moneroWalletFixture struct {
 	newOutput     bool
 	generateFails bool
 	refreshFails  bool
+	walletLag     uint64
 	secondAccount bool
 	scanPending   bool
-	walletLag     uint64
 	daemonPending bool
 	closed        bool
 	openedFile    string
@@ -84,7 +84,7 @@ func (f *moneroWalletFixture) handler(w http.ResponseWriter, r *http.Request) {
 	if viewKey, ok := f.generated["viewkey"].(string); ok {
 		generatedViewKey = viewKey
 	}
-	imported, newOutput, generateFails, refreshFails, secondAccount, scanPending, daemonPending, walletLag := f.imported, f.newOutput, f.generateFails, f.refreshFails, f.secondAccount, f.scanPending, f.daemonPending, f.walletLag
+	imported, newOutput, generateFails, refreshFails, secondAccount, scanPending, daemonPending := f.imported, f.newOutput, f.generateFails, f.refreshFails, f.secondAccount, f.scanPending, f.daemonPending
 	f.mu.Unlock()
 	if request.Method == "generate_from_keys" && generateFails {
 		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": "dashboard", "error": map[string]any{"code": -1, "message": "wallet exists"}})
@@ -105,12 +105,11 @@ func (f *moneroWalletFixture) handler(w http.ResponseWriter, r *http.Request) {
 	case "get_address":
 		result = map[string]any{"address": generatedAddress, "addresses": []any{map[string]any{"address": generatedAddress, "address_index": 0}}}
 	case "get_height":
-		walletHeight := uint64(310)
+		f.mu.Lock()
+		walletHeight := 310 - f.walletLag
+		f.mu.Unlock()
 		if scanPending {
 			walletHeight = 300
-		}
-		if walletLag > 0 {
-			walletHeight = 310 - walletLag
 		}
 		result = map[string]any{"height": walletHeight}
 	case "get_info":
