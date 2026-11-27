@@ -137,7 +137,7 @@ func (s *WatchStore) walletBalances(walletRPC WalletRPCFunc, entries []WatchEntr
 			row["example"] = true
 			row["display_name"] = "Binance"
 		}
-		isPending := pending[watchKeyID(entry.Key)] || chain.InitialBlockDownload
+		isPending := pending[watchKeyID(entry.Key)] || nodeBehindNetwork(chain.InitialBlockDownload, chain.Blocks, chain.Headers)
 		if entry.Name == "Satoshi" && entry.Key == genesisAddress {
 			row["display_name"] = "Genesis"
 		}

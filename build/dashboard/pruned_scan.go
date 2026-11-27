@@ -198,7 +198,7 @@ func scanRetryDelay(failures int) time.Duration {
 }
 
 func (s *prunedScanner) refresh(entries []WatchEntry, chain blockchainInfo) {
-	if !s.app.nodeWorkerRunnable(nodeBitcoin, true) || !chain.Pruned || chain.InitialBlockDownload || chain.BestBlockHash == "" || s.app.watch.ScanErr() != nil {
+	if !s.app.nodeWorkerRunnable(nodeBitcoin, true) || !chain.Pruned || nodeBehindNetwork(chain.InitialBlockDownload, chain.Blocks, chain.Headers) || chain.BestBlockHash == "" || s.app.watch.ScanErr() != nil {
 		return
 	}
 	s.pruneScripts(entries)
