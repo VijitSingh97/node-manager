@@ -25,6 +25,22 @@ export function powerView(node) {
   return { active: false, disabled: false, button: "Activate node", status: "Node is inactive." };
 }
 
+const SYNCED_PERCENT = 99.9;
+const WALLET_SIDECAR_BYTES = 512 * 2 ** 20;
+
+export function powerWarning(action, node, stats) {
+  if (action !== "Activate" && action !== "Start" || !stats || !(stats.cpus > 0) || !(stats.mem_total_bytes > 0)) return "";
+  const synced = node?.last_sync_percent >= SYNCED_PERCENT;
+  const needCpus = synced ? node.steady_cpus || 1 : 2;
+  const memMB = synced ? node.steady_mem_limit_mb || 2048 : 4096;
+  const needBytes = memMB * 2 ** 20 + (node?.id === "monero" || node?.id === "tari" ? WALLET_SIDECAR_BYTES : 0);
+  const freeBytes = Math.max(0, stats.mem_total_bytes - (stats.host_mem_bytes || 0));
+  const idleCpus = Math.max(0, stats.cpus * (1 - (stats.host_cpu_pct || 0) / 100));
+  if (needBytes <= freeBytes && needCpus - idleCpus < 0.05) return "";
+  const gib = (bytes) => (bytes / 2 ** 30).toFixed(1);
+  return `${NODE_LABELS[node?.id] || "This node"} is expected to need ${gib(needBytes)} GiB of memory and ${needCpus.toFixed(1)} CPUs, but this host has ${gib(freeBytes)} GiB and ${idleCpus.toFixed(1)} CPUs free right now. The node and others may become unstable. You can still ${action.toLowerCase()} it.`;
+}
+
 export function nodePollDelay(pending, nodes) {
   return pending ? 2000 : nodes.some((node) => node.restarting) ? 5000 : 30000;
 }
@@ -147,7 +163,7 @@ if (typeof document !== "undefined") {
   const state=new Map();
   const dialog=byId("node-power-dialog"), form=byId("node-power-form"), input=byId("node-power-confirm");
   const confirmLabel=byId("node-power-confirm-label"), submit=byId("node-power-submit");
-  let selected="", control={available:false,pending:false,status:null}, poll, busy=false, requestID="";
+  let selected="", control={available:false,pending:false,status:null}, poll, busy=false, requestID="", hostStats=null;
   try {requestID=localStorage.getItem("nodeStackPowerRequest") || "";} catch {}
 
   const refreshNode=async(id)=>{
@@ -181,6 +197,7 @@ if (typeof document !== "undefined") {
     try {
       const payload=await jsonRequest(fetch,"/api/nodes",{failure:"unavailable"});
       control=controlView(payload);
+      hostStats=payload.host?.stats||null;
       window.dispatchEvent(new CustomEvent("host-stats-data",{detail:payload.host||null}));
       for(const id of NODE_IDS) {
         const node=payload.nodes?.find(item=>item.id===id);
@@ -226,6 +243,9 @@ if (typeof document !== "undefined") {
     setText("node-power-title",`${action} ${NODE_LABELS[selected]}`);
     setText("node-power-description",stopping ? "The node will stop. Its stored data will be kept, and you can activate it again." : "The node will start using its existing data and settings.");
     setText("node-power-error","");
+    const warning=powerWarning(action,node,hostStats);
+    setText("node-power-warning",warning);
+    byId("node-power-warning").hidden=!warning;
     submit.textContent=`${action} node`;
     confirmLabel.hidden=!stopping;
     input.value="";

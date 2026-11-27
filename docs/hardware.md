@@ -44,6 +44,10 @@ the container ceilings to 8 CPUs and 19 GiB. Add Tor, dashboard, Docker,
 filesystem cache, and operating-system headroom. This is cap arithmetic, not a
 measurement of actual simultaneous use or a qualified minimum host.
 
+The dashboard warns before Activate or Start when the host's free memory or idle
+CPU is below that node's budget (the sync budget until it has synced, then its
+steady caps). The warning is advisory and never blocks the action.
+
 ## What we have measured
 
 A short container-capped Bitcoin trial supports a small-host target: during
