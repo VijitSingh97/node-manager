@@ -6,6 +6,18 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A Dogecoin balance-index seed no longer gets the dashboard OOM-killed. A
+  Dogecoin 1.14 node writes its whole coin cache, 450 MiB by default, to its
+  database log as one batch when it stops, and the seed read that log from
+  the chainstate copy into memory, peaking at about four times its size. On
+  the reference host the dashboard reached its 1 GiB limit 47 s into a seed
+  that started right after the node finished its initial sync. The seed now
+  streams the log to a scratch store on the index volume, removed when the
+  seed ends, so reading the copy takes a few tens of MiB of memory whatever
+  the log's size. Bitcoin Cash seeds read their copy the same way.
+
 ## [1.42.2] - 2026-11-25
 
 ### Fixed

@@ -3,15 +3,25 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
+	"runtime/debug"
+	"runtime/metrics"
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/record"
+	"github.com/cockroachdb/pebble/vfs"
 )
 
 func appendCoreVarInt(b []byte, n uint64) []byte {
@@ -107,7 +117,7 @@ func TestChainstateCopyReadsADogecoinRegtestChainstate(t *testing.T) {
 	// The node reported height 202, best block 2f9d…68dc, 205 transactions, 210 outputs and 87,750,000 DOGE in gettxoutsetinfo.
 	dir := "testdata/dogecoin-chainstate-regtest"
 	before, _ := os.ReadDir(dir)
-	c, err := openChainstateCopy(dir)
+	c, err := openChainstateCopy(dir, vfs.Default, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +147,17 @@ func TestChainstateCopyReadsADogecoinRegtestChainstate(t *testing.T) {
 	}
 }
 
-// writeTestChainstate writes a chainstate the way 1.14 lays it out, obfuscated with xor, using Pebble since the reader is format-blind.
+func maskChainstate(key, v []byte) []byte {
+	out := bytes.Clone(v)
+	for i := range out {
+		if len(key) > 1 {
+			out[i] ^= key[1+i%(len(key)-1)]
+		}
+	}
+	return out
+}
+
+// writeTestChainstate writes a chainstate the way 1.14 lays it out, obfuscated with xor, using Pebble since the reader is format-blind; the rows end up in tables.
 func writeTestChainstate(t *testing.T, key []byte, best []byte, rows map[string][]byte) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -145,28 +165,175 @@ func writeTestChainstate(t *testing.T, key []byte, best []byte, rows map[string]
 	if err != nil {
 		t.Fatal(err)
 	}
-	mask := func(v []byte) []byte {
-		out := bytes.Clone(v)
-		for i := range out {
-			if len(key) > 1 {
-				out[i] ^= key[1+i%(len(key)-1)]
-			}
-		}
-		return out
-	}
 	if key != nil {
 		_ = db.Set(chainstateObfuscateKey, key, nil)
 	}
 	if best != nil {
-		_ = db.Set([]byte{'B'}, mask(best), nil)
+		_ = db.Set([]byte{'B'}, maskChainstate(key, best), nil)
 	}
 	for k, row := range rows {
-		_ = db.Set([]byte(k), mask(row), nil)
+		_ = db.Set([]byte(k), maskChainstate(key, row), nil)
 	}
-	if err := db.Close(); err != nil {
+	if err := errors.Join(db.Flush(), db.Close()); err != nil {
 		t.Fatal(err)
 	}
 	return dir
+}
+
+var logBatchSeq atomic.Uint64
+
+// logBatch encodes a LevelDB write batch as a node logs it: a sequence number above every earlier batch's, the count, then each put, or a delete where the value is nil.
+func logBatch(n int, entry func(i int) (key, val []byte)) []byte {
+	b := binary.LittleEndian.AppendUint32(binary.LittleEndian.AppendUint64(nil, 1<<40+logBatchSeq.Add(uint64(n))), uint32(n))
+	for i := range n {
+		k, v := entry(i)
+		kind := byte(pebble.InternalKeyKindSet)
+		if v == nil {
+			kind = byte(pebble.InternalKeyKindDelete)
+		}
+		b = append(binary.AppendUvarint(append(b, kind), uint64(len(k))), k...)
+		if v != nil {
+			b = append(binary.AppendUvarint(b, uint64(len(v))), v...)
+		}
+	}
+	return b
+}
+
+func logEntries(kv ...[]byte) []byte {
+	return logBatch(len(kv)/2, func(i int) ([]byte, []byte) { return kv[2*i], kv[2*i+1] })
+}
+
+func writeChainstateLog(t *testing.T, dir string, num int, batches ...[]byte) {
+	t.Helper()
+	f, err := os.Create(filepath.Join(dir, fmt.Sprintf("%06d.log", num)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := record.NewWriter(f)
+	for _, b := range batches {
+		if _, err := w.WriteRecord(b); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := errors.Join(w.Close(), f.Close()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestChainstateCopyAppliesItsLogsOverItsTablesInOrder(t *testing.T) {
+	key := append([]byte{8}, 1, 2, 3, 4, 5, 6, 7, 8)
+	txid := func(b byte) []byte { return append([]byte{'c'}, bytes.Repeat([]byte{b}, 32)...) }
+	plain := func(height byte) []byte {
+		return append(append([]byte{1, 2, 9, 0}, bytes.Repeat([]byte{0x11}, 20)...), height)
+	}
+	row := func(height byte) []byte { return maskChainstate(key, plain(height)) }
+	dir := writeTestChainstate(t, key, bytes.Repeat([]byte{0x42}, 32), map[string][]byte{
+		string(txid(0xa)): plain(1), string(txid(0xb)): plain(2), string(txid(0xc)): plain(3),
+	})
+	// Pebble skips a log older than its tables, so this one must change nothing.
+	writeChainstateLog(t, dir, 1, logEntries(txid(0xa), row(99), txid(0xe), row(99)))
+	writeChainstateLog(t, dir, 998,
+		logEntries(txid(0xb), row(20)),
+		logEntries(txid(0xc), nil, txid(0xd), row(4), []byte{'B'}, maskChainstate(key, bytes.Repeat([]byte{0x43}, 32))))
+	writeChainstateLog(t, dir, 999, logEntries(txid(0xb), row(21), txid(0xa), nil))
+	logDir := filepath.Join(t.TempDir(), "log")
+	c, err := openChainstateCopy(dir, vfs.Default, logDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	heights := map[byte]uint32{}
+	h, err := c.parse(nil, func(r utxoRecord) error { heights[r.Txid[0]] = r.Height; return nil })
+	if err != nil || h.CoinsCount != 2 || len(heights) != 2 || heights[0xb] != 21 || heights[0xd] != 4 {
+		t.Fatalf("coins %v, header %+v, %v", heights, h, err)
+	}
+	if want := [32]byte(bytes.Repeat([]byte{0x43}, 32)); c.Best != want {
+		t.Fatalf("best block %x, the log named %x", c.Best, want)
+	}
+	// Pebble reaches the same rows by replaying the logs in memory, so only the scratch store shows they were streamed.
+	if _, closer, err := c.log.Get(txid(0xd)); err != nil {
+		t.Fatalf("the log's rows are not in the scratch store: %v", err)
+	} else {
+		_ = closer.Close()
+	}
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(logDir); !os.IsNotExist(err) {
+		t.Fatalf("the replayed log was left behind: %v", err)
+	}
+}
+
+func TestChainstateCopyRefusesACorruptLog(t *testing.T) {
+	key := append([]byte{8}, 1, 2, 3, 4, 5, 6, 7, 8)
+	k := append([]byte{'c'}, bytes.Repeat([]byte{0xab}, 32)...)
+	good := logEntries(k, []byte{1})
+	for name, batch := range map[string][]byte{
+		"merge record":    append(slices.Clone(good[:12]), append([]byte{byte(pebble.InternalKeyKindMerge), 33}, append(k, 1, 1)...)...),
+		"oversized row":   binary.AppendUvarint(append(slices.Clone(good[:12]), append([]byte{1, 33}, k...)...), chainstateMaxLogField+1),
+		"missing entry":   append(slices.Clone(good[:8]), append([]byte{2, 0, 0, 0}, good[12:]...)...),
+		"trailing bytes":  append(slices.Clone(good), 0),
+		"short header":    good[:11],
+		"truncated value": good[:len(good)-1],
+	} {
+		dir := writeTestChainstate(t, key, bytes.Repeat([]byte{0x42}, 32), nil)
+		writeChainstateLog(t, dir, 999, batch)
+		if c, err := openChainstateCopy(dir, vfs.Default, t.TempDir()); !errors.Is(err, errChainstateFormat) {
+			if c != nil {
+				_ = c.Close()
+			}
+			t.Errorf("%s: opened with %v", name, err)
+		}
+	}
+}
+
+// A Dogecoin 1.14 node writes its whole dbcache, 450 MiB by default, as one log batch when it stops; Pebble's replay held four times the batch, the reader a fixed few tens of MiB.
+func TestChainstateCopyKeepsALargeLogOutOfMemory(t *testing.T) {
+	const logBytes = 64 << 20
+	key := append([]byte{8}, 1, 2, 3, 4, 5, 6, 7, 8)
+	dir := writeTestChainstate(t, key, bytes.Repeat([]byte{0x42}, 32), nil)
+	val := maskChainstate(key, append(append([]byte{1, 2, 9, 0}, bytes.Repeat([]byte{0x11}, 20)...), 77))
+	k := make([]byte, 33)
+	k[0] = 'c'
+	n := logBytes / (len(k) + len(val) + 3)
+	writeChainstateLog(t, dir, 999, logBatch(n, func(i int) ([]byte, []byte) {
+		binary.BigEndian.PutUint64(k[1:], uint64(i))
+		return k, val
+	}))
+	defer debug.SetGCPercent(debug.SetGCPercent(25))
+	runtime.GC()
+	sample := []metrics.Sample{{Name: "/memory/classes/heap/objects:bytes"}}
+	metrics.Read(sample)
+	base := sample[0].Value.Uint64()
+	var peak atomic.Uint64
+	done := make(chan struct{})
+	sampled := make(chan struct{})
+	go func() {
+		defer close(sampled)
+		s := []metrics.Sample{{Name: "/memory/classes/heap/objects:bytes"}}
+		for {
+			metrics.Read(s)
+			peak.Store(max(peak.Load(), s[0].Value.Uint64()))
+			select {
+			case <-done:
+				return
+			case <-time.After(time.Millisecond):
+			}
+		}
+	}()
+	c, err := openChainstateCopy(dir, vfs.Default, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	rows := 0
+	if err := c.rows(func([32]byte, uint32, []byte) error { rows++; return nil }); err != nil || rows != n {
+		t.Fatalf("%d of %d rows, %v", rows, n, err)
+	}
+	close(done)
+	<-sampled
+	if grew := peak.Load() - min(base, peak.Load()); grew > logBytes {
+		t.Fatalf("the heap grew by %d MiB reading a %d MiB log", grew>>20, logBytes>>20)
+	}
 }
 
 func TestChainstateCopyReadsAnOversizedScriptAsUnspendable(t *testing.T) {
@@ -176,7 +343,7 @@ func TestChainstateCopyReadsAnOversizedScriptAsUnspendable(t *testing.T) {
 	// Code 6: outputs 0 and 1 unspent, the first with a script over the limit, the second pay-to-script-hash.
 	row := append(append(append([]byte{1, 6, 9}, big...), 9, 1), bytes.Repeat([]byte{0x11}, 20)...)
 	row = append(row, appendCoreVarInt(nil, 77)...)
-	c, err := openChainstateCopy(writeTestChainstate(t, key, best, map[string][]byte{"c" + string(bytes.Repeat([]byte{0xab}, 32)): row}))
+	c, err := openChainstateCopy(writeTestChainstate(t, key, best, map[string][]byte{"c" + string(bytes.Repeat([]byte{0xab}, 32)): row}), vfs.Default, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +372,7 @@ func TestChainstateCopyRefusesACorruptChainstate(t *testing.T) {
 		// The row itself parses, so only the key length can refuse it.
 		"coins key of 32 bytes": {key: key, best: best, rows: map[string][]byte{"c" + string(bytes.Repeat([]byte{0xab}, 31)): append(append([]byte{1, 2, 9, 0}, bytes.Repeat([]byte{0x11}, 20)...), 77)}},
 	} {
-		c, err := openChainstateCopy(writeTestChainstate(t, tc.key, tc.best, tc.rows))
+		c, err := openChainstateCopy(writeTestChainstate(t, tc.key, tc.best, tc.rows), vfs.Default, t.TempDir())
 		if tc.atOpen {
 			if !errors.Is(err, errChainstateFormat) {
 				t.Fatalf("%s: opened with %v", name, err)
