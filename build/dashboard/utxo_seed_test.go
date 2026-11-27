@@ -240,6 +240,11 @@ func TestEvaluateSeedGuardsListsEveryFailure(t *testing.T) {
 	if got := evaluateSeedGuards(ok); len(got) != 0 {
 		t.Fatalf("all guards pass, got %v", got)
 	}
+	lowMem := ok
+	lowMem.MemAvailBytes = seedMinMemAvail - 1
+	if got := evaluateSeedGuards(lowMem); len(got) != 1 || got[0].Guard != "memory" {
+		t.Fatalf("low memory must wait with the memory guard, got %v", got)
+	}
 	bad := ok
 	bad.State = utxoStateReady
 	bad.TempErr = errors.New("x")
@@ -463,5 +468,44 @@ func TestGatherSeedGuardsUnreadableFreeSpace(t *testing.T) {
 	in := m.gatherSeedGuards(t.Context())
 	if in.FreeErr == nil || freeSpaceGuard(in.FreeBytes, seedMinFreeBytes, in.FreeErr) == nil {
 		t.Fatalf("unreadable free space must refuse: %+v", in)
+	}
+	if _, err := os.Stat("/proc/meminfo"); err == nil && (in.MemErr != nil || in.MemAvailBytes == 0) {
+		t.Fatalf("memory not gathered: %+v", in)
+	}
+}
+
+func TestSeedMemoryGuard(t *testing.T) {
+	if memoryGuard(0, 0) != nil || memoryGuard(seedMinMemAvail, seedMinMemLimit) != nil {
+		t.Error("unread or sufficient memory refused")
+	}
+	if r := memoryGuard(seedMinMemAvail-1, 0); r == nil || r.Guard != "memory" || !strings.Contains(r.Detail, "host memory available") {
+		t.Errorf("low host memory: %+v", r)
+	}
+	if r := memoryGuard(seedMinMemAvail, seedMinMemLimit-1); r == nil || !strings.Contains(r.Detail, "dashboard memory limit") {
+		t.Errorf("low cgroup limit: %+v", r)
+	}
+	in := seedGuardInput{MemErr: errors.New("x")}
+	if r := memoryGuard(in.MemAvailBytes, in.MemLimitBytes); r != nil {
+		t.Errorf("unreadable memory refused: %+v", r)
+	}
+}
+
+func TestSeedMemoryReaders(t *testing.T) {
+	dir := t.TempDir()
+	meminfo := filepath.Join(dir, "meminfo")
+	os.WriteFile(meminfo, []byte("MemTotal: 8000000 kB\nMemAvailable: 2048 kB\n"), 0o600)
+	if got, err := readMemAvailable(meminfo); err != nil || got != 2048<<10 {
+		t.Fatalf("available %d %v", got, err)
+	}
+	if _, err := readMemAvailable(filepath.Join(dir, "none")); err == nil {
+		t.Error("missing meminfo read")
+	}
+	os.WriteFile(filepath.Join(dir, "memory.max"), []byte("max\n"), 0o600)
+	if readMemLimit(dir) != 0 {
+		t.Error("unlimited cgroup reported a limit")
+	}
+	os.WriteFile(filepath.Join(dir, "memory.max"), []byte("1073741824\n"), 0o600)
+	if readMemLimit(dir) != 1<<30 {
+		t.Error("cgroup v2 limit")
 	}
 }

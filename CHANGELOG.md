@@ -8,12 +8,21 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
-- Activating or starting a node now warns when the host has less free memory
-  or idle CPU than the node is expected to need, since bringing it up anyway
-  can make it and other nodes unstable. The dialog compares the node's budget
-  (4 GiB and 2 CPUs until it has synced, then its configured steady caps, plus
-  512 MiB for the Monero and Tari wallet sidecars) with what the host has free
-  right now. The warning is advisory: Activate and Start stay enabled.
+- Activating, starting or installing a node now warns when the host has less
+  free memory or idle CPU than the node is expected to need, since bringing it
+  up anyway can make it and other nodes unstable. The dialog compares the
+  node's budget with what the host has free right now: 4 GiB and 2 CPUs for an
+  install, a node that has not synced, or a node last seen over 2 hours ago,
+  and its configured steady caps otherwise, plus the wallet sidecar's real
+  limit (1 GiB for Monero, 512 MiB for Tari, 0.5 CPU each). Bitcoin and
+  Monero now report their configured caps too. The warning is advisory: the
+  buttons stay enabled. `stack up` and `stack apply` print one advisory line
+  when the selected nodes' sync budgets exceed the memory Docker reports,
+  except on boot starts; the line goes to stderr.
+- A balance-index seed now waits, with a reason, when the host has under
+  512 MiB of memory available (rechecked every 30 seconds) or the dashboard's
+  memory limit is under 512 MiB. An unreadable memory figure no longer blocks
+  a seed, and the index bar shows why a waiting reseed has not started.
 
 ### Changed
 

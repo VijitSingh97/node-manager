@@ -26,14 +26,18 @@ export function powerView(node) {
 }
 
 const SYNCED_PERCENT = 99.9;
-const WALLET_SIDECAR_BYTES = 512 * 2 ** 20;
+const STALE_SECONDS = 2 * 3600;
+const WALLET_SIDECARS = {monero: 1024 * 2 ** 20, tari: 512 * 2 ** 20};
+const WALLET_SIDECAR_CPUS = 0.5;
 
-export function powerWarning(action, node, stats) {
-  if (action !== "Activate" && action !== "Start" || !stats || !(stats.cpus > 0) || !(stats.mem_total_bytes > 0)) return "";
-  const synced = node?.last_sync_percent >= SYNCED_PERCENT;
-  const needCpus = synced ? node.steady_cpus || 1 : 2;
+export function powerWarning(action, node, stats, nowSeconds = Date.now() / 1000) {
+  if (!["Activate", "Start", "Install"].includes(action) || !stats || !(stats.cpus > 0) || !(stats.mem_total_bytes > 0)) return "";
+  const stale = node?.last_seen_at > 0 && nowSeconds - node.last_seen_at > STALE_SECONDS;
+  const synced = action !== "Install" && node?.last_sync_percent >= SYNCED_PERCENT && !stale;
+  const sidecar = WALLET_SIDECARS[node?.id] || 0;
+  const needCpus = (synced ? node.steady_cpus || 1 : 2) + (sidecar ? WALLET_SIDECAR_CPUS : 0);
   const memMB = synced ? node.steady_mem_limit_mb || 2048 : 4096;
-  const needBytes = memMB * 2 ** 20 + (node?.id === "monero" || node?.id === "tari" ? WALLET_SIDECAR_BYTES : 0);
+  const needBytes = memMB * 2 ** 20 + sidecar;
   const freeBytes = Math.max(0, stats.mem_total_bytes - (stats.host_mem_bytes || 0));
   const idleCpus = Math.max(0, stats.cpus * (1 - (stats.host_cpu_pct || 0) / 100));
   if (needBytes <= freeBytes && needCpus - idleCpus < 0.05) return "";

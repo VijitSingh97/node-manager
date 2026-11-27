@@ -200,3 +200,24 @@ test('wallet sidecar memory counts for Monero and Tari, and Start words the clos
   assert.match(text,/4\.5 GiB of memory/);
   assert.match(text,/You can still start it\.$/);
 });
+test('Install always uses the sync budget, even for a node that reports as synced',()=>{
+  const text=powerWarning('Install',{id:'litecoin',last_sync_percent:100,steady_cpus:1,steady_mem_limit_mb:2048},hostStats(3,3));
+  assert.match(text,/4\.0 GiB of memory and 2\.0 CPUs/);
+  assert.match(text,/You can still install it\.$/);
+  assert.equal(powerWarning('Install',{id:'litecoin'},hostStats(4,2)),'');
+});
+test('sidecar budgets follow compose: Monero 1 GiB, Tari 512 MiB, each plus 0.5 CPU',()=>{
+  const monero={id:'monero',last_sync_percent:100,steady_cpus:1,steady_mem_limit_mb:2048};
+  assert.equal(powerWarning('Activate',monero,hostStats(3,3)),'');
+  assert.match(powerWarning('Activate',monero,hostStats(2.9,3)),/3\.0 GiB of memory and 1\.5 CPUs/);
+  assert.match(powerWarning('Activate',monero,hostStats(8,1.2)),/1\.5 CPUs.*1\.2 CPUs free/);
+  const tari={id:'tari',last_sync_percent:100,steady_cpus:1,steady_mem_limit_mb:4096};
+  assert.match(powerWarning('Activate',tari,hostStats(3,3)),/4\.5 GiB of memory and 1\.5 CPUs/);
+});
+test('a node last seen over two hours ago is budgeted for catch-up, a recent or unknown one is not',()=>{
+  const now=1_700_000_000;
+  const seen=(ago)=>({...synced,last_seen_at:now-ago});
+  assert.equal(powerWarning('Start',seen(600),hostStats(3,3),now),'');
+  assert.match(powerWarning('Start',seen(7201),hostStats(3,3),now),/4\.0 GiB of memory and 2\.0 CPUs/);
+  assert.equal(powerWarning('Start',synced,hostStats(3,3),now),'');
+});

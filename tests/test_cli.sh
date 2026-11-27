@@ -171,6 +171,7 @@ cat >"$stub/docker" <<'EOS'
 #!/usr/bin/env bash
 echo "docker $*" >>"$FAKE_LOG"
 case " $* " in
+  *' info --format '*) [ -z "${FAKE_DOCKER_MEMTOTAL:-}" ] || printf '%s\n' "$FAKE_DOCKER_MEMTOTAL"; exit ;;
   *' info '*) [ "${FAKE_DOCKER_INFO_FAIL:-0}" != 1 ]; exit ;;
   *' exec dashboard cat /state/dashboard_auth.json '*) [ -f "${FAKE_DASH_AUTH_FILE:-}" ] && cat "$FAKE_DASH_AUTH_FILE"; exit ;;
   *' compose '*' config --images '*) printf 'example.invalid/stack:test\n' ;;
@@ -350,6 +351,29 @@ grep -q '^HELPER_SENTINEL=1$' "$pending/.env" || fail "helper start re-rendered 
 (cd "$pending" && BITCOIN_STACK_DEFAULT_BIND_IP=192.168.1.117 HOME="$tmp" PATH="$stub:$PATH" ./stack up >/dev/null)
 ! grep -q '^HELPER_SENTINEL=1$' "$pending/.env" || fail "plain start skipped the config render"
 [ -e "$FAKE_CRON" ] || fail "plain start skipped the host timer and agent setup"
+
+advisory_dir="$tmp/advisory"
+mkdir "$advisory_dir"
+cp stack configure.sh "$advisory_dir/"
+printf '1.2.3\n' >"$advisory_dir/VERSION"
+printf '{"bitcoin":{"enabled":true},"monero":{"enabled":true},"tari":{"enabled":true,"active":false},"dashboard":{"password":"advisorypassword1234"}}\n' >"$advisory_dir/config.json"
+(cd "$advisory_dir" && HOME="$tmp" PATH="$stub:$PATH" ./stack init >/dev/null)
+advisory_up() { (cd "$advisory_dir" && FAKE_DOCKER_MEMTOTAL="$1" HOME="$tmp" PATH="$stub:$PATH" env "${@:2}" ./stack up 2>&1); }
+advisory=$(advisory_up 8589934592 A=1)
+printf '%s\n' "$advisory" | grep -q 'Note: 2 selected node(s) can use up to 9 GiB while syncing, but Docker reports 8 GiB' || fail "up did not warn that the selected nodes exceed host memory: $advisory"
+advisory_stdout=$(cd "$advisory_dir" && FAKE_DOCKER_MEMTOTAL=8589934592 A=1 HOME="$tmp" PATH="$stub:$PATH" ./stack up 2>/dev/null)
+printf '%s\n' "$advisory_stdout" | grep -q 'Note:' && fail "the resource advisory was printed to stdout"
+advisory=$(advisory_up 17179869184 A=1)
+printf '%s\n' "$advisory" | grep -q 'Note:' && fail "up warned although the selected nodes fit"
+advisory=$(advisory_up 8589934592 BITCOIN_STACK_HELPER_START=1)
+printf '%s\n' "$advisory" | grep -q 'Note:' && fail "a boot start printed the resource advisory"
+named_up() { (cd "$advisory_dir" && FAKE_DOCKER_MEMTOTAL=4831838208 HOME="$tmp" PATH="$stub:$PATH" ./stack up "$@" 2>&1); }
+advisory=$(named_up)
+printf '%s\n' "$advisory" | grep -q 'Note: 2 selected node(s) can use up to 9 GiB' || fail "up without names did not count both nodes: $advisory"
+advisory=$(named_up bitcoin)
+printf '%s\n' "$advisory" | grep -q 'Note:' && fail "up with a node that fits warned: $advisory"
+advisory=$(named_up monero)
+printf '%s\n' "$advisory" | grep -q 'Note: 1 selected node(s) can use up to 5 GiB' || fail "up with one named node did not count only it: $advisory"
 jq '.dashboard.port=8088' "$pending/config.json" >"$pending/config.next"
 mv "$pending/config.next" "$pending/config.json"
 (cd "$pending" && BITCOIN_STACK_DEFAULT_BIND_IP=192.168.1.117 ./configure.sh >/dev/null)

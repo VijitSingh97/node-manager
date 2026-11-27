@@ -2,6 +2,7 @@ import { actuatorCurlController } from "./actuator-curl.js";
 import { credentialSettingsController } from "./credentials.js";
 import { commandName, dashboardFetch as fetch, jsonRequest } from "./session.js";
 import { askConfirm } from "./confirm-dialog.js";
+import { powerWarning } from "./chains.js";
 
 const extraNodes = ["tari", "litecoin", "dogecoin", "bitcoincash", "zcash"];
 const allNodes = ["bitcoin", "monero", ...extraNodes];
@@ -528,6 +529,9 @@ if (typeof document !== "undefined") {
   const installIndex = byId("install-index");
   const installIndexHint = byId("install-index-hint");
   const installError = byId("install-error");
+  const installWarning = byId("install-warning");
+  let hostStats = null;
+  window.addEventListener("host-stats-data", (event) => { hostStats = event.detail?.stats || null; });
   const installSubmit = byId("install-submit");
   let installAction = "install";
   const nodeViews = {};
@@ -886,6 +890,7 @@ if (typeof document !== "undefined") {
     installInterfaces.replaceChildren();
     installIndexLabel.hidden = installIndexHint.hidden = true;
     installError.textContent = "";
+    installWarning.hidden = true;
     installSubmit.textContent = "Move on Save";
     installDialog.showModal();
   };
@@ -928,6 +933,8 @@ if (typeof document !== "undefined") {
     installIndexLabel.hidden = installIndexHint.hidden = !offered;
     installIndex.checked = true;
     installError.textContent = "";
+    installWarning.textContent = powerWarning("Install", { id: nodeID }, hostStats);
+    installWarning.hidden = !installWarning.textContent;
     installSubmit.textContent = "Install on Save";
     installDialog.showModal();
   };

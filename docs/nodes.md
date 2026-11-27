@@ -58,9 +58,9 @@ host. A container cap on a larger test machine does not qualify a real VPS with
 the same total RAM.
 
 Selecting all seven nodes sets base-node ceilings totaling 7 CPUs and 18 GiB.
-The Monero and Tari wallet sidecars add 0.5 CPU and 512 MiB each, making 8 CPUs
-and 19 GiB of container ceilings before Tor, dashboard, Docker, filesystem cache,
-and the host. This is cap arithmetic, not measured simultaneous use or a
+The Monero wallet sidecar adds 0.5 CPU and 1 GiB and the Tari one 0.5 CPU and
+512 MiB, making 8 CPUs and 19.5 GiB of container ceilings before Tor,
+dashboard, Docker, filesystem cache, and the host. This is cap arithmetic, not measured simultaneous use or a
 qualified minimum machine.
 
 Tari's native wallet database is owner-only but not encrypted by its wallet

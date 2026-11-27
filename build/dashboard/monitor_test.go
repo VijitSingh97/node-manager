@@ -315,6 +315,36 @@ func TestMultiNodeOperationalStatePersistsAcrossRestart(t *testing.T) {
 	}
 }
 
+func TestSeenAtRefreshesEveryTenMinutesAndPersists(t *testing.T) {
+	stateDir, dir := t.TempDir(), t.TempDir()
+	m := NewMonitor("dev", dir, stateDir)
+	m.configureNodes(true, false, "")
+	m.output = io.Discard
+	m.healthTicks = 1
+	m.diskFreeGB = func(string) (float64, error) { return 1000, nil }
+	clock := time.Unix(1_700_000_000, 0)
+	m.now = func() time.Time { return clock }
+	synced := map[string]any{"initialblockdownload": false, "blocks": float64(100)}
+	m.tickBitcoinMonero(t.Context(), synced, nil)
+	first := m.LastSeen(nodeBitcoin).SeenAt
+	if first != clock.Unix() {
+		t.Fatalf("seen_at = %d, want %d", first, clock.Unix())
+	}
+	clock = clock.Add(5 * time.Minute)
+	m.tickBitcoinMonero(t.Context(), synced, nil)
+	if got := m.LastSeen(nodeBitcoin).SeenAt; got != first {
+		t.Fatalf("seen_at moved after 5 minutes: %d", got)
+	}
+	clock = clock.Add(6 * time.Minute)
+	m.tickBitcoinMonero(t.Context(), synced, nil)
+	if got := m.LastSeen(nodeBitcoin).SeenAt; got != clock.Unix() {
+		t.Fatalf("seen_at = %d after 11 minutes, want %d", got, clock.Unix())
+	}
+	if restarted := NewMonitor("dev", dir, stateDir); restarted.state.seenAt != clock.Unix() {
+		t.Fatalf("seen_at after restart = %d", restarted.state.seenAt)
+	}
+}
+
 func TestRunConfiguredNodesRestartAfterSyncOnlyAnnouncesCompletion(t *testing.T) {
 	initial := configuredMonitor(t, func(*http.Request) (*http.Response, error) {
 		return response(http.StatusOK, `{"ok":true}`), nil

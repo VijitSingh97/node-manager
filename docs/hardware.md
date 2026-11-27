@@ -39,14 +39,23 @@ a ceiling, not an allocation: actual usage can be lower. Source installs and
 existing profiles set to `off` do not enable automatic caps.
 
 All seven base nodes therefore have configured ceilings totaling 7 CPUs and 18
-GiB. The Monero and Tari wallet sidecars add 0.5 CPU and 512 MiB each, bringing
-the container ceilings to 8 CPUs and 19 GiB. Add Tor, dashboard, Docker,
-filesystem cache, and operating-system headroom. This is cap arithmetic, not a
+GiB. The Monero wallet sidecar adds 0.5 CPU and 1 GiB and the Tari wallet sidecar
+0.5 CPU and 512 MiB, bringing the container ceilings to 8 CPUs and
+19.5 GiB. Add Tor, dashboard, Docker, filesystem cache, and operating-system
+headroom. This is cap arithmetic, not a
 measurement of actual simultaneous use or a qualified minimum host.
 
-The dashboard warns before Activate or Start when the host's free memory or idle
-CPU is below that node's budget (the sync budget until it has synced, then its
-steady caps). The warning is advisory and never blocks the action.
+The dashboard warns before Activate, Start or Install when the host's free
+memory or idle CPU is below that node's budget, including its wallet sidecar.
+The budget is the sync budget (4 GiB and 2 CPUs) for an install, a node that
+has not synced, or a node last seen more than 2 hours ago, and the node's
+steady caps otherwise. `stack up` and `stack apply` print one line when the
+selected nodes' sync budgets exceed the memory Docker reports, except on boot
+starts. A balance-index seed waits, with a reason, when the host has under
+512 MiB of memory available (rechecked every 30 seconds) or the dashboard's
+memory limit is under 512 MiB.
+The Activate, Start and Install warnings and the CLI line are advisory and
+never block; the seed guard only delays a balance-index seed.
 
 ## What we have measured
 
@@ -67,10 +76,10 @@ system headroom. See [Nodes](nodes.md) for qualification status.
 
 The Monero wallet service is additional to the daemon budget. In a local idle
 smoke test it used about **13.2 MiB RAM and 0.03% CPU**; Compose caps it at
-**512 MiB and 0.5 CPU** so a large wallet scan cannot consume the daemon's full
+**1 GiB and 0.5 CPU** so a large wallet scan cannot consume the daemon's full
 allowance. This single local measurement does not qualify the whole stack on a
 2 GiB VPS, and wallet size and scan activity can raise usage. Tari's wallet
-sidecar has the same 0.5 CPU / 512 MiB ceiling, but no sustained-load
+sidecar has a 0.5 CPU / 512 MiB ceiling, but no sustained-load
 qualification.
 
 ## Disk

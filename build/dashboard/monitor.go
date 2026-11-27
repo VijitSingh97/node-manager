@@ -42,6 +42,7 @@ type monitorState struct {
 	syncPending   bool
 	lastBlock     int64
 	hasLastBlock  bool
+	seenAt        int64
 	syncPercent   float64
 	pendingBlock  int64
 	diskAlerted   bool
@@ -66,6 +67,7 @@ type persistedNodeState struct {
 	SyncPending  bool    `json:"sync_pending"`
 	LastBlock    int64   `json:"last_block"`
 	HasLastBlock bool    `json:"has_last_block"`
+	SeenAt       int64   `json:"seen_at,omitempty"`
 	SyncPercent  float64 `json:"sync_percent,omitempty"`
 	PendingBlock int64   `json:"pending_block"`
 	DiskAlerted  bool    `json:"disk_alerted"`
@@ -380,6 +382,9 @@ func (m *Monitor) tickNode(ctx context.Context, state *monitorState, chain, data
 		if blocks, ok := integer(info["blocks"]); ok {
 			if alertNewBlock && state.hasLastBlock && hasIBD && !ibd && blocks > state.lastBlock && blocks-state.lastBlock <= 6 {
 				state.pendingBlock = blocks
+			}
+			if now := m.now().Unix(); now-state.seenAt >= 600 {
+				state.seenAt = now
 			}
 			state.lastBlock = blocks
 			state.hasLastBlock = true
