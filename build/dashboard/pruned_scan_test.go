@@ -945,6 +945,25 @@ func TestPrunedRefreshRejectsWrongCachedCoreWallet(t *testing.T) {
 	}
 }
 
+func TestPrunedBatchCountsAPublicKeyOutputUnderItsWallet(t *testing.T) {
+	bestBlock := strings.Repeat("6", 64)
+	scan := validPrunedScan(bestBlock)
+	scan.TotalAmount = 1.75
+	scan.Unspents = append(scan.Unspents, scanTxOutSetUnspent{TxID: strings.Repeat("b", 64), Vout: 1, ScriptPubKey: "21abac", Desc: "pk(02abcdef)#scan", Amount: 0.5, Height: 800001})
+	mock := &prunedRPCMock{bestBlock: bestBlock, result: scan, deriveFailure: "pk("}
+	a, handler, _ := newPrunedTestApp(t, t.TempDir(), mock)
+	entry, err := a.watch.Add("Combo", genesisAddress, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !a.scanner.enqueue(entry, true) {
+		t.Fatal("scan was not queued")
+	}
+	if row := waitPrunedState(t, handler, "ok"); row["btc"] != "1.75" {
+		t.Fatalf("pk() output not counted: %#v", row)
+	}
+}
+
 func TestPrunedBatchExcludesUnaddressableEntry(t *testing.T) {
 	bestBlock := strings.Repeat("5", 64)
 	badAddress := "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu"

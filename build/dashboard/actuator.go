@@ -190,6 +190,11 @@ func (a *app) healthComponents() map[string]actuatorComponent {
 	if state := a.utxo.Status().State; state != utxoStateOff {
 		components["balance_index"] = balanceIndexComponent(state)
 	}
+	for id, m := range a.chainUtxo {
+		if state := m.Status().State; state != utxoStateOff {
+			components["balance_index_"+id] = balanceIndexComponent(state)
+		}
+	}
 	return components
 }
 

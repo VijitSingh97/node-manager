@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -454,7 +455,11 @@ func (s *prunedScanner) scanBatch(parent context.Context) {
 		addresses, derived := derivedOutputs[output.Desc]
 		if !derived {
 			shortCtx, shortCancel := context.WithTimeout(ctx, 15*time.Second)
-			err := s.app.rpc.call(shortCtx, "deriveaddresses", []any{output.Desc}, &addresses)
+			desc := output.Desc
+			if body, _, _ := strings.Cut(desc, "#"); strings.HasPrefix(body, "pk(") {
+				desc = "pkh" + strings.TrimPrefix(body, "pk")
+			}
+			err := s.app.rpc.call(shortCtx, "deriveaddresses", []any{desc}, &addresses)
 			shortCancel()
 			if err != nil || len(addresses) == 0 {
 				outcome = "derive_error"
