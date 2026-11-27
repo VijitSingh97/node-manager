@@ -1,0 +1,66 @@
+[
+  {
+    "key": "addr(9ttt1BNvcqEtdWLdPUu7QRzUs7BaawYJnf)",
+    "name": "Busiest P2SH output address in blocks 6475049-6475198 (297 outputs)"
+  },
+  {
+    "key": "addr(D6Dz1pzn2AcwSfz1Sat6Re54pghrFxcRa8)",
+    "name": "Busiest P2PKH output address in blocks 6475049-6475198 (138 outputs)"
+  },
+  {
+    "key": "addr(DBTrXhmzMbo1bkYAv6ZYodtwvTahhApf7y)",
+    "name": "Second busiest P2PKH output address in blocks 6475049-6475198 (126 outputs)"
+  },
+  {
+    "key": "addr(DCUnHTaLj8ALcF9xEUzJ2wHrR8bwf9jxwh)",
+    "name": "Third busiest P2PKH output address in blocks 6475049-6475198 (87 outputs)"
+  },
+  {
+    "key": "addr(DDz1H7AcqPgmKzFEP3pBHW5b1GWuWEoAAP)",
+    "name": "Fourth busiest P2PKH output address in blocks 6475049-6475198 (76 outputs)"
+  },
+  {
+    "key": "addr(DM7KsoXuWtnuA4FGv13B5gEXjy5DLWhREi)",
+    "name": "Fifth busiest P2PKH output address in blocks 6475049-6475198 (71 outputs)"
+  },
+  {
+    "key": "addr(ADNbM5fBujCRBW1vqezNeAWmnsLp19ki3n)",
+    "name": "Second busiest P2SH output address in blocks 6475049-6475198 (25 outputs)"
+  },
+  {
+    "key": "addr(A65PRXy9qRzvwGcuLsBWR6Fp4yLAukZQfQ)",
+    "name": "Third busiest P2SH output address in blocks 6475049-6475198 (13 outputs)"
+  },
+  {
+    "key": "addr(DEgDVFa2DoW1533dxeDVdTxQFhMzs1pMke)",
+    "name": "Blockchair rich list rank 1 (read 2026-11-27 at 6,475,194)"
+  },
+  {
+    "key": "addr(D8ZEVbgf4yPs3MK8dMJJ7PpSyBKsbd66TX)",
+    "name": "Blockchair rich list rank 2 (read 2026-11-27 at 6,475,194)"
+  },
+  {
+    "key": "addr(DE5opaXjFgDhFBqL6tBDxTAQ56zkX6EToX)",
+    "name": "Blockchair rich list rank 3 (read 2026-11-27 at 6,475,194)"
+  },
+  {
+    "key": "addr(DDTtqnuZ5kfRT5qh2c7sNtqrJmV3iXYdGG)",
+    "name": "Blockchair rich list rank 4 (read 2026-11-27 at 6,475,194)"
+  },
+  {
+    "key": "addr(AC8azEyeWHk1L7XKvyeBjJtVwRwXgmP5hQ)",
+    "name": "Blockchair rich list rank 5 (P2SH) (read 2026-11-27 at 6,475,194)"
+  },
+  {
+    "key": "addr(DCdaxPdM33N2ViG8XyWxLKifri7xGRzKCq)",
+    "name": "Blockchair rich list rank 6 (read 2026-11-27 at 6,475,194)"
+  },
+  {
+    "key": "addr(DDogepartyxxxxxxxxxxxxxxxxxxw1dfzr)",
+    "name": "Blockchair rich list rank 8 (read 2026-11-27 at 6,475,194), the Dogeparty burn address"
+  },
+  {
+    "key": "addr(D89DhnsgKncmN12RejxudfU8AwXp3946q1)",
+    "name": "Dogecoin Foundation, the dashboard's example Dogecoin wallet"
+  }
+]

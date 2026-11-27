@@ -473,7 +473,7 @@ func (a *app) chainBenchHost(id string, rpc *rpcClient, chain *utxoChainParams, 
 			return objects, nil
 		}
 	}
-	return utxoBenchHost{
+	host := utxoBenchHost{
 		chain:    id,
 		prefix:   prefix,
 		stateDir: a.cfg.stateDir,
@@ -503,6 +503,11 @@ func (a *app) chainBenchHost(id string, rpc *rpcClient, chain *utxoChainParams, 
 		hold:    hold,
 		release: release,
 	}
+	// Dogecoin Core 1.14.9 has no scantxoutset, so a nil scan makes --scan refuse.
+	if id == nodeDogecoin {
+		host.scan = nil
+	}
+	return host
 }
 
 // addrKeyScript resolves an addr() key with validateaddress and returns the node's spelling of the address and its script.
