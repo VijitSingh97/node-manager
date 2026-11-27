@@ -56,21 +56,25 @@ func (a *app) fetchTariStatus(ctx context.Context, node nodeConfig, status gener
 			status.TargetHeight = status.Height
 		}
 	}
-	status.Synced = tip.InitialSyncAchieved && tip.BaseNodeState == BaseNodeState_LISTENING && status.Height > 0
-	if progressErr == nil {
-		status.Synced = status.Synced && progress.State == SyncState_DONE && progress.LocalHeight >= progress.TipHeight
+	now := time.Now().Unix()
+	if tip.Metadata.Timestamp > 0 && tip.Metadata.Timestamp <= uint64(now+tipFutureSkewSeconds) {
+		status.LatestBlockTimestamp, status.LatestBlockAvailable = int64(tip.Metadata.Timestamp), true
+		status.LatestBlockAgeSeconds = max(0, now-int64(tip.Metadata.Timestamp))
 	}
+	tipFresh := status.LatestBlockAvailable && status.LatestBlockAgeSeconds <= int64(tariTipFreshFor/time.Second)
+	tipStale := status.LatestBlockAvailable && !tipFresh
+	nodeSynced := tip.InitialSyncAchieved && tip.BaseNodeState == BaseNodeState_LISTENING && status.Height > 0
+	if progressErr == nil {
+		nodeSynced = nodeSynced && progress.State == SyncState_DONE && progress.LocalHeight >= progress.TipHeight
+	}
+	status.Synced = nodeSynced && !tipStale
+	status.TipStale = nodeSynced && tipStale
 	if status.Synced {
 		status.SyncPercent = 100
 	} else if status.TargetHeight > 0 {
 		status.SyncPercent = min(100, float64(status.Height)/float64(status.TargetHeight)*100)
 	}
 	status.Pruned, status.PrunedAvailable = true, true
-	now := time.Now().Unix()
-	if tip.Metadata.Timestamp > 0 && tip.Metadata.Timestamp <= uint64(now) {
-		status.LatestBlockTimestamp, status.LatestBlockAvailable = int64(tip.Metadata.Timestamp), true
-		status.LatestBlockAgeSeconds = now - int64(tip.Metadata.Timestamp)
-	}
 	if version, versionErr := client.GetVersion(ctx, &emptypb.Empty{}); versionErr == nil {
 		status.Version = version.Version
 	}
@@ -85,7 +89,6 @@ func (a *app) fetchTariStatus(ctx context.Context, node nodeConfig, status gener
 		status.DiskTotalBytes, status.DiskFreeBytes, status.DiskAvailable = disk.Total, disk.Free, true
 	}
 	a.fillFromHostStats(node.ID, &status)
-	tipFresh := status.LatestBlockAvailable && status.LatestBlockAgeSeconds <= int64(tariTipFreshFor/time.Second)
 	a.updateTariSyncMarker(status.Synced && tipFresh)
 	return status, nil
 }

@@ -47,6 +47,14 @@ All notable changes to this project are documented here. Format follows
   the node syncs, pruned wallets keep their cached balances instead of running
   a full scan on every block. Index log lines for Litecoin, Bitcoin Cash and
   Dogecoin now name the chain so they can be told apart.
+- A node that has lost its peers no longer reads as synced. When headers stop
+  advancing and the node's newest block is more than 2 hours old, the Bitcoin,
+  Litecoin, Bitcoin Cash and Dogecoin towers, the balance index, wallet balances
+  and history, fee estimates, `/metrics` and `/actuator/health` all report it
+  as syncing, using one shared rule. Telegram sync alerts still follow the
+  node's own sync state. The Monero and Tari towers now also
+  require a fresh tip (under 30 minutes) before they say synced, and Monero fee
+  history skips samples while the node is syncing.
 
 - Family-chain watch wallets no longer show "Cached balance; a fresh scan is
   unavailable" while the balance index is serving them fine. On Dogecoin
