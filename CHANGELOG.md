@@ -6,6 +6,15 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- Activating or starting a node now warns when the host has less free memory
+  or idle CPU than the node is expected to need, since bringing it up anyway
+  can make it and other nodes unstable. The dialog compares the node's budget
+  (4 GiB and 2 CPUs until it has synced, then its configured steady caps, plus
+  512 MiB for the Monero and Tari wallet sidecars) with what the host has free
+  right now. The warning is advisory: Activate and Start stay enabled.
+
 ### Changed
 
 - `node-manager utxo-index bench --chain dogecoin` now runs the index lookup
