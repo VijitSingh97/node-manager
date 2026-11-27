@@ -111,4 +111,5 @@ func TestUtxoLitecoinMWEBRegtestLive(t *testing.T) {
 		t.Fatalf("after the reorg the index differs from a reseed: %s", recordDiff(got, want))
 	}
 	verifyLiveStore(t, n, nodeLitecoin, utxoLitecoin, index)
+	benchHostMatchesScan(t, n, nodeLitecoin, utxoLitecoin, []string{pegoutAddr, miner}, []string{pegoutScript, w.script(miner)})
 }

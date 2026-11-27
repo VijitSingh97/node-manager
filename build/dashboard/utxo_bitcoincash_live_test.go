@@ -297,4 +297,5 @@ func TestUtxoBitcoinCashRawReplayRegtestLive(t *testing.T) {
 	}
 	compare(fmt.Sprintf("after a one-block reorg to height %d", n.height()))
 	verifyLiveStore(t, n, nodeBitcoinCash, utxoBitcoinCash, m.currentStore())
+	benchHostMatchesScan(t, n, nodeBitcoinCash, utxoBitcoinCash, []string{mine, change, other}, []string{mineScript, changeScript, otherScript})
 }

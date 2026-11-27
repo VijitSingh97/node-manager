@@ -24,7 +24,7 @@ func startDogecoinNode(t *testing.T, dataDir string) *liveNode {
 	if image == "" {
 		t.Skip("set DOGE_REGTEST_IMAGE to a node-manager-dogecoin image to run against a regtest Dogecoin Core")
 	}
-	return runLiveNode(t, "18443", "-v", dataDir+":/data", "--entrypoint", "dogecoind", image, "-regtest", "-datadir=/data", "-rpcport=18443",
+	return runLiveNode(t, "18443", "--user", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()), "-v", dataDir+":/data", "--entrypoint", "dogecoind", image, "-regtest", "-datadir=/data", "-rpcport=18443",
 		"-acceptnonstdtxn=1", "-printtoconsole=0", "-rpcuser=test", "-rpcpassword=test", "-rpcbind=0.0.0.0", "-rpcallowip=0.0.0.0/0")
 }
 
