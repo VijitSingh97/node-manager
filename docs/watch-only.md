@@ -148,6 +148,22 @@ Fresh state includes two sourced public examples:
 Examples are clearly marked and excluded from personal totals. Removing one is
 persistent; restarting the dashboard does not add it back.
 
+## Coins paid directly to a public key (P2PK)
+
+An address is looked up under its own script only: pay-to-pubkey-hash for a
+legacy address, pay-to-script-hash for a `3...`, `M...` or `9...` address. Coins
+that an older output type paid straight to the same public key (P2PK, common in
+early and some current mining payouts) sit under a different script, so they
+are not counted for Litecoin, Bitcoin Cash, Dogecoin or Bitcoin addresses. This
+holds for the balance index and for the scan, so a bench or verify run agrees
+with the card and an explorer can show more. It was seen on Dogecoin, where 38
+of 150 recent coinbases paid P2PK (issue 494); Litecoin and Bitcoin Cash look
+up the same way, and their share is not measured. The index does store those
+outputs; counting them needs a second index key and a new seed, which is not
+planned yet. On a pruned Bitcoin node, a `combo()` descriptor does count its
+P2PK outputs. A test pins this behaviour so a change is deliberate. The family
+cards show a one-line note about it.
+
 ## Monero view-only wallets
 
 A Monero address alone cannot reveal incoming outputs. Open the Monero card,
@@ -317,6 +333,10 @@ wallet, balances wait until the index is ready. If a pruned node drops blocks th
 index still needs, the index is marked invalid and is seeded again automatically.
 On mini-1 the seed took 27 minutes and the index holds 202 million coins in 18.4 GB
 ([measurement](measurements/dogecoin-index-mainnet.md)).
+
+With the index on, the Dogecoin card holds up to 50 addresses; with it off, 25.
+If you turn the index off while more than 25 are saved, they stay listed and can
+be removed, but no more can be added until the list is back under 25.
 
 ## Dogecoin archival watch wallet (opt-in)
 
@@ -506,7 +526,9 @@ measured seed budget, a "Needs a new seed" card, upgrades and removal.
 - **Same limits as the scan.** Confirmed unspent balance only: no transaction
   history, no spent outputs, no mempool or unconfirmed activity. Indexes 0 to
   999 of receive and change per descriptor, so a wallet that used a higher index
-  is undercounted, as with the scan. Bitcoin only.
+  is undercounted, as with the scan. Coins paid directly to a public key (P2PK) are
+  not counted for an address, see
+  [Coins paid directly to a public key](#coins-paid-directly-to-a-public-key-p2pk). Bitcoin only.
 - **Supported keys.** Addresses and `pkh`, `wpkh`, `sh(wpkh)`, `wsh` and `tr`
   descriptors, including xpubs that resolve to them. Other shapes, such as
   `pk()` or `combo()`, keep using the scan.

@@ -229,6 +229,21 @@ func TestActuatorHealthReportsComponentsToTheActuatorLogin(t *testing.T) {
 	}
 }
 
+func TestActuatorHealthReportsEachFamilyChainBalanceIndex(t *testing.T) {
+	a, _ := testApp(t, &rpcFixture{}, "")
+	a.chainUtxo = map[string]*utxoManager{
+		nodeLitecoin: utxoMgrNewChain(t, t.TempDir(), nil, newFakeUtxoNode(utxoMgrChain(2, "b")), io.Discard, utxoChains[nodeLitecoin]),
+	}
+	components := a.healthComponents()
+	got, ok := components["balance_index_litecoin"]
+	if !ok || got.Status != statusDegraded {
+		t.Fatalf("litecoin index component = %v, listed %v", got, ok)
+	}
+	if _, listed := components["balance_index_dogecoin"]; listed {
+		t.Fatalf("an index that is off was listed: %v", components)
+	}
+}
+
 func TestActuatorInfoReportsCachedChainState(t *testing.T) {
 	a, handler := testApp(t, &rpcFixture{}, "")
 	enableActuator(t, handler)

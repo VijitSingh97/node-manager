@@ -400,6 +400,9 @@ first — a live copy of `chainstate/` is corrupt by construction.
       `DEGRADED`, with the index state in `details.state`. Wallet balances
       fall back to the slower scan meanwhile, and the index counts as
       `catching_up` while its node is itself behind the network.
+    - `balance_index_litecoin`, `balance_index_bitcoincash` and
+      `balance_index_dogecoin` (each only when that chain's index is turned
+      on): the same `UP`/`DEGRADED` rule and `details.state`.
 
     The overall status is `DOWN` if any component is `DOWN`, `DEGRADED` if any
     is `DEGRADED`, otherwise `UP`.
