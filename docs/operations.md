@@ -381,7 +381,12 @@ first — a live copy of `chainstate/` is corrupt by construction.
     - `dashboard`: always `UP`.
     - One entry per active node, with `details.state`:
       - `synced`: `UP`.
-      - `syncing`: `DEGRADED`.
+      - `syncing`: `DEGRADED`. For Bitcoin, Litecoin, Bitcoin Cash and Dogecoin
+        this includes a node whose headers run ahead of its blocks or whose newest
+        block is more than 2 hours old (peers lost), even if Core says its initial
+        download is over. Tari reports `syncing` while its tip is more than
+        30 minutes old. These stale-tip cases show on the actuator only; they do
+        not trigger Telegram sync alerts.
       - `busy`: `DEGRADED`. The node is being changed from the dashboard, or
         a balance index seed has paused Bitcoin RPC. This matches the window
         in which node-down alerts are held.
@@ -395,6 +400,9 @@ first — a live copy of `chainstate/` is corrupt by construction.
       `DEGRADED`, with the index state in `details.state`. Wallet balances
       fall back to the slower scan meanwhile, and the index counts as
       `catching_up` while its node is itself behind the network.
+    - `balance_index_litecoin`, `balance_index_bitcoincash` and
+      `balance_index_dogecoin` (each only when that chain's index is turned
+      on): the same `UP`/`DEGRADED` rule and `details.state`.
 
     The overall status is `DOWN` if any component is `DOWN`, `DEGRADED` if any
     is `DEGRADED`, otherwise `UP`.
@@ -462,8 +470,10 @@ first — a live copy of `chainstate/` is corrupt by construction.
   are `null` until the index has a tip and the node has answered once;
   `seed_progress` is `null` unless a seed is running. `ready` means the index
   is valid, idle and within 2 blocks of the node tip, and the node is not itself
-  syncing (initial download, or its headers more than 2 blocks ahead of its blocks),
-  in which case it reports `catching_up` with `blocks_behind` counted to the headers;
+  syncing (initial download, its headers more than 2 blocks ahead of its blocks,
+  or, for Bitcoin, Litecoin, Bitcoin Cash and Dogecoin, a newest block more than 2 hours
+  old), in which case it reports `catching_up` with a `reason` saying why and
+  `blocks_behind` counted to the headers;
   a wallet balance comes
   from the index only at `blocks_behind` 0, otherwise the scan answers. Seed status adds `phase`
   (`waiting`, `importing`, `merging`, `paused` or `cancelling`; empty when no

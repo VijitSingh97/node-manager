@@ -30,6 +30,7 @@ const (
 
 	utxoReadyLag       = 2
 	utxoReasonNodeSync = "waiting for the node to sync"
+	utxoReasonNodeTip  = "the node's newest block is more than 2 hours old"
 	utxoMinFreeBytes   = 2_000_000_000
 	utxoMilestone      = 1000
 
@@ -108,6 +109,8 @@ type utxoManager struct {
 	nodeTip       int64
 	nodeHeaders   int64
 	nodeIBD       bool
+	nodeTipTime   int64
+	tipClock      tipClock
 	indexTip      *uint32
 	seeding       bool
 	autoSeedAt    time.Time
@@ -284,8 +287,8 @@ func (m *utxoManager) Status() utxoIndexStatus {
 	}
 	if st.State == utxoStateReady && ((st.Behind != nil && *st.Behind > utxoReadyLag) || (m.follower != nil && m.follower.Status().State == utxoFollowRollback)) {
 		st.State = utxoStateCatching
-	} else if st.State == utxoStateReady && m.nodeBehindLocked() {
-		st.State, st.Reason = utxoStateCatching, utxoReasonNodeSync
+	} else if reason := m.nodeBehindLocked(); st.State == utxoStateReady && reason != "" {
+		st.State, st.Reason = utxoStateCatching, reason
 		if m.indexTip != nil {
 			behind := max(m.nodeHeaders, m.nodeTip) - int64(*m.indexTip)
 			st.Behind = &behind
@@ -298,8 +301,44 @@ func nodeBehindNetwork(ibd bool, blocks, headers int64) bool {
 	return ibd || headers > 0 && headers-blocks > utxoReadyLag
 }
 
-func (m *utxoManager) nodeBehindLocked() bool {
-	return nodeBehindNetwork(m.nodeIBD, m.nodeTip, m.nodeHeaders)
+func chainTipStale(tipTime int64, now time.Time) bool {
+	return tipTime > 0 && now.Unix()-tipTime > int64(familyWatchTipMaxAge.Seconds())
+}
+
+func chainBehind(ibd bool, blocks, headers, tipTime int64, now time.Time) bool {
+	return nodeBehindNetwork(ibd, blocks, headers) || chainTipStale(tipTime, now)
+}
+
+type tipClock struct {
+	mu   sync.Mutex
+	hash string
+	time int64
+}
+
+func (c *tipClock) at(ctx context.Context, rpc utxoRPC, hash string) int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if hash == "" {
+		return 0
+	}
+	if c.hash != hash {
+		var header familyBlockHeader
+		if rpc.call(ctx, "getblockheader", []any{hash}, &header) != nil || header.Time <= 0 {
+			return 0
+		}
+		c.hash, c.time = hash, header.Time
+	}
+	return c.time
+}
+
+func (m *utxoManager) nodeBehindLocked() string {
+	switch {
+	case nodeBehindNetwork(m.nodeIBD, m.nodeTip, m.nodeHeaders):
+		return utxoReasonNodeSync
+	case chainTipStale(m.nodeTipTime, m.now()):
+		return utxoReasonNodeTip
+	}
+	return ""
 }
 
 func (m *utxoManager) currentStore() *utxoStore {
@@ -643,9 +682,12 @@ func (m *utxoManager) tick(ctx context.Context) {
 		return
 	}
 	m.mu.Lock()
-	wasNodeBehind := m.nodeBehindLocked()
-	m.nodeTip, m.nodeHeaders, m.nodeIBD = info.Blocks, info.Headers, info.InitialBlockDownload
-	nodeBehind := m.nodeBehindLocked()
+	wasNodeBehind := m.nodeBehindLocked() != ""
+	m.mu.Unlock()
+	tipTime := m.tipClock.at(ctx, m.rpc, info.BestBlockHash)
+	m.mu.Lock()
+	m.nodeTip, m.nodeHeaders, m.nodeIBD, m.nodeTipTime = info.Blocks, info.Headers, info.InitialBlockDownload, tipTime
+	nodeBehind := m.nodeBehindLocked() != ""
 	m.mu.Unlock()
 	if !m.bound {
 		var genesis string

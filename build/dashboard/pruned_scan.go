@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -454,7 +455,19 @@ func (s *prunedScanner) scanBatch(parent context.Context) {
 		addresses, derived := derivedOutputs[output.Desc]
 		if !derived {
 			shortCtx, shortCancel := context.WithTimeout(ctx, 15*time.Second)
-			err := s.app.rpc.call(shortCtx, "deriveaddresses", []any{output.Desc}, &addresses)
+			desc := output.Desc
+			// pk() has no address; Core's deriveaddresses needs the checksummed pkh() of the same key.
+			if body, _, _ := strings.Cut(desc, "#"); strings.HasPrefix(body, "pk(") {
+				var info struct {
+					Descriptor string `json:"descriptor"`
+				}
+				infoCtx, infoCancel := context.WithTimeout(ctx, 15*time.Second)
+				if s.app.rpc.call(infoCtx, "getdescriptorinfo", []any{"pkh" + strings.TrimPrefix(body, "pk")}, &info) == nil && info.Descriptor != "" {
+					desc = info.Descriptor
+				}
+				infoCancel()
+			}
+			err := s.app.rpc.call(shortCtx, "deriveaddresses", []any{desc}, &addresses)
 			shortCancel()
 			if err != nil || len(addresses) == 0 {
 				outcome = "derive_error"

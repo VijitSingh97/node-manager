@@ -133,6 +133,15 @@ func (a *app) sampleMoneroFee(ctx context.Context) {
 	if !a.nodeWorkerRunnable(nodeMonero, true) {
 		return
 	}
+	rpc := moneroRPC{url: a.cfg.moneroRPCURL, user: a.cfg.moneroRPCUser, password: a.cfg.moneroRPCPassword, client: newInternalHTTPClient(5 * time.Second)}
+	var info moneroInfo
+	if rpc.call(ctx, "get_info", &info) != nil || !info.Synchronized || info.BusySyncing {
+		return
+	}
+	var last moneroLastBlock
+	if rpc.call(ctx, "get_last_block_header", &last) != nil || last.BlockHeader.Timestamp == 0 || time.Since(time.Unix(int64(last.BlockHeader.Timestamp), 0)) > moneroTipFreshFor {
+		return
+	}
 	fees, err := a.fetchMoneroFeeEstimate(ctx)
 	if err != nil || a.moneroFees == nil {
 		return

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -584,5 +585,32 @@ func TestUtxoStoreKillHelper(t *testing.T) {
 		if next == first {
 			fmt.Println("committed")
 		}
+	}
+}
+
+func TestAddressLookupCountsP2PKHButNotP2PKOutputsOfTheSameKey(t *testing.T) {
+	pubkey, err := hex.DecodeString("04678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5f")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2pk := append(append([]byte{byte(len(pubkey))}, pubkey...), 0xac)
+	p2pkh, err := addressScript(genesisAddress)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := utxoTestOpen(t, t.TempDir())
+	blk := utxoBlock{Height: 1, Hash: utxoTestHash(1), PrevHash: utxoTestHash(0), Creates: []utxoCreate{
+		{utxoOutpoint: utxoOutpoint{Txid: utxoTestTxid(1), Vout: 0}, Script: p2pkh, Amount: 100},
+		{utxoOutpoint: utxoOutpoint{Txid: utxoTestTxid(1), Vout: 1}, Script: p2pk, Amount: 5000},
+	}}
+	if err := s.ApplyBlock(blk); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Lookup([][]byte{p2pkh})
+	if err != nil || len(got) != 1 || got[0].Amount != 100 {
+		t.Fatalf("an address lookup returned %v, %v; coins paid directly to the key are documented as not counted (#494)", got, err)
+	}
+	if direct, err := s.Lookup([][]byte{p2pk}); err != nil || len(direct) != 1 {
+		t.Fatalf("the P2PK output must stay in the index under its own script: %v, %v", direct, err)
 	}
 }

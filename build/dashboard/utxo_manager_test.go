@@ -34,6 +34,7 @@ type fakeUtxoNode struct {
 	pruneHeight int64
 	headers     int64
 	ibd         bool
+	tipAge      time.Duration
 	hook        func(method string, params any) error
 }
 
@@ -44,7 +45,15 @@ func (n *fakeUtxoNode) call(ctx context.Context, method string, params any, out 
 		}
 	}
 	if method == "getblockchaininfo" {
-		raw, _ := json.Marshal(map[string]any{"chain": n.chain, "blocks": len(n.hashes) - 1, "pruned": n.pruned, "pruneheight": n.pruneHeight, "headers": n.headers, "initialblockdownload": n.ibd})
+		info := map[string]any{"chain": n.chain, "blocks": len(n.hashes) - 1, "pruned": n.pruned, "pruneheight": n.pruneHeight, "headers": n.headers, "initialblockdownload": n.ibd}
+		if n.tipAge > 0 {
+			info["bestblockhash"] = fmt.Sprintf("tip-%d", n.tipAge)
+		}
+		raw, _ := json.Marshal(info)
+		return json.Unmarshal(raw, out)
+	}
+	if method == "getblockheader" && n.tipAge > 0 && params.([]any)[0] == fmt.Sprintf("tip-%d", n.tipAge) {
+		raw, _ := json.Marshal(map[string]any{"time": time.Now().Add(-n.tipAge).Unix()})
 		return json.Unmarshal(raw, out)
 	}
 	return n.fakeUtxoChain.call(ctx, method, params, out)
@@ -1279,6 +1288,41 @@ func TestUtxoStatusDemotesReadyWhileNodeIsBehindOnEveryChain(t *testing.T) {
 			m.mu.Unlock()
 			if st := m.Status(); st.State != utxoStateReady || st.Reason != "" {
 				t.Fatalf("unknown headers: %+v", st)
+			}
+		})
+	}
+}
+
+func TestUtxoManagerDemotesReadyWhenNodeTipIsStale(t *testing.T) {
+	ctx := context.Background()
+	c := utxoMgrChain(10, "b")
+	node := newFakeUtxoNode(c)
+	node.headers = 9
+	dir := t.TempDir()
+	utxoMgrSeed(t, dir, nil, c)
+	m := utxoMgrNew(t, dir, nil, node, io.Discard)
+	node.tipAge = 5 * time.Hour
+	m.tick(ctx)
+	if st := m.Status(); st.State != utxoStateCatching || st.Reason != utxoReasonNodeTip {
+		t.Fatalf("stale tip: %+v", st)
+	}
+	node.tipAge = time.Minute
+	m.tick(ctx)
+	if st := m.Status(); st.State != utxoStateReady || st.Reason != "" {
+		t.Fatalf("fresh tip: %+v", st)
+	}
+}
+
+func TestUtxoStatusDemotesReadyWhenNodeTipIsStaleOnEveryChain(t *testing.T) {
+	for name, chain := range map[string]*utxoChainParams{"bitcoin": utxoBitcoin, "litecoin": utxoLitecoin, "bitcoincash": utxoBitcoinCash, "dogecoin": utxoDogecoin} {
+		t.Run(name, func(t *testing.T) {
+			m := utxoMgrNewChain(t, t.TempDir(), nil, newFakeUtxoNode(utxoMgrChain(2, "b")), io.Discard, chain)
+			tip := uint32(1000)
+			m.mu.Lock()
+			m.state, m.indexTip, m.nodeTip, m.nodeHeaders, m.nodeTipTime = utxoStateReady, &tip, 1000, 1000, time.Now().Add(-3*time.Hour).Unix()
+			m.mu.Unlock()
+			if st := m.Status(); st.State != utxoStateCatching || st.Reason != utxoReasonNodeTip {
+				t.Fatalf("stale: %+v", st)
 			}
 		})
 	}

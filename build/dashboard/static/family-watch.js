@@ -6,8 +6,11 @@ import { el, managerRow, renderWalletList, replaceIfChanged, safeLink } from "./
 const SUPPORTED = new Set(["litecoin", "dogecoin", "bitcoincash", "zcash"]);
 const UNITS = { litecoin: "LTC", dogecoin: "DOGE", bitcoincash: "BCH", zcash: "ZEC" };
 const PRICE_ASSETS = { litecoin: "litecoin", dogecoin: "dogecoin", bitcoincash: "bitcoin-cash", zcash: "zcash" };
+const P2PK_NOTE = "Coins paid directly to a public key (P2PK, common in mining payouts) are not counted.";
 export const SCOPE_NOTES = {
-  litecoin: "Balances cover transparent outputs only. Funds inside MWEB are not counted, and the peg-in pool shows as one non-wallet coin.",
+  litecoin: `Balances cover transparent outputs only. Funds inside MWEB are not counted, and the peg-in pool shows as one non-wallet coin. ${P2PK_NOTE}`,
+  bitcoincash: P2PK_NOTE,
+  dogecoin: P2PK_NOTE,
 };
 
 export function familyAmount(value) {

@@ -71,7 +71,7 @@ read alerts but never change anything.
 | 🚀 **Monitor online** (Monitor starts) | The dashboard started with an already-synced node — confirms the bot works after setup. |
 | 🔴 **Node down** (Node offline) | One configured node's RPC is unreachable for 3 consecutive minutes. |
 | 🟢 **Node recovered** (Node recovered) | That node's RPC answers again after a down alert. |
-| ✅ **Initial sync complete** (Sync complete) | A node's initial sync finished. |
+| ✅ **Initial sync complete** (Sync complete) | A node's initial sync finished. A stale tip (no new block for 2 hours, or 30 minutes for Monero and Tari) does not send sync alerts. |
 | 💾 **Disk low** (Low disk) | A node's data volume has less than 50 GiB free by default (Low disk threshold (free GiB) in Settings). Re-arms if space is freed. |
 | 🆕 **Update available** (Dashboard update) | A new stack release exists (checked daily, over Tor). Also a dashboard badge. Informational only; update manually through APT, Homebrew, or [GitHub](operations.md#upgrading). |
 | 🟧 **New block** | A synced node accepted a new block. **Off by default**; Bitcoin produces about 144 a day and Monero about 720. Enable either node separately. |
