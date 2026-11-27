@@ -23,7 +23,7 @@ func benchHostMatchesScan(t *testing.T, n *liveNode, id string, chain *utxoChain
 			wantCoins++
 			wantSats += sats
 		}
-		resolved, err := host.resolve(ctx, keys[i:i+1])
+		resolved, err := host.resolve(ctx, keys[i:i+1], nil)
 		if err != nil || len(resolved) != 1 || len(resolved[0].Scripts) == 0 || hex.EncodeToString(resolved[0].Scripts[0]) != script {
 			t.Fatalf("resolve %s: %+v %v, want script %s", keys[i], resolved, err, script)
 		}

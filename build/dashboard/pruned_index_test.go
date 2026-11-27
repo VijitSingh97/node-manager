@@ -158,7 +158,9 @@ func TestPrunedFallsBackToScanWhenIndexCannotServe(t *testing.T) {
 		"unsupported": {ready, func(context.Context, []string, func([][]byte)) ([]walletScripts, error) {
 			return []walletScripts{{Fallback: true}}, nil
 		}},
-		"rpc error": {ready, func(context.Context, []string, func([][]byte)) ([]walletScripts, error) { return nil, errors.New("down") }},
+		"rpc error": {ready, func(context.Context, []string, func([][]byte)) ([]walletScripts, error) {
+			return nil, errors.New("down")
+		}},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
