@@ -156,19 +156,30 @@ persistent; restarting the dashboard does not add it back.
 
 ## Coins paid directly to a public key (P2PK)
 
-An address is looked up under its own script only: pay-to-pubkey-hash for a
-legacy address, pay-to-script-hash for a `3...`, `M...` or `9...` address. Coins
-that an older output type paid straight to the same public key (P2PK, common in
-early and some current mining payouts) sit under a different script, so they
-are not counted for Litecoin, Bitcoin Cash, Dogecoin or Bitcoin addresses. This
-holds for the balance index and for the scan, so a bench or verify run agrees
-with the card and an explorer can show more. It was seen on Dogecoin, where 38
-of 150 recent coinbases paid P2PK (issue 494); Litecoin and Bitcoin Cash look
-up the same way, and their share is not measured. The index does store those
-outputs; counting them needs a second index key and a new seed, which is not
-planned yet. On a pruned Bitcoin node, a `combo()` descriptor does count its
-P2PK outputs. A test pins this behaviour so a change is deliberate. The family
-cards show a one-line note about it.
+An older output type pays straight to a public key (P2PK, common in early and some
+current mining payouts) instead of to its hash. Explorers count such coins under the
+address of that key, and so does the balance index: for Bitcoin, Litecoin, Bitcoin
+Cash and Dogecoin, an `addr()` of a legacy address and a `pkh()` descriptor count the
+P2PK coins of the key that hashes to it. On Dogecoin, 38 of 150 recent coinbases paid
+P2PK (issue 494), so a miner's address could show 0 while explorers showed the reward.
+
+- **One key serialization is one address.** The compressed and the uncompressed form
+  of a key are two different addresses, as on every explorer; each counts only its own
+  P2PK coins. Segwit and script-hash addresses of the same key are separate addresses
+  and do not get them.
+- **Only the balance index counts them.** The scan fallback (`scantxoutset`) cannot
+  tell a public key from an address, so while the index is off, seeding or behind, a
+  wallet with P2PK coins can show a lower balance, and it returns when the index
+  serves again. The source badge and the cached note show which one answered.
+- **An index built by an older release does not have them.** The index does not keep
+  scripts, so it cannot be converted in place. After the upgrade the index keeps
+  serving with a note, then rebuilds once by itself when the node is synced, one index
+  at a time; see [hardware](hardware.md#balance-indexes) and
+  [operations](operations.md#seeding-the-bitcoin-balance-index). `./stack utxo-seed`
+  starts the rebuild at a time you choose.
+- **`combo()` and `pk()` on Bitcoin** keep using the scan, which counts P2PK natively.
+
+The family cards show a one-line note about this.
 
 ## Monero view-only wallets
 
@@ -552,10 +563,11 @@ measured seed budget, a "Needs a new seed" card, upgrades and removal.
   history, no spent outputs, no mempool or unconfirmed activity. Indexes 0 to
   999 of receive and change per descriptor, so a wallet that used a higher index
   is undercounted, as with the scan. Coins paid directly to a public key (P2PK) are
-  not counted for an address, see
+  counted under the address of that key, see
   [Coins paid directly to a public key](#coins-paid-directly-to-a-public-key-p2pk). Bitcoin only.
 - **Supported keys.** Addresses and `pkh`, `wpkh`, `sh(wpkh)`, `wsh` and `tr`
-  descriptors, including xpubs that resolve to them. Other shapes, such as
+  descriptors, including xpubs that resolve to them; a legacy address or `pkh()` also
+  counts the P2PK coins of its key. Other shapes, such as
   `pk()` or `combo()`, keep using the scan.
 - **What is stored.** The `utxo_index` volume holds public chain data: hashed
   script prefixes, txids, output numbers, amounts and heights. It does not say

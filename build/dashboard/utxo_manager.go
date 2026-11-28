@@ -84,6 +84,7 @@ type utxoManager struct {
 	store    *utxoStore
 	follower *utxoFollower
 	bound    bool
+	legacy   bool
 	lowDisk  atomic.Bool
 	stop     context.CancelFunc
 	// blocked names a block the index cannot apply; it stays parked there until the dashboard restarts.
@@ -144,6 +145,7 @@ type utxoIndexStatus struct {
 	NodeSynced            bool            `json:"node_synced"`
 	WaitingFor            string          `json:"waiting_for"`
 	SeedStopped           string          `json:"seed_stopped,omitempty"`
+	P2PKMissing           bool            `json:"p2pk_missing,omitempty"`
 }
 
 func newUtxoManager(dir string, fs vfs.FS, rpc utxoRPC, logger *log.Logger, chain *utxoChainParams) *utxoManager {
@@ -167,7 +169,7 @@ func newUtxoManager(dir string, fs vfs.FS, rpc utxoRPC, logger *log.Logger, chai
 }
 
 func (m *utxoManager) openLocked() {
-	m.bound, m.indexTip, m.follower = false, nil, nil
+	m.bound, m.indexTip, m.follower, m.legacy = false, nil, nil, false
 	if err := m.fs.MkdirAll(m.dir, 0o700); err != nil {
 		m.log.Printf("utxo index: cannot create the index directory: %v", err)
 		m.store = &utxoStore{invalidReason: "cannot create the index directory"}
@@ -188,6 +190,9 @@ func (m *utxoManager) openLocked() {
 		return
 	}
 	m.store = store
+	if m.legacy = store.Legacy(); m.legacy {
+		m.log.Print("utxo index: this index predates P2PK counting and rebuilds once the node is synced")
+	}
 	m.follower = newUtxoFollower(store, m.rpc)
 	m.follower.chain, m.follower.onBlock = m.chain, m.progress
 	switch height, _, hasTip, _ := store.Tip(); {
@@ -252,7 +257,7 @@ func (m *utxoManager) Status() utxoIndexStatus {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	st := utxoIndexStatus{Enabled: true, State: m.state, Reason: m.reason, IndexTip: m.indexTip, SeedProgress: m.seedProgress,
+	st := utxoIndexStatus{Enabled: true, P2PKMissing: m.legacy, State: m.state, Reason: m.reason, IndexTip: m.indexTip, SeedProgress: m.seedProgress,
 		Phase: m.phase, Refusals: slices.Clone(m.refusals), LastSeed: m.seed.Last}
 	if st.Refusals == nil {
 		st.Refusals = []seedRefusal{}
@@ -429,19 +434,19 @@ func (m *utxoManager) execSeed(ctx context.Context, fn func(context.Context) err
 
 func (m *utxoManager) startSeed() error {
 	m.mu.Lock()
-	state, busy := m.state, m.seeding
+	state, busy, legacy := m.state, m.seeding, m.legacy
 	m.mu.Unlock()
-	if busy || !seedableState(state, m.replays()) {
+	if busy || !seedableState(state, m.replays(), legacy) {
 		return errUtxoSeedState
 	}
-	if state == utxoStateInvalid {
+	if state == utxoStateInvalid || legacy {
 		if err := m.resetStore(); err != nil {
 			return err
 		}
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.state == utxoStateInvalid || !seedableState(m.state, m.replayingLocked()) {
+	if m.state == utxoStateInvalid || !seedableState(m.state, m.replayingLocked(), m.legacy) {
 		return errUtxoSeedState
 	}
 	zero := 0.0
@@ -514,8 +519,8 @@ func (m *utxoManager) stopAtBlockLocked(err error) {
 	m.setLocked(utxoStateDegraded, m.blocked)
 }
 
-func seedableState(state string, replay bool) bool {
-	return state == utxoStateNotSeeded || state == utxoStateInvalid || replay && state == utxoStateCatching
+func seedableState(state string, replay, legacy bool) bool {
+	return state == utxoStateNotSeeded || state == utxoStateInvalid || replay && state == utxoStateCatching || legacy && state == utxoStateReady
 }
 
 func (m *utxoManager) replayFraction() float64 {
@@ -569,7 +574,7 @@ func (m *utxoManager) setRefusals(refusals []seedRefusal) {
 func (m *utxoManager) resetStore() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.seeding || m.state != utxoStateNotSeeded && m.state != utxoStateInvalid {
+	if m.seeding || m.state != utxoStateNotSeeded && m.state != utxoStateInvalid && !(m.legacy && m.state == utxoStateReady) {
 		return errUtxoSeedState
 	}
 	return m.wipeLocked()

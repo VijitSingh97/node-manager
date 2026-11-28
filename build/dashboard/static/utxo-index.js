@@ -72,6 +72,9 @@ export function indexView(status, chain = "bitcoin") {
     const pct = status.seed_progress == null ? "" : ` ${Math.floor(status.seed_progress * 100)}%`;
     rows.push(`Seed: ${status.phase || "waiting"}${pct}`);
   }
+  if (status.p2pk_missing) {
+    rows.push(`Coins paid directly to a public key (P2PK) are not counted until this index is rebuilt. It rebuilds on its own when the node is synced; to rebuild now run: ${seedCommand(chain)}`);
+  }
   if (status.alerts_suppressed_until) {
     rows.push(`Node-down alerts are held until ${new Date(status.alerts_suppressed_until).toLocaleTimeString()}.`);
   }

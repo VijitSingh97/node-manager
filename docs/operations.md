@@ -541,6 +541,13 @@ for the node to sync, building with a percentage, catching up, or ready.
   for it (the node's stop can take up to five minutes) and then go through.
 - Turning an index on from Settings or the install dialog is all it takes: the
   next check seeds it.
+- An index built before coins paid to a public key (P2PK) were counted shows a note
+  and keeps serving. Once its node is synced it rebuilds once, automatically, through
+  the same guards, lock and back-off as any seed, one index at a time; the old index
+  is wiped when the rebuild begins, so Dogecoin shows its cached balances and the other
+  chains fall back to the scan (which cannot see P2PK) until it finishes. Run
+  `./stack utxo-seed` (with the chain name) to choose the time. Rolling back to an older
+  release makes the rebuilt index invalid, and it seeds again.
 - The automatic seed holds node-down alerts like a manual one. A source checkout
   has no host helper, so the index card shows the command and you seed it by hand.
   To seed it from the host, with the stack running and the node synced:

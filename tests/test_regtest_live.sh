@@ -12,7 +12,7 @@ case "$chain" in
   bitcoin)
     tests=(TestParseUtxoRegtestLive TestUtxoIngestRegtestLive TestResolveWalletScriptsRegtestLive TestUtxoFollowerRegtestLive
       TestUtxoFollowerRegtestReorg TestUtxoSeedRegtestLive TestUtxoManagerAppliesNewBlocksAtOnceRegtestLive
-      TestPrunedWalletIndexMatchesScantxoutsetRegtestLive TestUtxoStorageFullTmpfsLive)
+      TestPrunedWalletIndexMatchesScantxoutsetRegtestLive TestUtxoStorageFullTmpfsLive TestUtxoP2PKRegtestLive)
     image=$(sed -n 's/.*image: \(bitcoin\/bitcoin:[^ ]*\).*/\1/p' docker-compose.yml | head -n 1)
     test -n "$image"
     docker pull "$image"

@@ -76,7 +76,7 @@ test("saved balance charts preserve a single atomic-unit change", () => {
 });
 
 test("the Litecoin watch says MWEB funds are not counted", () => {
-  assert.equal(SCOPE_NOTES.litecoin, "Balances cover transparent outputs only. Funds inside MWEB are not counted, and the peg-in pool shows as one non-wallet coin. Coins paid directly to a public key (P2PK, common in mining payouts) are not counted.");
+  assert.equal(SCOPE_NOTES.litecoin, "Balances cover transparent outputs only. Funds inside MWEB are not counted, and the peg-in pool shows as one non-wallet coin. Coins paid directly to a public key (P2PK, common in mining payouts) are counted only while the balance index serves the wallet; a scan cannot see them.");
   assert.match(SCOPE_NOTES.dogecoin, /P2PK/);
   assert.match(SCOPE_NOTES.bitcoincash, /P2PK/);
   assert.deepEqual(Object.keys(SCOPE_NOTES), ["litecoin", "bitcoincash", "dogecoin"]);

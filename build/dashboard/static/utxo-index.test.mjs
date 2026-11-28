@@ -22,6 +22,12 @@ test("every endpoint state renders its label, and the confirmed-only row is alwa
   assert.match(CONFIRMED_ONLY, /mempool/);
 });
 
+test("a legacy index says P2PK is not counted until it is rebuilt", () => {
+  const view = indexView({ enabled: true, state: "ready", p2pk_missing: true }, "dogecoin");
+  assert.ok(view.rows.some((r) => /P2PK\) are not counted until this index is rebuilt.*\.\/stack utxo-seed dogecoin/.test(r)));
+  assert.ok(!indexView({ enabled: true, state: "ready" }).rows.some((r) => /P2PK/.test(r)));
+});
+
 test("hidden when the index is off or the status is missing", () => {
   assert.equal(indexView(null), null);
   assert.equal(indexView({ enabled: false, state: "off" }), null);

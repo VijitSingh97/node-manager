@@ -419,7 +419,7 @@ func (m *utxoManager) setWaiting(waiting string) {
 
 func (m *utxoManager) autoSeedStartableLocked(now time.Time, replay bool) bool {
 	switch {
-	case m.state == utxoStateNotSeeded, m.replayBehindLocked():
+	case m.state == utxoStateNotSeeded, m.replayBehindLocked(), m.legacy && m.state == utxoStateReady:
 		return true
 	case m.state == utxoStateInvalid && !replay:
 		// An index that went invalid right after a good seed is not reseeded at once, which would stop the node again and again.

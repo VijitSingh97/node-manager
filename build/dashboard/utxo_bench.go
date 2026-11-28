@@ -29,16 +29,17 @@ const (
 var benchBatchSizes = []int{1, 5, 20}
 
 type utxoBenchHost struct {
-	chain      string
-	prefix     string
-	stateDir   string
-	validate   func(context.Context, string) error
-	resolve    func(context.Context, []string) ([]walletScripts, error)
-	cachedRead func(context.Context) (func(), int, error)
-	scan       func(context.Context, []string) (benchScanRun, error)
-	txOutSet   func(context.Context) (txOutSetInfo, error)
-	hold       func() bool
-	release    func()
+	chain       string
+	prefix      string
+	stateDir    string
+	validate    func(context.Context, string) error
+	resolve     func(context.Context, []string) ([]walletScripts, error)
+	cachedRead  func(context.Context) (func(), int, error)
+	scan        func(context.Context, []string) (benchScanRun, error)
+	txOutSet    func(context.Context) (txOutSetInfo, error)
+	confirmP2PK func(context.Context, []utxoCoin) error
+	hold        func() bool
+	release     func()
 }
 
 type benchWallet struct {
@@ -107,6 +108,8 @@ type benchScanWallet struct {
 	IndexCoins int     `json:"index_coins"`
 	IndexSats  int64   `json:"index_sats"`
 	Match      *bool   `json:"match,omitempty"`
+	P2PKCoins  int     `json:"p2pk_coins,omitempty"`
+	P2PKSats   int64   `json:"p2pk_sats,omitempty"`
 }
 
 type benchScan struct {
@@ -183,6 +186,50 @@ func (m *utxoManager) benchLookup(ctx context.Context, scripts [][]byte, repeat 
 		coins = found
 	}
 	return benchSummary(samples), coins, true
+}
+
+const benchP2PKConfirmMax = 2000
+
+func splitP2PKCoins(coins []utxoCoin) (plain, p2pk []utxoCoin) {
+	for _, c := range coins {
+		if c.P2PK {
+			p2pk = append(p2pk, c)
+		} else {
+			plain = append(plain, c)
+		}
+	}
+	return plain, p2pk
+}
+
+// confirmP2PKCoins checks each flagged coin against the node's own copy of its output, which no scan can see.
+func confirmP2PKCoins(ctx context.Context, rpc *rpcClient, coins []utxoCoin) error {
+	calls := make([]rpcBatchCall, len(coins))
+	for i, c := range coins {
+		calls[i] = rpcBatchCall{Method: "gettxout", Params: []any{reverseHex(c.Txid), c.Vout, false}}
+	}
+	replies, err := batchChunks(ctx, rpc, calls)
+	if err != nil {
+		return err
+	}
+	for i, c := range coins {
+		var out struct {
+			Value        float64 `json:"value"`
+			ScriptPubKey struct {
+				Hex string `json:"hex"`
+			} `json:"scriptPubKey"`
+		}
+		if len(replies[i].Error) > 0 && string(replies[i].Error) != "null" || json.Unmarshal(replies[i].Result, &out) != nil || out.ScriptPubKey.Hex == "" {
+			return fmt.Errorf("%s:%d is not unspent", reverseHex(c.Txid), c.Vout)
+		}
+		script, err := hex.DecodeString(out.ScriptPubKey.Hex)
+		if err != nil {
+			return err
+		}
+		if h, p2pk := utxoCanonHash(script); !p2pk || h != c.ScriptHash || uint64(math.Round(out.Value*1e8)) != c.Amount {
+			return fmt.Errorf("%s:%d differs from the node's output", reverseHex(c.Txid), c.Vout)
+		}
+	}
+	return nil
 }
 
 func benchTotalsOf(coins []utxoCoin) benchTotals {
@@ -379,7 +426,9 @@ func (m *utxoManager) benchScan(ctx context.Context, req benchRequest, res *benc
 			refuse("wallet %d: the scan failed or timed out", i+1)
 			return
 		}
-		index := benchTotalsOf(coins)
+		plain, p2pk := splitP2PKCoins(coins)
+		index, flagged := benchTotalsOf(plain), benchTotalsOf(p2pk)
+		sw.P2PKCoins, sw.P2PKSats = flagged.Coins, flagged.Sats
 		sw.Seconds, sw.Height, sw.Coins, sw.Sats, sw.IndexCoins, sw.IndexSats = run.Seconds, run.Height, run.Totals.Coins, run.Totals.Sats, index.Coins, index.Sats
 		if indexed && reverseHex(hash) == run.Best {
 			match := run.Totals == index
@@ -387,6 +436,11 @@ func (m *utxoManager) benchScan(ctx context.Context, req benchRequest, res *benc
 			compared++
 			if !match {
 				res.Failures = append(res.Failures, fmt.Sprintf("wallet %d: the index and the scan differ at height %d", i+1, run.Height))
+			}
+			if len(p2pk) > 0 && h.confirmP2PK != nil {
+				if err := h.confirmP2PK(ctx, p2pk[:min(len(p2pk), benchP2PKConfirmMax)]); err != nil {
+					res.Failures = append(res.Failures, fmt.Sprintf("wallet %d: a P2PK coin the index attributes to it is not confirmed by the node: %v", i+1, err))
+				}
 			}
 		}
 		res.Scan.Wallets = append(res.Scan.Wallets, sw)
@@ -500,8 +554,9 @@ func (a *app) chainBenchHost(id string, rpc *rpcClient, chain *utxoChainParams, 
 			}
 			return info, scanRPC.call(ctx, "gettxoutsetinfo", args, &info)
 		},
-		hold:    hold,
-		release: release,
+		confirmP2PK: func(ctx context.Context, coins []utxoCoin) error { return confirmP2PKCoins(ctx, &scanRPC, coins) },
+		hold:        hold,
+		release:     release,
 	}
 	// Dogecoin Core 1.14.9 has no scantxoutset, so a nil scan makes --scan refuse.
 	if id == nodeDogecoin {

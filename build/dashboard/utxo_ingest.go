@@ -291,9 +291,13 @@ func ingestUtxoRecords(s *utxoStore, parse func(onHeader func(utxoHeader), fn fu
 			return nil
 		}
 		var e utxoIngestRec
-		key := utxoCoinKey(utxoScriptHash(rec.ScriptPubKey), utxoOutpoint{Txid: rec.Txid, Vout: uint32(rec.Vout)})
+		if rec.Height >= utxoP2PKBit {
+			return fmt.Errorf("coin height %d out of range", rec.Height)
+		}
+		h, p2pk := s.keyHash(rec.ScriptPubKey)
+		key := utxoCoinKey(h, utxoOutpoint{Txid: rec.Txid, Vout: uint32(rec.Vout)})
 		copy(e[:], key)
-		copy(e[utxoKeyLen:], utxoCoinValue(rec.Amount, rec.Height))
+		copy(e[utxoKeyLen:], utxoCoinValue(rec.Amount, rec.Height, p2pk))
 		buf = append(buf, e)
 		if s.reverse {
 			var r utxoIngestRec

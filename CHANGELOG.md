@@ -6,6 +6,27 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- <a id="p2pk-under-address"></a>An address on Bitcoin, Litecoin, Bitcoin Cash and
+  Dogecoin now counts the coins paid directly to its public key (P2PK, common in
+  mining payouts), as explorers do (issue 494). On Dogecoin 38 of 150 recent
+  coinbases paid P2PK, so a miner's address could show 0. One serialization of a
+  key is one address: the compressed and uncompressed forms are different
+  addresses, and segwit or script-hash forms of the key do not get these coins.
+  **The upgrade reseeds each balance index.** The index does not store scripts,
+  so an existing index cannot be converted. It keeps serving and following with a
+  note, then rebuilds once, automatically, when its node is synced, one index at a
+  time through the usual seed guards. Dogecoin and Bitcoin Cash stop the node for
+  about 2 minutes for the chainstate copy. Bitcoin and Litecoin dump the UTXO set
+  as a normal seed does. The old index is wiped when the rebuild begins: Dogecoin
+  has no balances for roughly 30 minutes of import (1,618 s measured on the
+  reference host), and Bitcoin, Litecoin and Bitcoin Cash fall back to the scan,
+  which cannot see P2PK, so affected balances dip and return. Balances of P2PK
+  addresses rise after the rebuild. Run `utxo-seed` to choose the time. Rolling
+  back to an older release makes the rebuilt index invalid, and it seeds again.
+  Not yet measured on the reference host, which was frozen.
+
 ### Added
 
 - Activating, starting or installing a node now warns when the host has less
@@ -26,6 +47,9 @@ All notable changes to this project are documented here. Format follows
 
 ### Changed
 
+- `utxo-index bench --scan` compares the scan with the index's non-P2PK coins,
+  lists the P2PK coins separately and confirms each with the node's `gettxout`;
+  `utxo-index verify` prints how many index coins are P2PK.
 - `node-manager utxo-index bench --chain dogecoin` now runs the index lookup
   bench for Dogecoin. The command line refused it, although the dashboard
   already set up a bench for every indexed chain. Wallets are `addr(<address>)`
@@ -43,10 +67,8 @@ All notable changes to this project are documented here. Format follows
   A job fails if a required test skips, and a Dependabot bump of the Bitcoin
   image now runs it before merge.
 - Documented that an address wallet on Litecoin, Bitcoin Cash, Dogecoin and
-  Bitcoin does not count coins paid directly to its public key (P2PK, common in
-  mining payouts; issue 494), and the Litecoin, Bitcoin Cash and Dogecoin
-  cards now say so. A second index key for those outputs needs a new seed and
-  is not built yet.
+  Bitcoin did not count coins paid directly to its public key (P2PK, common in
+  mining payouts; issue 494). Fixed in this release, see Fixed.
 - CI now runs the real Monero 0.18.5.4 daemon on regtest with two
   `monero-wallet-rpc` services: it mines to a known address, adds that address
   as a view-only watch wallet, imports key images, checks the verified balance,
