@@ -188,7 +188,8 @@ func (m *utxoManager) openLocked() {
 			m.log.Printf("utxo index: cannot restrict the index directory: %v", err)
 		}
 	}
-	if name := m.settleLayoutLocked(); name != "" {
+	name, drops := m.settleLayoutLocked()
+	if name != "" {
 		m.storeDir = m.fs.PathJoin(m.dir, name)
 	}
 	store, err := openUtxoStoreFS(m.storeDir, m.fs, m.chain.ReverseIndex)
@@ -199,6 +200,7 @@ func (m *utxoManager) openLocked() {
 		return
 	}
 	m.store = store
+	m.removeLeftovers(drops)
 	if m.legacy = store.Legacy(); m.legacy {
 		m.log.Print("utxo index: this index predates P2PK counting and rebuilds once the node is synced")
 	}
@@ -460,6 +462,11 @@ func (m *utxoManager) startSeed() error {
 	if m.seeding || m.state == utxoStateInvalid || !seedableState(m.state, m.replayingLocked(), m.legacy) {
 		return errUtxoSeedState
 	}
+	if m.legacy && m.replayBehindLocked() {
+		if err := m.wipeLocked(); err != nil {
+			return err
+		}
+	}
 	beside := m.legacy && m.state != utxoStateNotSeeded
 	if beside {
 		if err := m.beginBuildLocked(); err != nil {
@@ -640,10 +647,19 @@ func (m *utxoManager) setSeedStatePath(path string) {
 	replay := m.replayingLocked()
 	now := m.now()
 	m.seed.SeedState, m.seed.Phase, m.seed.Progress = utxoOutcomeFailed, "", nil
+	if interrupted && m.storeDir != m.dir {
+		m.seed.SeedState = utxoOutcomeOK
+		m.seed.Last = &utxoSeedResult{Outcome: utxoOutcomeOK, FinishedAt: now, DurationSeconds: now.Sub(m.seed.StartedAt).Seconds()}
+		m.persistSeedLocked()
+		m.log.Print("utxo index: a rebuild switched in before the restart and is kept")
+		return
+	}
 	if interrupted {
 		m.seed.Last = &utxoSeedResult{Outcome: utxoOutcomeFailed, Reason: errSeedInterrupted.Error(), FinishedAt: now, DurationSeconds: now.Sub(m.seed.StartedAt).Seconds()}
-		if !replay && !m.legacy {
+		if !replay || m.legacy {
 			m.countAutoSeedLocked(false)
+		}
+		if !replay && !m.legacy {
 			_ = m.wipeLocked()
 		}
 	}

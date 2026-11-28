@@ -280,11 +280,13 @@ func (s *prunedScanner) applyBlocks(entries []WatchEntry, base string, chain blo
 	type wallet struct {
 		entry     WatchEntry
 		cache     prunedScanCache
+		p2pk      bool
 		addresses map[string]bool
 		outpoints map[string]scanOutpoint
 	}
 	wallets := make([]wallet, 0, len(entries))
 	height := int64(-1)
+	p2pkCounted := !s.app.utxo.Status().P2PKMissing
 	for _, entry := range entries {
 		cache, _, ok := s.app.watch.scanSnapshot(entry)
 		if !ok || cache.BestBlock != base || height >= 0 && cache.Height != height {
@@ -299,7 +301,7 @@ func (s *prunedScanner) applyBlocks(entries []WatchEntry, base string, chain blo
 		for _, outpoint := range cache.Outpoints {
 			outpoints[fmt.Sprintf("%s:%d", outpoint.TxID, outpoint.Vout)] = outpoint
 		}
-		wallets = append(wallets, wallet{entry: entry, cache: cache, addresses: addresses, outpoints: outpoints})
+		wallets = append(wallets, wallet{entry: entry, cache: cache, p2pk: cache.Source == scanSourceIndex && p2pkCounted, addresses: addresses, outpoints: outpoints})
 	}
 	previous := base
 	for next := height + 1; next <= chain.Blocks; next++ {
@@ -330,7 +332,7 @@ func (s *prunedScanner) applyBlocks(entries []WatchEntry, base string, chain blo
 					continue
 				}
 				for i := range wallets {
-					if !wallets[i].addresses[address] {
+					if !wallets[i].addresses[address] || output.ScriptPubKey.Type == "pubkey" && !wallets[i].p2pk {
 						continue
 					}
 					sats, ok := btcSatoshis(output.Value)

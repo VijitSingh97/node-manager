@@ -33,6 +33,7 @@ const (
 	utxoSeedRefused  = "refused"
 
 	utxoOutcomeFailed = "failed"
+	utxoOutcomeOK     = "ok"
 )
 
 var (
@@ -620,7 +621,12 @@ func (m *utxoManager) seedFromReplay(parent context.Context) error {
 		case errors.Is(err, errUtxoBlockTooLarge):
 			return err
 		case f.Status().State == utxoFollowError || utxoIntegrityError(err) || errors.Is(err, errUtxoChainMismatch) || errors.Is(err, syscall.ENOSPC):
-			m.fail(err)
+			m.mu.Lock()
+			beside := m.build != nil
+			m.mu.Unlock()
+			if !beside {
+				m.fail(err)
+			}
 			return err
 		}
 		// A step that committed blocks before it failed made progress, so only consecutive stalls use up the retries.

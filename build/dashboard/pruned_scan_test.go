@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -1173,42 +1172,62 @@ func TestPrunedWatchAgainstRealCore(t *testing.T) {
 	}
 }
 
-func TestPrunedWatchBlockUpdateCountsP2PKOutputsOfTheWalletKey(t *testing.T) {
-	base, next := strings.Repeat("0", 64), strings.Repeat("1", 64)
-	txid := func(c string) string { return strings.Repeat(c, 64) }
-	pubkey := func(value float64, n int, keyHex string) map[string]any {
-		script := hex.EncodeToString(p2pkScript(t, keyHex))
-		return map[string]any{"value": value, "n": n, "scriptPubKey": map[string]any{"hex": script, "type": "pubkey"}}
-	}
-	mock := &prunedRPCMock{bestBlock: base, result: validPrunedScan(base), deriveAddress: p2pkAddrGCompressed}
-	a, handler, _ := newPrunedTestApp(t, t.TempDir(), mock)
-	if response := addPrunedWatch(t, handler, "Cold", genesisAddress); response.Code != http.StatusOK {
-		t.Fatalf("add response = %d %q", response.Code, response.Body.String())
-	}
-	waitPrunedState(t, handler, "ok")
-	waitPrunedScannerIdle(t, a.scanner)
-	mock.mu.Lock()
-	mock.bestBlock, mock.result.Height = next, 900001
-	mock.hashes = map[int64]string{900001: next}
-	badKey := map[string]any{"value": 9.0, "n": 3, "scriptPubKey": map[string]any{"hex": "21" + strings.Repeat("00", 33) + "ac", "type": "pubkey"}}
-	mock.blocks = map[string]any{next: map[string]any{"hash": next, "previousblockhash": base, "tx": []any{
-		map[string]any{"txid": txid("c"), "vin": []any{map[string]any{"coinbase": "03"}}, "vout": []any{
-			pubkey(0.4, 0, p2pkKeyGCompressed), pubkey(0.7, 1, p2pkKeyGUncompressed), badKey,
-		}},
-	}}}
-	mock.mu.Unlock()
-	entry := a.watch.Entries()[0]
-	a.scanner.refresh(a.watch.Entries(), blockchainInfo{Pruned: true, Chain: "main", BestBlockHash: next, Blocks: 900001})
-	cache, _, ok := a.watch.scanSnapshot(entry)
-	want := scanOutpoint{TxID: txid("c"), Vout: 0, Sats: 40_000_000, Height: 900001}
-	if !ok || cache.BestBlock != next || cache.BTC != 1.65 || !slices.Contains(cache.Outpoints, want) || len(cache.Outpoints) != 2 {
-		t.Fatalf("a new P2PK payment to the wallet's key was not counted by the block update: %#v", cache)
-	}
-	mock.mu.Lock()
-	starts := mock.startCalls
-	mock.mu.Unlock()
-	if starts != 1 {
-		t.Fatalf("the block update ran %d full scans, want only the first", starts)
+func TestPrunedWatchBlockUpdateCountsP2PKOnlyForACompleteIndexCache(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		source string
+		legacy bool
+		want   float64
+		coins  int
+	}{
+		{"index cache", scanSourceIndex, false, 1.65, 2},
+		{"scan cache", scanSourceScan, false, 1.25, 1},
+		{"legacy index", scanSourceIndex, true, 1.25, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base, next := strings.Repeat("0", 64), strings.Repeat("1", 64)
+			txid := func(c string) string { return strings.Repeat(c, 64) }
+			pubkey := func(value float64, n int, keyHex string) map[string]any {
+				script := hex.EncodeToString(p2pkScript(t, keyHex))
+				return map[string]any{"value": value, "n": n, "scriptPubKey": map[string]any{"hex": script, "type": "pubkey"}}
+			}
+			mock := &prunedRPCMock{bestBlock: base, result: validPrunedScan(base), deriveAddress: p2pkAddrGCompressed}
+			a, handler, _ := newPrunedTestApp(t, t.TempDir(), mock)
+			if response := addPrunedWatch(t, handler, "Cold", genesisAddress); response.Code != http.StatusOK {
+				t.Fatalf("add response = %d %q", response.Code, response.Body.String())
+			}
+			waitPrunedState(t, handler, "ok")
+			waitPrunedScannerIdle(t, a.scanner)
+			entry := a.watch.Entries()[0]
+			cache, _, _ := a.watch.scanSnapshot(entry)
+			cache.Source = tc.source
+			a.watch.StoreScanBatch(map[string]entryScanCache{watchKeyID(entry.Key): {entry: entry, cache: cache}})
+			if tc.legacy {
+				r := newRebuildFixture(t)
+				a.utxo = r.m
+			}
+			mock.mu.Lock()
+			mock.bestBlock, mock.result.Height = next, 900001
+			mock.hashes = map[int64]string{900001: next}
+			badKey := map[string]any{"value": 9.0, "n": 3, "scriptPubKey": map[string]any{"hex": "21" + strings.Repeat("00", 33) + "ac", "type": "pubkey"}}
+			mock.blocks = map[string]any{next: map[string]any{"hash": next, "previousblockhash": base, "tx": []any{
+				map[string]any{"txid": txid("c"), "vin": []any{map[string]any{"coinbase": "03"}}, "vout": []any{
+					pubkey(0.4, 0, p2pkKeyGCompressed), pubkey(0.7, 1, p2pkKeyGUncompressed), badKey,
+				}},
+			}}}
+			mock.mu.Unlock()
+			a.scanner.refresh(a.watch.Entries(), blockchainInfo{Pruned: true, Chain: "main", BestBlockHash: next, Blocks: 900001})
+			got, _, ok := a.watch.scanSnapshot(entry)
+			if !ok || got.BestBlock != next || got.BTC != tc.want || len(got.Outpoints) != tc.coins {
+				t.Fatalf("block update counted %v BTC in %d coins, want %v in %d: %#v", got.BTC, len(got.Outpoints), tc.want, tc.coins, got)
+			}
+			mock.mu.Lock()
+			starts := mock.startCalls
+			mock.mu.Unlock()
+			if starts != 1 {
+				t.Fatalf("the block update ran %d full scans, want only the first", starts)
+			}
+		})
 	}
 }
 

@@ -75,12 +75,13 @@ func (m *utxoManager) writeActive(name string) error {
 	return nil
 }
 
-// settleLayoutLocked finishes a switch that crashed after the pointer moved and drops a rebuild that never finished; it returns the active subdirectory, or "" for the volume root.
-func (m *utxoManager) settleLayoutLocked() string {
+// settleLayoutLocked finds the active subdirectory, or "" for the volume root, and the leftovers of a finished switch or an unfinished rebuild to delete once the store opens.
+func (m *utxoManager) settleLayoutLocked() (string, []string) {
 	names, err := m.fs.List(m.dir)
 	if err != nil {
-		return ""
+		return "", nil
 	}
+	var drops []string
 	active := m.readActive()
 	found := false
 	for _, n := range names {
@@ -98,12 +99,18 @@ func (m *utxoManager) settleLayoutLocked() string {
 			drop = strings.HasPrefix(n, utxoRebuildPrefix) || strings.HasPrefix(n, utxoActiveName)
 		}
 		if drop {
-			if err := m.fs.RemoveAll(m.fs.PathJoin(m.dir, n)); err != nil {
-				m.log.Printf("utxo index: cannot remove %s: %v", n, err)
-			}
+			drops = append(drops, n)
 		}
 	}
-	return active
+	return active, drops
+}
+
+func (m *utxoManager) removeLeftovers(names []string) {
+	for _, n := range names {
+		if err := m.fs.RemoveAll(m.fs.PathJoin(m.dir, n)); err != nil {
+			m.log.Printf("utxo index: cannot remove %s: %v", n, err)
+		}
+	}
 }
 
 func (m *utxoManager) beginBuildLocked() error {
