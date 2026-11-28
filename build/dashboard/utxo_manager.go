@@ -71,6 +71,7 @@ type utxoSeedState struct {
 	AutoRequestID string `json:"auto_request_id,omitempty"`
 	AutoFailures  int    `json:"auto_failures,omitempty"`
 	Mode          string `json:"mode,omitempty"`
+	RebuildDir    string `json:"rebuild_dir,omitempty"`
 }
 
 type utxoManager struct {
@@ -478,7 +479,7 @@ func (m *utxoManager) startSeed() error {
 	m.seeding, m.phase, m.seedProgress, m.refusals = true, utxoPhaseWaiting, &zero, nil
 	m.seedLogged = 0
 	m.seed.SeedState, m.seed.Phase, m.seed.Progress = utxoSeedRunning, utxoPhaseWaiting, &zero
-	m.seed.StartedAt, m.seed.AlertsUntil = m.now(), time.Time{}
+	m.seed.StartedAt, m.seed.AlertsUntil, m.seed.RebuildDir = m.now(), time.Time{}, m.buildDir
 	if !beside {
 		m.setLocked(utxoStateSeeding, "")
 	}
@@ -502,7 +503,7 @@ func (m *utxoManager) finishSeed(err error) {
 	}
 	now := m.now()
 	m.seeding, m.phase, m.seedProgress = false, "", nil
-	m.seed.SeedState, m.seed.Phase, m.seed.Progress = outcome, "", nil
+	m.seed.SeedState, m.seed.Phase, m.seed.Progress, m.seed.RebuildDir = outcome, "", nil, ""
 	// After a failure Core may still be hashing with RPC stalled, so only success ends the hold early.
 	if err == nil {
 		m.seed.AlertsUntil = time.Time{}
@@ -646,8 +647,9 @@ func (m *utxoManager) setSeedStatePath(path string) {
 	interrupted := m.seed.SeedState == utxoSeedRunning
 	replay := m.replayingLocked()
 	now := m.now()
-	m.seed.SeedState, m.seed.Phase, m.seed.Progress = utxoOutcomeFailed, "", nil
-	if interrupted && m.storeDir != m.dir {
+	switched := interrupted && m.seed.RebuildDir != "" && m.storeDir == m.fs.PathJoin(m.dir, m.seed.RebuildDir)
+	m.seed.SeedState, m.seed.Phase, m.seed.Progress, m.seed.RebuildDir = utxoOutcomeFailed, "", nil, ""
+	if switched {
 		m.seed.SeedState = utxoOutcomeOK
 		m.seed.Last = &utxoSeedResult{Outcome: utxoOutcomeOK, FinishedAt: now, DurationSeconds: now.Sub(m.seed.StartedAt).Seconds()}
 		m.persistSeedLocked()

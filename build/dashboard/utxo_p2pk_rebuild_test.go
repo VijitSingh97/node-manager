@@ -422,6 +422,13 @@ func TestSeedNowOffersALegacyIndexItsRebuild(t *testing.T) {
 	if !a.seedNow(nodeBitcoin) {
 		t.Fatal("Seed now was not offered for a catching legacy index")
 	}
+	if err := a.utxo.startSeed(); err != nil {
+		t.Fatal(err)
+	}
+	if a.seedNow(nodeBitcoin) {
+		t.Fatal("Seed now was offered while the legacy index rebuilds")
+	}
+	a.utxo.finishSeed(context.Canceled)
 	capability(false)
 	if a.seedNow(nodeBitcoin) {
 		t.Fatal("Seed now was offered by a host helper that cannot prepare a seed")

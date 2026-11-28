@@ -66,7 +66,7 @@ func TestRestartAfterTheSwitchKeepsTheRebuiltIndex(t *testing.T) {
 	}
 	_ = r.m.store.Close()
 	m := utxoMgrNew(t, r.dir, nil, r.node, io.Discard)
-	m.setSeedStatePath(writeSeedState(t, utxoSeedState{SeedState: utxoSeedRunning, StartedAt: time.Now()}))
+	m.setSeedStatePath(writeSeedState(t, utxoSeedState{SeedState: utxoSeedRunning, StartedAt: time.Now(), RebuildDir: filepath.Base(m.storeDir)}))
 	if st := m.Status(); st.State == utxoStateNotSeeded || !m.store.canon {
 		t.Fatalf("the restart wiped the rebuilt index: %+v", st)
 	}
@@ -75,6 +75,22 @@ func TestRestartAfterTheSwitchKeepsTheRebuiltIndex(t *testing.T) {
 	}
 	if m.seed.Last == nil || m.seed.Last.Outcome != utxoOutcomeOK {
 		t.Fatalf("the finished rebuild was recorded as %+v", m.seed.Last)
+	}
+}
+
+func TestInterruptedReseedOfARebuiltIndexCountsAsAFailure(t *testing.T) {
+	r := newRebuildFixture(t)
+	if err := r.m.execSeed(t.Context(), r.m.seedFromReplay); err != nil {
+		t.Fatal(err)
+	}
+	_ = r.m.store.Close()
+	m := utxoMgrNew(t, r.dir, nil, r.node, io.Discard)
+	if m.storeDir == m.dir {
+		t.Fatal("the rebuilt index is not in its own directory")
+	}
+	m.setSeedStatePath(writeSeedState(t, utxoSeedState{SeedState: utxoSeedRunning, Mode: seedModeChainstate, RequestID: "a", AutoRequestID: "a", StartedAt: time.Now()}))
+	if m.seed.AutoFailures != 1 || m.seed.Last == nil || m.seed.Last.Outcome != utxoOutcomeFailed {
+		t.Fatalf("the interrupted reseed was recorded as failures=%d last=%+v", m.seed.AutoFailures, m.seed.Last)
 	}
 }
 

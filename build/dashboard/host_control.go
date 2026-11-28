@@ -521,10 +521,10 @@ func (a *app) seedNow(node string) bool {
 	}
 	st := m.Status()
 	if m.replays() {
-		return m.host != nil && (st.State == utxoStateNotSeeded || st.State == utxoStateInvalid || st.P2PKMissing && (st.State == utxoStateReady || st.State == utxoStateCatching) || st.State == utxoStateCatching && st.NodeTip != nil && st.IndexTip != nil && *st.NodeTip-int64(*st.IndexTip) > utxoReplayGap)
+		return m.host != nil && (idleForSeed(st) || st.State == utxoStateCatching && st.NodeTip != nil && st.IndexTip != nil && *st.NodeTip-int64(*st.IndexTip) > utxoReplayGap)
 	}
 	capability, ok := a.hostControlCapability()
-	return (st.State == utxoStateNotSeeded || st.State == utxoStateInvalid || st.P2PKMissing && (st.State == utxoStateReady || st.State == utxoStateCatching)) && ok && capability.UTXOSeedSupported && !capability.ConfigPending
+	return idleForSeed(st) && ok && capability.UTXOSeedSupported && !capability.ConfigPending
 }
 
 func (a *app) requestReplaySeed(w http.ResponseWriter, m *utxoManager, node string) {
