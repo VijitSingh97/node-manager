@@ -33,6 +33,7 @@ const (
 	utxoSeedRefused  = "refused"
 
 	utxoOutcomeFailed = "failed"
+	utxoOutcomeOK     = "ok"
 )
 
 var (
@@ -419,7 +420,7 @@ func (m *utxoManager) setWaiting(waiting string) {
 
 func (m *utxoManager) autoSeedStartableLocked(now time.Time, replay bool) bool {
 	switch {
-	case m.state == utxoStateNotSeeded, m.replayBehindLocked():
+	case m.state == utxoStateNotSeeded, m.replayBehindLocked(), m.legacy && (m.state == utxoStateReady || m.state == utxoStateCatching):
 		return true
 	case m.state == utxoStateInvalid && !replay:
 		// An index that went invalid right after a good seed is not reseeded at once, which would stop the node again and again.
@@ -600,7 +601,7 @@ func (m *utxoManager) seedFromReplay(parent context.Context) error {
 	go m.watchSeedCancel(ctx, cancel)
 	m.setSeedPhase(utxoPhaseReplaying)
 	gate := &seedGate{m: m, ctx: ctx}
-	f := m.follower
+	f := m.seedFollower()
 	f.gate = gate.checkpoint
 	defer func() { f.gate = nil }()
 	for retries := 0; ; {
@@ -620,7 +621,12 @@ func (m *utxoManager) seedFromReplay(parent context.Context) error {
 		case errors.Is(err, errUtxoBlockTooLarge):
 			return err
 		case f.Status().State == utxoFollowError || utxoIntegrityError(err) || errors.Is(err, errUtxoChainMismatch) || errors.Is(err, syscall.ENOSPC):
-			m.fail(err)
+			m.mu.Lock()
+			beside := m.build != nil
+			m.mu.Unlock()
+			if !beside {
+				m.fail(err)
+			}
 			return err
 		}
 		// A step that committed blocks before it failed made progress, so only consecutive stalls use up the retries.
@@ -642,7 +648,7 @@ func (m *utxoManager) seedFromReplay(parent context.Context) error {
 }
 
 func (m *utxoManager) replayHeight() int64 {
-	h, _, ok, err := m.currentStore().Tip()
+	h, _, ok, err := m.seedStore().Tip()
 	if err != nil || !ok {
 		return -1
 	}
@@ -659,12 +665,14 @@ func (m *utxoManager) replayStep(ctx context.Context) (bool, error) {
 	if err := m.rpc.call(ctx, "getblockchaininfo", nil, &info); err != nil {
 		return false, err
 	}
-	store := m.currentStore()
+	store := m.seedStore()
 	if err := store.BindChain(info.Chain, genesis); err != nil {
 		return false, err
 	}
-	m.bound = true
 	m.mu.Lock()
+	if m.build == nil {
+		m.bound = true
+	}
 	m.nodeTip = info.Blocks
 	m.mu.Unlock()
 	height, _, hasTip, err := store.Tip()
@@ -674,7 +682,7 @@ func (m *utxoManager) replayStep(ctx context.Context) (bool, error) {
 	if hasTip && info.Blocks-int64(height) <= utxoReplayGap {
 		return true, nil
 	}
-	return false, m.follower.Step(ctx)
+	return false, m.seedFollower().Step(ctx)
 }
 
 type seedGate struct {
@@ -750,7 +758,7 @@ func (m *utxoManager) seedFromChainstate(parent context.Context) (err error) {
 			err = errSeedChainstate
 		}
 	}()
-	store := m.currentStore()
+	store := m.seedStore()
 	copied, err := openChainstateCopy(filepath.Join(m.host.dataDir, utxoChainstateCopyName), store.fs, store.fs.PathJoin(store.dir, utxoChainstateLogDir))
 	if err != nil {
 		m.log.Printf("utxo index: %v", err)
@@ -831,7 +839,7 @@ func (m *utxoManager) seedFromDump(parent context.Context, network [4]byte) erro
 	prog := &utxoIngestProgress{}
 	gate := &seedGate{m: m, ctx: ctx, prog: prog}
 	prog.Checkpoint = gate.checkpoint
-	_, err = ingestUtxoSnapshot(m.currentStore(), fifo, m.chain, network, func(hash [32]byte) (uint32, error) {
+	_, err = ingestUtxoSnapshot(m.seedStore(), fifo, m.chain, network, func(hash [32]byte) (uint32, error) {
 		select {
 		case out := <-dumped:
 			want, herr := utxoRevHex(out.res.BaseHash)

@@ -692,7 +692,7 @@ case "$args" in
       ok | mismatch)
         jq -n --slurpfile req "$FAKE_UTXO/verify-request.json" --arg scenario "${FAKE_VERIFY_SCENARIO:-ok}" '($scenario == "ok") as $ok |
           {id: $req[0].id, chain: $req[0].chain, hash_type: (if $req[0].chain == "dogecoin" then "hash_serialized" else "none" end), height: 900, best_block: "00ab",
-           index: {coins: 165000000, amount: "19912345.12345678", seconds: 61.24}, node: {coins: (if $ok then 165000000 else 165000001 end), amount: "19912345.12345678", seconds: 172.46}, match: $ok} +
+           index: {coins: 165000000, amount: "19912345.12345678", seconds: 61.24, p2pk_coins: 38, p2pk_amount: "12.50000000"}, node: {coins: (if $ok then 165000000 else 165000001 end), amount: "19912345.12345678", seconds: 172.46}, match: $ok} +
           (if $ok then {} else {failures: ["the index and the node'"'"'s UTXO set differ at height 900"]} end)'
         ;;
     esac
@@ -712,7 +712,7 @@ case "$args" in
            batches: [{wallets: 1, scripts: 2000, expected_scripts: 2000, fallback_wallets: 0, coins: 7, lookup: $t.lookup}, {wallets: 2, scripts: 2000, expected_scripts: 2000, fallback_wallets: 1, coins: 7, lookup: $t.lookup}],
            cached_read: {first_s: 0.001, p50_s: 0.002, p99_s: 0.004, max_s: 0.005, roster_wallets: 3}} +
           (if $req[0].scan then {scan: {batch_s: 41.5, batch_height: 900, wallets: [
-             {name: "alpha", scan_s: 20.25, height: 900, coins: 7, sats: 1234, index_coins: 7, index_sats: (if $bad then 1235 else 1234 end), match: ($bad | not)},
+             {name: "alpha", scan_s: 20.25, height: 900, coins: 7, sats: 1234, index_coins: 7, index_sats: (if $bad then 1235 else 1234 end), match: ($bad | not), p2pk_coins: 3, p2pk_sats: 500, p2pk_spent_after_scan: 1, p2pk_unchecked: 2},
              {name: "beta", scan_s: 0, height: 0, coins: 0, sats: 0, index_coins: 0, index_sats: 0}]}} else {} end) +
           (if $bad then {failures: ["wallet 1: the index and the scan differ at height 900"]} else {} end) +
           (if $scenario == "scanrefused" then {scan: {batch_s: 41.5, batch_height: 900, wallets: null}, refusals: ["wallet 1: the scan failed or timed out"]} else {} end)'
@@ -1025,6 +1025,9 @@ grep -q 'owner approved' "$tmp/ubench.out" || fail "utxo-index bench --scan did 
 grep -q 'Without the index (scantxoutset): batch of 1 41.5 s at height 900' "$tmp/ubench.out" || fail "utxo-index bench did not print the batch scan of the indexed wallets"
 grep -q 'alpha  *900  *20.25  *0.3  *68x  *7  *7  *1234  *1234  *true' "$tmp/ubench.out" || fail "utxo-index bench did not print the per-wallet scan, speedup and match"
 grep -q 'beta  *-  *fallback  .*n/a' "$tmp/ubench.out" || fail "utxo-index bench did not mark the fallback wallet in the scan table"
+grep -q 'alpha  *900 .*true  *3$' "$tmp/ubench.out" || fail "utxo-index bench did not print the P2PK column"
+grep -q '^note: alpha had 1 P2PK coin(s) spent after the compared block' "$tmp/ubench.out" || fail "utxo-index bench did not report a P2PK coin spent after the scan"
+grep -q '^note: alpha has 2 P2PK coin(s) past the limit of the node check' "$tmp/ubench.out" || fail "utxo-index bench did not report the P2PK coins it left unchecked"
 grep -q 'FAILED' "$tmp/ubench.out" && fail "utxo-index bench printed a failure for matching balances"
 
 reset_ubench
@@ -1106,6 +1109,7 @@ grep -q 'At height 900 (block 00ab), gettxoutsetinfo hash_type none' "$tmp/uveri
 grep -Eq '^index  *165000000  *19912345.12345678  *61.2$' "$tmp/uverify.out" || fail "utxo-index verify did not print the index row"
 grep -Eq '^node  *165000000  *19912345.12345678  *172.5$' "$tmp/uverify.out" || fail "utxo-index verify did not print the node row"
 grep -q "^PASS: the index matches the node's UTXO set.$" "$tmp/uverify.out" || fail "utxo-index verify did not print PASS"
+grep -q '^Of the index coins, 38 (12.50000000) are paid directly to a public key (P2PK)' "$tmp/uverify.out" || fail "utxo-index verify did not print the P2PK census"
 
 reset_uverify
 export FAKE_VERIFY_SCENARIO=mismatch

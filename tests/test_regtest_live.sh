@@ -12,18 +12,18 @@ case "$chain" in
   bitcoin)
     tests=(TestParseUtxoRegtestLive TestUtxoIngestRegtestLive TestResolveWalletScriptsRegtestLive TestUtxoFollowerRegtestLive
       TestUtxoFollowerRegtestReorg TestUtxoSeedRegtestLive TestUtxoManagerAppliesNewBlocksAtOnceRegtestLive
-      TestPrunedWalletIndexMatchesScantxoutsetRegtestLive TestUtxoStorageFullTmpfsLive)
+      TestPrunedWalletIndexMatchesScantxoutsetRegtestLive TestUtxoStorageFullTmpfsLive TestUtxoP2PKRegtestLive)
     image=$(sed -n 's/.*image: \(bitcoin\/bitcoin:[^ ]*\).*/\1/p' docker-compose.yml | head -n 1)
     test -n "$image"
     docker pull "$image"
     export UTXO_REGTEST=1
     ;;
   litecoin)
-    tests=(TestUtxoLitecoinMWEBRegtestLive)
+    tests=(TestUtxoLitecoinMWEBRegtestLive TestUtxoP2PKLitecoinRegtestLive)
     export LTC_REGTEST_IMAGE=node-manager-regtest-litecoin
     ;;
   bitcoincash)
-    tests=(TestUtxoBitcoinCashRawReplayRegtestLive TestUtxoBitcoinCashChainstateSeedRegtestLive)
+    tests=(TestUtxoBitcoinCashRawReplayRegtestLive TestUtxoBitcoinCashChainstateSeedRegtestLive TestUtxoP2PKBitcoinCashRegtestLive)
     export BCH_REGTEST_IMAGE=node-manager-regtest-bitcoincash
     ;;
   dogecoin)

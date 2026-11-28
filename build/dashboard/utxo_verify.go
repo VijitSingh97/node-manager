@@ -31,9 +31,11 @@ type txOutSetInfo struct {
 }
 
 type verifyTotals struct {
-	Coins   uint64  `json:"coins"`
-	Amount  string  `json:"amount"`
-	Seconds float64 `json:"seconds"`
+	Coins      uint64  `json:"coins"`
+	Amount     string  `json:"amount"`
+	Seconds    float64 `json:"seconds"`
+	P2PKCoins  uint64  `json:"p2pk_coins,omitempty"`
+	P2PKAmount string  `json:"p2pk_amount,omitempty"`
 }
 
 type verifyResult struct {
@@ -146,7 +148,8 @@ func (m *utxoManager) execVerify(ctx context.Context, res *verifyResult, height 
 		node <- reply{info, err, time.Since(started).Seconds()}
 	}()
 	started := time.Now()
-	coins, units, err := m.currentStore().Totals(ctx)
+	tot, err := m.currentStore().TotalsP2PK(ctx)
+	coins, units := tot.Coins, tot.Sats
 	if err != nil {
 		cancel()
 		<-node
@@ -155,6 +158,9 @@ func (m *utxoManager) execVerify(ctx context.Context, res *verifyResult, height 
 		return
 	}
 	res.Index = &verifyTotals{Coins: coins, Amount: verifyAmount(units), Seconds: time.Since(started).Seconds()}
+	if tot.P2PKCoins > 0 {
+		res.Index.P2PKCoins, res.Index.P2PKAmount = tot.P2PKCoins, verifyAmount(tot.P2PKSats)
+	}
 	r := <-node
 	if r.err != nil {
 		m.log.Printf("utxo verify: gettxoutsetinfo failed: %v", r.err)

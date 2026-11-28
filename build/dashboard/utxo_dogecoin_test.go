@@ -169,7 +169,7 @@ func TestDogecoinIndexAsksForASeedOnceAPrunedNodeDropsBlocksItNeeds(t *testing.T
 	if st := m.Status(); st.State != utxoStateInvalid || !strings.Contains(st.Reason, "seed it again") {
 		t.Fatalf("an index behind a pruned node's blocks reads %+v", st)
 	}
-	if !seedableState(m.Status().State, false) {
+	if !seedableState(m.Status().State, false, false) {
 		t.Fatal("the stopped index cannot be seeded again")
 	}
 }

@@ -21,6 +21,7 @@ import (
 const (
 	utxoSchemaVersion   = 1
 	utxoSchemaReverse   = 2
+	utxoSchemaCanonical = 2
 	utxoPebbleFormat    = pebble.FormatFlushableIngest
 	utxoJournalDepth    = 144
 	utxoPrefixLen       = 16
@@ -84,6 +85,7 @@ type utxoCoin struct {
 	utxoOutpoint
 	Amount uint64
 	Height uint32
+	P2PK   bool
 }
 
 type utxoMeta struct {
@@ -110,6 +112,7 @@ type utxoStore struct {
 	dir           string
 	fs            vfs.FS
 	reverse       bool
+	canon         bool
 	discard       bool
 	fatal         atomic.Pointer[string]
 }
@@ -165,9 +168,27 @@ func utxoCoinKey(h [utxoPrefixLen]byte, o utxoOutpoint) []byte {
 	return binary.BigEndian.AppendUint32(k, o.Vout)
 }
 
-func utxoCoinValue(amount uint64, height uint32) []byte {
+func utxoCoinValue(amount uint64, height uint32, p2pk bool) []byte {
+	if p2pk {
+		height |= utxoP2PKBit
+	}
 	v := binary.BigEndian.AppendUint64(make([]byte, 0, utxoValueLen), amount)
 	return binary.BigEndian.AppendUint32(v, height)
+}
+
+// keyHash is the index prefix of a script; a canonical store files a P2PK script under its key's P2PKH address.
+func (s *utxoStore) keyHash(script []byte) (h [utxoPrefixLen]byte, p2pk bool) {
+	if s.canon {
+		return utxoCanonHash(script)
+	}
+	return utxoScriptHash(script), false
+}
+
+// Legacy reports an index built before P2PK coins were filed under their address.
+func (s *utxoStore) Legacy() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.invalidReason == "" && s.meta.HasTip && !s.canon
 }
 
 // A reverse key maps an outpoint to its script hash, for chains whose blocks carry no prevout scripts.
@@ -255,10 +276,22 @@ func (s *utxoStore) loadMeta() error {
 		s.invalidReason = m.Invalid
 		return nil
 	}
-	if m.Schema != s.schema() || m.PebbleFormat != int(utxoPebbleFormat) {
+	base := s.baseSchema()
+	if m.Schema != base && m.Schema != base+utxoSchemaCanonical || m.PebbleFormat != int(utxoPebbleFormat) {
 		s.invalidReason = fmt.Sprintf("format version %d/%d, expected %d/%d",
-			m.Schema, m.PebbleFormat, s.schema(), int(utxoPebbleFormat))
+			m.Schema, m.PebbleFormat, base+utxoSchemaCanonical, int(utxoPebbleFormat))
 		return nil
+	}
+	s.canon = m.Schema != base
+	if !s.canon && !m.HasTip && !m.Ingesting {
+		if empty, err := s.hasNoCoins(); err != nil {
+			return err
+		} else if empty {
+			s.canon, m.Schema = true, base+utxoSchemaCanonical
+			if err := s.setMeta(m); err != nil {
+				return err
+			}
+		}
 	}
 	if m.Ingesting {
 		s.discard = true
@@ -285,15 +318,35 @@ func (s *utxoStore) initMeta() error {
 		s.invalidReason = "missing metadata"
 		return nil
 	}
+	s.canon = true
 	s.meta = utxoMeta{Schema: s.schema(), PebbleFormat: int(utxoPebbleFormat)}
 	return s.db.Set(utxoMetaKey, mustMarshalUtxoMeta(s.meta), pebble.Sync)
 }
 
-func (s *utxoStore) schema() int {
+func (s *utxoStore) baseSchema() int {
 	if s.reverse {
 		return utxoSchemaReverse
 	}
 	return utxoSchemaVersion
+}
+
+func (s *utxoStore) schema() int {
+	if s.canon {
+		return s.baseSchema() + utxoSchemaCanonical
+	}
+	return s.baseSchema()
+}
+
+func (s *utxoStore) hasNoCoins() (bool, error) {
+	it, err := s.db.NewIter(nil)
+	if err != nil {
+		return false, err
+	}
+	empty := true
+	for ok := it.First(); ok && empty; ok = it.Next() {
+		empty = bytes.Equal(it.Key(), utxoMetaKey)
+	}
+	return empty, it.Close()
 }
 
 func mustMarshalUtxoMeta(m utxoMeta) []byte {
@@ -486,10 +539,14 @@ func (s *utxoStore) commitLocked(b *pebble.Batch, meta *utxoMeta) error {
 // writeCoinsLocked applies creates before spends, since a block's transactions can spend outputs of later ones, and returns the inverse ops.
 func (s *utxoStore) writeCoinsLocked(b *pebble.Batch, height uint32, creates []utxoCreate, spends []utxoSpend) ([]byte, error) {
 	inverse := make([]byte, 0, (len(creates)+len(spends))*(1+utxoKeyLen+utxoValueLen))
-	keys, order := make([][]byte, len(creates)), make([]int, 0, len(creates))
+	keys, flags, order := make([][]byte, len(creates)), make([]bool, len(creates)), make([]int, 0, len(creates))
+	if height >= utxoP2PKBit {
+		return nil, fmt.Errorf("block height %d is out of range", height)
+	}
 	for i, c := range creates {
 		if utxoSpendable(c.Script) {
-			keys[i], order = utxoCoinKey(utxoScriptHash(c.Script), c.utxoOutpoint), append(order, i)
+			h, p2pk := s.keyHash(c.Script)
+			keys[i], flags[i], order = utxoCoinKey(h, c.utxoOutpoint), p2pk, append(order, i)
 		}
 	}
 	// Reading in key order lets neighbouring lookups share cached blocks once a large block's earlier pieces are on disk.
@@ -505,7 +562,7 @@ func (s *utxoStore) writeCoinsLocked(b *pebble.Batch, height uint32, creates []u
 		} else {
 			return nil, err
 		}
-		if err := b.Set(key, utxoCoinValue(c.Amount, height), nil); err != nil {
+		if err := b.Set(key, utxoCoinValue(c.Amount, height, flags[i]), nil); err != nil {
 			return nil, err
 		}
 		if s.reverse {
@@ -515,7 +572,8 @@ func (s *utxoStore) writeCoinsLocked(b *pebble.Batch, height uint32, creates []u
 		}
 	}
 	for _, sp := range spends {
-		key := utxoCoinKey(utxoScriptHash(sp.Script), sp.utxoOutpoint)
+		h, _ := s.keyHash(sp.Script)
+		key := utxoCoinKey(h, sp.utxoOutpoint)
 		if s.reverse {
 			if err := takeUtxoRev(b, key); err != nil {
 				return nil, err
@@ -814,7 +872,7 @@ func (s *utxoStore) Lookup(scripts [][]byte) ([]utxoCoin, error) {
 	seen := make(map[[utxoPrefixLen]byte]bool, len(scripts))
 	var out []utxoCoin
 	for _, script := range scripts {
-		h := utxoScriptHash(script)
+		h, _ := s.keyHash(script)
 		if seen[h] {
 			continue
 		}
@@ -850,7 +908,8 @@ func (s *utxoStore) scanPrefix(h [utxoPrefixLen]byte) ([]utxoCoin, error) {
 			_ = it.Close()
 			return nil, errors.New("corrupt coin record")
 		}
-		c := utxoCoin{ScriptHash: h, Amount: binary.BigEndian.Uint64(v), Height: binary.BigEndian.Uint32(v[8:])}
+		raw := binary.BigEndian.Uint32(v[8:])
+		c := utxoCoin{ScriptHash: h, Amount: binary.BigEndian.Uint64(v), Height: raw &^ utxoP2PKBit, P2PK: raw&utxoP2PKBit != 0}
 		copy(c.Txid[:], k[utxoPrefixLen:])
 		c.Vout = binary.BigEndian.Uint32(k[utxoPrefixLen+32:])
 		out = append(out, c)
@@ -860,14 +919,22 @@ func (s *utxoStore) scanPrefix(h [utxoPrefixLen]byte) ([]utxoCoin, error) {
 
 // Totals counts every coin and sums its amount at the tip; the caller keeps the follower out so the tip cannot move.
 func (s *utxoStore) Totals(ctx context.Context) (coins, sats uint64, err error) {
+	t, err := s.TotalsP2PK(ctx)
+	return t.Coins, t.Sats, err
+}
+
+type utxoTotals struct{ Coins, Sats, P2PKCoins, P2PKSats uint64 }
+
+func (s *utxoStore) TotalsP2PK(ctx context.Context) (utxoTotals, error) {
+	var t utxoTotals
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if err := s.usable(); err != nil {
-		return 0, 0, err
+		return t, err
 	}
 	it, err := s.db.NewIter(nil)
 	if err != nil {
-		return 0, 0, err
+		return t, err
 	}
 	defer it.Close()
 	for ok := it.First(); ok; ok = it.Next() {
@@ -876,18 +943,23 @@ func (s *utxoStore) Totals(ctx context.Context) (coins, sats uint64, err error) 
 		}
 		v := it.Value()
 		if len(v) != utxoValueLen {
-			return 0, 0, errors.New("corrupt coin record")
+			return t, errors.New("corrupt coin record")
 		}
+		amount := binary.BigEndian.Uint64(v)
 		// shortcut: uint64 holds 184.4 billion coins of 10^8 units, which Dogecoin reaches around 2032; sum in big.Int before then.
 		var carry uint64
-		if sats, carry = bits.Add64(sats, binary.BigEndian.Uint64(v), 0); carry != 0 {
-			return 0, 0, errors.New("the coin total overflows 64 bits")
+		if t.Sats, carry = bits.Add64(t.Sats, amount, 0); carry != 0 {
+			return t, errors.New("the coin total overflows 64 bits")
 		}
-		if coins++; coins%(1<<16) == 0 && ctx.Err() != nil {
-			return 0, 0, ctx.Err()
+		if binary.BigEndian.Uint32(v[8:])&utxoP2PKBit != 0 {
+			t.P2PKCoins++
+			t.P2PKSats += amount
+		}
+		if t.Coins++; t.Coins%(1<<16) == 0 && ctx.Err() != nil {
+			return t, ctx.Err()
 		}
 	}
-	return coins, sats, it.Error()
+	return t, it.Error()
 }
 
 func (s *utxoStore) emptyLocked() error {

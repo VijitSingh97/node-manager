@@ -298,12 +298,12 @@ func TestUtxoStoreSchemaKeepsBitcoinAndReverseStoresApart(t *testing.T) {
 		t.Fatal(err)
 	}
 	utxoTestKeys(t, s)
-	if s.meta.Schema != 1 {
+	if s.meta.Schema != 3 {
 		t.Fatalf("bitcoin schema %d", s.meta.Schema)
 	}
 	r := utxoTestOpenReverse(t, litecoin)
 	utxoTestApply(t, r, 1, 2)
-	if r.meta.Schema != 2 {
+	if r.meta.Schema != 4 {
 		t.Fatalf("reverse schema %d", r.meta.Schema)
 	}
 	for dir, reverse := range map[string]bool{bitcoin: true, litecoin: false} {

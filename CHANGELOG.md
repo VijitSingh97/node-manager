@@ -6,6 +6,32 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- <a id="p2pk-under-address"></a>An address on Bitcoin, Litecoin, Bitcoin Cash and
+  Dogecoin now counts the coins paid directly to its public key (P2PK, common in
+  mining payouts), as explorers do (issue 494). On Dogecoin 38 of 150 recent
+  coinbases paid P2PK, so a miner's address could show 0. One serialization of a
+  key is one address: the compressed and uncompressed forms are different
+  addresses, and segwit or script-hash forms of the key do not get these coins.
+  **The upgrade reseeds each balance index.** The index does not store scripts,
+  so an existing index cannot be converted. It keeps serving and following with a
+  note while its node is not synced; once it is synced, it rebuilds once,
+  automatically, one index at a time through the usual seed guards. The new
+  index is built beside the old one on the same volume, so the volume needs room
+  for both copies, and the old index keeps serving and following until the seed
+  succeeds. A pointer file then switches to the new index in one atomic step and
+  the old files are deleted after it. A failed, cancelled or interrupted rebuild
+  leaves the old index as it was, and a restart removes its partial copy.
+  Dogecoin and Bitcoin Cash stop the node for about 2 minutes for the chainstate
+  copy. Bitcoin and Litecoin dump the UTXO set as a normal seed does. Balances of
+  P2PK addresses rise after the rebuild. The card says when an automatic rebuild
+  cannot start. Run `utxo-seed` to choose the time. Rolling back to an older
+  release makes the rebuilt index invalid, and it seeds again. Not yet measured
+  on the reference host, which was frozen. On a pruned Bitcoin node the block
+  update now counts a new P2PK payment to a watched address, which Core reports
+  without an address.
+
 ### Added
 
 - Activating, starting or installing a node now warns when the host has less
@@ -33,6 +59,12 @@ All notable changes to this project are documented here. Format follows
   Dogecoin Core 1.14.9 has no `scantxoutset` and that
   `utxo-index verify --chain dogecoin` is the full check; the dashboard refuses
   a Dogecoin scan too.
+- `utxo-index bench --scan` compares the scan with the index's coins like for
+  like: P2PK coins count when the wallet is a `pk()` or `combo()` descriptor and
+  are otherwise listed separately and confirmed with the node's `gettxout`, where
+  a coin spent after the compared block is reported, not failed, and coins
+  past the first 2,000 are reported as unchecked;
+  `utxo-index verify` prints how many index coins are P2PK.
 - CI now runs the balance-index live tests against real regtest nodes: the
   pinned Bitcoin Core image, and Litecoin, Bitcoin Cash and Dogecoin built from
   `build/bitcoin-family`. Litecoin and Bitcoin Cash also check the bench host
@@ -43,10 +75,8 @@ All notable changes to this project are documented here. Format follows
   A job fails if a required test skips, and a Dependabot bump of the Bitcoin
   image now runs it before merge.
 - Documented that an address wallet on Litecoin, Bitcoin Cash, Dogecoin and
-  Bitcoin does not count coins paid directly to its public key (P2PK, common in
-  mining payouts; issue 494), and the Litecoin, Bitcoin Cash and Dogecoin
-  cards now say so. A second index key for those outputs needs a new seed and
-  is not built yet.
+  Bitcoin did not count coins paid directly to its public key (P2PK, common in
+  mining payouts; issue 494). Fixed in this release, see Fixed.
 - CI now runs the real Monero 0.18.5.4 daemon on regtest with two
   `monero-wallet-rpc` services: it mines to a known address, adds that address
   as a view-only watch wallet, imports key images, checks the verified balance,

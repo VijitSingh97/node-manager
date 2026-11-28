@@ -103,6 +103,8 @@ func (n *liveNode) signAndSend(raw string) string {
 func dogecoinIndexMatchesTheNode(t *testing.T, n *liveNode, s *utxoStore) int {
 	t.Helper()
 	want := map[string]map[string]uint64{}
+	reps := map[string]string{}
+	p2pkSeen := 0
 	for h := 1; h <= n.height(); h++ {
 		var blk struct {
 			Tx []struct {
@@ -111,7 +113,9 @@ func dogecoinIndexMatchesTheNode(t *testing.T, n *liveNode, s *utxoStore) int {
 					N            int             `json:"n"`
 					Value        json.RawMessage `json:"value"`
 					ScriptPubKey struct {
-						Hex string `json:"hex"`
+						Hex       string   `json:"hex"`
+						Type      string   `json:"type"`
+						Addresses []string `json:"addresses"`
 					} `json:"scriptPubKey"`
 				} `json:"vout"`
 			} `json:"tx"`
@@ -122,8 +126,25 @@ func dogecoinIndexMatchesTheNode(t *testing.T, n *liveNode, s *utxoStore) int {
 		for _, tx := range blk.Tx {
 			for _, out := range tx.Vout {
 				script := out.ScriptPubKey.Hex
-				if want[script] == nil {
-					want[script] = map[string]uint64{}
+				rawScript, _ := hex.DecodeString(script)
+				ch, isP2PK := utxoCanonHash(rawScript)
+				group := fmt.Sprintf("%x", ch)
+				if isP2PK != (out.ScriptPubKey.Type == "pubkey") {
+					t.Fatalf("output %s:%d is type %q but the template matched %v", tx.Txid, out.N, out.ScriptPubKey.Type, isP2PK)
+				}
+				if isP2PK {
+					p2pkSeen++
+					if len(out.ScriptPubKey.Addresses) != 1 {
+						t.Fatalf("node gave %v for a P2PK output", out.ScriptPubKey.Addresses)
+					}
+					addrScript, _ := hex.DecodeString(n.dogeScript(out.ScriptPubKey.Addresses[0]))
+					if ah, _ := utxoCanonHash(addrScript); ah != ch {
+						t.Fatalf("P2PK output %s:%d is attributed to a different address than the node's %s", tx.Txid, out.N, out.ScriptPubKey.Addresses[0])
+					}
+				}
+				reps[group] = script
+				if want[group] == nil {
+					want[group] = map[string]uint64{}
 				}
 				var coin json.RawMessage
 				if err := n.rpc.call(context.Background(), "gettxout", []any{tx.Txid, out.N, false}, &coin); errors.As(err, new(rpcNoResultError)) {
@@ -135,19 +156,21 @@ func dogecoinIndexMatchesTheNode(t *testing.T, n *liveNode, s *utxoStore) int {
 				if err := amount.UnmarshalJSON(out.Value); err != nil {
 					t.Fatal(err)
 				}
-				raw, _ := hex.DecodeString(script)
-				if utxoSpendable(raw) {
-					want[script][fmt.Sprintf("%s:%d", tx.Txid, out.N)] = uint64(amount)
+				if utxoSpendable(rawScript) {
+					want[group][fmt.Sprintf("%s:%d", tx.Txid, out.N)] = uint64(amount)
 				}
 			}
 		}
 	}
 	coins := 0
-	for script, outs := range want {
-		if got := lookupAmounts(t, s, script); !maps.Equal(got, outs) {
-			t.Fatalf("script %s: index %v, gettxout %v", script, got, outs)
+	for group, outs := range want {
+		if got := lookupAmounts(t, s, reps[group]); !maps.Equal(got, outs) {
+			t.Fatalf("script %s: index %v, gettxout %v", reps[group], got, outs)
 		}
 		coins += len(outs)
+	}
+	if p2pkSeen == 0 {
+		t.Fatal("the chain has no P2PK output, so the attribution is not exercised")
 	}
 	return coins
 }
@@ -172,6 +195,8 @@ func TestUtxoDogecoinChainstateSeedRegtestLive(t *testing.T) {
 	uncompressed := mustHex("41" + "04" + g + "483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8" + "ac")
 	bare := mustHex("5121" + "02" + g + "51ae")
 	anyone := []byte{0x51}
+	gHash := utxoHash160(uncompressed[1 : len(uncompressed)-1])
+	sameKeyP2PKH := append(append([]byte{0x76, 0xa9, 0x14}, gHash[:]...), 0x88, 0xac)
 	var unspent []struct {
 		Txid   string          `json:"txid"`
 		Vout   int             `json:"vout"`
@@ -183,10 +208,10 @@ func TestUtxoDogecoinChainstateSeedRegtestLive(t *testing.T) {
 	var funds rpcAmount
 	_ = funds.UnmarshalJSON(unspent[0].Amount)
 	// Dogecoin 1.14 takes outputs only as an object, in key order, and Go would sort a map's keys, so the change must be written last by hand.
-	outs := json.RawMessage(fmt.Sprintf(`{%q:1,%q:1,%q:1,%q:%d.%08d}`, n.str("getnewaddress"), n.str("getnewaddress"), n.str("getnewaddress"),
-		mine, (uint64(funds)-4e8)/1e8, (uint64(funds)-4e8)%1e8))
+	outs := json.RawMessage(fmt.Sprintf(`{%q:1,%q:1,%q:1,%q:1,%q:%d.%08d}`, n.str("getnewaddress"), n.str("getnewaddress"), n.str("getnewaddress"), n.str("getnewaddress"),
+		mine, (uint64(funds)-5e8)/1e8, (uint64(funds)-5e8)%1e8))
 	raw := n.str("createrawtransaction", []any{map[string]any{"txid": unspent[0].Txid, "vout": unspent[0].Vout}}, outs)
-	planted := n.signAndSend(withOutputScripts(t, raw, map[int][]byte{0: uncompressed, 1: bare, 2: anyone}))
+	planted := n.signAndSend(withOutputScripts(t, raw, map[int][]byte{0: uncompressed, 1: bare, 2: anyone, 3: sameKeyP2PKH}))
 	n.do("generate", 1)
 	var plantedTx struct {
 		Vout []struct {

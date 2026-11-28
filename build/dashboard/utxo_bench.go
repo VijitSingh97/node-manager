@@ -39,6 +39,8 @@ type utxoBenchHost struct {
 	txOutSet   func(context.Context) (txOutSetInfo, error)
 	hold       func() bool
 	release    func()
+
+	confirmP2PK func(context.Context, []utxoCoin, string) (int, error)
 }
 
 type benchWallet struct {
@@ -107,6 +109,11 @@ type benchScanWallet struct {
 	IndexCoins int     `json:"index_coins"`
 	IndexSats  int64   `json:"index_sats"`
 	Match      *bool   `json:"match,omitempty"`
+	P2PKCoins  int     `json:"p2pk_coins,omitempty"`
+	P2PKSats   int64   `json:"p2pk_sats,omitempty"`
+
+	P2PKSpentAfter int `json:"p2pk_spent_after_scan,omitempty"`
+	P2PKUnchecked  int `json:"p2pk_unchecked,omitempty"`
 }
 
 type benchScan struct {
@@ -183,6 +190,77 @@ func (m *utxoManager) benchLookup(ctx context.Context, scripts [][]byte, repeat 
 		coins = found
 	}
 	return benchSummary(samples), coins, true
+}
+
+const benchP2PKConfirmMax = 2000
+
+func splitP2PKCoins(coins []utxoCoin) (plain, p2pk []utxoCoin) {
+	for _, c := range coins {
+		if c.P2PK {
+			p2pk = append(p2pk, c)
+		} else {
+			plain = append(plain, c)
+		}
+	}
+	return plain, p2pk
+}
+
+// benchScanCovers reports whether scanning the key can see P2PK outputs, which only a top-level pk() or combo() descriptor can.
+func benchScanCovers(key string) bool {
+	key = strings.TrimSpace(key)
+	return strings.HasPrefix(key, "pk(") || strings.HasPrefix(key, "combo(")
+}
+
+// splitBenchCoins separates the coins a scan of the key must reproduce from the P2PK coins only the node's own copy can confirm.
+func splitBenchCoins(key string, coins []utxoCoin) (compared, unseen []utxoCoin) {
+	if benchScanCovers(key) {
+		return coins, nil
+	}
+	return splitP2PKCoins(coins)
+}
+
+// confirmP2PKCoins checks each flagged coin against the node's own copy of its output, which no scan can see.
+// A coin the node no longer has counts as spent after the scan when the tip moved past the compared block.
+func confirmP2PKCoins(ctx context.Context, rpc *rpcClient, coins []utxoCoin, compared string) (int, error) {
+	calls := make([]rpcBatchCall, len(coins))
+	for i, c := range coins {
+		calls[i] = rpcBatchCall{Method: "gettxout", Params: []any{reverseHex(c.Txid), c.Vout, false}}
+	}
+	replies, err := batchChunks(ctx, rpc, calls)
+	if err != nil {
+		return 0, err
+	}
+	var gone []string
+	for i, c := range coins {
+		var out struct {
+			Value        float64 `json:"value"`
+			ScriptPubKey struct {
+				Hex string `json:"hex"`
+			} `json:"scriptPubKey"`
+		}
+		if len(replies[i].Error) > 0 && string(replies[i].Error) != "null" || json.Unmarshal(replies[i].Result, &out) != nil || out.ScriptPubKey.Hex == "" {
+			gone = append(gone, fmt.Sprintf("%s:%d", reverseHex(c.Txid), c.Vout))
+			continue
+		}
+		script, err := hex.DecodeString(out.ScriptPubKey.Hex)
+		if err != nil {
+			return 0, err
+		}
+		if h, p2pk := utxoCanonHash(script); !p2pk || h != c.ScriptHash || uint64(math.Round(out.Value*1e8)) != c.Amount {
+			return 0, fmt.Errorf("%s:%d differs from the node's output", reverseHex(c.Txid), c.Vout)
+		}
+	}
+	if len(gone) == 0 {
+		return 0, nil
+	}
+	var best string
+	if err := rpc.call(ctx, "getbestblockhash", nil, &best); err != nil {
+		return 0, err
+	}
+	if best == compared {
+		return 0, fmt.Errorf("%s is not unspent", gone[0])
+	}
+	return len(gone), nil
 }
 
 func benchTotalsOf(coins []utxoCoin) benchTotals {
@@ -379,7 +457,10 @@ func (m *utxoManager) benchScan(ctx context.Context, req benchRequest, res *benc
 			refuse("wallet %d: the scan failed or timed out", i+1)
 			return
 		}
-		index := benchTotalsOf(coins)
+		_, flaggedCoins := splitP2PKCoins(coins)
+		plain, p2pk := splitBenchCoins(w.Key, coins)
+		index, flagged := benchTotalsOf(plain), benchTotalsOf(flaggedCoins)
+		sw.P2PKCoins, sw.P2PKSats = flagged.Coins, flagged.Sats
 		sw.Seconds, sw.Height, sw.Coins, sw.Sats, sw.IndexCoins, sw.IndexSats = run.Seconds, run.Height, run.Totals.Coins, run.Totals.Sats, index.Coins, index.Sats
 		if indexed && reverseHex(hash) == run.Best {
 			match := run.Totals == index
@@ -387,6 +468,13 @@ func (m *utxoManager) benchScan(ctx context.Context, req benchRequest, res *benc
 			compared++
 			if !match {
 				res.Failures = append(res.Failures, fmt.Sprintf("wallet %d: the index and the scan differ at height %d", i+1, run.Height))
+			}
+			if len(p2pk) > 0 && h.confirmP2PK != nil {
+				spent, err := h.confirmP2PK(ctx, p2pk[:min(len(p2pk), benchP2PKConfirmMax)], run.Best)
+				if err != nil {
+					res.Failures = append(res.Failures, fmt.Sprintf("wallet %d: a P2PK coin the index attributes to it is not confirmed by the node: %v", i+1, err))
+				}
+				sw.P2PKSpentAfter, sw.P2PKUnchecked = spent, max(0, len(p2pk)-benchP2PKConfirmMax)
 			}
 		}
 		res.Scan.Wallets = append(res.Scan.Wallets, sw)
@@ -499,6 +587,9 @@ func (a *app) chainBenchHost(id string, rpc *rpcClient, chain *utxoChainParams, 
 				args = append(args, "none")
 			}
 			return info, scanRPC.call(ctx, "gettxoutsetinfo", args, &info)
+		},
+		confirmP2PK: func(ctx context.Context, coins []utxoCoin, compared string) (int, error) {
+			return confirmP2PKCoins(ctx, &scanRPC, coins, compared)
 		},
 		hold:    hold,
 		release: release,

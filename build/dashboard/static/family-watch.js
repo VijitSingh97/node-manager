@@ -6,7 +6,7 @@ import { el, managerRow, renderWalletList, replaceIfChanged, safeLink } from "./
 const SUPPORTED = new Set(["litecoin", "dogecoin", "bitcoincash", "zcash"]);
 const UNITS = { litecoin: "LTC", dogecoin: "DOGE", bitcoincash: "BCH", zcash: "ZEC" };
 const PRICE_ASSETS = { litecoin: "litecoin", dogecoin: "dogecoin", bitcoincash: "bitcoin-cash", zcash: "zcash" };
-const P2PK_NOTE = "Coins paid directly to a public key (P2PK, common in mining payouts) are not counted.";
+const P2PK_NOTE = "Coins paid directly to a public key (P2PK, common in mining payouts) are counted only while the balance index serves the wallet; a scan cannot see them.";
 export const SCOPE_NOTES = {
   litecoin: `Balances cover transparent outputs only. Funds inside MWEB are not counted, and the peg-in pool shows as one non-wallet coin. ${P2PK_NOTE}`,
   bitcoincash: P2PK_NOTE,

@@ -40,6 +40,8 @@ type seedGuardInput struct {
 	ChainstateBytes uint64
 	ChainstateErr   error
 	State           string
+	Legacy          bool
+	LegacyBytes     uint64
 	TempC           float64
 	TempErr         error
 	CPUs            float64
@@ -71,17 +73,17 @@ func dirBytes(dir string) (uint64, error) {
 
 func evaluateSeedGuards(in seedGuardInput) []seedRefusal {
 	var out []seedRefusal
-	// A replay writes no sort runs, so it needs only the runtime free-space floor.
+	// A replay writes no sort runs, so it needs the runtime floor plus room for a copy of the index it replaces.
 	need := uint64(seedMinFreeBytes)
 	switch {
 	case in.Replay:
-		need = utxoMinFreeBytes
+		need = utxoMinFreeBytes + in.LegacyBytes
 	// Bitcoin's measured seed needs about 2.5 times its chainstate, so a chainstate seed asks for three times its own.
 	case in.Chainstate:
 		need = max(utxoMinFreeBytes, 3*in.ChainstateBytes)
 	}
 	guards := []*seedRefusal{
-		stateGuard(in.State, in.Replay),
+		stateGuard(in.State, in.Replay, in.Legacy),
 		thermalStartGuard(in.TempC, in.TempErr),
 		cpuGuard(in.CPUs, in.CPUErr),
 		freeSpaceGuard(in.FreeBytes, need, cmp.Or(in.FreeErr, chainstateErr(in))),
@@ -109,8 +111,8 @@ func chainstateErr(in seedGuardInput) error {
 	return nil
 }
 
-func stateGuard(state string, replay bool) *seedRefusal {
-	if seedableState(state, replay) {
+func stateGuard(state string, replay, legacy bool) *seedRefusal {
+	if seedableState(state, replay, legacy) {
 		return nil
 	}
 	return &seedRefusal{"state", "index state is " + state}
@@ -321,9 +323,13 @@ func readSeedChain(ctx context.Context, rpc utxoRPC) (blockchainInfo, time.Time,
 }
 
 func (m *utxoManager) gatherSeedGuards(ctx context.Context) seedGuardInput {
-	in := seedGuardInput{State: m.Status().State, Now: m.now()}
+	st := m.Status()
+	in := seedGuardInput{State: st.State, Legacy: st.P2PKMissing, Now: m.now()}
 	if d := diskUsage(m.dir); d.Total > 0 {
 		in.FreeBytes = d.Free
+		if in.Legacy {
+			in.LegacyBytes, _ = dirBytes(m.dir)
+		}
 	} else {
 		in.FreeErr = errors.New("statfs failed")
 	}

@@ -71,6 +71,7 @@ type utxoSeedState struct {
 	AutoRequestID string `json:"auto_request_id,omitempty"`
 	AutoFailures  int    `json:"auto_failures,omitempty"`
 	Mode          string `json:"mode,omitempty"`
+	RebuildDir    string `json:"rebuild_dir,omitempty"`
 }
 
 type utxoManager struct {
@@ -84,6 +85,11 @@ type utxoManager struct {
 	store    *utxoStore
 	follower *utxoFollower
 	bound    bool
+	legacy   bool
+	storeDir string
+	build    *utxoStore
+	buildDir string
+	buildFol *utxoFollower
 	lowDisk  atomic.Bool
 	stop     context.CancelFunc
 	// blocked names a block the index cannot apply; it stays parked there until the dashboard restarts.
@@ -144,6 +150,8 @@ type utxoIndexStatus struct {
 	NodeSynced            bool            `json:"node_synced"`
 	WaitingFor            string          `json:"waiting_for"`
 	SeedStopped           string          `json:"seed_stopped,omitempty"`
+	P2PKMissing           bool            `json:"p2pk_missing,omitempty"`
+	Rebuilding            bool            `json:"rebuilding,omitempty"`
 }
 
 func newUtxoManager(dir string, fs vfs.FS, rpc utxoRPC, logger *log.Logger, chain *utxoChainParams) *utxoManager {
@@ -167,7 +175,8 @@ func newUtxoManager(dir string, fs vfs.FS, rpc utxoRPC, logger *log.Logger, chai
 }
 
 func (m *utxoManager) openLocked() {
-	m.bound, m.indexTip, m.follower = false, nil, nil
+	m.bound, m.indexTip, m.follower, m.legacy = false, nil, nil, false
+	m.storeDir = m.dir
 	if err := m.fs.MkdirAll(m.dir, 0o700); err != nil {
 		m.log.Printf("utxo index: cannot create the index directory: %v", err)
 		m.store = &utxoStore{invalidReason: "cannot create the index directory"}
@@ -180,7 +189,11 @@ func (m *utxoManager) openLocked() {
 			m.log.Printf("utxo index: cannot restrict the index directory: %v", err)
 		}
 	}
-	store, err := openUtxoStoreFS(m.dir, m.fs, m.chain.ReverseIndex)
+	name, drops := m.settleLayoutLocked()
+	if name != "" {
+		m.storeDir = m.fs.PathJoin(m.dir, name)
+	}
+	store, err := openUtxoStoreFS(m.storeDir, m.fs, m.chain.ReverseIndex)
 	if err != nil {
 		m.log.Printf("utxo index: cannot open the store: %v", err)
 		m.store = &utxoStore{invalidReason: "cannot open the index store"}
@@ -188,6 +201,10 @@ func (m *utxoManager) openLocked() {
 		return
 	}
 	m.store = store
+	m.removeLeftovers(drops)
+	if m.legacy = store.Legacy(); m.legacy {
+		m.log.Print("utxo index: this index predates P2PK counting and rebuilds once the node is synced")
+	}
 	m.follower = newUtxoFollower(store, m.rpc)
 	m.follower.chain, m.follower.onBlock = m.chain, m.progress
 	switch height, _, hasTip, _ := store.Tip(); {
@@ -208,7 +225,7 @@ func (m *utxoManager) set(state, reason string) {
 }
 
 func (m *utxoManager) setLocked(state, reason string) {
-	if m.seeding && state != utxoStateSeeding && state != utxoStateInvalid {
+	if m.seedingInPlaceLocked() && state != utxoStateSeeding && state != utxoStateInvalid {
 		return
 	}
 	if m.state == state && m.reason == reason {
@@ -252,7 +269,7 @@ func (m *utxoManager) Status() utxoIndexStatus {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	st := utxoIndexStatus{Enabled: true, State: m.state, Reason: m.reason, IndexTip: m.indexTip, SeedProgress: m.seedProgress,
+	st := utxoIndexStatus{Enabled: true, P2PKMissing: m.legacy, Rebuilding: m.seeding && m.build != nil, State: m.state, Reason: m.reason, IndexTip: m.indexTip, SeedProgress: m.seedProgress,
 		Phase: m.phase, Refusals: slices.Clone(m.refusals), LastSeed: m.seed.Last}
 	if st.Refusals == nil {
 		st.Refusals = []seedRefusal{}
@@ -266,12 +283,12 @@ func (m *utxoManager) Status() utxoIndexStatus {
 		st.AlertsSuppressedUntil = &until
 	}
 	waiting := m.waiting
-	if m.state != utxoStateNotSeeded && m.state != utxoStateInvalid {
+	if m.state != utxoStateNotSeeded && m.state != utxoStateInvalid && !m.legacy {
 		waiting = ""
 	}
 	st.WaitingFor = waiting
 	st.NodeSynced = waiting != waitNodeSync && (m.state != utxoStateNotSeeded || m.checked)
-	if m.seed.AutoFailures >= utxoAutoSeedTries && m.state != utxoStateReady {
+	if m.seed.AutoFailures >= utxoAutoSeedTries && (m.state != utxoStateReady || m.legacy) {
 		st.SeedStopped = "failed"
 		if m.seed.Last != nil && m.seed.Last.Outcome == "cancelled" {
 			st.SeedStopped = "cancelled"
@@ -422,16 +439,18 @@ func (m *utxoManager) execSeed(ctx context.Context, fn func(context.Context) err
 	if err := m.startSeed(); err != nil {
 		return err
 	}
+	stopFollow := m.followWhileBuilding(ctx)
 	err := fn(ctx)
+	stopFollow()
 	m.finishSeed(err)
 	return err
 }
 
 func (m *utxoManager) startSeed() error {
 	m.mu.Lock()
-	state, busy := m.state, m.seeding
+	state, busy, legacy := m.state, m.seeding, m.legacy
 	m.mu.Unlock()
-	if busy || !seedableState(state, m.replays()) {
+	if busy || !seedableState(state, m.replays(), legacy) {
 		return errUtxoSeedState
 	}
 	if state == utxoStateInvalid {
@@ -441,25 +460,40 @@ func (m *utxoManager) startSeed() error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.state == utxoStateInvalid || !seedableState(m.state, m.replayingLocked()) {
+	if m.seeding || m.state == utxoStateInvalid || !seedableState(m.state, m.replayingLocked(), m.legacy) {
 		return errUtxoSeedState
+	}
+	if m.legacy && m.replayBehindLocked() {
+		if err := m.wipeLocked(); err != nil {
+			return err
+		}
+	}
+	beside := m.legacy && m.state != utxoStateNotSeeded
+	if beside {
+		if err := m.beginBuildLocked(); err != nil {
+			m.log.Printf("utxo index: cannot start the rebuild: %v", err)
+			return err
+		}
 	}
 	zero := 0.0
 	m.seeding, m.phase, m.seedProgress, m.refusals = true, utxoPhaseWaiting, &zero, nil
 	m.seedLogged = 0
 	m.seed.SeedState, m.seed.Phase, m.seed.Progress = utxoSeedRunning, utxoPhaseWaiting, &zero
-	m.seed.StartedAt, m.seed.AlertsUntil = m.now(), time.Time{}
-	m.setLocked(utxoStateSeeding, "")
+	m.seed.StartedAt, m.seed.AlertsUntil, m.seed.RebuildDir = m.now(), time.Time{}, m.buildDir
+	if !beside {
+		m.setLocked(utxoStateSeeding, "")
+	}
 	m.persistSeedLocked()
 	return nil
 }
 
 func (m *utxoManager) finishSeed(err error) {
+	err, beside := m.settleBuild(err)
 	if m.event != nil {
 		defer m.event(seedEvent(err))
 	}
 	m.mu.Lock()
-	replay := m.replayingLocked()
+	replay := m.replayingLocked() && !beside
 	outcome := "ok"
 	switch {
 	case errors.Is(err, context.Canceled):
@@ -469,7 +503,7 @@ func (m *utxoManager) finishSeed(err error) {
 	}
 	now := m.now()
 	m.seeding, m.phase, m.seedProgress = false, "", nil
-	m.seed.SeedState, m.seed.Phase, m.seed.Progress = outcome, "", nil
+	m.seed.SeedState, m.seed.Phase, m.seed.Progress, m.seed.RebuildDir = outcome, "", nil, ""
 	// After a failure Core may still be hashing with RPC stalled, so only success ends the hold early.
 	if err == nil {
 		m.seed.AlertsUntil = time.Time{}
@@ -487,6 +521,10 @@ func (m *utxoManager) finishSeed(err error) {
 	m.log.Printf("utxo index: seed outcome=%s duration=%.0fs", outcome, m.seed.Last.DurationSeconds)
 	if err == nil {
 		m.setLocked(utxoStateCatching, "")
+		m.mu.Unlock()
+		return
+	}
+	if beside {
 		m.mu.Unlock()
 		return
 	}
@@ -514,17 +552,24 @@ func (m *utxoManager) stopAtBlockLocked(err error) {
 	m.setLocked(utxoStateDegraded, m.blocked)
 }
 
-func seedableState(state string, replay bool) bool {
-	return state == utxoStateNotSeeded || state == utxoStateInvalid || replay && state == utxoStateCatching
+func seedableState(state string, replay, legacy bool) bool {
+	return state == utxoStateNotSeeded || state == utxoStateInvalid || replay && state == utxoStateCatching || legacy && (state == utxoStateReady || state == utxoStateCatching)
 }
 
 func (m *utxoManager) replayFraction() float64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.indexTip == nil || m.nodeTip <= 0 {
+	tip := m.indexTip
+	if m.build != nil {
+		tip = nil
+		if h, _, ok, err := m.build.Tip(); ok && err == nil {
+			tip = &h
+		}
+	}
+	if tip == nil || m.nodeTip <= 0 {
 		return 0
 	}
-	return min(1, float64(*m.indexTip)/float64(m.nodeTip))
+	return min(1, float64(*tip)/float64(m.nodeTip))
 }
 
 func (m *utxoManager) replayBehindLocked() bool {
@@ -602,16 +647,26 @@ func (m *utxoManager) setSeedStatePath(path string) {
 	interrupted := m.seed.SeedState == utxoSeedRunning
 	replay := m.replayingLocked()
 	now := m.now()
-	m.seed.SeedState, m.seed.Phase, m.seed.Progress = utxoOutcomeFailed, "", nil
+	switched := interrupted && m.seed.RebuildDir != "" && m.storeDir == m.fs.PathJoin(m.dir, m.seed.RebuildDir)
+	m.seed.SeedState, m.seed.Phase, m.seed.Progress, m.seed.RebuildDir = utxoOutcomeFailed, "", nil, ""
+	if switched {
+		m.seed.SeedState = utxoOutcomeOK
+		m.seed.Last = &utxoSeedResult{Outcome: utxoOutcomeOK, FinishedAt: now, DurationSeconds: now.Sub(m.seed.StartedAt).Seconds()}
+		m.persistSeedLocked()
+		m.log.Print("utxo index: a rebuild switched in before the restart and is kept")
+		return
+	}
 	if interrupted {
 		m.seed.Last = &utxoSeedResult{Outcome: utxoOutcomeFailed, Reason: errSeedInterrupted.Error(), FinishedAt: now, DurationSeconds: now.Sub(m.seed.StartedAt).Seconds()}
-		if !replay {
+		if !replay || m.legacy {
 			m.countAutoSeedLocked(false)
+		}
+		if !replay && !m.legacy {
 			_ = m.wipeLocked()
 		}
 	}
 	m.persistSeedLocked()
-	if replay {
+	if replay && !m.legacy {
 		m.log.Print("utxo index: a replay was interrupted by a restart and resumes from its last block")
 		return
 	}
@@ -666,7 +721,7 @@ func (m *utxoManager) AlertsSuppressed() bool {
 
 func (m *utxoManager) tick(ctx context.Context) {
 	m.mu.Lock()
-	skip := m.state == utxoStateInvalid || m.seeding || m.blocked != ""
+	skip := m.state == utxoStateInvalid || m.seedingInPlaceLocked() || m.blocked != ""
 	wasReady := m.state == utxoStateReady
 	m.mu.Unlock()
 	if skip {
@@ -700,7 +755,7 @@ func (m *utxoManager) tick(ctx context.Context) {
 				return
 			}
 			m.mu.Lock()
-			if !m.seeding {
+			if !m.seedingInPlaceLocked() {
 				m.setLocked(m.state, "chain identity not recorded yet")
 			}
 			m.mu.Unlock()
@@ -833,7 +888,7 @@ func utxoErrorClass(err error) string {
 func (m *utxoManager) invalidate(reason string) {
 	err := m.store.MarkInvalid(reason)
 	if err != nil {
-		if ns, oerr := openUtxoStoreFS(m.dir, m.fs, m.chain.ReverseIndex); oerr == nil {
+		if ns, oerr := openUtxoStoreFS(m.storeDir, m.fs, m.chain.ReverseIndex); oerr == nil {
 			err = ns.MarkInvalid(reason)
 			m.mu.Lock()
 			m.store = ns

@@ -718,11 +718,13 @@ utxo_bench_print() {
   jq -r 'def f: ((. * 10000 | round) / 10000 | tostring);
     "Without the index (scantxoutset): batch of \([.wallets[] | select(.fallback | not)] | length) \(.scan.batch_s | f) s at height \(.scan.batch_height); each wallet alone, in seconds:"' <<<"$result"
   jq -r 'def f: ((. * 10000 | round) / 10000 | tostring);
-    (["wallet", "height", "scan", "index_p50", "faster", "scan_coins", "index_coins", "scan_sats", "index_sats", "match"] | join("\t")),
+    (["wallet", "height", "scan", "index_p50", "faster", "scan_coins", "index_coins", "scan_sats", "index_sats", "match", "p2pk"] | join("\t")),
     ([.wallets, (.scan.wallets // [])] | transpose[] | select(.[1]) | .[0].lookup.p50_s as $p50 | .[0].fallback as $fallback | .[1] |
-      if $fallback then [.name, "-", "fallback", "-", "-", "-", "-", "-", "-", "n/a"] else
+      if $fallback then [.name, "-", "fallback", "-", "-", "-", "-", "-", "-", "n/a", "-"] else
         [.name, .height, (.scan_s | f), ($p50 // null | if . == null then "-" else f end), (if ($p50 // 0) > 0 then "\(.scan_s / $p50 | round)x" else "-" end),
-         .coins, .index_coins, .sats, .index_sats, (.match | if . == null then "n/a" else tostring end)] end | join("\t"))' <<<"$result" | { column -t -s "$tab" 2>/dev/null || cat; }
+         .coins, .index_coins, .sats, .index_sats, (.match | if . == null then "n/a" else tostring end), (.p2pk_coins // 0)] end | join("\t"))' <<<"$result" | { column -t -s "$tab" 2>/dev/null || cat; }
+  jq -r '(.scan.wallets // [])[] | select((.p2pk_spent_after_scan // 0) > 0) | "note: \(.name) had \(.p2pk_spent_after_scan) P2PK coin(s) spent after the compared block, so the node no longer has them; that is not a mismatch."' <<<"$result"
+  jq -r '(.scan.wallets // [])[] | select((.p2pk_unchecked // 0) > 0) | "note: \(.name) has \(.p2pk_unchecked) P2PK coin(s) past the limit of the node check, which were not confirmed."' <<<"$result"
   jq -r 'select([(.scan.wallets // [])[] | select(.match == null)] | length > 0) | "note: n/a is a wallet the index does not serve, or one whose scan ran at another block than its index lookup; repeat the run for the second."' <<<"$result"
 }
 
@@ -857,6 +859,7 @@ utxo_verify_print() {
   jq -r '"At height \(.height) (block \(.best_block)), gettxoutsetinfo hash_type \(.hash_type):"' <<<"$result"
   jq -r '(["", "coins", "amount", "seconds"] | join("\t")),
     (["index", "node"][] as $side | [$side, .[$side].coins, .[$side].amount, ((.[$side].seconds * 10 | round) / 10)] | join("\t"))' <<<"$result" | { column -t -s "$tab" 2>/dev/null || cat; }
+  jq -r 'select((.index.p2pk_coins // 0) > 0) | "Of the index coins, \(.index.p2pk_coins) (\(.index.p2pk_amount)) are paid directly to a public key (P2PK) and counted under that key'"'"'s address."' <<<"$result"
   jq -r '(.failures // [])[] | "FAIL: " + .' <<<"$result"
   jq -r 'select(.match == true) | "PASS: the index matches the node'"'"'s UTXO set."' <<<"$result"
 }

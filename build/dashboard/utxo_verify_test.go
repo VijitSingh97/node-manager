@@ -67,6 +67,11 @@ func (n *verifyFakeNode) set(key string, value any) {
 // verifyFixture indexes three coins at height 3, past a spent coin and an OP_RETURN output the node leaves out of its UTXO set too.
 func verifyFixture(t *testing.T, id string, chain *utxoChainParams) (*utxoManager, *fakeUtxoChain, *verifyFakeNode) {
 	t.Helper()
+	return verifyFixtureWith(t, id, chain, nil)
+}
+
+func verifyFixtureWith(t *testing.T, id string, chain *utxoChainParams, extra []utxoCreate) (*utxoManager, *fakeUtxoChain, *verifyFakeNode) {
+	t.Helper()
 	c := newFakeUtxoChain()
 	genesis(c)
 	for range 3 {
@@ -84,7 +89,7 @@ func verifyFixture(t *testing.T, id string, chain *utxoChainParams) (*utxoManage
 	spent := coin("c", 0, "\x76\xa9\x14spent", 7)
 	blocks := []utxoBlock{
 		{},
-		{Creates: []utxoCreate{coin("a", 0, "\x76\xa9\x14a", verifyBigUnits), coin("a", 1, "\x6a\x04data", 5), spent}},
+		{Creates: append([]utxoCreate{coin("a", 0, "\x76\xa9\x14a", verifyBigUnits), coin("a", 1, "\x6a\x04data", 5), spent}, extra...)},
 		{Creates: []utxoCreate{coin("d", 0, "\x00\x14d", 12345)}, Spends: []utxoSpend{{spent.utxoOutpoint, spent.Script}}},
 		{Creates: []utxoCreate{coin("e", 0, "\x51", verifyBigUnits)}},
 	}
@@ -320,4 +325,32 @@ func verifyLiveStore(t *testing.T, n *liveNode, id string, chain *utxoChainParam
 		t.Fatalf("index %d coins worth %s at %s (%v), node %d worth %s at %s", coins, verifyAmount(units), reverseHex(tip), err, info.TxOuts, verifyAmount(uint64(info.Total)), info.BestBlock)
 	}
 	t.Logf("verify at height %d: %d coins worth %s match gettxoutsetinfo", info.Height, coins, verifyAmount(units))
+}
+
+func TestVerifyReportsTheP2PKCensus(t *testing.T) {
+	extra := []utxoCreate{
+		{utxoOutpoint{utxoTestTxid(901), 0}, p2pkScript(t, p2pkKeyGCompressed), 100_000_000},
+		{utxoOutpoint{utxoTestTxid(902), 0}, p2pkScript(t, p2pkKeyGUncompressed), 50_000_000},
+	}
+	m, _, node := verifyFixtureWith(t, nodeBitcoin, utxoBitcoin, extra)
+	node.set("txouts", verifyCoins+2)
+	node.set("total_amount", json.RawMessage("180000000001.50012345"))
+	res := runVerify(t, m, nodeBitcoin, 1)
+	if res.Match == nil || !*res.Match || res.Index == nil {
+		t.Fatalf("result = %+v", res)
+	}
+	if res.Index.P2PKCoins != 2 || res.Index.P2PKAmount != verifyAmount(150_000_000) {
+		t.Fatalf("the index census = %d coins %q, want 2 coins %q", res.Index.P2PKCoins, res.Index.P2PKAmount, verifyAmount(150_000_000))
+	}
+	if res.Node.P2PKCoins != 0 {
+		t.Fatalf("the node side carries no census: %+v", res.Node)
+	}
+	raw, _ := json.Marshal(res)
+	if !strings.Contains(string(raw), `"p2pk_coins":2`) || !strings.Contains(string(raw), `"p2pk_amount"`) {
+		t.Fatalf("the result file lacks the census: %s", raw)
+	}
+	plain, _, _ := verifyFixture(t, nodeBitcoin, utxoBitcoin)
+	if res := runVerify(t, plain, nodeBitcoin, 2); res.Index.P2PKCoins != 0 || res.Index.P2PKAmount != "" {
+		t.Fatalf("an index without P2PK coins reports a census: %+v", res.Index)
+	}
 }

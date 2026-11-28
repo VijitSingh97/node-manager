@@ -181,10 +181,10 @@ func TestSeedSimpleGuards(t *testing.T) {
 		utxoStateNotSeeded: false, utxoStateInvalid: false, utxoStateSeeding: true,
 		utxoStateCatching: true, utxoStateReady: true, utxoStateDegraded: true, utxoStateOff: true,
 	} {
-		if (stateGuard(state, false) != nil) != refused {
+		if (stateGuard(state, false, false) != nil) != refused {
 			t.Errorf("state %s refused=%v", state, !refused)
 		}
-		if replayRefused := refused && state != utxoStateCatching; (stateGuard(state, true) != nil) != replayRefused {
+		if replayRefused := refused && state != utxoStateCatching; (stateGuard(state, true, false) != nil) != replayRefused {
 			t.Errorf("replay state %s refused=%v", state, !replayRefused)
 		}
 	}
