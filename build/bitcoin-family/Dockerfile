@@ -1,4 +1,4 @@
-FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc AS base
+FROM debian:bookworm-slim@sha256:e67eeead736ff7bbe258ef088bff683635c561b1fcfefad0806c1df4ab49ce0e AS base
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates=20250419~deb12u2 curl=7.88.1-10+deb12u15 libatomic1=12.2.0-14+deb12u1 && rm -rf /var/lib/apt/lists/*
 COPY --chmod=0755 entrypoint.sh healthcheck.sh /usr/local/bin/
 RUN mkdir /data && chown 1000:1000 /data
