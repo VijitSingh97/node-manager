@@ -26,12 +26,6 @@ All notable changes to this project are documented here. Format follows
 
 ### Changed
 
-- The docs now say what happens to alerts while Tor is down. Healthchecks.io
-  alerts you about the outage, and Telegram alerts that could not be sent are
-  retried or sent once Tor is back, except for a node that went down and came
-  back entirely within the outage. They also say that a program on the host
-  that binds the LAN address outside Docker needs `net.ipv4.ip_nonlocal_bind`
-  to start before the address exists after a power cut.
 - `node-manager utxo-index bench --chain dogecoin` now runs the index lookup
   bench for Dogecoin. The command line refused it, although the dashboard
   already set up a bench for every indexed chain. Wallets are `addr(<address>)`
@@ -65,6 +59,12 @@ All notable changes to this project are documented here. Format follows
   check proves a renamed field is caught. Monero's fee estimate is checked on
   the regtest daemon instead: the mainnet node in this job never syncs past the
   2021 hard fork, before which monerod returns no fee tiers.
+- The docs now say what happens to alerts while Tor is down. Healthchecks.io
+  alerts you about the outage, and Telegram alerts that could not be sent are
+  retried or sent once Tor is back, except for a node that went down and came
+  back entirely within the outage. They also say that a program on the host
+  that binds the LAN address outside Docker needs `net.ipv4.ip_nonlocal_bind`
+  to start before the address exists after a power cut.
 - The Tari wallet gRPC probe can now wait for the dashboard's balance
   conditions (online, initial validation done, scanned height within two blocks
   of the node) and assert the balance total, and `docs/releasing.md` describes
