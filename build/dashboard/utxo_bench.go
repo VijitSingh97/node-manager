@@ -29,17 +29,18 @@ const (
 var benchBatchSizes = []int{1, 5, 20}
 
 type utxoBenchHost struct {
-	chain       string
-	prefix      string
-	stateDir    string
-	validate    func(context.Context, string) error
-	resolve     func(context.Context, []string) ([]walletScripts, error)
-	cachedRead  func(context.Context) (func(), int, error)
-	scan        func(context.Context, []string) (benchScanRun, error)
-	txOutSet    func(context.Context) (txOutSetInfo, error)
+	chain      string
+	prefix     string
+	stateDir   string
+	validate   func(context.Context, string) error
+	resolve    func(context.Context, []string) ([]walletScripts, error)
+	cachedRead func(context.Context) (func(), int, error)
+	scan       func(context.Context, []string) (benchScanRun, error)
+	txOutSet   func(context.Context) (txOutSetInfo, error)
+	hold       func() bool
+	release    func()
+
 	confirmP2PK func(context.Context, []utxoCoin, string) (int, error)
-	hold        func() bool
-	release     func()
 }
 
 type benchWallet struct {
