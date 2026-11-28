@@ -52,11 +52,6 @@ All notable changes to this project are documented here. Format follows
 
 ### Changed
 
-- `utxo-index bench --scan` compares the scan with the index's coins like for
-  like: P2PK coins count when the wallet is a `pk()` or `combo()` descriptor and
-  are otherwise listed separately and confirmed with the node's `gettxout`, where
-  a coin spent after the compared block is reported, not failed;
-  `utxo-index verify` prints how many index coins are P2PK.
 - `node-manager utxo-index bench --chain dogecoin` now runs the index lookup
   bench for Dogecoin. The command line refused it, although the dashboard
   already set up a bench for every indexed chain. Wallets are `addr(<address>)`
@@ -64,6 +59,11 @@ All notable changes to this project are documented here. Format follows
   Dogecoin Core 1.14.9 has no `scantxoutset` and that
   `utxo-index verify --chain dogecoin` is the full check; the dashboard refuses
   a Dogecoin scan too.
+- `utxo-index bench --scan` compares the scan with the index's coins like for
+  like: P2PK coins count when the wallet is a `pk()` or `combo()` descriptor and
+  are otherwise listed separately and confirmed with the node's `gettxout`, where
+  a coin spent after the compared block is reported, not failed;
+  `utxo-index verify` prints how many index coins are P2PK.
 - CI now runs the balance-index live tests against real regtest nodes: the
   pinned Bitcoin Core image, and Litecoin, Bitcoin Cash and Dogecoin built from
   `build/bitcoin-family`. Litecoin and Bitcoin Cash also check the bench host
