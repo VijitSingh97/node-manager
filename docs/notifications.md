@@ -135,6 +135,19 @@ Node health never changes the ping: a down node is Telegram's story, while
 Healthchecks only answers "is the stack's monitor alive and able to reach the
 internet over Tor". The two channels stay independent on purpose.
 
+### While Tor is down
+
+Both channels leave the box only through Tor, so a Tor outage silences Telegram
+as well as the pings. Healthchecks.io notices the missing pings and alerts you
+after the period and grace, then reports the check up again once a ping gets
+through: that is your alert for the outage itself. Telegram alerts that could
+not be sent are not lost while their condition lasts. A node-down,
+node-recovered or low-disk alert is retried on every monitor check until it
+goes through, and `Host:` events are sent once Tor is back if they are less
+than 6 hours old. A node that goes down and comes back entirely within the Tor
+outage sends no Telegram alert at all; `./stack events` records the down
+alert but not the recovery.
+
 ### 1. Create a check
 
 Sign up (the free tier is plenty for one node) and create a check. Set its
