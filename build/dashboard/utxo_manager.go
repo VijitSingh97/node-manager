@@ -381,6 +381,67 @@ func (m *utxoManager) lookupAtTip(scripts [][]byte) (coins []utxoCoin, height ui
 	return
 }
 
+type utxoChunkLookup struct {
+	m      *utxoManager
+	wg     sync.WaitGroup
+	mu     sync.Mutex
+	seen   map[[utxoPrefixLen]byte]bool
+	coins  []utxoCoin
+	height uint32
+	hash   [32]byte
+	chunks int
+	failed bool
+}
+
+func (m *utxoManager) chunkLookup() *utxoChunkLookup {
+	return &utxoChunkLookup{m: m, seen: map[[utxoPrefixLen]byte]bool{}}
+}
+
+func (l *utxoChunkLookup) add(scripts [][]byte) {
+	var fresh [][]byte
+	l.mu.Lock()
+	for _, script := range scripts {
+		if h := utxoScriptHash(script); !l.seen[h] {
+			l.seen[h] = true
+			fresh = append(fresh, script)
+		}
+	}
+	l.mu.Unlock()
+	if len(fresh) == 0 {
+		return
+	}
+	l.wg.Add(1)
+	go func() {
+		defer l.wg.Done()
+		coins, height, hash, ok := l.m.Lookup(fresh)
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		if !ok || l.chunks > 0 && (height != l.height || hash != l.hash) {
+			l.failed = true
+		}
+		l.coins, l.height, l.hash = append(l.coins, coins...), height, hash
+		l.chunks++
+	}()
+}
+
+// The chunks count only when they cover exactly these scripts at one tip; anything else is answered by one lookup of them all.
+func (l *utxoChunkLookup) wait(scripts [][]byte) ([]utxoCoin, uint32, [32]byte, bool) {
+	l.wg.Wait()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	covered := !l.failed && l.chunks > 0
+	want := make(map[[utxoPrefixLen]byte]bool, len(scripts))
+	for _, script := range scripts {
+		h := utxoScriptHash(script)
+		want[h] = true
+		covered = covered && l.seen[h]
+	}
+	if covered && len(want) == len(l.seen) {
+		return l.coins, l.height, l.hash, true
+	}
+	return l.m.Lookup(scripts)
+}
+
 func (m *utxoManager) run(ctx context.Context) {
 	t := time.NewTicker(utxoFollowInterval)
 	defer t.Stop()

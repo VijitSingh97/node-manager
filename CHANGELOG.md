@@ -26,6 +26,15 @@ All notable changes to this project are documented here. Format follows
 
 ### Changed
 
+- Adding a descriptor or xpub wallet that the Bitcoin balance index serves now
+  looks up its scripts while bitcoind is still deriving them. The 0 to 999
+  range is derived in four sequential chunks of 250 indexes per branch, and
+  each chunk is looked up as soon as it returns. The chunk results count only
+  when every chunk answered at the same block and together they cover exactly
+  the wallet's scripts; otherwise one lookup of the whole set answers, as
+  before, so the same coins are counted. In `utxo-index bench`, `first` is now
+  the lookup time left after derivation returns, so `derive` plus `first` is
+  still the cold add. Each extra chunk costs one more RPC round trip.
 - `node-manager utxo-index bench --chain dogecoin` now runs the index lookup
   bench for Dogecoin. The command line refused it, although the dashboard
   already set up a bench for every indexed chain. Wallets are `addr(<address>)`

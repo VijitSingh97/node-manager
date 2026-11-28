@@ -37,8 +37,8 @@ func indexTestManager(t *testing.T, c *fakeUtxoChain) *utxoManager {
 	return m
 }
 
-func indexTestScripts(scripts ...string) func(context.Context, []string) ([]walletScripts, error) {
-	return func(_ context.Context, keys []string) ([]walletScripts, error) {
+func indexTestScripts(scripts ...string) func(context.Context, []string, func([][]byte)) ([]walletScripts, error) {
+	return func(_ context.Context, keys []string, _ func([][]byte)) ([]walletScripts, error) {
 		out := make([]walletScripts, len(keys))
 		for i := range out {
 			for _, s := range scripts {
@@ -123,20 +123,20 @@ func TestPrunedIndexScriptsDerivedOncePerDescriptor(t *testing.T) {
 	var mu sync.Mutex
 	calls := 0
 	inner := indexTestScripts(indexTestScript)
-	a.scanner.resolveScripts = func(ctx context.Context, keys []string) ([]walletScripts, error) {
+	a.scanner.resolveScripts = func(ctx context.Context, keys []string, onChunk func([][]byte)) ([]walletScripts, error) {
 		mu.Lock()
 		calls++
 		mu.Unlock()
-		return inner(ctx, keys)
+		return inner(ctx, keys, onChunk)
 	}
 	for range 3 {
-		if len(a.scanner.indexScripts(context.Background(), entry)) != 1 {
+		if len(a.scanner.indexScripts(context.Background(), entry, nil)) != 1 {
 			t.Fatal("scripts missing")
 		}
 	}
 	fresh := newPrunedScanner(a)
 	fresh.resolveScripts = a.scanner.resolveScripts
-	if len(fresh.indexScripts(context.Background(), entry)) != 1 || calls != 1 {
+	if len(fresh.indexScripts(context.Background(), entry, nil)) != 1 || calls != 1 {
 		t.Fatalf("derivations = %d, want 1 including after reload", calls)
 	}
 }
@@ -150,15 +150,17 @@ func TestPrunedFallsBackToScanWhenIndexCannotServe(t *testing.T) {
 	ready := indexTestManager(t, c)
 	cases := map[string]struct {
 		m       *utxoManager
-		resolve func(context.Context, []string) ([]walletScripts, error)
+		resolve func(context.Context, []string, func([][]byte)) ([]walletScripts, error)
 	}{
 		"off":        {nil, indexTestScripts(indexTestScript)},
 		"not_seeded": {empty, indexTestScripts(indexTestScript)},
 		"invalid":    {invalid, indexTestScripts(indexTestScript)},
-		"unsupported": {ready, func(context.Context, []string) ([]walletScripts, error) {
+		"unsupported": {ready, func(context.Context, []string, func([][]byte)) ([]walletScripts, error) {
 			return []walletScripts{{Fallback: true}}, nil
 		}},
-		"rpc error": {ready, func(context.Context, []string) ([]walletScripts, error) { return nil, errors.New("down") }},
+		"rpc error": {ready, func(context.Context, []string, func([][]byte)) ([]walletScripts, error) {
+			return nil, errors.New("down")
+		}},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -238,7 +240,7 @@ func TestPrunedNonPrunedNodeSkipsIndex(t *testing.T) {
 	c := indexTestChain(nil)
 	m := indexTestManager(t, c)
 	a, _, _ := indexTestApp(t, c, m)
-	a.scanner.resolveScripts = func(context.Context, []string) ([]walletScripts, error) {
+	a.scanner.resolveScripts = func(context.Context, []string, func([][]byte)) ([]walletScripts, error) {
 		t.Fatal("derivation attempted on a non-pruned node")
 		return nil, nil
 	}
@@ -396,12 +398,12 @@ func TestPrunedIndexRegistryRederivesWhenRangeChanges(t *testing.T) {
 	a.scanner.scriptMu.Unlock()
 	calls := 0
 	resolve := indexTestScripts(indexTestScript)
-	a.scanner.resolveScripts = func(ctx context.Context, keys []string) ([]walletScripts, error) {
+	a.scanner.resolveScripts = func(ctx context.Context, keys []string, onChunk func([][]byte)) ([]walletScripts, error) {
 		calls++
-		return resolve(ctx, keys)
+		return resolve(ctx, keys, onChunk)
 	}
 	for range 2 {
-		if scripts := a.scanner.indexScripts(context.Background(), entry); len(scripts) != 1 {
+		if scripts := a.scanner.indexScripts(context.Background(), entry, nil); len(scripts) != 1 {
 			t.Fatalf("scripts = %d", len(scripts))
 		}
 	}
