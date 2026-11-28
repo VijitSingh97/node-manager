@@ -113,6 +113,7 @@ type benchScanWallet struct {
 	P2PKSats   int64   `json:"p2pk_sats,omitempty"`
 
 	P2PKSpentAfter int `json:"p2pk_spent_after_scan,omitempty"`
+	P2PKUnchecked  int `json:"p2pk_unchecked,omitempty"`
 }
 
 type benchScan struct {
@@ -473,7 +474,7 @@ func (m *utxoManager) benchScan(ctx context.Context, req benchRequest, res *benc
 				if err != nil {
 					res.Failures = append(res.Failures, fmt.Sprintf("wallet %d: a P2PK coin the index attributes to it is not confirmed by the node: %v", i+1, err))
 				}
-				sw.P2PKSpentAfter = spent
+				sw.P2PKSpentAfter, sw.P2PKUnchecked = spent, max(0, len(p2pk)-benchP2PKConfirmMax)
 			}
 		}
 		res.Scan.Wallets = append(res.Scan.Wallets, sw)

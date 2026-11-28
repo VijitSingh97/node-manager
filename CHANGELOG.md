@@ -62,7 +62,8 @@ All notable changes to this project are documented here. Format follows
 - `utxo-index bench --scan` compares the scan with the index's coins like for
   like: P2PK coins count when the wallet is a `pk()` or `combo()` descriptor and
   are otherwise listed separately and confirmed with the node's `gettxout`, where
-  a coin spent after the compared block is reported, not failed;
+  a coin spent after the compared block is reported, not failed, and coins
+  past the first 2,000 are reported as unchecked;
   `utxo-index verify` prints how many index coins are P2PK.
 - CI now runs the balance-index live tests against real regtest nodes: the
   pinned Bitcoin Core image, and Litecoin, Bitcoin Cash and Dogecoin built from
