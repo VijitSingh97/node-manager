@@ -796,6 +796,12 @@ start errors, such as a data disk that is not mounted, are left for you, and so
 are containers you stopped and deactivated nodes. `./stack up --force-recreate
 <svc>` recreates a service by hand.
 
+Only stack containers get this recovery. A program on the host that binds the
+LAN address itself, outside Docker, fails the same way after a power cut unless
+the host may bind an address it does not have yet
+(`net.ipv4.ip_nonlocal_bind = 1` in a file under `/etc/sysctl.d/`). The package
+does not set it, because the stack's containers rely on the host helper instead.
+
 The router can also hand the host a different LAN address after a power cut, or
 a laptop can join another network. Docker cannot bind the old address again, so
 recreating Tor alone does not help. With `dashboard.bind_ip` set to `auto`, the
