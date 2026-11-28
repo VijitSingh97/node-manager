@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -65,6 +67,7 @@ type prunedRPCMock struct {
 	walletEntry        WatchEntry
 	foreignScan        bool
 	deriveFailure      string
+	deriveAddress      string
 	requireChecksum    bool
 	result             scanTxOutSetResult
 	startCalls         int
@@ -128,6 +131,9 @@ func (m *prunedRPCMock) handler(w http.ResponseWriter, r *http.Request) {
 			rpcError = map[string]any{"code": -5, "message": "Missing checksum"}
 		} else {
 			result = []string{"mock-address"}
+			if m.deriveAddress != "" {
+				result = []string{m.deriveAddress}
+			}
 		}
 	case "getwalletinfo":
 		if strings.TrimPrefix(r.URL.Path, "/wallet/") == wallet && wallet != "" {
@@ -1164,5 +1170,74 @@ func TestPrunedWatchAgainstRealCore(t *testing.T) {
 			t.Fatalf("real Core scan row = %#v", row)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestPrunedWatchBlockUpdateCountsP2PKOutputsOfTheWalletKey(t *testing.T) {
+	base, next := strings.Repeat("0", 64), strings.Repeat("1", 64)
+	txid := func(c string) string { return strings.Repeat(c, 64) }
+	pubkey := func(value float64, n int, keyHex string) map[string]any {
+		script := hex.EncodeToString(p2pkScript(t, keyHex))
+		return map[string]any{"value": value, "n": n, "scriptPubKey": map[string]any{"hex": script, "type": "pubkey"}}
+	}
+	mock := &prunedRPCMock{bestBlock: base, result: validPrunedScan(base), deriveAddress: p2pkAddrGCompressed}
+	a, handler, _ := newPrunedTestApp(t, t.TempDir(), mock)
+	if response := addPrunedWatch(t, handler, "Cold", genesisAddress); response.Code != http.StatusOK {
+		t.Fatalf("add response = %d %q", response.Code, response.Body.String())
+	}
+	waitPrunedState(t, handler, "ok")
+	waitPrunedScannerIdle(t, a.scanner)
+	mock.mu.Lock()
+	mock.bestBlock, mock.result.Height = next, 900001
+	mock.hashes = map[int64]string{900001: next}
+	badKey := map[string]any{"value": 9.0, "n": 3, "scriptPubKey": map[string]any{"hex": "21" + strings.Repeat("00", 33) + "ac", "type": "pubkey"}}
+	mock.blocks = map[string]any{next: map[string]any{"hash": next, "previousblockhash": base, "tx": []any{
+		map[string]any{"txid": txid("c"), "vin": []any{map[string]any{"coinbase": "03"}}, "vout": []any{
+			pubkey(0.4, 0, p2pkKeyGCompressed), pubkey(0.7, 1, p2pkKeyGUncompressed), badKey,
+		}},
+	}}}
+	mock.mu.Unlock()
+	entry := a.watch.Entries()[0]
+	a.scanner.refresh(a.watch.Entries(), blockchainInfo{Pruned: true, Chain: "main", BestBlockHash: next, Blocks: 900001})
+	cache, _, ok := a.watch.scanSnapshot(entry)
+	want := scanOutpoint{TxID: txid("c"), Vout: 0, Sats: 40_000_000, Height: 900001}
+	if !ok || cache.BestBlock != next || cache.BTC != 1.65 || !slices.Contains(cache.Outpoints, want) || len(cache.Outpoints) != 2 {
+		t.Fatalf("a new P2PK payment to the wallet's key was not counted by the block update: %#v", cache)
+	}
+	mock.mu.Lock()
+	starts := mock.startCalls
+	mock.mu.Unlock()
+	if starts != 1 {
+		t.Fatalf("the block update ran %d full scans, want only the first", starts)
+	}
+}
+
+func TestDeltaAddressNamesP2PKOutputsByTheirExactKey(t *testing.T) {
+	spk := func(keyHex string) deltaScript {
+		return deltaScript{Hex: hex.EncodeToString(p2pkScript(t, keyHex)), Type: "pubkey"}
+	}
+	for _, tc := range []struct {
+		name string
+		spk  deltaScript
+		net  string
+		want string
+	}{
+		{"compressed", spk(p2pkKeyGCompressed), "main", p2pkAddrGCompressed},
+		{"uncompressed", spk(p2pkKeyGUncompressed), "main", p2pkAddrGUncompressed},
+		{"genesis key", spk(p2pkKeyGenesis), "main", genesisAddress},
+		{"address kept", deltaScript{Address: "bc1qxyz", Type: "witness_v0_keyhash"}, "main", "bc1qxyz"},
+		{"not a template", deltaScript{Hex: "21" + strings.Repeat("00", 33) + "ac", Type: "pubkey"}, "main", ""},
+		{"bad hex", deltaScript{Hex: "zz", Type: "pubkey"}, "main", ""},
+	} {
+		if got := deltaAddress(tc.spk, tc.net); got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	raw, _ := base58DecodeCheck(p2pkAddrGCompressed)
+	raw[0] = 0x6f
+	for _, net := range []string{"regtest", "test", "signet"} {
+		if got := deltaAddress(spk(p2pkKeyGCompressed), net); got != base58EncodeCheck(raw) {
+			t.Errorf("%s: %q uses the mainnet version", net, got)
+		}
 	}
 }

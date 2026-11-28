@@ -16,16 +16,21 @@ All notable changes to this project are documented here. Format follows
   addresses, and segwit or script-hash forms of the key do not get these coins.
   **The upgrade reseeds each balance index.** The index does not store scripts,
   so an existing index cannot be converted. It keeps serving and following with a
-  note, then rebuilds once, automatically, when its node is synced, one index at a
-  time through the usual seed guards. Dogecoin and Bitcoin Cash stop the node for
-  about 2 minutes for the chainstate copy. Bitcoin and Litecoin dump the UTXO set
-  as a normal seed does. The old index is wiped when the rebuild begins: Dogecoin
-  has no balances for roughly 30 minutes of import (1,618 s measured on the
-  reference host), and Bitcoin, Litecoin and Bitcoin Cash fall back to the scan,
-  which cannot see P2PK, so affected balances dip and return. Balances of P2PK
-  addresses rise after the rebuild. Run `utxo-seed` to choose the time. Rolling
-  back to an older release makes the rebuilt index invalid, and it seeds again.
-  Not yet measured on the reference host, which was frozen.
+  note while its node is not synced; once it is synced, it rebuilds once,
+  automatically, one index at a time through the usual seed guards. The new
+  index is built beside the old one on the same volume, so the volume needs room
+  for both copies, and the old index keeps serving and following until the seed
+  succeeds. A pointer file then switches to the new index in one atomic step and
+  the old files are deleted after it. A failed, cancelled or interrupted rebuild
+  leaves the old index as it was, and a restart removes its partial copy.
+  Dogecoin and Bitcoin Cash stop the node for about 2 minutes for the chainstate
+  copy. Bitcoin and Litecoin dump the UTXO set as a normal seed does. Balances of
+  P2PK addresses rise after the rebuild. The card says when an automatic rebuild
+  cannot start. Run `utxo-seed` to choose the time. Rolling back to an older
+  release makes the rebuilt index invalid, and it seeds again. Not yet measured
+  on the reference host, which was frozen. On a pruned Bitcoin node the block
+  update now counts a new P2PK payment to a watched address, which Core reports
+  without an address.
 
 ### Added
 
@@ -47,8 +52,10 @@ All notable changes to this project are documented here. Format follows
 
 ### Changed
 
-- `utxo-index bench --scan` compares the scan with the index's non-P2PK coins,
-  lists the P2PK coins separately and confirms each with the node's `gettxout`;
+- `utxo-index bench --scan` compares the scan with the index's coins like for
+  like: P2PK coins count when the wallet is a `pk()` or `combo()` descriptor and
+  are otherwise listed separately and confirmed with the node's `gettxout`, where
+  a coin spent after the compared block is reported, not failed;
   `utxo-index verify` prints how many index coins are P2PK.
 - `node-manager utxo-index bench --chain dogecoin` now runs the index lookup
   bench for Dogecoin. The command line refused it, although the dashboard

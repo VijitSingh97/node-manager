@@ -57,13 +57,37 @@ type deltaBlock struct {
 			Vout int64  `json:"vout"`
 		} `json:"vin"`
 		Vout []struct {
-			Value        float64 `json:"value"`
-			N            int64   `json:"n"`
-			ScriptPubKey struct {
-				Address string `json:"address"`
-			} `json:"scriptPubKey"`
+			Value        float64     `json:"value"`
+			N            int64       `json:"n"`
+			ScriptPubKey deltaScript `json:"scriptPubKey"`
 		} `json:"vout"`
 	} `json:"tx"`
+}
+
+type deltaScript struct {
+	Address string `json:"address"`
+	Hex     string `json:"hex"`
+	Type    string `json:"type"`
+}
+
+// deltaAddress names a P2PK output by the P2PKH address of its exact key, since Core gives it no address.
+func deltaAddress(spk deltaScript, chain string) string {
+	if spk.Type != "pubkey" {
+		return spk.Address
+	}
+	script, err := hex.DecodeString(spk.Hex)
+	if err != nil {
+		return ""
+	}
+	h, ok := utxoP2PKKeyHash(script)
+	if !ok {
+		return ""
+	}
+	version := byte(0x6f)
+	if chain == "main" {
+		version = 0x00
+	}
+	return base58EncodeCheck(append([]byte{version}, h[:]...))
 }
 
 type scanTxOutSetResult struct {
@@ -301,11 +325,12 @@ func (s *prunedScanner) applyBlocks(entries []WatchEntry, base string, chain blo
 				}
 			}
 			for _, output := range tx.Vout {
-				if output.ScriptPubKey.Address == "" {
+				address := deltaAddress(output.ScriptPubKey, chain.Chain)
+				if address == "" {
 					continue
 				}
 				for i := range wallets {
-					if !wallets[i].addresses[output.ScriptPubKey.Address] {
+					if !wallets[i].addresses[address] {
 						continue
 					}
 					sats, ok := btcSatoshis(output.Value)

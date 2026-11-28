@@ -543,9 +543,13 @@ for the node to sync, building with a percentage, catching up, or ready.
   next check seeds it.
 - An index built before coins paid to a public key (P2PK) were counted shows a note
   and keeps serving. Once its node is synced it rebuilds once, automatically, through
-  the same guards, lock and back-off as any seed, one index at a time; the old index
-  is wiped when the rebuild begins, so Dogecoin shows its cached balances and the other
-  chains fall back to the scan (which cannot see P2PK) until it finishes. Run
+  the same guards, lock and back-off as any seed, one index at a time. The new index is
+  built in a `rebuild-*` directory on the same volume while the old index keeps serving
+  and following; a pointer file (`ACTIVE`) switches to it only after the seed succeeded,
+  and the old files are deleted after the switch. A failed or interrupted rebuild leaves
+  the old index serving, and a restart removes its partial copy. The volume needs free
+  space for both copies. The card says when an automatic rebuild cannot start (no host
+  helper, blocked by a guard, stopped after repeated failures). Run
   `./stack utxo-seed` (with the chain name) to choose the time. Rolling back to an older
   release makes the rebuilt index invalid, and it seeds again.
 - The automatic seed holds node-down alerts like a manual one. A source checkout

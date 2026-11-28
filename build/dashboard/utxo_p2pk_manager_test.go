@@ -49,8 +49,8 @@ func TestLegacyIndexReportsAndReseedsOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := m.Status()
-	if st.P2PKMissing || st.State != utxoStateSeeding || !m.store.canon {
-		t.Fatalf("after the wipe %+v canonical=%v", st, m.store.canon)
+	if !st.P2PKMissing || !st.Rebuilding || st.State != utxoStateReady || m.store.canon || m.build == nil || !m.build.canon {
+		t.Fatalf("the legacy index must keep serving while its replacement builds: %+v canonical=%v", st, m.store.canon)
 	}
 }
 

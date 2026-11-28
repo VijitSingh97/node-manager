@@ -41,6 +41,7 @@ type seedGuardInput struct {
 	ChainstateErr   error
 	State           string
 	Legacy          bool
+	LegacyBytes     uint64
 	TempC           float64
 	TempErr         error
 	CPUs            float64
@@ -72,11 +73,11 @@ func dirBytes(dir string) (uint64, error) {
 
 func evaluateSeedGuards(in seedGuardInput) []seedRefusal {
 	var out []seedRefusal
-	// A replay writes no sort runs, so it needs only the runtime free-space floor.
+	// A replay writes no sort runs, so it needs the runtime floor plus room for a copy of the index it replaces.
 	need := uint64(seedMinFreeBytes)
 	switch {
 	case in.Replay:
-		need = utxoMinFreeBytes
+		need = utxoMinFreeBytes + in.LegacyBytes
 	// Bitcoin's measured seed needs about 2.5 times its chainstate, so a chainstate seed asks for three times its own.
 	case in.Chainstate:
 		need = max(utxoMinFreeBytes, 3*in.ChainstateBytes)
@@ -327,8 +328,7 @@ func (m *utxoManager) gatherSeedGuards(ctx context.Context) seedGuardInput {
 	if d := diskUsage(m.dir); d.Total > 0 {
 		in.FreeBytes = d.Free
 		if in.Legacy {
-			old, _ := dirBytes(m.dir)
-			in.FreeBytes += old
+			in.LegacyBytes, _ = dirBytes(m.dir)
 		}
 	} else {
 		in.FreeErr = errors.New("statfs failed")

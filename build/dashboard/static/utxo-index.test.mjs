@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
-import { STATE_LABEL, guardText, badgeClickTarget, indexBadge, indexView, indexBarView, applyIndexBar, offHint, OFF_HINT, OFF_HINT_DOCS, seedCommand, CONFIRMED_ONLY } from "./utxo-index.js";
+import { STATE_LABEL, guardText, badgeClickTarget, indexBadge, indexView, p2pkNotice, indexBarView, applyIndexBar, offHint, OFF_HINT, OFF_HINT_DOCS, seedCommand, CONFIRMED_ONLY } from "./utxo-index.js";
 
 test("every endpoint state renders its label, and the confirmed-only row is always present", () => {
   const cases = [
@@ -26,6 +26,22 @@ test("a legacy index says P2PK is not counted until it is rebuilt", () => {
   const view = indexView({ enabled: true, state: "ready", p2pk_missing: true }, "dogecoin");
   assert.ok(view.rows.some((r) => /P2PK\) are not counted until this index is rebuilt.*\.\/stack utxo-seed dogecoin/.test(r)));
   assert.ok(!indexView({ enabled: true, state: "ready" }).rows.some((r) => /P2PK/.test(r)));
+});
+
+test("the P2PK notice says when an automatic rebuild is not possible, and why", () => {
+  const base = { enabled: true, state: "ready", p2pk_missing: true };
+  const notice = (extra) => p2pkNotice({ ...base, ...extra }, "bitcoin");
+  assert.match(notice({ waiting_for: "node_sync" }), /on its own once the node is synced/);
+  assert.match(notice({ needs_host: true }), /cannot rebuild on its own because the host helper is not available/);
+  assert.match(notice({ seed_stopped: "failed" }), /stopped after repeated failures.*will not retry/);
+  assert.match(notice({ waiting_for: "blocked" }), /cannot start on its own while the reasons below hold/);
+  assert.match(notice({ rebuilding: true }), /keeps serving until that finishes/);
+  assert.doesNotMatch(notice({ seed_stopped: "failed" }), /on its own once the node is synced/);
+});
+
+test("a rebuild beside the serving index shows its progress", () => {
+  const view = indexView({ enabled: true, state: "ready", p2pk_missing: true, rebuilding: true, phase: "importing", seed_progress: 0.4 });
+  assert.ok(view.rows.includes("Rebuild: importing 40%"));
 });
 
 test("hidden when the index is off or the status is missing", () => {

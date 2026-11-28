@@ -19,11 +19,11 @@ case "$chain" in
     export UTXO_REGTEST=1
     ;;
   litecoin)
-    tests=(TestUtxoLitecoinMWEBRegtestLive)
+    tests=(TestUtxoLitecoinMWEBRegtestLive TestUtxoP2PKLitecoinRegtestLive)
     export LTC_REGTEST_IMAGE=node-manager-regtest-litecoin
     ;;
   bitcoincash)
-    tests=(TestUtxoBitcoinCashRawReplayRegtestLive TestUtxoBitcoinCashChainstateSeedRegtestLive)
+    tests=(TestUtxoBitcoinCashRawReplayRegtestLive TestUtxoBitcoinCashChainstateSeedRegtestLive TestUtxoP2PKBitcoinCashRegtestLive)
     export BCH_REGTEST_IMAGE=node-manager-regtest-bitcoincash
     ;;
   dogecoin)

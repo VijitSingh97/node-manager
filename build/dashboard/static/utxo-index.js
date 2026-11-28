@@ -62,6 +62,17 @@ export function indexBadge(status) {
   return { text: `Balance index: ${STATE_LABEL[status.state] || status.state}`, tone: TONE[status.state] || "warn" };
 }
 
+export function p2pkNotice(status, chain = "bitcoin") {
+  const base = "Coins paid directly to a public key (P2PK) are not counted until this index is rebuilt.";
+  const now = `to rebuild now run: ${seedCommand(chain)}`;
+  if (status.rebuilding) return `${base} A rebuild is running beside it, and this index keeps serving until that finishes.`;
+  if (status.seed_stopped) return `${base} The automatic rebuild stopped after repeated failures, so it will not retry; ${now}`;
+  if (status.needs_host === true) return `${base} It cannot rebuild on its own because the host helper is not available; ${now}`;
+  if (status.waiting_for === "blocked") return `${base} It cannot start on its own while the reasons below hold; fix them, or ${now}`;
+  if (status.waiting_for === "node_sync") return `${base} It rebuilds on its own once the node is synced; ${now}`;
+  return `${base} It rebuilds on its own as soon as the node and the host helper are free; ${now}`;
+}
+
 export function indexView(status, chain = "bitcoin") {
   if (!status || !status.enabled || status.state === "off") return null;
   const seeding = status.state === "seeding";
@@ -72,9 +83,11 @@ export function indexView(status, chain = "bitcoin") {
     const pct = status.seed_progress == null ? "" : ` ${Math.floor(status.seed_progress * 100)}%`;
     rows.push(`Seed: ${status.phase || "waiting"}${pct}`);
   }
-  if (status.p2pk_missing) {
-    rows.push(`Coins paid directly to a public key (P2PK) are not counted until this index is rebuilt. It rebuilds on its own when the node is synced; to rebuild now run: ${seedCommand(chain)}`);
+  if (status.rebuilding) {
+    const pct = status.seed_progress == null ? "" : ` ${Math.floor(status.seed_progress * 100)}%`;
+    rows.push(`Rebuild: ${status.phase || "waiting"}${pct}`);
   }
+  if (status.p2pk_missing) rows.push(p2pkNotice(status, chain));
   if (status.alerts_suppressed_until) {
     rows.push(`Node-down alerts are held until ${new Date(status.alerts_suppressed_until).toLocaleTimeString()}.`);
   }

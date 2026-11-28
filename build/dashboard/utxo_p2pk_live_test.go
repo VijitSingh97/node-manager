@@ -113,7 +113,7 @@ func TestUtxoP2PKRegtestLive(t *testing.T) {
 		}
 		_, p2pk := splitP2PKCoins(coins)
 		flagged += len(p2pk)
-		if err := confirmP2PKCoins(context.Background(), n.rpc, p2pk); err != nil {
+		if _, err := confirmP2PKCoins(context.Background(), n.rpc, p2pk, n.str("getbestblockhash")); err != nil {
 			t.Fatalf("the node does not confirm the P2PK coins: %v", err)
 		}
 	}

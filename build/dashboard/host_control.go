@@ -475,9 +475,13 @@ func (a *app) seedHelperAvailable() bool {
 	return ok && capability.UTXOSeedSupported
 }
 
+func idleForSeed(st utxoIndexStatus) bool {
+	return st.State == utxoStateNotSeeded || st.State == utxoStateInvalid || st.P2PKMissing && !st.Rebuilding && (st.State == utxoStateReady || st.State == utxoStateCatching)
+}
+
 // needsHost reports that an unseeded index has no way to start itself: no host helper, and no local replay that can run.
 func (a *app) needsHost(m *utxoManager, st utxoIndexStatus) bool {
-	if m == nil || m.host == nil || st.State != utxoStateNotSeeded && st.State != utxoStateInvalid || a.seedHelperAvailable() {
+	if m == nil || m.host == nil || !idleForSeed(st) || a.seedHelperAvailable() {
 		return false
 	}
 	return !m.replays() || slices.ContainsFunc(st.Refusals, func(r seedRefusal) bool { return strings.HasPrefix(r.Detail, "the node is pruned") })
@@ -501,7 +505,9 @@ func (a *app) anySeedActive() bool {
 	for _, m := range a.chainUtxo {
 		managers = append(managers, m)
 	}
-	return slices.ContainsFunc(managers, func(m *utxoManager) bool { return m != nil && m.Status().State == utxoStateSeeding })
+	return slices.ContainsFunc(managers, func(m *utxoManager) bool {
+		return m != nil && (m.Status().State == utxoStateSeeding || m.Status().Rebuilding)
+	})
 }
 
 // seedNow reports whether a seed request through the API can start now.
@@ -515,10 +521,10 @@ func (a *app) seedNow(node string) bool {
 	}
 	st := m.Status()
 	if m.replays() {
-		return m.host != nil && (st.State == utxoStateNotSeeded || st.State == utxoStateInvalid || st.P2PKMissing && st.State == utxoStateReady || st.State == utxoStateCatching && st.NodeTip != nil && st.IndexTip != nil && *st.NodeTip-int64(*st.IndexTip) > utxoReplayGap)
+		return m.host != nil && (st.State == utxoStateNotSeeded || st.State == utxoStateInvalid || st.P2PKMissing && (st.State == utxoStateReady || st.State == utxoStateCatching) || st.State == utxoStateCatching && st.NodeTip != nil && st.IndexTip != nil && *st.NodeTip-int64(*st.IndexTip) > utxoReplayGap)
 	}
 	capability, ok := a.hostControlCapability()
-	return (st.State == utxoStateNotSeeded || st.State == utxoStateInvalid || st.P2PKMissing && st.State == utxoStateReady) && ok && capability.UTXOSeedSupported && !capability.ConfigPending
+	return (st.State == utxoStateNotSeeded || st.State == utxoStateInvalid || st.P2PKMissing && (st.State == utxoStateReady || st.State == utxoStateCatching)) && ok && capability.UTXOSeedSupported && !capability.ConfigPending
 }
 
 func (a *app) requestReplaySeed(w http.ResponseWriter, m *utxoManager, node string) {

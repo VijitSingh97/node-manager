@@ -120,11 +120,12 @@ installed from the dashboard (untick it in the install dialog to opt out). Each 
 has its own dashboard volume, and the dashboard runs with 0.5 CPU however many indexes
 are on. Existing installs keep their setting: nothing is turned on, seeded or restarted
 on upgrade, except that an index built before P2PK counting (issue 494) rebuilds once
-by itself when its node is synced: the index keeps serving until the rebuild starts, then
-seeds again like a first seed (Dogecoin and Bitcoin Cash stop the node for about 2 minutes
-for the chainstate copy; Dogecoin has no balances for roughly 30 to 35 minutes of import,
-measured 1,618 s). The old index's own size counts as free space for that rebuild. Indexes
-rebuild one at a time. `./stack utxo-seed` starts it at a time you choose.
+by itself when its node is synced. The new index is built beside the old one on the same
+volume while the old one keeps serving and following, and replaces it only after the seed
+succeeds, so the volume needs room for both copies (the old index's size does not count as
+free space) and a failed rebuild leaves the old index as it was (Dogecoin and Bitcoin Cash
+stop the node for about 2 minutes for the chainstate copy). Indexes rebuild one at a time.
+`./stack utxo-seed` starts it at a time you choose.
 
 | Index | Disk | Dashboard memory limit | While seeding |
 |---|---|---|---|

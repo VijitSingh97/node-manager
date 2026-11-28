@@ -723,6 +723,7 @@ utxo_bench_print() {
       if $fallback then [.name, "-", "fallback", "-", "-", "-", "-", "-", "-", "n/a", "-"] else
         [.name, .height, (.scan_s | f), ($p50 // null | if . == null then "-" else f end), (if ($p50 // 0) > 0 then "\(.scan_s / $p50 | round)x" else "-" end),
          .coins, .index_coins, .sats, .index_sats, (.match | if . == null then "n/a" else tostring end), (.p2pk_coins // 0)] end | join("\t"))' <<<"$result" | { column -t -s "$tab" 2>/dev/null || cat; }
+  jq -r '(.scan.wallets // [])[] | select((.p2pk_spent_after_scan // 0) > 0) | "note: \(.name) had \(.p2pk_spent_after_scan) P2PK coin(s) spent after the compared block, so the node no longer has them; that is not a mismatch."' <<<"$result"
   jq -r 'select([(.scan.wallets // [])[] | select(.match == null)] | length > 0) | "note: n/a is a wallet the index does not serve, or one whose scan ran at another block than its index lookup; repeat the run for the second."' <<<"$result"
 }
 

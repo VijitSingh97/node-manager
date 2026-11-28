@@ -167,14 +167,17 @@ P2PK (issue 494), so a miner's address could show 0 while explorers showed the r
   of a key are two different addresses, as on every explorer; each counts only its own
   P2PK coins. Segwit and script-hash addresses of the same key are separate addresses
   and do not get them.
-- **Only the balance index counts them.** The scan fallback (`scantxoutset`) cannot
-  tell a public key from an address, so while the index is off, seeding or behind, a
-  wallet with P2PK coins can show a lower balance, and it returns when the index
-  serves again. The source badge and the cached note show which one answered.
+- **Only the balance index counts them, and only while it is ready.** An `addr()` or
+  `pkh()` balance counts P2PK coins only when the index answers. The `scantxoutset
+  addr()` fallback is blind to P2PK outputs paid to a bare key, so while the index is
+  off, seeding, behind or still the older kind, a wallet with P2PK coins can show a
+  lower balance, and it returns when the index serves again. The source badge and the
+  cached note show which one answered.
 - **An index built by an older release does not have them.** The index does not keep
   scripts, so it cannot be converted in place. After the upgrade the index keeps
-  serving with a note, then rebuilds once by itself when the node is synced, one index
-  at a time; see [hardware](hardware.md#balance-indexes) and
+  serving with a note (the older index keeps serving and following while the new one
+  builds beside it, so a failed rebuild loses nothing), then rebuilds once by itself
+  when the node is synced, one index at a time; see [hardware](hardware.md#balance-indexes) and
   [operations](operations.md#seeding-the-bitcoin-balance-index). `./stack utxo-seed`
   starts the rebuild at a time you choose.
 - **`combo()` and `pk()` on Bitcoin** keep using the scan, which counts P2PK natively.
